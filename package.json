@@ -1,0 +1,23 @@
+{
+  "name": "ds_universal",
+  "version": "1.0.0",
+  "description": "DigSpice IV（GPS走行データロガー）のUSB/COMプロトコルを解析し、公式Windowsアプリを使用せずに直接コマンド送受信・設定変更・ログダウンロード・消去を行うためのPowerShell CLIツールおよびプロトコル技術仕様書です。",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oud0n/ds_universal.git"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/oud0n/ds_universal/issues"
+  },
+  "homepage": "https://github.com/oud0n/ds_universal#readme",
+  "devDependencies": {
+    "electron": "^44.4.5"
+  }
+}

@@ -1,0 +1,16 @@
+# Packet captures / large binary dumps
+wireshark/
+*.pcapng
+*.pcap
+*.bin
+
+# Node.js
+node_modules/
+dist/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.pyc
+
+
