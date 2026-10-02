@@ -214,8 +214,7 @@ export const DataTab: React.FC<DataTabProps> = ({
           <FileText size={48} className="mx-auto mb-3 text-slate-600" />
           <p className="text-sm font-medium">走行データが読み込まれていません</p>
           <p className="text-xs text-slate-500 mt-1">
-            上部の「ファイル読込」から .dtb, .csv, .nmea などのログファイルを開くか、
-            「サンプル走行データ」をお試しください。
+            上部の「ファイル読込」からデジスパイス生ログ (.bnx4, .binx) や .dtb, .csv, .nmea などのログファイルを開いてください。
           </p>
         </div>
       ) : (

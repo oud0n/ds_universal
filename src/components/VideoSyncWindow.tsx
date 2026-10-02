@@ -33,6 +33,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const [showOverlay, setShowOverlay] = useState<boolean>(true);
   const [showGForce, setShowGForce] = useState<boolean>(true);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -103,15 +104,43 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     videoSyncManager.updateOffset(activeTrack.id, activeTrack.syncOffsetSec + deltaSec);
   };
 
-  // 動画ファイル追加
-  const handleAddVideos = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const updated = await videoSyncManager.addVideoFiles(files, sessions);
+  // 動画ファイル一括処理
+  const processFiles = async (fileList: FileList | File[]) => {
+    const updated = await videoSyncManager.addVideoFiles(fileList, sessions);
     if (updated.length > 0 && !selectedTrackId) {
       setSelectedTrackId(updated[0].id);
     }
+  };
+
+  // 動画ファイル追加 (ファイルダイアログ経由)
+  const handleAddVideos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    await processFiles(files);
     e.target.value = '';
+  };
+
+  // ドラッグ＆ドロップ操作
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      await processFiles(files);
+    }
   };
 
   // プロジェクト JSON 保存
@@ -285,17 +314,32 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
           {/* 動画トラック切り替え */}
           {tracks.length > 0 && (
-            <select
-              value={selectedTrackId || ''}
-              onChange={e => setSelectedTrackId(e.target.value)}
-              className="bg-[#182030] border border-[#2d3852] text-xs text-slate-200 rounded-lg px-2.5 py-1 outline-none"
-            >
-              {tracks.map(t => (
-                <option key={t.id} value={t.id}>
-                  {t.fileName} {t.isAutoMatched ? '(JST自動同期済)' : ''}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-1">
+              <select
+                value={selectedTrackId || ''}
+                onChange={e => setSelectedTrackId(e.target.value)}
+                className="bg-[#182030] border border-[#2d3852] text-xs text-slate-200 rounded-lg px-2.5 py-1 outline-none max-w-xs truncate"
+              >
+                {tracks.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.fileName} {t.isAutoMatched ? '(JST自動同期済)' : ''}
+                  </option>
+                ))}
+              </select>
+              {selectedTrackId && (
+                <button
+                  onClick={() => {
+                    videoSyncManager.removeTrack(selectedTrackId);
+                    const remaining = videoSyncManager.getTracks();
+                    setSelectedTrackId(remaining[0]?.id || null);
+                  }}
+                  title="この動画トラックを削除"
+                  className="p-1 hover:bg-red-950/60 text-slate-400 hover:text-red-400 rounded transition-colors cursor-pointer"
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </div>
           )}
 
           {/* 動画追加ボタン */}
@@ -340,8 +384,24 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         </div>
       </div>
 
-      {/* メイン動画プレイヤー ＆ オーバーレイエリア */}
-      <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
+      {/* メイン動画プレイヤー ＆ オーバーレイエリア (ドラッグ＆ドロップ対応) */}
+      <div 
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`flex-1 relative bg-black flex items-center justify-center overflow-hidden transition-all ${
+          isDragging ? 'border-2 border-dashed border-red-500 bg-red-950/20' : ''
+        }`}
+      >
+        {/* ドラッグ中オーバーレイ */}
+        {isDragging && (
+          <div className="absolute inset-0 bg-red-950/80 backdrop-blur-xs flex flex-col items-center justify-center z-30 pointer-events-none space-y-2">
+            <Video size={48} className="text-red-400 animate-bounce" />
+            <p className="text-sm font-bold text-white">ここに動画ファイル（.mp4, .mov, .webm）をドロップ</p>
+            <p className="text-xs text-red-300">GoProの複数分割ファイルも一括ドロップ可能です</p>
+          </div>
+        )}
+
         {activeTrack && activeTrack.objectUrl ? (
           <>
             <video
@@ -362,23 +422,45 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             />
           </>
         ) : (
-          <div className="flex flex-col items-center justify-center p-8 text-center space-y-4">
-            <div className="p-4 rounded-full bg-slate-800/60 text-slate-500">
-              <Video size={48} />
+          <div className="flex flex-col items-center justify-center p-8 text-center space-y-4 max-w-md">
+            <div className="p-5 rounded-2xl bg-slate-800/60 text-slate-400 border border-slate-700/50">
+              <Video size={48} className="text-red-500/90" />
             </div>
-            <div className="space-y-1">
-              <h3 className="text-sm font-bold text-slate-300">車載動画が読み込まれていません</h3>
-              <p className="text-xs text-slate-500 max-w-sm">
-                GoPro (H.265 / HEVC) などの MP4 / MOV 動画を追加すると、JSTタイムスタンプにより走行ログと自動同期されます。
+            <div className="space-y-1.5">
+              <h3 className="text-sm font-bold text-slate-200">車載動画（オンボード映像）を読み込む</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                GoPro（最新H.265 / HEVC対応）などの MP4 / MOV 動画をここにドラッグ＆ドロップするか、下のボタンから選択してください。
               </p>
+              {sessions.length > 0 ? (
+                <div className="inline-flex items-center gap-1.5 text-[11px] text-emerald-400 bg-emerald-950/50 border border-emerald-800/60 px-3 py-1 rounded-full font-medium mt-1">
+                  <CheckCircle2 size={13} />
+                  GPS走行ログ読み込み済み（動画の録画開始時刻と照合して自動同期されます）
+                </div>
+              ) : (
+                <div className="inline-flex items-center gap-1.5 text-[11px] text-amber-400 bg-amber-950/40 border border-amber-800/50 px-3 py-1 rounded-full font-medium mt-1">
+                  ⚠️ 先にヘッダーの「ファイル読込」からデジスパイス走行ログを開くと自動同期が有効になります
+                </div>
+              )}
             </div>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-lg cursor-pointer transition-all"
-            >
-              <Upload size={14} />
-              車載動画ファイルを選択
-            </button>
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-lg cursor-pointer transition-all hover:scale-[1.02]"
+              >
+                <Upload size={14} />
+                車載動画ファイルを選択
+              </button>
+              <button
+                onClick={() => jsonInputRef.current?.click()}
+                className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#1b2233] hover:bg-[#252f47] text-slate-300 font-medium text-xs border border-[#2e3a57] cursor-pointer transition-all"
+              >
+                <FolderOpen size={13} />
+                プロジェクト読込 (.dssync.json)
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-500">
+              ※ GoPro のチャプター分割ファイル (GH01, GH02...) や複数ヒートの動画も一括複数選択可能
+            </p>
           </div>
         )}
       </div>

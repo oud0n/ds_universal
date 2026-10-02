@@ -323,43 +323,6 @@ export const App: React.FC = () => {
     setCurrentTab('graph');
   };
 
-  // サンプルデータのロード
-  const handleLoadSample = async (sampleKey: string) => {
-    try {
-      let fileName = '';
-      let pthFileName = '';
-
-      if (sampleKey === 'fsw') {
-        fileName = 'FSW_4413_Z33_1_59_511.dtb';
-        pthFileName = 'cd_fsw_premium2.pth';
-      } else if (sampleKey === 'suzuka') {
-        fileName = 'suzuka_suzuki_20090616.dtb';
-      } else if (sampleKey === 'tsukuba') {
-        fileName = 'tsukuba1000_ENDLESSEVO10_20090829.dtb';
-      }
-
-      // コース図があれば読み込み
-      if (pthFileName) {
-        try {
-          const pthRes = await fetch(`./samples/${pthFileName}`);
-          if (pthRes.ok) {
-            const pthText = await pthRes.text();
-            setCurrentPthPolylines(parsePth(pthText));
-          }
-        } catch (e) {
-          console.warn('PTH load error', e);
-        }
-      }
-
-      const res = await fetch(`./samples/${fileName}`);
-      if (!res.ok) throw new Error(`サンプルデータが見つかりません (${res.statusText})`);
-      const buffer = await res.arrayBuffer();
-      await loadFileData(fileName, buffer);
-    } catch (err: any) {
-      alert(`サンプルデータの読み込みに失敗しました: ${err.message}`);
-    }
-  };
-
   // サーキットプリセット選択
   const handleSelectCircuitPreset = (presetId: string) => {
     const p = CIRCUIT_PRESETS.find(c => c.id === presetId);
@@ -395,13 +358,6 @@ export const App: React.FC = () => {
     updated.sort((a, b) => a.slot - b.slot);
     setSelectedCars(updated);
   };
-
-  // 初回ロード時にFSWサンプルを自動読み込み
-  useEffect(() => {
-    if (sessions.length === 0) {
-      handleLoadSample('fsw');
-    }
-  }, []);
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0f1117] text-slate-100">
@@ -475,7 +431,6 @@ export const App: React.FC = () => {
         playbackSpeed={playbackSpeed}
         onChangePlaybackSpeed={setPlaybackSpeed}
         onOpenFile={() => fileInputRef.current?.click()}
-        onLoadSample={handleLoadSample}
       />
 
       {/* メインコンテンツ */}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, SkipBack, SkipForward, FolderOpen, Download, Settings, BarChart2, List, ShieldCheck, Video } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, BarChart2, List, ShieldCheck, Video } from 'lucide-react';
 import { SelectedCarSlot, Session } from '../types/telemetry';
 
 interface HeaderProps {
@@ -14,7 +14,6 @@ interface HeaderProps {
   playbackSpeed: number;
   onChangePlaybackSpeed: (speed: number) => void;
   onOpenFile: () => void;
-  onLoadSample: (sampleName: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -28,8 +27,7 @@ export const Header: React.FC<HeaderProps> = ({
   onStepBack,
   playbackSpeed,
   onChangePlaybackSpeed,
-  onOpenFile,
-  onLoadSample
+  onOpenFile
 }) => {
   return (
     <header className="bg-[#161922] border-b border-[#262c3d] text-slate-200 px-4 py-2 flex items-center justify-between select-none">
@@ -150,39 +148,8 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       )}
 
-      {/* ファイル操作 & サンプルデータ */}
+      {/* ファイル操作 */}
       <div className="flex items-center gap-2">
-        {/* サンプルデータドロップダウン */}
-        <div className="relative group">
-          <button className="flex items-center gap-1.5 text-xs bg-[#242b3d] hover:bg-[#2e374e] text-slate-200 px-3 py-1.5 rounded border border-[#37425e] transition-colors">
-            <Download size={13} className="text-red-400" />
-            サンプル走行データ
-          </button>
-          <div className="absolute right-0 top-full mt-1 w-52 bg-[#1a1f2c] border border-[#2e374e] rounded-lg shadow-xl py-1 hidden group-hover:block z-50">
-            <button
-              onClick={() => onLoadSample('fsw')}
-              className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-red-600 hover:text-white transition-colors flex items-center justify-between"
-            >
-              <span>富士スピードウェイ (Z33)</span>
-              <span className="text-[10px] text-slate-400">1:59.511</span>
-            </button>
-            <button
-              onClick={() => onLoadSample('suzuka')}
-              className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-red-600 hover:text-white transition-colors flex items-center justify-between"
-            >
-              <span>鈴鹿サーキット (GSX-R)</span>
-              <span className="text-[10px] text-slate-400">2:32.743</span>
-            </button>
-            <button
-              onClick={() => onLoadSample('tsukuba')}
-              className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-red-600 hover:text-white transition-colors flex items-center justify-between"
-            >
-              <span>筑波1000 (EVO10)</span>
-              <span className="text-[10px] text-slate-400">42.200</span>
-            </button>
-          </div>
-        </div>
-
         {/* ファイル読み込み */}
         <button
           onClick={onOpenFile}
