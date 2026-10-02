@@ -494,29 +494,29 @@ export const App: React.FC = () => {
                 {...leftVertSplit.resizerProps}
               />
 
-              {/* 下部: 走行アニメーション or 車載動画 切替エリア */}
+              {/* 下部: 走行アニメーション or 車載動画 切替エリア (フラットデザイン) */}
               <div
                 style={{ height: `${(1 - leftVertSplit.ratio) * 100}%` }}
-                className="min-h-[120px] overflow-hidden flex flex-col bg-[#12141c] rounded-lg border border-[#272f42]"
+                className="min-h-[120px] overflow-hidden flex flex-col bg-[#12141c] rounded border border-[#22293a]"
               >
                 {/* 左下タブバー */}
-                <div className="flex bg-[#181c26] p-1 border-b border-[#272f42] text-[11px] gap-1 shrink-0">
+                <div className="flex bg-[#161a25] p-1 border-b border-[#22293a] text-[11px] gap-1 shrink-0">
                   <button
                     onClick={() => setLeftBottomMode('replay')}
-                    className={`px-3 py-1 rounded font-bold transition-all cursor-pointer ${
+                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       leftBottomMode === 'replay'
-                        ? 'bg-red-600 text-white shadow'
-                        : 'text-slate-400 hover:text-white'
+                        ? 'bg-red-600 text-white'
+                        : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
                     走行アニメーション
                   </button>
                   <button
                     onClick={() => setLeftBottomMode('video')}
-                    className={`px-3 py-1 rounded font-bold transition-all cursor-pointer ${
+                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       leftBottomMode === 'video'
-                        ? 'bg-purple-600 text-white shadow'
-                        : 'text-slate-400 hover:text-white'
+                        ? 'bg-red-600 text-white'
+                        : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
                     車載動画 (GoPro/MP4)
@@ -591,38 +591,38 @@ export const App: React.FC = () => {
                 {...rightVertSplit.resizerProps}
               />
 
-              {/* 右下: サブウインドウ切替タブ (フリクションサークル / ドリフト / 車載動画) */}
+              {/* 右下: サブウインドウ切替タブ (フラットデザイン) */}
               <div
                 style={{ height: `${(1 - rightVertSplit.ratio) * 100}%` }}
-                className="min-h-[120px] overflow-hidden flex flex-col bg-[#12141c] rounded-lg border border-[#272f42]"
+                className="min-h-[120px] overflow-hidden flex flex-col bg-[#12141c] rounded border border-[#22293a]"
               >
-                <div className="flex bg-[#181c26] p-1 border-b border-[#272f42] text-[11px] gap-1 shrink-0">
+                <div className="flex bg-[#161a25] p-1 border-b border-[#22293a] text-[11px] gap-1 shrink-0">
                   <button
                     onClick={() => setSubWindowMode('all')}
-                    className={`px-3 py-1 rounded font-bold transition-all cursor-pointer ${
+                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       subWindowMode === 'all'
-                        ? 'bg-cyan-600 text-white shadow'
-                        : 'text-slate-400 hover:text-white'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
                     フリクションサークル (GG)
                   </button>
                   <button
                     onClick={() => setSubWindowMode('track_friction')}
-                    className={`px-3 py-1 rounded font-bold transition-all cursor-pointer ${
+                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       subWindowMode === 'track_friction'
-                        ? 'bg-orange-600 text-white shadow'
-                        : 'text-slate-400 hover:text-white'
+                        ? 'bg-orange-600 text-white'
+                        : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
                     ドリフト採点・評価
                   </button>
                   <button
                     onClick={() => setSubWindowMode('video')}
-                    className={`px-3 py-1 rounded font-bold transition-all cursor-pointer ${
+                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       subWindowMode === 'video'
-                        ? 'bg-purple-600 text-white shadow'
-                        : 'text-slate-400 hover:text-white'
+                        ? 'bg-red-600 text-white'
+                        : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
                     車載動画同期
