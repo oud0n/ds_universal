@@ -626,10 +626,11 @@ async function downloadLogs() {
 
     // ファイル保存の実行
     const uint8Array = new Uint8Array(collectedBytes);
-    await saveFile(uint8Array, 'digspice_raw.bin');
+    const defaultFileName = generateDefaultFileName(uint8Array);
+    await saveFile(uint8Array, defaultFileName);
 
     downloadStatusText.textContent = `完了 (${collectedBytes.length} バイト保存済)`;
-    alert(`ダウンロードが完了しました (${collectedBytes.length} バイト)。`);
+    alert(`ダウンロードが完了しました (${collectedBytes.length} バイト)。\n保存先: ${defaultFileName}`);
   } catch (err) {
     appendLog('err', `ダウンロードエラー: ${err.message}`);
     downloadStatusText.textContent = 'エラー発生';
@@ -638,6 +639,27 @@ async function downloadLogs() {
     isBusy = false;
     enableControls(serialPort !== null);
   }
+}
+
+// 保存ファイル名（DS4_YYYYMMDDHHMM.bnx4）の生成
+function generateDefaultFileName(bytes) {
+  let targetDate = new Date();
+
+  // ログバイナリから先頭の有効なUTCタイムスタンプ（0x0440番地）を取得できるか試行
+  if (bytes && bytes.length >= 0x444) {
+    const ts = bytes[0x440] | (bytes[0x441] << 8) | (bytes[0x442] << 16) | (bytes[0x443] << 24);
+    // 有効なUNIX時間 (2020年〜2040年: 1577836800 〜 2208988800) の場合
+    if (ts > 1577836800 && ts < 2208988800) {
+      targetDate = new Date(ts * 1000);
+    }
+  }
+
+  const yyyy = targetDate.getFullYear();
+  const MM = String(targetDate.getMonth() + 1).padStart(2, '0');
+  const dd = String(targetDate.getDate()).padStart(2, '0');
+  const HH = String(targetDate.getHours()).padStart(2, '0');
+  const mm = String(targetDate.getMinutes()).padStart(2, '0');
+  return `DS4_${yyyy}${MM}${dd}${HH}${mm}.bnx4`;
 }
 
 // ファイル保存処理 (Electron IPC または ブラウザ File System Access)
@@ -661,7 +683,10 @@ async function saveFile(uint8Array, defaultName) {
     try {
       const handle = await window.showSaveFilePicker({
         suggestedName: defaultName,
-        types: [{ description: 'バイナリログファイル (*.bin)', accept: { 'application/octet-stream': ['.bin'] } }],
+        types: [
+          { description: 'デジスパイスIV ログファイル (*.bnx4)', accept: { 'application/octet-stream': ['.bnx4'] } },
+          { description: 'バイナリログファイル (*.bin)', accept: { 'application/octet-stream': ['.bin'] } },
+        ],
       });
       const writable = await handle.createWritable();
       await writable.write(uint8Array);

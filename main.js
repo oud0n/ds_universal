@@ -66,8 +66,9 @@ function createWindow() {
 ipcMain.handle('save-binary-file', async (event, { defaultName, dataArray }) => {
   const { canceled, filePath } = await dialog.showSaveDialog({
     title: 'デジスパイスIV 走行ログデータの保存',
-    defaultPath: defaultName || 'digspice_raw.bin',
+    defaultPath: defaultName || 'DS4_log.bnx4',
     filters: [
+      { name: 'デジスパイスIV ログファイル (*.bnx4)', extensions: ['bnx4'] },
       { name: 'バイナリログファイル (*.bin)', extensions: ['bin'] },
       { name: 'すべてのファイル (*.*)', extensions: ['*'] },
     ],

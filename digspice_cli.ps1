@@ -15,7 +15,7 @@
 .PARAMETER Speed
     SetSpeed コマンド時の記録開始/停止 速度閾値（km/h）
 .PARAMETER Output
-    Download コマンド時のバイナリ保存先ファイルパス（デフォルト: 'raw_download.bin'）
+    Download コマンド時のバイナリ保存先ファイルパス（省略時: 'DS4_YYYYMMDDHHMM.bnx4'）
 .PARAMETER BaudRate
     シリアル通信ボーレート（デフォルト: 115200 bps）
 .PARAMETER TimeoutMs
@@ -58,8 +58,8 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "開始/停止 速度閾値 (km/h)")]
     [double]$Speed,
 
-    [Parameter(Mandatory = $false, HelpMessage = "ダウンロードデータの保存先パス (デフォルト: raw_download.bin)")]
-    [string]$Output = "raw_download.bin",
+    [Parameter(Mandatory = $false, HelpMessage = "ダウンロードデータの保存先パス (省略時: DS4_YYYYMMDDHHMM.bnx4)")]
+    [string]$Output,
 
     [Parameter(Mandatory = $false, HelpMessage = "ボーレート (デフォルト: 115200)")]
     [int]$BaudRate = 115200,
@@ -684,8 +684,22 @@ function Invoke-Download {
 
     # ファイルにバイナリ保存
     $binaryArray = $dataBuffer.ToArray()
+
+    # 出力ファイル名の決定 (未指定時は DS4_YYYYMMDDHHMM.bnx4)
+    if ([string]::IsNullOrWhiteSpace($OutputFile)) {
+        $timestamp = (Get-Date).ToString("yyyyMMddHHmm")
+        if ($binaryArray.Length -ge 0x444) {
+            $ts = [System.BitConverter]::ToUInt32($binaryArray, 0x440)
+            if ($ts -gt 1577836800 -and $ts -lt 2208988800) {
+                $epoch = [System.DateTimeOffset]::FromUnixTimeSeconds($ts).LocalDateTime
+                $timestamp = $epoch.ToString("yyyyMMddHHmm")
+            }
+        }
+        $OutputFile = "DS4_$timestamp.bnx4"
+    }
+
     Save-RawResponse -FilePath $OutputFile -Data $binaryArray
-    Write-Host "[成功] ダウンロード完了。保存サイズ: $($binaryArray.Length) バイト" -ForegroundColor Green
+    Write-Host "[成功] ダウンロード完了。保存先: $OutputFile (サイズ: $($binaryArray.Length) バイト)" -ForegroundColor Green
 }
 
 # ==============================================================================
