@@ -547,6 +547,9 @@ export const App: React.FC = () => {
                       onSeekTime={handleSeekTime}
                       onTogglePlay={() => setIsPlaying(!isPlaying)}
                       circuitName={currentCircuitName}
+                      targetSessionId={baseSession?.id}
+                      targetLap={baseLap}
+                      isGraphEmbedded={true}
                     />
                   )}
                 </div>
@@ -643,6 +646,9 @@ export const App: React.FC = () => {
                       onSeekTime={handleSeekTime}
                       onTogglePlay={() => setIsPlaying(!isPlaying)}
                       circuitName={currentCircuitName}
+                      targetSessionId={baseSession?.id}
+                      targetLap={baseLap}
+                      isGraphEmbedded={true}
                     />
                   )}
                 </div>
@@ -662,6 +668,9 @@ export const App: React.FC = () => {
               onSeekTime={handleSeekTime}
               onTogglePlay={() => setIsPlaying(!isPlaying)}
               circuitName={currentCircuitName}
+              targetSessionId={baseSession?.id}
+              targetLap={baseLap}
+              isGraphEmbedded={false}
             />
           </div>
         )}

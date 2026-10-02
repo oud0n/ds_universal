@@ -17,6 +17,9 @@ interface VideoSyncWindowProps {
   onSeekTime: (timeSec: number) => void;
   onTogglePlay: () => void;
   circuitName: string;
+  targetSessionId?: string;  // 速度ウィンドウで選択中のセッションID
+  targetLap?: any;           // 速度ウィンドウで選択中のラップ
+  isGraphEmbedded?: boolean; // グラフ解析画面に埋め込まれているかどうか
 }
 
 export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
@@ -27,7 +30,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   isPlaying,
   onSeekTime,
   onTogglePlay,
-  circuitName
+  circuitName,
+  targetSessionId,
+  targetLap,
+  isGraphEmbedded = false
 }) => {
   const [tracks, setTracks] = useState<VideoTrack[]>(() => videoSyncManager.getTracks());
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(tracks[0]?.id || null);
@@ -41,10 +47,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
 
-  const activeTrack = tracks.find(t => t.id === selectedTrackId);
+  // 速度ウィンドウの選択状態 (Car 1) を最優先で参照
   const baseSelected = selectedCars.find(c => c.slot === 0);
-  const baseSession = sessions.find(s => s.id === (activeTrack?.matchedSessionId || baseSelected?.sessionId));
-  const baseLap = baseSession?.laps.find(l => l.lapNumber === baseSelected?.lapNumber);
+  const speedSessionId = targetSessionId || baseSelected?.sessionId;
+  const baseSession = sessions.find(s => s.id === speedSessionId) || sessions[0];
+  const baseLap = targetLap || baseSession?.laps.find(l => l.lapNumber === baseSelected?.lapNumber) || baseSession?.laps[0];
+
+  const activeTrack = tracks.find(t => t.id === selectedTrackId);
 
   // タイムスタンプフォーマット関数
   const formatTzDate = (d: Date | null | undefined, tz: string): string => {
@@ -80,38 +89,67 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     };
   }, [selectedTrackId]);
 
+  // 速度ウィンドウのセッション (Car 1) に対応する動画トラックを自動選択
+  useEffect(() => {
+    if (!baseSession || tracks.length === 0) return;
+    const matchingTrack = tracks.find(t => t.matchedSessionId === baseSession.id);
+    if (matchingTrack && matchingTrack.id !== selectedTrackId) {
+      setSelectedTrackId(matchingTrack.id);
+    }
+  }, [baseSession?.id, tracks]);
+
+  // 速度ウィンドウで選択されたセッションに合わせて動画のオフセットを自動追従・再同期
+  useEffect(() => {
+    if (!activeTrack || !baseSession) return;
+    if (activeTrack.matchedSessionId !== baseSession.id) {
+      videoSyncManager.resyncTrack(
+        activeTrack.id,
+        sessions,
+        activeTrack.videoTimezone || 'JST',
+        activeTrack.gpsTimezone || 'JST',
+        baseSession.id
+      );
+    }
+  }, [baseSession?.id, activeTrack?.id]);
+
   // タイムゾーン変更ハンドラ
   const handleVideoTzChange = (newTz: string) => {
-    if (!activeTrack) return;
-    videoSyncManager.resyncTrack(activeTrack.id, sessions, newTz, undefined);
+    if (!activeTrack || !baseSession) return;
+    videoSyncManager.resyncTrack(activeTrack.id, sessions, newTz, undefined, baseSession.id);
   };
 
   const handleGpsTzChange = (newTz: string) => {
-    if (!activeTrack) return;
-    videoSyncManager.resyncTrack(activeTrack.id, sessions, undefined, newTz);
+    if (!activeTrack || !baseSession) return;
+    videoSyncManager.resyncTrack(activeTrack.id, sessions, undefined, newTz, baseSession.id);
   };
 
   // 再同期ボタンハンドラ
   const handleResync = () => {
-    if (!activeTrack) return;
+    if (!activeTrack || !baseSession) return;
     videoSyncManager.resyncTrack(
       activeTrack.id,
       sessions,
       activeTrack.videoTimezone || 'JST',
-      activeTrack.gpsTimezone || 'JST'
+      activeTrack.gpsTimezone || 'JST',
+      baseSession.id
     );
   };
 
-  // GPS タイムライン変化に合わせて動画の再生位置を追従 (ユーザーがグラフ等でシークした場合)
+  // GPS タイムライン変化に合わせて動画の再生位置を追従 (ユーザーが速度グラフ等でシークした場合)
   useEffect(() => {
     if (!videoRef.current || !activeTrack) return;
-    const targetVideoTime = currentTimeSec - activeTrack.syncOffsetSec;
+    // グラフ画面埋め込み時は、選択中ラップの開始秒を加味してセッション全体秒に変換
+    const effectiveSessionTime = isGraphEmbedded && baseLap
+      ? (baseLap.startTime + currentTimeSec)
+      : currentTimeSec;
+
+    const targetVideoTime = effectiveSessionTime - activeTrack.syncOffsetSec;
     if (targetVideoTime >= 0 && targetVideoTime <= (activeTrack.durationSec || 9999)) {
       if (Math.abs(videoRef.current.currentTime - targetVideoTime) > 0.15) {
         videoRef.current.currentTime = targetVideoTime;
       }
     }
-  }, [currentTimeSec, activeTrack]);
+  }, [currentTimeSec, activeTrack, isGraphEmbedded, baseLap]);
 
   // 再生/一時停止同期
   useEffect(() => {
@@ -130,19 +168,29 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     }
   }, [playbackSpeed]);
 
-  // 動画側の再生時間更新イベント -> GPS タイムラインへ同期伝達
+  // 動画側の再生時間更新イベント -> 速度ウィンドウ・GPS タイムラインへ同期伝達
   const handleTimeUpdate = () => {
     if (!videoRef.current || !activeTrack || !isPlaying) return;
     const vTime = videoRef.current.currentTime;
-    const gpsTime = vTime + activeTrack.syncOffsetSec;
-    onSeekTime(Math.max(0, gpsTime));
+    const sessionTime = vTime + activeTrack.syncOffsetSec;
+
+    if (isGraphEmbedded && baseLap) {
+      // 速度ウィンドウ表示時は、ラップ内時間 (0〜lapTime) に変換して onSeekTime を呼ぶ
+      const lapTime = Math.max(0, sessionTime - baseLap.startTime);
+      onSeekTime(lapTime);
+    } else {
+      onSeekTime(Math.max(0, sessionTime));
+    }
   };
 
   // ワンクリック同期: 現在の動画フレームを GPS の現在選択タイムに合わせる
   const handleSyncCurrentFrame = () => {
     if (!videoRef.current || !activeTrack) return;
     const currentVideoTime = videoRef.current.currentTime;
-    const newOffset = currentTimeSec - currentVideoTime;
+    const effectiveSessionTime = isGraphEmbedded && baseLap
+      ? (baseLap.startTime + currentTimeSec)
+      : currentTimeSec;
+    const newOffset = effectiveSessionTime - currentVideoTime;
     videoSyncManager.updateOffset(activeTrack.id, newOffset);
   };
 
@@ -230,18 +278,23 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     const pts = baseSession?.points || baseLap?.points || [];
     if (pts.length === 0) return;
 
-    // 二分探索で currentTimeSec に最も近いポイントを高速検索 (O(log N))
+    // 速度ウィンドウ表示時はラップ開始秒を加算してセッション全体の絶対時刻を計算
+    const effectiveTime = isGraphEmbedded && baseLap
+      ? (baseLap.startTime + currentTimeSec)
+      : currentTimeSec;
+
+    // 二分探索で effectiveTime に最も近いポイントを高速検索 (O(log N))
     let low = 0;
     let high = pts.length - 1;
     while (low < high - 1) {
       const mid = Math.floor((low + high) / 2);
-      if (pts[mid].time < currentTimeSec) {
+      if (pts[mid].time < effectiveTime) {
         low = mid;
       } else {
         high = mid;
       }
     }
-    const curPt: TelemetryPoint = Math.abs(pts[low].time - currentTimeSec) <= Math.abs(pts[high].time - currentTimeSec)
+    const curPt: TelemetryPoint = Math.abs(pts[low].time - effectiveTime) <= Math.abs(pts[high].time - effectiveTime)
       ? pts[low]
       : pts[high];
 
@@ -357,10 +410,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
     ctx.stroke();
 
-    // 現在走行中のラップを動的特定 (currentTimeSecがどのラップ区間に属するか)
-    const currentLap = baseSession?.laps.find(l => currentTimeSec >= l.startTime && currentTimeSec <= l.endTime);
+    // 現在走行中のラップを動的特定 (effectiveTimeがどのラップ区間に属するか)
+    const currentLap = baseSession?.laps.find(l => effectiveTime >= l.startTime && effectiveTime <= l.endTime);
     const lapLabel = currentLap ? `Lap ${currentLap.lapNumber}` : (baseLap ? `Lap ${baseLap.lapNumber}` : 'Out / In Lap');
-    const lapDisplayTime = currentLap ? (currentTimeSec - currentLap.startTime) : currentTimeSec;
+    const lapDisplayTime = currentLap ? (effectiveTime - currentLap.startTime) : (baseLap ? currentTimeSec : effectiveTime);
 
     ctx.fillStyle = '#94a3b8';
     ctx.font = 'bold 11px sans-serif';
@@ -374,17 +427,26 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     ctx.fillText(`${m}:${s}`, 14, 48);
 
     ctx.restore();
-  }, [currentTimeSec, baseLap, baseSession, showOverlay, showGForce]);
+  }, [currentTimeSec, baseLap, baseSession, showOverlay, showGForce, isGraphEmbedded]);
 
   return (
     <div className="flex flex-col h-full bg-[#0a0d14] text-slate-200 select-none overflow-hidden">
       {/* 上部コントロールバー */}
       <div className="h-12 bg-[#121622] border-b border-[#22293a] px-4 flex items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3">
-          <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+          <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5 shrink-0">
             <Video size={16} className="text-red-500" />
             車載動画同期 (GoPro H.265 / MP4)
           </span>
+
+          {/* 速度ウィンドウ連携バッジ */}
+          {baseSession && (
+            <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/70 border border-emerald-800/80 px-2 py-0.5 rounded-md flex items-center gap-1 shrink-0 shadow-xs" title="速度ウィンドウで選択中の走行ログファイルと同期中">
+              <CheckCircle2 size={12} className="text-emerald-400 shrink-0" />
+              <span className="max-w-[130px] truncate font-bold text-slate-100">{baseSession.sessionName}</span>
+              {baseLap && <span className="text-emerald-300 font-bold">L{baseLap.lapNumber}</span>}
+            </span>
+          )}
 
           {/* 動画トラック切り替え */}
           {tracks.length > 0 && (
@@ -661,31 +723,40 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       </div>
 
       {/* 動画タイムライン シークバー */}
-      {activeTrack && activeTrack.durationSec && (
-        <div className="bg-[#10141f] border-t border-[#1d2333] px-4 py-1.5 flex items-center gap-3 shrink-0 select-none">
-          <span className="text-[11px] font-mono text-slate-400 min-w-[55px]">
-            {formatDuration(currentTimeSec - activeTrack.syncOffsetSec)}
-          </span>
-          <input
-            type="range"
-            min={0}
-            max={activeTrack.durationSec}
-            step={0.1}
-            value={Math.min(activeTrack.durationSec, Math.max(0, currentTimeSec - activeTrack.syncOffsetSec))}
-            onChange={e => {
-              const vTime = parseFloat(e.target.value);
-              if (videoRef.current) {
-                videoRef.current.currentTime = vTime;
-              }
-              onSeekTime(vTime + activeTrack.syncOffsetSec);
-            }}
-            className="flex-1 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-red-500"
-          />
-          <span className="text-[11px] font-mono text-slate-500 min-w-[55px] text-right">
-            {formatDuration(activeTrack.durationSec)}
-          </span>
-        </div>
-      )}
+      {activeTrack && activeTrack.durationSec && (() => {
+        const effectiveTime = isGraphEmbedded && baseLap ? (baseLap.startTime + currentTimeSec) : currentTimeSec;
+        const currentVideoSec = Math.max(0, effectiveTime - activeTrack.syncOffsetSec);
+        return (
+          <div className="bg-[#10141f] border-t border-[#1d2333] px-4 py-1.5 flex items-center gap-3 shrink-0 select-none">
+            <span className="text-[11px] font-mono text-slate-400 min-w-[55px]">
+              {formatDuration(currentVideoSec)}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={activeTrack.durationSec}
+              step={0.1}
+              value={Math.min(activeTrack.durationSec, currentVideoSec)}
+              onChange={e => {
+                const vTime = parseFloat(e.target.value);
+                if (videoRef.current) {
+                  videoRef.current.currentTime = vTime;
+                }
+                const sessionTime = vTime + activeTrack.syncOffsetSec;
+                if (isGraphEmbedded && baseLap) {
+                  onSeekTime(Math.max(0, sessionTime - baseLap.startTime));
+                } else {
+                  onSeekTime(sessionTime);
+                }
+              }}
+              className="flex-1 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-red-500"
+            />
+            <span className="text-[11px] font-mono text-slate-500 min-w-[55px] text-right">
+              {formatDuration(activeTrack.durationSec)}
+            </span>
+          </div>
+        );
+      })()}
 
       {/* 下部同期調整 ＆ 再生コントロールバー */}
       <div className="h-14 bg-[#121622] border-t border-[#22293a] px-4 flex items-center justify-between gap-4 shrink-0">
