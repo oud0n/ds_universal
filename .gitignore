@@ -1,8 +1,10 @@
 # Packet captures / large binary dumps
 wireshark/
+sample/
 *.pcapng
 *.pcap
 *.bin
+*.bnx4
 
 # Node.js
 node_modules/

@@ -685,6 +685,9 @@ function Invoke-Download {
     # ファイルにバイナリ保存
     $binaryArray = $dataBuffer.ToArray()
 
+    # 公式分析ソフト (DigSpice.exe) 互換メタデータの計算・付加 (0x00000100〜0x00000109)
+    Set-DigSpiceMetadata -Buffer $binaryArray
+
     # 出力ファイル名の決定 (未指定時は DS4_YYYYMMDDHHMM.bnx4)
     if ([string]::IsNullOrWhiteSpace($OutputFile)) {
         $timestamp = (Get-Date).ToString("yyyyMMddHHmm")
@@ -700,6 +703,105 @@ function Invoke-Download {
 
     Save-RawResponse -FilePath $OutputFile -Data $binaryArray
     Write-Host "[成功] ダウンロード完了。保存先: $OutputFile (サイズ: $($binaryArray.Length) バイト)" -ForegroundColor Green
+}
+
+# ==============================================================================
+# 公式分析ソフト (DigSpice.exe) 互換メタデータ計算関数
+# ==============================================================================
+# DigSpice.exe の検証式: meta = Sqrt(RecordCount) + (PI * lat0) + (lon0 / PI)
+# 80-bit IEEE 754 拡張倍精度浮動小数点数 (Delphi Extended 型, リトルエンディアン)
+function Set-DigSpiceMetadata {
+    param(
+        [byte[]]$Buffer
+    )
+
+    if (-not $Buffer -or $Buffer.Length -lt 0x1000) { return }
+
+    $numSectors = [Math]::Floor($Buffer.Length / 0x1000)
+    $recordCount = 0
+    $firstLat = $null
+    $firstLon = $null
+
+    for ($s = 0; $s -lt $numSectors; $s++) {
+        $secOffset = $s * 0x1000
+        $esi = 0x200
+        $recSize = 36
+
+        while ($esi -lt 0x1000) {
+            $pos = $secOffset + $esi
+            if (($pos + 16) -le $Buffer.Length) {
+                # プリアンブルタグのスキップ (7バイト 0xAA + 4バイト 0xBB)
+                $isTag = $true
+                for ($i = 0; $i -lt 7; $i++) {
+                    if ($Buffer[$pos + $i] -ne 0xaa) { $isTag = $false; break }
+                }
+                if ($isTag) {
+                    for ($i = 0; $i -lt 4; $i++) {
+                        if ($Buffer[$pos + 12 + $i] -ne 0xbb) { $isTag = $false; break }
+                    }
+                }
+                if ($isTag) {
+                    $esi += 0x10
+                    continue
+                }
+            }
+
+            # 0xFF（未記録レコード領域）のスキップ
+            $isFF = $true
+            for ($i = 0; $i -lt 6; $i++) {
+                if ($Buffer[$pos + $i] -ne 0xff) { $isFF = $false; break }
+            }
+            if ($isFF) {
+                $esi += $recSize
+                continue
+            }
+
+            if (($esi + $recSize) -gt 0x1000) { break }
+
+            $fixMode = [BitConverter]::ToUInt16($Buffer, $pos + 4)
+            $lat = [BitConverter]::ToDouble($Buffer, $pos + 6)
+            $lon = [BitConverter]::ToDouble($Buffer, $pos + 14)
+            $spd = [BitConverter]::ToSingle($Buffer, $pos + 26)
+
+            # 公式ソフト検証フィルタ: 3D Fix (fixMode == 3), spd > 0.0, 有効座標
+            if ($fixMode -eq 3 -and $spd -gt 0.0 -and $lat -ge -90.0 -and $lat -le 90.0 -and $lon -ge -180.0 -and $lon -le 180.0 -and $lat -ne 0.0) {
+                if ($null -eq $firstLat) {
+                    $firstLat = $lat
+                    $firstLon = $lon
+                }
+                $recordCount++
+            }
+
+            $esi += $recSize
+        }
+    }
+
+    if ($recordCount -eq 0 -or $null -eq $firstLat) {
+        return
+    }
+
+    $PI = 3.14159265358979323846
+    $metaVal = [Math]::Sqrt($recordCount) + ($PI * $firstLat) + ($firstLon / $PI)
+
+    # 80-bit Extended 浮動小数点数（Delphi Extended型）へのエンコード
+    $sign = if ($metaVal -lt 0) { 1 } else { 0 }
+    $absVal = [Math]::Abs($metaVal)
+    $exp = [int][Math]::Floor([Math]::Log($absVal, 2))
+    $m = $absVal / [Math]::Pow(2, $exp)
+    $biasedExp = [ushort]($exp + 16383)
+
+    $two63 = [Math]::Pow(2, 63)
+    $mantissaUlong = [ulong][Math]::Round($m * $two63)
+
+    $mantissaBytes = [BitConverter]::GetBytes($mantissaUlong)
+    [Array]::Copy($mantissaBytes, 0, $Buffer, 0x100, 8)
+
+    $expWord = [ushort]($biasedExp -bor ($sign -shl 15))
+    $expBytes = [BitConverter]::GetBytes($expWord)
+    $Buffer[0x108] = $expBytes[0]
+    $Buffer[0x109] = $expBytes[1]
+
+    Write-Verbose "公式分析ソフト互換メタデータを設定しました (0x0100..0x0109: RecordCount=$recordCount, Meta=$metaVal)"
 }
 
 # ==============================================================================

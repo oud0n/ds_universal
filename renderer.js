@@ -626,6 +626,7 @@ async function downloadLogs() {
 
     // ファイル保存の実行
     const uint8Array = new Uint8Array(collectedBytes);
+    applyDigSpiceMetadata(uint8Array);
     const defaultFileName = generateDefaultFileName(uint8Array);
     await saveFile(uint8Array, defaultFileName);
 
@@ -639,6 +640,97 @@ async function downloadLogs() {
     isBusy = false;
     enableControls(serialPort !== null);
   }
+}
+
+// 公式分析ソフト (DigSpice.exe) 互換メタデータの計算・付加 (0x00000100〜0x00000109)
+// DigSpice.exe の検証式: meta = Sqrt(RecordCount) + (PI * lat0) + (lon0 / PI)
+// 80-bit IEEE 754 拡張倍精度浮動小数点数 (Delphi Extended 型, リトルエンディアン)
+function applyDigSpiceMetadata(buffer) {
+  if (!buffer || buffer.length < 0x1000) return;
+
+  const numSectors = Math.floor(buffer.length / 0x1000);
+  let recordCount = 0;
+  let firstLat = null;
+  let firstLon = null;
+
+  for (let s = 0; s < numSectors; s++) {
+    const secOffset = s * 0x1000;
+    let esi = 0x200;
+    const recSize = 36;
+
+    while (esi < 0x1000) {
+      const pos = secOffset + esi;
+      if (pos + 16 <= buffer.length) {
+        // プリアンブルタグのスキップ (7バイトの0xAA + 4バイトの0xBB)
+        let isTag = true;
+        for (let i = 0; i < 7; i++) {
+          if (buffer[pos + i] !== 0xaa) { isTag = false; break; }
+        }
+        if (isTag) {
+          for (let i = 0; i < 4; i++) {
+            if (buffer[pos + 12 + i] !== 0xbb) { isTag = false; break; }
+          }
+        }
+        if (isTag) {
+          esi += 0x10;
+          continue;
+        }
+      }
+
+      // 0xFF（未記録レコード領域）のスキップ
+      let isFF = true;
+      for (let i = 0; i < 6; i++) {
+        if (buffer[pos + i] !== 0xff) { isFF = false; break; }
+      }
+      if (isFF) {
+        esi += recSize;
+        continue;
+      }
+
+      if (esi + recSize > 0x1000) break;
+
+      // 36バイトGPSレコードのパース
+      const view = new DataView(buffer.buffer, buffer.byteOffset + pos, recSize);
+      const fixMode = view.getUint16(4, true);
+      const lat = view.getFloat64(6, true);
+      const lon = view.getFloat64(14, true);
+      const spd = view.getFloat32(26, true);
+
+      // 公式ソフトの検証フィルタ: 3D Fix (fixMode == 3), spd > 0.0, 有効な緯度経度
+      if (fixMode === 3 && spd > 0.0 && lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0 && lat !== 0.0) {
+        if (firstLat === null) {
+          firstLat = lat;
+          firstLon = lon;
+        }
+        recordCount++;
+      }
+
+      esi += recSize;
+    }
+  }
+
+  if (recordCount === 0 || firstLat === null) {
+    return; // 有効レコードなし時は更新しない
+  }
+
+  const PI = 3.14159265358979323846;
+  const metaVal = Math.sqrt(recordCount) + (PI * firstLat) + (firstLon / PI);
+
+  // 80-bit IEEE 754 Extended 浮動小数点数（Delphi Extended型）へのエンコード
+  const sign = metaVal < 0 ? 1 : 0;
+  const absVal = Math.abs(metaVal);
+  const exp = Math.floor(Math.log2(absVal));
+  const m = absVal / Math.pow(2, exp);
+  const biasedExp = exp + 16383;
+  const mantissaBig = BigInt(Math.round(m * Math.pow(2, 63)));
+
+  // オフセット 0x00000100 〜 0x00000109（10バイト）に書き込み
+  for (let i = 0; i < 8; i++) {
+    buffer[0x100 + i] = Number((mantissaBig >> BigInt(i * 8)) & 0xffn);
+  }
+  const expWord = biasedExp | (sign << 15);
+  buffer[0x108] = expWord & 0xff;
+  buffer[0x109] = (expWord >> 8) & 0xff;
 }
 
 // 保存ファイル名（DS4_YYYYMMDDHHMM.bnx4）の生成
