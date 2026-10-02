@@ -627,7 +627,7 @@ async function downloadLogs() {
     // ファイル保存の実行
     const uint8Array = new Uint8Array(collectedBytes);
     applyDigSpiceMetadata(uint8Array);
-    const defaultFileName = generateDefaultFileName(uint8Array);
+    const defaultFileName = generateDefaultFileName();
     await saveFile(uint8Array, defaultFileName);
 
     downloadStatusText.textContent = `完了 (${collectedBytes.length} バイト保存済)`;
@@ -771,24 +771,14 @@ function applyDigSpiceMetadata(buffer) {
   buffer[0x109] = (expWord >> 8) & 0xff;
 }
 
-// 保存ファイル名（DS4_YYYYMMDDHHMM.bnx4）の生成
-function generateDefaultFileName(bytes) {
-  let targetDate = new Date();
-
-  // ログバイナリから先頭の有効なUTCタイムスタンプ（0x0440番地）を取得できるか試行
-  if (bytes && bytes.length >= 0x444) {
-    const ts = bytes[0x440] | (bytes[0x441] << 8) | (bytes[0x442] << 16) | (bytes[0x443] << 24);
-    // 有効なUNIX時間 (2020年〜2040年: 1577836800 〜 2208988800) の場合
-    if (ts > 1577836800 && ts < 2208988800) {
-      targetDate = new Date(ts * 1000);
-    }
-  }
-
-  const yyyy = targetDate.getFullYear();
-  const MM = String(targetDate.getMonth() + 1).padStart(2, '0');
-  const dd = String(targetDate.getDate()).padStart(2, '0');
-  const HH = String(targetDate.getHours()).padStart(2, '0');
-  const mm = String(targetDate.getMinutes()).padStart(2, '0');
+// 保存ファイル名（DS4_YYYYMMDDHHMM.bnx4）の生成 (公式アプリ完全準拠: ダウンロード実行時の現在時刻)
+function generateDefaultFileName() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const MM = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const HH = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
   return `DS4_${yyyy}${MM}${dd}${HH}${mm}.bnx4`;
 }
 

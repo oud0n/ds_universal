@@ -688,16 +688,9 @@ function Invoke-Download {
     # 公式分析ソフト (DigSpice.exe) 互換メタデータの計算・付加 (0x00000100〜0x00000109)
     Set-DigSpiceMetadata -Buffer $binaryArray
 
-    # 出力ファイル名の決定 (未指定時は DS4_YYYYMMDDHHMM.bnx4)
+    # 出力ファイル名の決定 (未指定時は公式アプリ準拠: 現在時刻 DS4_YYYYMMDDHHMM.bnx4)
     if ([string]::IsNullOrWhiteSpace($OutputFile)) {
         $timestamp = (Get-Date).ToString("yyyyMMddHHmm")
-        if ($binaryArray.Length -ge 0x444) {
-            $ts = [System.BitConverter]::ToUInt32($binaryArray, 0x440)
-            if ($ts -gt 1577836800 -and $ts -lt 2208988800) {
-                $epoch = [System.DateTimeOffset]::FromUnixTimeSeconds($ts).LocalDateTime
-                $timestamp = $epoch.ToString("yyyyMMddHHmm")
-            }
-        }
         $OutputFile = "DS4_$timestamp.bnx4"
     }
 
