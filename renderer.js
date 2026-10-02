@@ -713,22 +713,60 @@ function applyDigSpiceMetadata(buffer) {
     return; // 有効レコードなし時は更新しない
   }
 
-  const PI = 3.14159265358979323846;
-  const metaVal = Math.sqrt(recordCount) + (PI * firstLat) + (firstLon / PI);
+  // Delphi x87 FPU 80-bit 拡張倍精度浮動小数点数の精密シミュレーション
+  // Delphi 内蔵 Pi 定数: mantissa = 0xc90fdaa22168c235, exp = 1
+  const PI_MANTISSA = 0xc90fdaa22168c235n;
+  const SCALE = 64n;
 
-  // 80-bit IEEE 754 Extended 浮動小数点数（Delphi Extended型）へのエンコード
-  const sign = metaVal < 0 ? 1 : 0;
-  const absVal = Math.abs(metaVal);
-  const exp = Math.floor(Math.log2(absVal));
-  const m = absVal / Math.pow(2, exp);
+  function doubleToFixed(d) {
+    const b = new ArrayBuffer(8);
+    const v = new DataView(b);
+    v.setFloat64(0, d, true);
+    const u = v.getBigUint64(0, true);
+    const sign = u >> 63n;
+    const exp = Number((u >> 52n) & 0x7ffn) - 1023;
+    const mant = (u & 0xfffffffffffffn) | 0x10000000000000n;
+    const shift = BigInt(exp + 12);
+    const val = shift >= 0n ? (mant << shift) : (mant >> -shift);
+    return sign ? -val : val;
+  }
+
+  function fixedSqrt(valFixed) {
+    let n = valFixed << SCALE;
+    if (n <= 0n) return 0n;
+    let x0 = n / 2n;
+    if (x0 === 0n) return 1n;
+    let x1 = (x0 + n / x0) / 2n;
+    while (x1 < x0) {
+      x0 = x1;
+      x1 = (x0 + n / x0) / 2n;
+    }
+    return x0;
+  }
+
+  const sqrtN = fixedSqrt(BigInt(recordCount) << SCALE);
+  const piFixed = PI_MANTISSA * 4n;
+  const latFixed = doubleToFixed(firstLat);
+  const lonFixed = doubleToFixed(firstLon);
+  const term1 = (piFixed * latFixed) >> SCALE;
+  const term2 = (lonFixed << SCALE) / piFixed;
+  const resFixed = sqrtN + term1 + term2;
+
+  let tmp = resFixed;
+  let bitLen = 0;
+  while (tmp > 0n) { bitLen++; tmp >>= 1n; }
+
+  const exp = bitLen - 65;
   const biasedExp = exp + 16383;
-  const mantissaBig = BigInt(Math.round(m * Math.pow(2, 63)));
+  const shift = BigInt(bitLen - 64);
+  const roundBit = shift > 0n ? (1n << (shift - 1n)) : 0n;
+  const mantissa64 = ((resFixed + roundBit) >> shift);
 
   // オフセット 0x00000100 〜 0x00000109（10バイト）に書き込み
   for (let i = 0; i < 8; i++) {
-    buffer[0x100 + i] = Number((mantissaBig >> BigInt(i * 8)) & 0xffn);
+    buffer[0x100 + i] = Number((mantissa64 >> BigInt(i * 8)) & 0xffn);
   }
-  const expWord = biasedExp | (sign << 15);
+  const expWord = biasedExp;
   buffer[0x108] = expWord & 0xff;
   buffer[0x109] = (expWord >> 8) & 0xff;
 }

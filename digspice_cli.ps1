@@ -780,17 +780,26 @@ function Set-DigSpiceMetadata {
         return
     }
 
-    $PI = 3.14159265358979323846
-    $metaVal = [Math]::Sqrt($recordCount) + ($PI * $firstLat) + ($firstLon / $PI)
+    # Delphi 内蔵 80-bit Pi 定数 (0x5d0ec8: mantissa=0xc90fdaa22168c235, exp=1)
+    # 28桁精度の [decimal] で Delphi x87 FPU 演算を完全再現
+    $piMant = [decimal]14488038920442125877 # 0xc90fdaa22168c235
+    $two62 = [decimal]4611686018427387904  # 1 << 62
+    $piDec = $piMant / $two62
 
-    # 80-bit Extended 浮動小数点数（Delphi Extended型）へのエンコード
-    $sign = if ($metaVal -lt 0) { 1 } else { 0 }
-    $absVal = [Math]::Abs($metaVal)
-    $exp = [int][Math]::Floor([Math]::Log($absVal, 2))
-    $m = $absVal / [Math]::Pow(2, $exp)
+    $sqrtN = [decimal][Math]::Sqrt($recordCount)
+    $latDec = [decimal]$firstLat
+    $lonDec = [decimal]$firstLon
+    $metaDec = $sqrtN + ($piDec * $latDec) + ($lonDec / $piDec)
+
+    $metaDbl = [double]$metaDec
+    $sign = if ($metaDbl -lt 0) { 1 } else { 0 }
+    $absDec = [Math]::Abs($metaDec)
+    $exp = [int][Math]::Floor([Math]::Log([Math]::Abs($metaDbl), 2))
+    $twoExp = [decimal][Math]::Pow(2, $exp)
+    $m = $absDec / $twoExp
     $biasedExp = [ushort]($exp + 16383)
 
-    $two63 = [Math]::Pow(2, 63)
+    $two63 = [decimal]9223372036854775808 # 1 << 63
     $mantissaUlong = [ulong][Math]::Round($m * $two63)
 
     $mantissaBytes = [BitConverter]::GetBytes($mantissaUlong)
