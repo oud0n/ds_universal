@@ -1,18 +1,26 @@
 # Packet captures / large binary dumps
 wireshark/
 sample/
+public/samples/
+public/circuit_data/
 *.pcapng
 *.pcap
 *.bin
 *.bnx4
 
+# User-provided circuit assets (proprietary / official files)
+public/circuits/
+circuits/
+*.pth
+*.cln
+*.sci
+
 # Node.js
 node_modules/
 dist/
+release/
 npm-debug.log*
 
 # Python
 __pycache__/
 *.pyc
-
-
