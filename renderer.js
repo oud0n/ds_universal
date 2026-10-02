@@ -176,6 +176,8 @@ async function connectSerial() {
 // シリアルポート切断
 async function disconnectSerial() {
   enableControls(false);
+  streamingLineHandler = null;
+  isBusy = false;
   if (reader) {
     try {
       await reader.cancel();
@@ -229,6 +231,7 @@ async function sendLine(nmeaBody) {
 
 // 行バッファリング付き受信ループ
 let pendingLineResolvers = [];
+let streamingLineHandler = null;
 
 async function readLoop() {
   const decoder = new TextDecoder();
@@ -266,6 +269,12 @@ async function readLoop() {
 }
 
 function handleIncomingLine(line) {
+  // 高速ストリーミング受信時はDOM描画や通常キューをバイパス
+  if (streamingLineHandler) {
+    streamingLineHandler(line);
+    return;
+  }
+
   appendLog('rx', line);
 
   // 待機中のレスポンス解決関数に渡す
@@ -514,6 +523,7 @@ async function eraseFlash() {
 async function downloadLogs() {
   if (isBusy) return;
   isBusy = true;
+  enableControls(false);
 
   downloadProgressContainer.classList.add('active');
   downloadProgressBar.style.width = '0%';
@@ -523,6 +533,7 @@ async function downloadLogs() {
   const collectedBytes = [];
 
   try {
+    // 1. バージョンと書き込みポインタ確認
     await sendLine('PMTK605');
     await waitForLine('$PMTK705');
 
@@ -532,58 +543,80 @@ async function downloadLogs() {
     const wpAddr = parseInt(wpHex, 16);
     const logBytes = Math.max(0, wpAddr - 0x200);
 
-    appendLog('sys', `ダウンロード開始: アドレス=0x${wpHex}, ログ容量=${logBytes} バイト`);
+    // 2. フラッシュステータス確認
+    await sendLine('PMTK182,2,10');
+    await waitForLine('$PMTK182,3,10');
 
-    // 1. セクタ0 (0x0000 〜 0x1000 = 4096バイト) の読み出し
-    downloadStatusText.textContent = 'ヘッダセクタ読み出し中 (0x0000)...';
-    await sendLine('PMTK182,7,0,1000');
+    // 要求サイズの計算: 0x1000 (セクタ境界) に切り上げ、最低 0x1000
+    let reqSize = (wpAddr + 0x0FFF) & ~0x0FFF;
+    if (reqSize < 0x1000) reqSize = 0x1000;
+    const reqSizeHex = reqSize.toString(16).toUpperCase();
+    const totalBlocks = Math.ceil(reqSize / 0x800);
 
-    // デバイスは 2048 バイトずつ 2 回に分けて返信
-    for (let block = 0; block < 2; block++) {
-      const line = await waitForLine('$PMTK182,8,', 6000);
-      const parts = line.split('*')[0].split(',');
-      if (parts.length >= 4) {
-        const hexStr = parts[3];
-        for (let j = 0; j < hexStr.length; j += 2) {
-          collectedBytes.push(parseInt(hexStr.substring(j, j + 2), 16));
+    appendLog('sys', `ダウンロード開始: アドレス=0x${wpHex}, ログ容量=${logBytes} バイト, 要求サイズ=0x${reqSizeHex} (${totalBlocks} ブロック)`);
+    downloadStatusText.textContent = `ストリーミング受信中 (0 / ${totalBlocks} ブロック)...`;
+
+    // 3. 高速ストリーミング受信用 Promise の準備
+    let lastActivityTime = Date.now();
+    let receivedBlocks = 0;
+
+    const streamPromise = new Promise((resolve, reject) => {
+      // 8秒間データが途絶えたらタイムアウト
+      const checkInterval = setInterval(() => {
+        if (Date.now() - lastActivityTime > 8000) {
+          clearInterval(checkInterval);
+          streamingLineHandler = null;
+          reject(new Error(`受信タイムアウト: 8秒間データが途絶えました (${receivedBlocks}/${totalBlocks} ブロック受信済)`));
         }
-      }
-    }
+      }, 1000);
 
-    downloadProgressBar.style.width = '50%';
-    downloadPercentText.textContent = '50%';
+      let lastUiUpdate = 0;
 
-    // 2. 実ログデータのブロック読み出し
-    let currAddr = 0x1000;
-    while (currAddr < wpAddr) {
-      const chunkSize = Math.min(0x1000, wpAddr - currAddr);
-      const chunkHex = chunkSize.toString(16).toUpperCase();
-      const addrHex = currAddr.toString(16).toUpperCase();
+      streamingLineHandler = (line) => {
+        lastActivityTime = Date.now();
 
-      downloadStatusText.textContent = `データ読み出し中 (0x${addrHex})...`;
-      await sendLine(`PMTK182,7,${addrHex},${chunkHex}`);
+        if (line.startsWith('$PMTK182,8,')) {
+          const parts = line.split('*')[0].split(',');
+          if (parts.length >= 4) {
+            const addrHex = parts[2];
+            const hexData = parts[3];
 
-      const targetCount = collectedBytes.length + chunkSize;
-      while (collectedBytes.length < targetCount) {
-        const line = await waitForLine('$PMTK182,8,', 6000);
-        const parts = line.split('*')[0].split(',');
-        if (parts.length >= 4) {
-          const hexStr = parts[3];
-          for (let j = 0; j < hexStr.length; j += 2) {
-            collectedBytes.push(parseInt(hexStr.substring(j, j + 2), 16));
+            if (addrHex === '00FFFFF0') {
+              clearInterval(checkInterval);
+              streamingLineHandler = null;
+              resolve();
+              return;
+            }
+
+            // バイナリデータの蓄積
+            for (let j = 0; j < hexData.length; j += 2) {
+              collectedBytes.push(parseInt(hexData.substring(j, j + 2), 16));
+            }
+            receivedBlocks++;
+
+            // UI更新のスロットル (100msごと、または最終ブロック)
+            const now = Date.now();
+            if (now - lastUiUpdate > 100 || receivedBlocks >= totalBlocks) {
+              lastUiUpdate = now;
+              const pct = Math.min(100, Math.round((receivedBlocks / totalBlocks) * 100));
+              downloadProgressBar.style.width = `${pct}%`;
+              downloadPercentText.textContent = `${pct}%`;
+              downloadStatusText.textContent = `データ受信中: ${receivedBlocks} / ${totalBlocks} ブロック (${Math.round(collectedBytes.length / 1024)} KB)`;
+            }
           }
         }
-      }
+      };
+    });
 
-      const pct = Math.round(50 + (50 * (currAddr - 0x1000)) / (wpAddr - 0x1000));
-      downloadProgressBar.style.width = `${pct}%`;
-      downloadPercentText.textContent = `${pct}%`;
-      currAddr += chunkSize;
-    }
+    // 4. 一括ストリーミング読み出し要求の送信
+    await sendLine(`PMTK182,7,0,${reqSizeHex}`);
 
-    // 3. フラッシュ末尾情報の読み出し
+    // 5. 10ms後にフラッシュ末尾情報要求をパイプライン送信
+    await new Promise(r => setTimeout(r, 10));
     await sendLine('PMTK182,7,FFFFF0,10');
-    await waitForLine('$PMTK182,8,00FFFFF0', 4000);
+
+    // 6. 全ブロックおよび末尾情報の受信完了待機
+    await streamPromise;
 
     downloadProgressBar.style.width = '100%';
     downloadPercentText.textContent = '100%';
@@ -601,7 +634,9 @@ async function downloadLogs() {
     appendLog('err', `ダウンロードエラー: ${err.message}`);
     downloadStatusText.textContent = 'エラー発生';
   } finally {
+    streamingLineHandler = null;
     isBusy = false;
+    enableControls(serialPort !== null);
   }
 }
 

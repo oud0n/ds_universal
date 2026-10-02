@@ -609,60 +609,78 @@ function Invoke-Download {
 
     $dataBuffer = [System.Collections.Generic.List[byte]]::new()
 
-    # 2. セクタ0 (0x0000 〜 0x1000 = 4096バイト) の読み出し
-    Write-Host "ヘッダブロック読み出し中 (0x00000000, 4096バイト)..." -ForegroundColor Cyan
-    Send-DigSpiceCommand -Serial $Serial -NmeaCommand (Format-NmeaCommand "PMTK182,7,0,1000")
+    # 2. フラッシュステータス確認
+    Send-DigSpiceCommand -Serial $Serial -NmeaCommand (Format-NmeaCommand "PMTK182,2,10")
+    [void](Wait-DigSpiceResponse -Serial $Serial -Prefix "`$PMTK182,3,10")
 
-    # デバイスは $PMTK182,8 を2回に分けて返信 (各2048バイト = 4096文字のHEX)
-    $blocksRead = 0
-    while ($blocksRead -lt 2) {
-        $line = Read-DigSpiceResponse -Serial $Serial -Timeout 5000
-        if (-not $line) { break }
-        if ($line.StartsWith('$PMTK182,8,')) {
-            $parts = $line.Split('*')[0].Split(',')
-            if ($parts.Length -ge 4) {
-                $hexData = $parts[3]
-                for ($j = 0; $j -lt $hexData.Length; $j += 2) {
-                    $b = [Convert]::ToByte($hexData.Substring($j, 2), 16)
-                    $dataBuffer.Add($b)
-                }
-                $blocksRead++
-            }
-        }
-    }
+    # 要求サイズの計算: 0x1000 (セクタ境界) に切り上げ、最低 0x1000
+    $reqSize = ($wpAddr + 0x0FFF) -band (-bnot 0x0FFF)
+    if ($reqSize -lt 0x1000) { $reqSize = 0x1000 }
+    $reqSizeHex = $reqSize.ToString("X")
+    $totalBlocks = [int][Math]::Ceiling($reqSize / 0x800)
 
-    # 3. ログ本体ブロックの読み出し
-    $currAddr = 0x1000
-    while ($currAddr -lt $wpAddr) {
-        $chunkSize = [Math]::Min(0x1000, $wpAddr - $currAddr)
-        $chunkHex = $chunkSize.ToString("X")
-        $addrHex = $currAddr.ToString("X")
+    Write-Host "フラッシュ読み出し要求サイズ : 0x$reqSizeHex ($totalBlocks ブロック, 0x800バイト単位)" -ForegroundColor Cyan
+    Write-Host "一括ストリーミング受信開始..." -ForegroundColor Yellow
 
-        Write-Host "ログデータブロック読み出し中: アドレス 0x$addrHex (サイズ 0x$chunkHex)..." -ForegroundColor Cyan
-        Send-DigSpiceCommand -Serial $Serial -NmeaCommand (Format-NmeaCommand "PMTK182,7,$addrHex,$chunkHex")
+    $dataBuffer = [System.Collections.Generic.List[byte]]::new($reqSize)
 
-        $targetBytes = $dataBuffer.Count + $chunkSize
-        while ($dataBuffer.Count -lt $targetBytes) {
-            $line = Read-DigSpiceResponse -Serial $Serial -Timeout 5000
-            if (-not $line) { break }
-            if ($line.StartsWith('$PMTK182,8,')) {
-                $parts = $line.Split('*')[0].Split(',')
+    # 3. 一括読み出しコマンド送信
+    Send-DigSpiceCommand -Serial $Serial -NmeaCommand (Format-NmeaCommand "PMTK182,7,0,$reqSizeHex")
+
+    # 4. 10ms後にフラッシュ末尾情報要求をパイプライン送信
+    Start-Sleep -Milliseconds 10
+    Send-DigSpiceCommand -Serial $Serial -NmeaCommand (Format-NmeaCommand "PMTK182,7,FFFFF0,10")
+
+    # 5. 高速ストリーミング受信ループ
+    $oldTimeout = $Serial.ReadTimeout
+    $Serial.ReadTimeout = 8000 # 8秒アクティビティタイムアウト
+    $receivedBlocks = 0
+    $lastReportTime = [System.Diagnostics.Stopwatch]::StartNew()
+
+    try {
+        while ($true) {
+            $line = $Serial.ReadLine()
+            if (-not $line) { continue }
+
+            $cleanLine = $line.Trim()
+            if ($cleanLine.StartsWith('$PMTK182,8,')) {
+                $parts = $cleanLine.Split('*')[0].Split(',')
                 if ($parts.Length -ge 4) {
+                    $addrHex = $parts[2]
                     $hexData = $parts[3]
+
+                    if ($addrHex -eq '00FFFFF0') {
+                        Write-Host "`nフラッシュ終端情報を受信しました (0x00FFFFF0)。" -ForegroundColor Cyan
+                        break
+                    }
+
+                    # HEX文字列をバイト変換してバッファへ追加
                     for ($j = 0; $j -lt $hexData.Length; $j += 2) {
                         $b = [Convert]::ToByte($hexData.Substring($j, 2), 16)
                         $dataBuffer.Add($b)
                     }
+                    $receivedBlocks++
+
+                    # 進捗表示 (200msごと、または完了時)
+                    if ($lastReportTime.ElapsedMilliseconds -gt 200 -or $receivedBlocks -ge $totalBlocks) {
+                        $pct = [Math]::Min(100, [Math]::Round(($receivedBlocks / $totalBlocks) * 100))
+                        $receivedKb = [Math]::Round($dataBuffer.Count / 1024)
+                        Write-Progress -Activity "デジスパイスIV ログデータダウンロード中" `
+                            -Status "$pct% 完了 ($receivedBlocks / $totalBlocks ブロック, $receivedKb KB)" `
+                            -PercentComplete $pct
+                        $lastReportTime.Restart()
+                    }
                 }
             }
         }
-        $currAddr += $chunkSize
     }
-
-    # 4. フラッシュ終端情報の読み出し (0xFFFFF0, 16バイト)
-    Write-Host "フラッシュ末尾情報読み出し中 (0x00FFFFF0, 16バイト)..." -ForegroundColor Cyan
-    Send-DigSpiceCommand -Serial $Serial -NmeaCommand (Format-NmeaCommand "PMTK182,7,FFFFF0,10")
-    $tailLine = (Wait-DigSpiceResponse -Serial $Serial -Prefix "`$PMTK182,8,00FFFFF0").Matched
+    catch [System.TimeoutException] {
+        throw "受信タイムアウト: 8秒間シリアルデータが途絶えました ($receivedBlocks / $totalBlocks ブロック受信済)。"
+    }
+    finally {
+        $Serial.ReadTimeout = $oldTimeout
+        Write-Progress -Activity "デジスパイスIV ログデータダウンロード中" -Completed
+    }
 
     # ファイルにバイナリ保存
     $binaryArray = $dataBuffer.ToArray()
