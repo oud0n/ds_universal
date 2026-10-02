@@ -296,10 +296,20 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       ctx.moveTo(cX, cY - r); ctx.lineTo(cX, cY + r);
       ctx.stroke();
 
-      // 現在Gプロット (1.5Gスケール)
+      // 軸ラベル (上=減速/ブレーキ, 下=加速, 左=左G/右旋回, 右=右G/左旋回)
+      ctx.font = 'bold 7px sans-serif';
+      ctx.fillStyle = '#64748b';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('減', cX, cY - r + 5);
+      ctx.fillText('加', cX, cY + r - 5);
+      ctx.fillText('L', cX - r + 5, cY);
+      ctx.fillText('R', cX + r - 5, cY);
+
+      // 現在Gプロット (1.5Gスケール: 減速時(accelG<0)で上(-Y), 右旋回時(corneringG>0)で左(-X))
       const scaleG = r / 1.5;
-      const gX = cX + (curPt.corneringG || 0) * scaleG;
-      const gY = cY - (curPt.accelG || 0) * scaleG;
+      const gX = cX - (curPt.corneringG || 0) * scaleG;
+      const gY = cY + (curPt.accelG || 0) * scaleG;
 
       ctx.fillStyle = '#ef4444';
       ctx.shadowColor = '#ef4444';
@@ -557,6 +567,27 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 showOverlay ? 'opacity-100' : 'opacity-0'
               } transition-opacity duration-200`}
             />
+
+            {/* 録画開始前 / 録画終了後のステータスインジケーター */}
+            {currentTimeSec < activeTrack.syncOffsetSec && (
+              <div className="absolute top-4 bg-amber-950/90 border border-amber-500/80 text-amber-200 px-3.5 py-2 rounded-xl shadow-2xl backdrop-blur-sm flex items-center gap-2.5 text-xs font-medium z-20 pointer-events-auto">
+                <Clock size={15} className="text-amber-400 animate-pulse shrink-0" />
+                <span>動画録画開始前（動画開始まであと <strong className="font-mono text-amber-300">{(activeTrack.syncOffsetSec - currentTimeSec).toFixed(1)}s</strong>）</span>
+                <button
+                  onClick={() => onSeekTime(activeTrack.syncOffsetSec)}
+                  className="px-2 py-0.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-[11px] cursor-pointer transition-colors shadow-sm ml-1"
+                  title="動画の録画開始時刻へGPSタイムラインをスキップ"
+                >
+                  動画開始位置へジャンプ
+                </button>
+              </div>
+            )}
+            {currentTimeSec > activeTrack.syncOffsetSec + (activeTrack.durationSec || 99999) && (
+              <div className="absolute top-4 bg-slate-900/90 border border-slate-600 text-slate-300 px-3.5 py-1.5 rounded-xl shadow-xl backdrop-blur-sm flex items-center gap-2 text-xs font-medium z-20 pointer-events-none">
+                <CheckCircle2 size={14} className="text-slate-400 shrink-0" />
+                <span>動画録画終了後（GPS走行ログ再生中）</span>
+              </div>
+            )}
           </>
         ) : (
           <div className="flex flex-col items-center justify-center p-8 text-center space-y-4 max-w-md">

@@ -87,15 +87,15 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
     ctx.lineTo(centerX, centerY + maxRadius + 10);
     ctx.stroke();
 
-    // 軸ラベル
-    ctx.fillStyle = '#64748b';
+    // 軸ラベル (モータースポーツG-Gダイアグラム標準: ブレーキング=上, 加速=下, 右旋回遠心G=左, 左旋回遠心G=右)
+    ctx.fillStyle = '#94a3b8';
     ctx.font = 'bold 9px sans-serif';
-    ctx.fillText('加速 (+G)', centerX, centerY - maxRadius - 4);
-    ctx.fillText('減速 (-G)', centerX, centerY + maxRadius + 12);
+    ctx.fillText('減速 (ブレーキ)', centerX, centerY - maxRadius - 4);
+    ctx.fillText('加速', centerX, centerY + maxRadius + 12);
     ctx.textAlign = 'left';
-    ctx.fillText('右G', centerX + maxRadius + 4, centerY + 3);
+    ctx.fillText('右G (左旋回)', centerX + maxRadius + 4, centerY + 3);
     ctx.textAlign = 'right';
-    ctx.fillText('左G', centerX - maxRadius - 4, centerY + 3);
+    ctx.fillText('左G (右旋回)', centerX - maxRadius - 4, centerY + 3);
 
     if (cars.length === 0) return;
 
@@ -103,10 +103,10 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
     cars.forEach(car => {
       ctx.fillStyle = car.slot.colorHex + '25'; // 非常に薄い色
       for (const p of car.lap.points) {
-        // X: コーナリングG (+右, -左)
-        // Y: 加減速G (+加速[上], -減速[下])
-        const px = centerX + toPx(p.corneringG);
-        const py = centerY - toPx(p.accelG);
+        // X: 右旋回時(corneringG>0)に左(-X), 左旋回時(corneringG<0)に右(+X)
+        // Y: 減速時(accelG<0)に上(-Y), 加速時(accelG>0)に下(+Y)
+        const px = centerX - toPx(p.corneringG);
+        const py = centerY + toPx(p.accelG);
         ctx.fillRect(px - 1, py - 1, 2, 2);
       }
     });
@@ -116,8 +116,8 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
       const pt = currentPoints[idx];
       if (!pt) return;
 
-      const px = centerX + toPx(pt.corneringG);
-      const py = centerY - toPx(pt.accelG);
+      const px = centerX - toPx(pt.corneringG);
+      const py = centerY + toPx(pt.accelG);
 
       // グロー
       ctx.shadowColor = car.slot.colorHex;

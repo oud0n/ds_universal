@@ -19,8 +19,9 @@ const MAC_EPOCH_OFFSET_SECONDS = 2082844800;
  * ArrayBuffer または File から動画メタデータを抽出
  */
 export async function parseVideoMetadata(file: File): Promise<VideoMetadata> {
-  // mvhd ボックスは通常ファイルの先頭付近 (または moov 内) に存在するため、先頭 512KB をスキャン
-  const headerSliceSize = Math.min(file.size, 512 * 1024);
+  // mvhd ボックスは通常ファイルの先頭付近 (FastStart) または末尾 (GoPro等) に存在
+  // 先頭 2MB をスキャン
+  const headerSliceSize = Math.min(file.size, 2 * 1024 * 1024);
   const buffer = await file.slice(0, headerSliceSize).arrayBuffer();
   const bytes = new Uint8Array(buffer);
   const view = new DataView(buffer);
@@ -30,40 +31,23 @@ export async function parseVideoMetadata(file: File): Promise<VideoMetadata> {
   let timescale = 1000;
 
   // 'mvhd' FourCC ('m', 'v', 'h', 'd' = 0x6D, 0x76, 0x68, 0x64) を検索
-  let mvhdOffset = -1;
-  for (let i = 0; i < bytes.length - 8; i++) {
-    if (
-      bytes[i] === 0x6d && // 'm'
-      bytes[i + 1] === 0x76 && // 'v'
-      bytes[i + 2] === 0x68 && // 'h'
-      bytes[i + 3] === 0x64 // 'd'
-    ) {
-      mvhdOffset = i - 4; // ボックスサイズを含む開始位置
-      break;
-    }
-  }
+  let mvhdOffset = findFourCC(bytes, 0x6d, 0x76, 0x68, 0x64);
 
-  // 先頭 512KB で見つからず、moov が末尾にある動画（FastStart 未処理）の場合、末尾 512KB もスキャン
+  // 先頭で見つからず、moov が末尾にある動画（GoPro HERO 等）の場合、末尾最大 16MB をスキャン
   if (mvhdOffset === -1 && file.size > headerSliceSize) {
-    const tailStart = Math.max(0, file.size - 512 * 1024);
-    const tailBuffer = await file.slice(tailStart).arrayBuffer();
+    const tailSliceSize = Math.min(file.size, 16 * 1024 * 1024);
+    const tailStart = file.size - tailSliceSize;
+    const tailBuffer = await file.slice(tailStart, file.size).arrayBuffer();
     const tailBytes = new Uint8Array(tailBuffer);
-    for (let i = 0; i < tailBytes.length - 8; i++) {
-      if (
-        tailBytes[i] === 0x6d &&
-        tailBytes[i + 1] === 0x76 &&
-        tailBytes[i + 2] === 0x68 &&
-        tailBytes[i + 3] === 0x64
-      ) {
-        mvhdOffset = i - 4;
-        const tailView = new DataView(tailBuffer);
-        const res = parseMvhdBox(tailView, mvhdOffset);
-        if (res) {
-          creationTime = res.creationTime;
-          durationSec = res.durationSec;
-          timescale = res.timescale;
-        }
-        break;
+    const tailMvhdOffset = findFourCC(tailBytes, 0x6d, 0x76, 0x68, 0x64);
+
+    if (tailMvhdOffset >= 0) {
+      const tailView = new DataView(tailBuffer);
+      const res = parseMvhdBox(tailView, tailMvhdOffset);
+      if (res) {
+        creationTime = res.creationTime;
+        durationSec = res.durationSec;
+        timescale = res.timescale;
       }
     }
   } else if (mvhdOffset >= 0) {
@@ -87,6 +71,22 @@ export async function parseVideoMetadata(file: File): Promise<VideoMetadata> {
     durationSec,
     timescale
   };
+}
+
+// FourCC 検索ヘルパー
+function findFourCC(bytes: Uint8Array, b0: number, b1: number, b2: number, b3: number): number {
+  const limit = bytes.length - 8;
+  for (let i = 0; i < limit; i++) {
+    if (
+      bytes[i] === b0 &&
+      bytes[i + 1] === b1 &&
+      bytes[i + 2] === b2 &&
+      bytes[i + 3] === b3
+    ) {
+      return i - 4; // ボックスサイズヘッダーを含むオフセット
+    }
+  }
+  return -1;
 }
 
 function parseMvhdBox(view: DataView, offset: number): {
