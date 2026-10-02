@@ -58,16 +58,68 @@ function createWindow() {
 
   const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
-  if (isDev && process.env.ELECTRON_START_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_START_URL);
-  } else {
-    const indexPath = path.join(__dirname, '../dist/index.html');
-    if (fs.existsSync(indexPath)) {
-      mainWindow.loadFile(indexPath);
-    } else {
-      mainWindow.loadURL('http://localhost:5173');
+  async function loadApp() {
+    if (process.env.ELECTRON_START_URL) {
+      mainWindow.loadURL(process.env.ELECTRON_START_URL);
+      return;
     }
+
+    const devUrl = 'http://localhost:5173';
+    const indexPath = path.join(__dirname, '../dist/index.html');
+
+    // 1. Vite 開発サーバーの接続確認 (http://localhost:5173)
+    const isPortOpen = await new Promise((resolve) => {
+      const http = require('http');
+      const req = http.get(devUrl, (res) => {
+        resolve(true);
+      });
+      req.on('error', () => resolve(false));
+      req.setTimeout(800, () => {
+        req.destroy();
+        resolve(false);
+      });
+    });
+
+    if (isPortOpen) {
+      console.log('[メインプロセス] Vite 開発サーバーに接続します:', devUrl);
+      mainWindow.loadURL(devUrl);
+      return;
+    }
+
+    // 2. ビルド済み dist/index.html が存在する場合はロード
+    if (fs.existsSync(indexPath)) {
+      console.log('[メインプロセス] ビルド済みファイルをロードします:', indexPath);
+      mainWindow.loadFile(indexPath);
+      return;
+    }
+
+    // 3. どちらもない場合 (Vite 起動待機中など) は少し待機してリトライ
+    console.log('[メインプロセス] 開発サーバー起動待機中... (リトライ)');
+    let retries = 5;
+    const retryInterval = setInterval(async () => {
+      retries--;
+      const open = await new Promise((resolve) => {
+        const http = require('http');
+        const req = http.get(devUrl, () => resolve(true));
+        req.on('error', () => resolve(false));
+        req.setTimeout(800, () => { req.destroy(); resolve(false); });
+      });
+
+      if (open) {
+        clearInterval(retryInterval);
+        mainWindow.loadURL(devUrl);
+      } else if (retries <= 0) {
+        clearInterval(retryInterval);
+        if (fs.existsSync(indexPath)) {
+          mainWindow.loadFile(indexPath);
+        } else {
+          mainWindow.loadURL(devUrl); // 最終フォールバック
+        }
+      }
+    }, 1000);
   }
+
+  loadApp();
 
   // メニューバー設定
   const template = [
