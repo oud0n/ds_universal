@@ -60,6 +60,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     return `${m}/${day} ${hh}:${mm}:${ss}`;
   };
 
+  // 動画再生時間フォーマット (MM:SS)
+  const formatDuration = (sec: number): string => {
+    const sClamped = Math.max(0, sec);
+    const m = Math.floor(sClamped / 60);
+    const s = Math.floor(sClamped % 60);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+
   const gpsStartTime = baseSession?.points[0]?.timestamp ? new Date(baseSession.points[0].timestamp) : null;
   const isLargeOffset = activeTrack ? Math.abs(activeTrack.syncOffsetSec) > 3600 : false;
 
@@ -218,13 +226,24 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 現在のテレメトリポイント取得
-    const pts = baseLap?.points || baseSession?.points || [];
+    // 現在のテレメトリポイント取得 (動画同期時はセッション全体のタイムラインを参照)
+    const pts = baseSession?.points || baseLap?.points || [];
     if (pts.length === 0) return;
 
-    const curPt: TelemetryPoint = pts.reduce((prev, curr) => {
-      return Math.abs(curr.time - currentTimeSec) < Math.abs(prev.time - currentTimeSec) ? curr : prev;
-    }, pts[0]);
+    // 二分探索で currentTimeSec に最も近いポイントを高速検索 (O(log N))
+    let low = 0;
+    let high = pts.length - 1;
+    while (low < high - 1) {
+      const mid = Math.floor((low + high) / 2);
+      if (pts[mid].time < currentTimeSec) {
+        low = mid;
+      } else {
+        high = mid;
+      }
+    }
+    const curPt: TelemetryPoint = Math.abs(pts[low].time - currentTimeSec) <= Math.abs(pts[high].time - currentTimeSec)
+      ? pts[low]
+      : pts[high];
 
     const w = canvas.width;
     const h = canvas.height;
@@ -338,13 +357,18 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
     ctx.stroke();
 
+    // 現在走行中のラップを動的特定 (currentTimeSecがどのラップ区間に属するか)
+    const currentLap = baseSession?.laps.find(l => currentTimeSec >= l.startTime && currentTimeSec <= l.endTime);
+    const lapLabel = currentLap ? `Lap ${currentLap.lapNumber}` : (baseLap ? `Lap ${baseLap.lapNumber}` : 'Out / In Lap');
+    const lapDisplayTime = currentLap ? (currentTimeSec - currentLap.startTime) : currentTimeSec;
+
     ctx.fillStyle = '#94a3b8';
     ctx.font = 'bold 11px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(baseLap ? `Lap ${baseLap.lapNumber}` : 'Total Time', 14, 22);
+    ctx.fillText(lapLabel, 14, 22);
 
-    const m = Math.floor(currentTimeSec / 60);
-    const s = (currentTimeSec % 60).toFixed(2).padStart(5, '0');
+    const m = Math.floor(lapDisplayTime / 60);
+    const s = (lapDisplayTime % 60).toFixed(2).padStart(5, '0');
     ctx.fillStyle = '#f8fafc';
     ctx.font = 'bold 20px monospace';
     ctx.fillText(`${m}:${s}`, 14, 48);
@@ -555,6 +579,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               ref={videoRef}
               src={activeTrack.objectUrl}
               onTimeUpdate={handleTimeUpdate}
+              onEnded={() => {
+                if (isPlaying) onTogglePlay();
+              }}
               playsInline
               className="max-h-full max-w-full object-contain"
             />
@@ -632,6 +659,33 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           </div>
         )}
       </div>
+
+      {/* 動画タイムライン シークバー */}
+      {activeTrack && activeTrack.durationSec && (
+        <div className="bg-[#10141f] border-t border-[#1d2333] px-4 py-1.5 flex items-center gap-3 shrink-0 select-none">
+          <span className="text-[11px] font-mono text-slate-400 min-w-[55px]">
+            {formatDuration(currentTimeSec - activeTrack.syncOffsetSec)}
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={activeTrack.durationSec}
+            step={0.1}
+            value={Math.min(activeTrack.durationSec, Math.max(0, currentTimeSec - activeTrack.syncOffsetSec))}
+            onChange={e => {
+              const vTime = parseFloat(e.target.value);
+              if (videoRef.current) {
+                videoRef.current.currentTime = vTime;
+              }
+              onSeekTime(vTime + activeTrack.syncOffsetSec);
+            }}
+            className="flex-1 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-red-500"
+          />
+          <span className="text-[11px] font-mono text-slate-500 min-w-[55px] text-right">
+            {formatDuration(activeTrack.durationSec)}
+          </span>
+        </div>
+      )}
 
       {/* 下部同期調整 ＆ 再生コントロールバー */}
       <div className="h-14 bg-[#121622] border-t border-[#22293a] px-4 flex items-center justify-between gap-4 shrink-0">

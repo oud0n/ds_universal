@@ -75,7 +75,9 @@ export const App: React.FC = () => {
   const lastTimeRef = useRef<number>(performance.now());
 
   useEffect(() => {
-    if (!isPlaying || !baseLap) {
+    // 動画表示時は <video> 要素が再生マスターとなるため、lapTimeでのrequestAnimationFrameループは停止する
+    const isVideoModeActive = currentTab === 'video' || (currentTab === 'graph' && subWindowMode === 'video');
+    if (!isPlaying || !baseLap || isVideoModeActive) {
       if (animRef.current) cancelAnimationFrame(animRef.current);
       return;
     }
@@ -113,7 +115,7 @@ export const App: React.FC = () => {
     return () => {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
-  }, [isPlaying, playbackSpeed, baseLap]);
+  }, [isPlaying, playbackSpeed, baseLap, currentTab, subWindowMode]);
 
   // キーボードショートカット (Space: 再生/停止, F: コマ送り, B: コマ戻し)
   useEffect(() => {
@@ -161,21 +163,25 @@ export const App: React.FC = () => {
     if (!baseLap) return;
     setIsPlaying(false);
     setCurrentTimeSec(prev => {
-      const next = Math.max(0, Math.min(baseLap.lapTime, prev + stepSec));
-      const pts = baseLap.points;
-      const curPt = pts.reduce((p, c) => (Math.abs(c.time - next) < Math.abs(p.time - next) ? c : p), pts[0]);
-      if (curPt) setCurrentDistanceKm(curPt.distance);
+      const maxLimit = currentTab === 'video' ? (baseSession?.totalDistance || 99999) : baseLap.lapTime;
+      const next = Math.max(0, Math.min(maxLimit, prev + stepSec));
+      const pts = (currentTab === 'video' ? baseSession?.points : baseLap?.points) || baseSession?.points;
+      if (pts && pts.length > 0) {
+        const curPt = pts.reduce((p, c) => (Math.abs(c.time - next) < Math.abs(p.time - next) ? c : p), pts[0]);
+        if (curPt) setCurrentDistanceKm(curPt.distance);
+      }
       return next;
     });
   };
 
-  // シーク操作
+  // シーク操作 (動画タブ時はセッション全体のタイムラインを参照)
   const handleSeekTime = (timeSec: number) => {
-    if (!baseLap) return;
     setCurrentTimeSec(timeSec);
-    const pts = baseLap.points;
-    const curPt = pts.reduce((p, c) => (Math.abs(c.time - timeSec) < Math.abs(p.time - timeSec) ? c : p), pts[0]);
-    if (curPt) setCurrentDistanceKm(curPt.distance);
+    const pts = (currentTab === 'video' ? baseSession?.points : baseLap?.points) || baseSession?.points;
+    if (pts && pts.length > 0) {
+      const curPt = pts.reduce((p, c) => (Math.abs(c.time - timeSec) < Math.abs(p.time - timeSec) ? c : p), pts[0]);
+      if (curPt) setCurrentDistanceKm(curPt.distance);
+    }
   };
 
   const handleSeekDistance = (distKm: number) => {
