@@ -50,7 +50,7 @@ export function calculatePhysics(points: TelemetryPoint[]): TelemetryPoint[] {
     driftAngle: 0
   }));
 
-  // 累積距離と方位角の検証・補正
+  // 累積距離と進行方向（方位角）の検証・補正 (ds4_convert 準拠)
   let currentDistKm = 0;
   for (let i = 0; i < n; i++) {
     if (i > 0) {
@@ -71,9 +71,51 @@ export function calculatePhysics(points: TelemetryPoint[]): TelemetryPoint[] {
         currentDistKm = cur.distance;
       }
 
-      if (cur.heading === 0 && distanceMeters > 0.1) {
-        cur.heading = headingDeg;
+      // 進行方向 (Heading) の演算:
+      // 5cm以上移動かつ車速2km/h以上の場合は、GPS実移動ベクトルからベアリングを計算・補正
+      if (distanceMeters > 0.05 && cur.speed > 2.0) {
+        if (!cur.heading || cur.heading === 0) {
+          cur.heading = headingDeg;
+        } else {
+          // GPS方位角と実移動ベクトルの偏差を緩やかにブレンド
+          let diff = headingDeg - cur.heading;
+          while (diff > 180) diff -= 360;
+          while (diff < -180) diff += 360;
+          cur.heading = Number(((cur.heading + diff * 0.4 + 360) % 360).toFixed(1));
+        }
+      } else {
+        // 停止時または微小移動時は直前の向きをキープ
+        cur.heading = prev.heading;
       }
+    } else if (n > 1) {
+      // 始点のヘディングが0の場合、次点から推定
+      const next = result[1];
+      const { distanceMeters, headingDeg } = calculateGeoDistanceAndHeading(
+        result[0].latitude,
+        result[0].longitude,
+        next.latitude,
+        next.longitude
+      );
+      if (distanceMeters > 0.05 && (!result[0].heading || result[0].heading === 0)) {
+        result[0].heading = headingDeg;
+      }
+    }
+  }
+
+  // ヘディングの循環スムージング (360度ループを考慮したローパス平滑化)
+  for (let i = 1; i < n - 1; i++) {
+    if (result[i].speed > 5.0) {
+      let diffPrev = result[i - 1].heading - result[i].heading;
+      while (diffPrev > 180) diffPrev -= 360;
+      while (diffPrev < -180) diffPrev += 360;
+
+      let diffNext = result[i + 1].heading - result[i].heading;
+      while (diffNext > 180) diffNext -= 360;
+      while (diffNext < -180) diffNext += 360;
+
+      // 前後との平均補正
+      const smoothed = result[i].heading + (diffPrev + diffNext) * 0.25;
+      result[i].heading = Number(((smoothed + 360) % 360).toFixed(1));
     }
   }
 

@@ -281,35 +281,54 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 
       const pos = toScreen(curPt.latitude, curPt.longitude);
 
-      // 外枠グロー
-      ctx.fillStyle = car.slot.colorHex;
-      ctx.shadowColor = car.slot.colorHex;
-      ctx.shadowBlur = 8;
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
+      // 5. 各車両の進行方向を向いたレーシングカーアイコン描画
+      ctx.save();
+      ctx.translate(pos.x, pos.y);
 
-      // 内側白丸
+      // 地理的Heading (0°:北/画面上, 90°:東/画面右, 180°:南/画面下, 270°:西/画面左)
+      const headingRad = (curPt.heading * Math.PI) / 180;
+      ctx.rotate(headingRad);
+
+      // 車両シャドウ・グロー
+      ctx.shadowColor = car.slot.colorHex;
+      ctx.shadowBlur = 10;
+
+      // レーシングカー型ポリゴン描画 (先端が前・画面上向き)
+      ctx.fillStyle = car.slot.colorHex;
+      ctx.beginPath();
+      ctx.moveTo(0, -11); // ノーズ先端
+      ctx.lineTo(4.5, -4); // 右フロントフェンダー
+      ctx.lineTo(4, 6);   // 右サイド
+      ctx.lineTo(7, 8);   // 右リアウィング端
+      ctx.lineTo(7, 10);
+      ctx.lineTo(0, 7.5); // リア中央イン
+      ctx.lineTo(-7, 10); // 左リアウィング端
+      ctx.lineTo(-7, 8);
+      ctx.lineTo(-4, 6);  // 左サイド
+      ctx.lineTo(-4.5, -4); // 左フロントフェンダー
+      ctx.closePath();
+      ctx.fill();
+
+      // ウィンドシールド (コックピット白抜き)
+      ctx.shadowBlur = 0;
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.arc(pos.x, pos.y, 2.5, 0, Math.PI * 2);
+      ctx.moveTo(0, -6);
+      ctx.lineTo(2.5, -1);
+      ctx.lineTo(2, 3);
+      ctx.lineTo(-2, 3);
+      ctx.lineTo(-2.5, -1);
+      ctx.closePath();
       ctx.fill();
 
-      // 進行方向インジケーター矢印
-      if (curPt.heading > 0) {
-        const rad = ((curPt.heading - 90) * Math.PI) / 180;
-        const arrowLen = 14;
-        const tipX = pos.x + Math.cos(rad) * arrowLen;
-        const tipY = pos.y + Math.sin(rad) * arrowLen;
+      // スロット番号表示 (1..4)
+      ctx.fillStyle = '#0f1117';
+      ctx.font = 'bold 7px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(car.slot.slot + 1), 0, 1);
 
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(pos.x, pos.y);
-        ctx.lineTo(tipX, tipY);
-        ctx.stroke();
-      }
+      ctx.restore();
     });
   }, [cars, controlLine, sectors, pathPolylines, currentDistance, bounds, zoom, panOffset, colorMode]);
 

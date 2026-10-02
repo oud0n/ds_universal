@@ -15,16 +15,17 @@ import { TrackMapWindow } from './components/TrackMapWindow';
 import { ReplayWindow } from './components/ReplayWindow';
 import { FrictionCircleWindow } from './components/FrictionCircleWindow';
 import { DriftWindow } from './components/DriftWindow';
+import { VideoSyncWindow } from './components/VideoSyncWindow';
 import { DataTab } from './components/DataTab';
 import { LoggerTab } from './components/LoggerTab';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
 
 export const App: React.FC = () => {
   // タブ
-  const [currentTab, setCurrentTab] = useState<'graph' | 'data' | 'logger'>('graph');
+  const [currentTab, setCurrentTab] = useState<'graph' | 'data' | 'logger' | 'video'>('graph');
 
-  // サブウインドウ表示モード ('track' | 'friction' | 'drift' | 'replay')
-  const [subWindowMode, setSubWindowMode] = useState<'all' | 'track_friction' | 'replay_focus'>('all');
+  // サブウインドウ表示モード ('all' | 'track_friction' | 'replay_focus' | 'video')
+  const [subWindowMode, setSubWindowMode] = useState<'all' | 'track_friction' | 'replay_focus' | 'video'>('all');
 
   // セッション一覧
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -549,18 +550,58 @@ export const App: React.FC = () => {
                     >
                       ドリフト採点・評価
                     </button>
+                    <button
+                      onClick={() => setSubWindowMode('video')}
+                      className={`px-3 py-1 rounded font-bold transition-all ${
+                        subWindowMode === 'video'
+                          ? 'bg-purple-600 text-white shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      車載動画同期
+                    </button>
                   </div>
 
                   <div className="flex-1 min-h-0">
-                    {subWindowMode === 'all' ? (
+                    {subWindowMode === 'all' && (
                       <FrictionCircleWindow cars={activeCars} currentDistance={currentDistanceKm} />
-                    ) : (
+                    )}
+                    {subWindowMode === 'track_friction' && (
                       <DriftWindow cars={activeCars} currentDistance={currentDistanceKm} />
+                    )}
+                    {subWindowMode === 'video' && (
+                      <div className="h-full w-full bg-[#12141c] rounded-b-lg border-b border-x border-[#272f42] overflow-hidden">
+                        <VideoSyncWindow
+                          sessions={sessions}
+                          selectedCars={selectedCars}
+                          currentTimeSec={currentTimeSec}
+                          currentDistanceKm={currentDistanceKm}
+                          isPlaying={isPlaying}
+                          onSeekTime={handleSeekTime}
+                          onTogglePlay={() => setIsPlaying(!isPlaying)}
+                          circuitName={currentCircuitName}
+                        />
+                      </div>
                     )}
                   </div>
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {currentTab === 'video' && (
+          <div className="h-full w-full overflow-hidden">
+            <VideoSyncWindow
+              sessions={sessions}
+              selectedCars={selectedCars}
+              currentTimeSec={currentTimeSec}
+              currentDistanceKm={currentDistanceKm}
+              isPlaying={isPlaying}
+              onSeekTime={handleSeekTime}
+              onTogglePlay={() => setIsPlaying(!isPlaying)}
+              circuitName={currentCircuitName}
+            />
           </div>
         )}
 

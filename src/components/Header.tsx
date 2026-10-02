@@ -1,10 +1,10 @@
 import React from 'react';
-import { Play, Pause, SkipBack, SkipForward, FolderOpen, Download, Settings, BarChart2, List, ShieldCheck } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, FolderOpen, Download, Settings, BarChart2, List, ShieldCheck, Video } from 'lucide-react';
 import { SelectedCarSlot, Session } from '../types/telemetry';
 
 interface HeaderProps {
-  currentTab: 'graph' | 'data' | 'logger';
-  setCurrentTab: (tab: 'graph' | 'data' | 'logger') => void;
+  currentTab: 'graph' | 'data' | 'logger' | 'video';
+  setCurrentTab: (tab: 'graph' | 'data' | 'logger' | 'video') => void;
   sessions: Session[];
   selectedCars: SelectedCarSlot[];
   isPlaying: boolean;
@@ -61,6 +61,17 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <BarChart2 size={15} />
           グラフ解析
+        </button>
+        <button
+          onClick={() => setCurrentTab('video')}
+          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-xs font-medium transition-all ${
+            currentTab === 'video'
+              ? 'bg-red-600 text-white shadow-sm'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-[#283042]'
+          }`}
+        >
+          <Video size={15} />
+          動画同期
         </button>
         <button
           onClick={() => setCurrentTab('data')}
