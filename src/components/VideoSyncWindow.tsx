@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Play, Pause, SkipBack, SkipForward, Video, Upload, 
   Save, FolderOpen, RefreshCw, Sliders, Eye, EyeOff, 
-  Clock, Gauge, Plus, Trash2, CheckCircle2, ChevronRight
+  Clock, Gauge, Plus, Trash2, CheckCircle2, ChevronRight,
+  Globe, AlertTriangle, Zap
 } from 'lucide-react';
 import { Session, TelemetryPoint, SelectedCarSlot } from '../types/telemetry';
-import { videoSyncManager, VideoTrack } from '../services/videoSyncManager';
+import { videoSyncManager, VideoTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs } from '../services/videoSyncManager';
 
 interface VideoSyncWindowProps {
   sessions: Session[];
@@ -45,6 +46,23 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const baseSession = sessions.find(s => s.id === (activeTrack?.matchedSessionId || baseSelected?.sessionId));
   const baseLap = baseSession?.laps.find(l => l.lapNumber === baseSelected?.lapNumber);
 
+  // タイムスタンプフォーマット関数
+  const formatTzDate = (d: Date | null | undefined, tz: string): string => {
+    if (!d) return '--:--:--';
+    const offsetMs = getTimezoneOffsetMs(tz);
+    const adjusted = new Date(d.getTime() + offsetMs);
+    const y = adjusted.getUTCFullYear();
+    const m = String(adjusted.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(adjusted.getUTCDate()).padStart(2, '0');
+    const hh = String(adjusted.getUTCHours()).padStart(2, '0');
+    const mm = String(adjusted.getUTCMinutes()).padStart(2, '0');
+    const ss = String(adjusted.getUTCSeconds()).padStart(2, '0');
+    return `${m}/${day} ${hh}:${mm}:${ss}`;
+  };
+
+  const gpsStartTime = baseSession?.points[0]?.timestamp ? new Date(baseSession.points[0].timestamp) : null;
+  const isLargeOffset = activeTrack ? Math.abs(activeTrack.syncOffsetSec) > 3600 : false;
+
   useEffect(() => {
     videoSyncManager.onTracksUpdated = updated => {
       setTracks([...updated]);
@@ -53,6 +71,28 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       }
     };
   }, [selectedTrackId]);
+
+  // タイムゾーン変更ハンドラ
+  const handleVideoTzChange = (newTz: string) => {
+    if (!activeTrack) return;
+    videoSyncManager.resyncTrack(activeTrack.id, sessions, newTz, undefined);
+  };
+
+  const handleGpsTzChange = (newTz: string) => {
+    if (!activeTrack) return;
+    videoSyncManager.resyncTrack(activeTrack.id, sessions, undefined, newTz);
+  };
+
+  // 再同期ボタンハンドラ
+  const handleResync = () => {
+    if (!activeTrack) return;
+    videoSyncManager.resyncTrack(
+      activeTrack.id,
+      sessions,
+      activeTrack.videoTimezone || 'JST',
+      activeTrack.gpsTimezone || 'JST'
+    );
+  };
 
   // GPS タイムライン変化に合わせて動画の再生位置を追従 (ユーザーがグラフ等でシークした場合)
   useEffect(() => {
@@ -384,6 +424,103 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         </div>
       </div>
 
+      {/* タイムゾーン設定 & 再同期専用バー */}
+      {activeTrack && (
+        <div className="bg-[#151926] border-b border-[#242c3f] px-4 py-2 flex flex-wrap items-center justify-between gap-2.5 text-xs shrink-0 select-none">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* 動画タイムゾーン選択 */}
+            <div className="flex items-center gap-1.5 bg-[#1a2030] px-2.5 py-1 rounded-lg border border-[#2d3852]">
+              <Video size={13} className="text-red-400 shrink-0" />
+              <span className="text-slate-400 text-[11px] font-medium shrink-0">動画TZ:</span>
+              <select
+                value={activeTrack.videoTimezone || 'JST'}
+                onChange={e => handleVideoTzChange(e.target.value)}
+                className="bg-transparent text-slate-100 font-bold text-xs outline-none cursor-pointer"
+              >
+                {TIMEZONE_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value} className="bg-[#182030] text-slate-200">
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* デジスパイスGPSログタイムゾーン選択 */}
+            <div className="flex items-center gap-1.5 bg-[#1a2030] px-2.5 py-1 rounded-lg border border-[#2d3852]">
+              <Gauge size={13} className="text-blue-400 shrink-0" />
+              <span className="text-slate-400 text-[11px] font-medium shrink-0">デジスパイスTZ:</span>
+              <select
+                value={activeTrack.gpsTimezone || 'JST'}
+                onChange={e => handleGpsTzChange(e.target.value)}
+                className="bg-transparent text-slate-100 font-bold text-xs outline-none cursor-pointer"
+              >
+                {TIMEZONE_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value} className="bg-[#182030] text-slate-200">
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 対象走行枠セッション選択 (複数セッション読み込み時) */}
+            {sessions.length > 1 && (
+              <div className="flex items-center gap-1.5 bg-[#1a2030] px-2.5 py-1 rounded-lg border border-[#2d3852]">
+                <span className="text-slate-400 text-[11px] font-medium shrink-0">走行枠:</span>
+                <select
+                  value={activeTrack.matchedSessionId || ''}
+                  onChange={e => {
+                    videoSyncManager.setMatchedSession(activeTrack.id, e.target.value);
+                    videoSyncManager.resyncTrack(activeTrack.id, sessions, activeTrack.videoTimezone, activeTrack.gpsTimezone, e.target.value);
+                  }}
+                  className="bg-transparent text-slate-100 font-bold text-xs outline-none cursor-pointer max-w-[130px] truncate"
+                >
+                  {sessions.map(s => (
+                    <option key={s.id} value={s.id} className="bg-[#182030] text-slate-200">
+                      {s.sessionName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* 再同期ボタン */}
+            <button
+              onClick={handleResync}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
+              title="選択したタイムゾーンに基づいて動画とGPS走行データの時間差を再計算"
+            >
+              <RefreshCw size={13} />
+              再同期
+            </button>
+          </div>
+
+          {/* 時刻比較診断 & クイック時差補正 */}
+          <div className="flex items-center gap-2 text-[11px]">
+            {/* 9時間などの時差ズレ検出バッジ */}
+            {isLargeOffset && (
+              <div className="flex items-center gap-1.5 bg-amber-950/70 border border-amber-500/60 text-amber-300 px-2.5 py-1 rounded-lg shadow-sm">
+                <AlertTriangle size={13} className="text-amber-400 shrink-0" />
+                <span>約{Math.round(Math.abs(activeTrack.syncOffsetSec) / 3600)}時間ズレ検出</span>
+                <button
+                  onClick={() => videoSyncManager.shiftOffsetHours(activeTrack.id, activeTrack.syncOffsetSec > 0 ? -9 : 9)}
+                  className="px-2 py-0.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded text-[10px] cursor-pointer transition-colors"
+                  title="9時間の時差ズレをワンクリックで打ち消し補正"
+                >
+                  ±9h即時補正
+                </button>
+              </div>
+            )}
+
+            {/* 診断情報: 動画録画時刻 & GPS開始時刻 */}
+            <div className="hidden lg:flex items-center gap-2 bg-[#121622] px-3 py-1 rounded-lg border border-[#232b3d] text-slate-400 font-mono text-[11px]">
+              <span>動画: <strong className="text-slate-200">{formatTzDate(activeTrack.rawRecordedAt, activeTrack.videoTimezone || 'JST')}</strong></span>
+              <span className="text-slate-600">|</span>
+              <span>GPS: <strong className="text-slate-200">{formatTzDate(gpsStartTime, activeTrack.gpsTimezone || 'JST')}</strong></span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* メイン動画プレイヤー ＆ オーバーレイエリア (ドラッグ＆ドロップ対応) */}
       <div 
         onDragOver={handleDragOver}
@@ -507,36 +644,78 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
         {/* 同期オフセット微調整コントロール */}
         {activeTrack && (
-          <div className="flex items-center gap-3 text-xs bg-[#182030] px-3.5 py-1.5 rounded-xl border border-[#273248]">
+          <div className="flex flex-wrap items-center gap-2.5 text-xs bg-[#182030] px-3.5 py-1.5 rounded-xl border border-[#273248]">
             <span className="text-slate-400 flex items-center gap-1.5 text-[11px]">
               <Sliders size={13} className="text-amber-400" />
-              同期オフセット:
-              <span className="font-mono font-bold text-amber-400">
-                {activeTrack.syncOffsetSec >= 0 ? `+${activeTrack.syncOffsetSec.toFixed(2)}` : activeTrack.syncOffsetSec.toFixed(2)}s
-              </span>
+              オフセット:
+              <input
+                type="number"
+                step="0.05"
+                value={activeTrack.syncOffsetSec}
+                onChange={e => {
+                  const val = parseFloat(e.target.value);
+                  if (!isNaN(val)) videoSyncManager.updateOffset(activeTrack.id, val);
+                }}
+                className="w-24 bg-[#111520] border border-[#2d3850] text-amber-400 font-mono font-bold px-1.5 py-0.5 rounded text-right outline-none focus:border-amber-400 transition-colors"
+                title="オフセット秒数を直接手入力可能"
+              />
+              s
             </span>
 
+            {/* 微調整ボタン群 */}
             <div className="flex items-center gap-1">
               <button
+                onClick={() => handleNudgeOffset(-1.0)}
+                className="px-1.5 py-0.5 rounded bg-[#243048] hover:bg-[#2e3e5c] text-[10px] font-mono text-slate-300 transition-colors cursor-pointer"
+                title="1秒戻す (-1.0秒)"
+              >
+                -1s
+              </button>
+              <button
                 onClick={() => handleNudgeOffset(-0.05)}
-                className="px-2 py-0.5 rounded bg-[#243048] hover:bg-[#2e3e5c] text-[11px] font-mono text-slate-200 transition-colors cursor-pointer"
+                className="px-1.5 py-0.5 rounded bg-[#243048] hover:bg-[#2e3e5c] text-[10px] font-mono text-slate-200 transition-colors cursor-pointer"
                 title="1フレーム戻す (-0.05秒)"
               >
                 -0.05s
               </button>
               <button
                 onClick={() => handleNudgeOffset(0.05)}
-                className="px-2 py-0.5 rounded bg-[#243048] hover:bg-[#2e3e5c] text-[11px] font-mono text-slate-200 transition-colors cursor-pointer"
+                className="px-1.5 py-0.5 rounded bg-[#243048] hover:bg-[#2e3e5c] text-[10px] font-mono text-slate-200 transition-colors cursor-pointer"
                 title="1フレーム進める (+0.05秒)"
               >
                 +0.05s
+              </button>
+              <button
+                onClick={() => handleNudgeOffset(1.0)}
+                className="px-1.5 py-0.5 rounded bg-[#243048] hover:bg-[#2e3e5c] text-[10px] font-mono text-slate-300 transition-colors cursor-pointer"
+                title="1秒進める (+1.0秒)"
+              >
+                +1s
+              </button>
+            </div>
+
+            {/* 時差シフトクイックボタン */}
+            <div className="flex items-center gap-0.5 border-l border-[#2e3a52] pl-2">
+              <button
+                onClick={() => videoSyncManager.shiftOffsetHours(activeTrack.id, -9)}
+                className="px-1.5 py-0.5 rounded bg-[#20273a] hover:bg-[#2a354e] text-[10px] font-mono text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
+                title="-9時間シフト"
+              >
+                -9h
+              </button>
+              <button
+                onClick={() => videoSyncManager.shiftOffsetHours(activeTrack.id, 9)}
+                className="px-1.5 py-0.5 rounded bg-[#20273a] hover:bg-[#2a354e] text-[10px] font-mono text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
+                title="+9時間シフト"
+              >
+                +9h
               </button>
             </div>
 
             <button
               onClick={handleSyncCurrentFrame}
-              className="px-2.5 py-0.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-[11px] font-bold text-white transition-all shadow cursor-pointer ml-1"
-              title="現在の動画再生位置を、現在選択されているGPSログ時刻に同期"
+              className="px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-[11px] font-bold text-white transition-all shadow cursor-pointer ml-1"
+              title="現在の動画再生位置を、現在選択されているGPSログ時刻に合わせる"
             >
               現フレームで同期
             </button>
