@@ -3,10 +3,16 @@ import {
   Play, Pause, SkipBack, SkipForward, Video, Upload, 
   Save, FolderOpen, RefreshCw, Sliders, Eye, EyeOff, 
   Clock, Gauge, Plus, Trash2, CheckCircle2, ChevronRight,
-  Globe, AlertTriangle, Zap
+  Globe, AlertTriangle, Zap, Layers, ChevronLeft
 } from 'lucide-react';
 import { Session, TelemetryPoint, SelectedCarSlot } from '../types/telemetry';
 import { videoSyncManager, VideoTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs } from '../services/videoSyncManager';
+import { 
+  resolveChapterPlayback, 
+  getNextChapter, 
+  getPreviousChapter, 
+  VideoChapterGroup 
+} from '../services/videoChapterManager';
 
 interface VideoSyncWindowProps {
   sessions: Session[];
@@ -54,6 +60,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const baseLap = targetLap || baseSession?.laps.find(l => l.lapNumber === baseSelected?.lapNumber) || baseSession?.laps[0];
 
   const activeTrack = tracks.find(t => t.id === selectedTrackId);
+
+  // 現在選択中の動画トラックが属するチャプターグループ
+  const currentGroup = selectedTrackId ? videoSyncManager.getChapterGroupForTrack(selectedTrackId) : null;
 
   // タイムスタンプフォーマット関数
   const formatTzDate = (d: Date | null | undefined, tz: string): string => {
@@ -135,21 +144,46 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     );
   };
 
-  // GPS タイムライン変化に合わせて動画の再生位置を追従 (ユーザーが速度グラフ等でシークした場合)
+  // GPS タイムライン変化に合わせて動画の再生位置 & チャプター切り替えを追従 (ユーザーが速度グラフ等でシークした場合)
   useEffect(() => {
-    if (!videoRef.current || !activeTrack) return;
+    if (!activeTrack) return;
     // グラフ画面埋め込み時は、選択中ラップの開始秒を加味してセッション全体秒に変換
     const effectiveSessionTime = isGraphEmbedded && baseLap
       ? (baseLap.startTime + currentTimeSec)
       : currentTimeSec;
 
-    const targetVideoTime = effectiveSessionTime - activeTrack.syncOffsetSec;
-    if (targetVideoTime >= 0 && targetVideoTime <= (activeTrack.durationSec || 9999)) {
-      if (Math.abs(videoRef.current.currentTime - targetVideoTime) > 0.15) {
-        videoRef.current.currentTime = targetVideoTime;
+    // 1. チャプターグループが存在する場合、再生すべきチャプターを自動解決
+    if (currentGroup && currentGroup.tracks.length > 1) {
+      const resolution = resolveChapterPlayback(currentGroup, effectiveSessionTime);
+      if (resolution) {
+        if (resolution.activeTrack.track.id !== selectedTrackId) {
+          // チャプター境界を跨いだため、トラックをシームレス切り替え
+          setSelectedTrackId(resolution.activeTrack.track.id);
+          if (videoRef.current) {
+            videoRef.current.currentTime = resolution.localVideoTimeSec;
+            if (isPlaying) videoRef.current.play().catch(console.warn);
+          }
+          return;
+        } else {
+          // 同一チャプター内の再生位置調整
+          if (videoRef.current && Math.abs(videoRef.current.currentTime - resolution.localVideoTimeSec) > 0.15) {
+            videoRef.current.currentTime = resolution.localVideoTimeSec;
+          }
+          return;
+        }
       }
     }
-  }, [currentTimeSec, activeTrack, isGraphEmbedded, baseLap]);
+
+    // 2. 単独トラックの場合
+    if (videoRef.current) {
+      const targetVideoTime = effectiveSessionTime - activeTrack.syncOffsetSec;
+      if (targetVideoTime >= 0 && targetVideoTime <= (activeTrack.durationSec || 9999)) {
+        if (Math.abs(videoRef.current.currentTime - targetVideoTime) > 0.15) {
+          videoRef.current.currentTime = targetVideoTime;
+        }
+      }
+    }
+  }, [currentTimeSec, activeTrack?.id, currentGroup, isGraphEmbedded, baseLap, isPlaying]);
 
   // 再生/一時停止同期
   useEffect(() => {
@@ -456,11 +490,18 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 onChange={e => setSelectedTrackId(e.target.value)}
                 className="bg-[#182030] border border-[#2d3852] text-xs text-slate-200 rounded-lg px-2.5 py-1 outline-none max-w-xs truncate"
               >
-                {tracks.map(t => (
-                  <option key={t.id} value={t.id}>
-                    {t.fileName} {t.isAutoMatched ? '(JST自動同期済)' : ''}
-                  </option>
-                ))}
+                {tracks.map(t => {
+                  const grp = videoSyncManager.getChapterGroupForTrack(t.id);
+                  const cTrack = grp?.tracks.find(ct => ct.track.id === t.id);
+                  const chapterLabel = cTrack && grp && grp.tracks.length > 1
+                    ? `[Ch ${cTrack.chapterIndex}/${grp.tracks.length}] `
+                    : '';
+                  return (
+                    <option key={t.id} value={t.id}>
+                      {chapterLabel}{t.fileName} {t.isAutoMatched ? '(JST自動同期済)' : ''}
+                    </option>
+                  );
+                })}
               </select>
               {selectedTrackId && (
                 <button
@@ -642,6 +683,21 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               src={activeTrack.objectUrl}
               onTimeUpdate={handleTimeUpdate}
               onEnded={() => {
+                // GoPro / DJI などのチャプター分割ファイルがある場合、次のチャプターへシームレス移行
+                if (currentGroup && currentGroup.tracks.length > 1) {
+                  const nextChapter = getNextChapter(currentGroup, activeTrack.id);
+                  if (nextChapter) {
+                    console.log(`[VideoChapter] 次のチャプターへ自動連続再生: ${nextChapter.track.fileName}`);
+                    setSelectedTrackId(nextChapter.track.id);
+                    setTimeout(() => {
+                      if (videoRef.current) {
+                        videoRef.current.currentTime = 0;
+                        if (isPlaying) videoRef.current.play().catch(console.warn);
+                      }
+                    }, 50);
+                    return;
+                  }
+                }
                 if (isPlaying) onTogglePlay();
               }}
               playsInline
@@ -721,6 +777,94 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           </div>
         )}
       </div>
+
+      {/* チャプター分割動画 (GoPro/DJI等) ナビゲーションバー */}
+      {currentGroup && currentGroup.tracks.length > 1 && (
+        <div className="bg-[#121622] border-t border-[#1e2638] px-4 py-1.5 flex flex-wrap items-center justify-between gap-2.5 shrink-0 select-none text-xs">
+          <div className="flex items-center gap-2">
+            <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-200">
+              <Layers size={13} className="text-red-400 shrink-0" />
+              {currentGroup.brand === 'gopro' ? 'GoPro' : currentGroup.brand.toUpperCase()} {currentGroup.sessionId}
+              <span className="text-slate-400 font-normal">({currentGroup.tracks.length}チャプター連動, 計 {formatDuration(currentGroup.totalDurationSec)})</span>
+            </span>
+
+            {/* 前のチャプターへスキップ */}
+            <button
+              onClick={() => {
+                const prev = getPreviousChapter(currentGroup, activeTrack?.id || '');
+                if (prev) {
+                  setSelectedTrackId(prev.track.id);
+                  const newSessionTime = prev.track.syncOffsetSec;
+                  if (isGraphEmbedded && baseLap) {
+                    onSeekTime(Math.max(0, newSessionTime - baseLap.startTime));
+                  } else {
+                    onSeekTime(newSessionTime);
+                  }
+                }
+              }}
+              disabled={!getPreviousChapter(currentGroup, activeTrack?.id || '')}
+              className="p-1 rounded bg-[#182030] hover:bg-[#222c42] disabled:opacity-30 text-slate-300 transition-colors cursor-pointer"
+              title="前のチャプターへ"
+            >
+              <ChevronLeft size={13} />
+            </button>
+
+            {/* チャプターピルボタン一覧 */}
+            <div className="flex items-center gap-1">
+              {currentGroup.tracks.map((ct) => {
+                const isCurrent = ct.track.id === activeTrack?.id;
+                return (
+                  <button
+                    key={ct.track.id}
+                    onClick={() => {
+                      setSelectedTrackId(ct.track.id);
+                      const targetSessionTime = ct.track.syncOffsetSec;
+                      if (isGraphEmbedded && baseLap) {
+                        onSeekTime(Math.max(0, targetSessionTime - baseLap.startTime));
+                      } else {
+                        onSeekTime(targetSessionTime);
+                      }
+                    }}
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium transition-all cursor-pointer ${
+                      isCurrent
+                        ? 'bg-red-600 text-white font-bold shadow-xs'
+                        : 'bg-[#1a2030] text-slate-400 hover:text-slate-200 border border-[#263147]'
+                    }`}
+                    title={`${ct.track.fileName} (長さ: ${formatDuration(ct.durationSec)})`}
+                  >
+                    Ch {ct.chapterIndex} ({formatDuration(ct.durationSec)})
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* 次のチャプターへスキップ */}
+            <button
+              onClick={() => {
+                const next = getNextChapter(currentGroup, activeTrack?.id || '');
+                if (next) {
+                  setSelectedTrackId(next.track.id);
+                  const targetSessionTime = next.track.syncOffsetSec;
+                  if (isGraphEmbedded && baseLap) {
+                    onSeekTime(Math.max(0, targetSessionTime - baseLap.startTime));
+                  } else {
+                    onSeekTime(targetSessionTime);
+                  }
+                }
+              }}
+              disabled={!getNextChapter(currentGroup, activeTrack?.id || '')}
+              className="p-1 rounded bg-[#182030] hover:bg-[#222c42] disabled:opacity-30 text-slate-300 transition-colors cursor-pointer"
+              title="次のチャプターへ"
+            >
+              <ChevronRight size={13} />
+            </button>
+          </div>
+
+          <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/60 border border-emerald-800/70 px-2 py-0.5 rounded">
+            シームレス自動連続再生: 有効
+          </span>
+        </div>
+      )}
 
       {/* 動画タイムライン シークバー */}
       {activeTrack && activeTrack.durationSec && (() => {

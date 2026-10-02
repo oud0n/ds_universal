@@ -24,3 +24,6 @@ npm-debug.log*
 # Python
 __pycache__/
 *.pyc
+
+# Scratch & test scripts
+scratch/

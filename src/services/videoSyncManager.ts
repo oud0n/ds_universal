@@ -4,6 +4,13 @@
 import { Session } from '../types/telemetry';
 import { parseVideoMetadata, VideoMetadata } from './videoMetadataParser';
 import { detectCircuitTimezone, scanBestTimezoneOffset } from './masterTimelineEngine';
+import { 
+  groupVideoTracksByChapter, 
+  syncGroupOffsets, 
+  VideoChapterGroup, 
+  VideoChapterTrack,
+  findChapterGroupForTrack
+} from './videoChapterManager';
 
 export type TimezoneMode = 'JST' | 'UTC' | 'LOCAL' | '+8' | '+1' | '-5' | '-8';
 
@@ -194,8 +201,18 @@ class VideoSyncManager {
       track.syncOffsetSec = offset;
       track.isAutoMatched = true;
       console.log(`[VideoSync] 再同期完了: ${track.fileName} -> ${targetSession.sessionName} (オフセット: ${offset}s)`);
+
+      const group = this.getChapterGroupForTrack(trackId);
+      if (group) {
+        const cTrack = group.tracks.find(ct => ct.track.id === trackId);
+        if (cTrack) {
+          const newBase = offset - cTrack.groupOffsetSec;
+          syncGroupOffsets(group, newBase);
+        }
+      }
     }
 
+    this.updateChapterGroupOffsets();
     if (this.onTracksUpdated) this.onTracksUpdated(this.videos);
     return track;
   }
@@ -251,6 +268,35 @@ class VideoSyncManager {
         console.log(`[VideoSync] 自動TZ同期完了: ${track.fileName} -> ${bestSession.fileName} (オフセット: ${bestOffset}s, TZ: ${track.videoTimezone}/${track.gpsTimezone}, シフト: ${detectedShift}h)`);
       }
     }
+
+    // チャプター分割ファイルが存在する場合、チャプターグループの連動オフセットを適用
+    this.updateChapterGroupOffsets();
+  }
+
+  // チャプターグループの検出とオフセット連動更新
+  public updateChapterGroupOffsets(): void {
+    const { groups } = groupVideoTracksByChapter(this.videos);
+    for (const group of groups) {
+      if (group.tracks.length > 0) {
+        // 先頭チャプターの offset / matchedSessionId をグループ全体に波及
+        const firstTrack = group.tracks[0].track;
+        if (firstTrack.matchedSessionId) {
+          group.matchedSessionId = firstTrack.matchedSessionId;
+        }
+        syncGroupOffsets(group, firstTrack.syncOffsetSec);
+      }
+    }
+  }
+
+  // 全チャプターグループを取得
+  public getChapterGroups(): VideoChapterGroup[] {
+    return groupVideoTracksByChapter(this.videos).groups;
+  }
+
+  // 特定トラックが属するチャプターグループを取得
+  public getChapterGroupForTrack(trackId: string): VideoChapterGroup | null {
+    const { groups } = groupVideoTracksByChapter(this.videos);
+    return findChapterGroupForTrack(groups, trackId);
   }
 
   // 手動時差シフト (例: ±9時間、±1時間のズレを一発補正)
@@ -259,6 +305,19 @@ class VideoSyncManager {
     if (track) {
       track.syncOffsetSec = Number((track.syncOffsetSec + deltaHours * 3600).toFixed(3));
       track.isAutoMatched = false;
+
+      // チャプターグループ内の場合、連動して他のチャプターもシフト
+      const group = this.getChapterGroupForTrack(trackId);
+      if (group) {
+        const cTrack = group.tracks.find(ct => ct.track.id === trackId);
+        if (cTrack) {
+          // cTrack.track.syncOffsetSec = baseSyncOffsetSec + cTrack.groupOffsetSec
+          // 逆算して baseSyncOffsetSec を更新
+          const newBase = track.syncOffsetSec - cTrack.groupOffsetSec;
+          syncGroupOffsets(group, newBase);
+        }
+      }
+
       if (this.onTracksUpdated) this.onTracksUpdated(this.videos);
     }
   }
@@ -269,6 +328,17 @@ class VideoSyncManager {
     if (track) {
       track.syncOffsetSec = Number(offsetSec.toFixed(3));
       track.isAutoMatched = false;
+
+      // チャプターグループ内の場合、連動して他のチャプターもシフト
+      const group = this.getChapterGroupForTrack(trackId);
+      if (group) {
+        const cTrack = group.tracks.find(ct => ct.track.id === trackId);
+        if (cTrack) {
+          const newBase = track.syncOffsetSec - cTrack.groupOffsetSec;
+          syncGroupOffsets(group, newBase);
+        }
+      }
+
       if (this.onTracksUpdated) this.onTracksUpdated(this.videos);
     }
   }
