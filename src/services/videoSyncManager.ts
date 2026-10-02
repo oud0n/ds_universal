@@ -3,6 +3,7 @@
  */
 import { Session } from '../types/telemetry';
 import { parseVideoMetadata, VideoMetadata } from './videoMetadataParser';
+import { detectCircuitTimezone, scanBestTimezoneOffset } from './masterTimelineEngine';
 
 export type TimezoneMode = 'JST' | 'UTC' | 'LOCAL' | '+8' | '+1' | '-5' | '-8';
 
@@ -199,44 +200,55 @@ class VideoSyncManager {
     return track;
   }
 
-  // タイムスタンプによる全動画トラックのGPSセッション自動照合
+  // タイムスタンプによる全動画トラックのGPSセッション自動照合 (TZ完全自動判定 & 時差スキャン対応)
   public autoMatchTracks(sessions: Session[]): void {
     if (sessions.length === 0 || this.videos.length === 0) return;
 
     for (const track of this.videos) {
       if (!track.rawRecordedAt) continue;
 
-      const vidTz = track.videoTimezone || this.defaultVideoTimezone;
-      const gpsTz = track.gpsTimezone || this.defaultGpsTimezone;
-      const vidUtcMs = track.rawRecordedAt.getTime() - getTimezoneOffsetMs(vidTz);
-
       let bestSession: Session | null = null;
-      let minDiffMs = Infinity;
+      let minDiffSec = Infinity;
+      let bestOffset = 0;
+      let detectedCircuitTz = 'JST';
+      let detectedShift = 0;
 
       for (const sess of sessions) {
         if (sess.points.length === 0) continue;
         const p0 = sess.points[0];
-        const p0Time = p0.timestamp ? new Date(p0.timestamp).getTime() : 0;
-        if (p0Time === 0) continue;
+        if (!p0.timestamp) continue;
+        const p0Date = new Date(p0.timestamp);
 
-        const sessUtcMs = p0Time - getTimezoneOffsetMs(gpsTz);
-        const diffMs = Math.abs(vidUtcMs - sessUtcMs);
+        // 1. サーキット現地タイムゾーンの自動判定 (日本ならJST)
+        const circuitTz = detectCircuitTimezone(p0.latitude, p0.longitude);
 
-        // 同一セッション時間帯（±2時間以内、またはもっとも近いセッション）
-        if (diffMs < minDiffMs && diffMs < 2 * 3600 * 1000) {
-          minDiffMs = diffMs;
+        // 2. 時差スキャン (0h, ±9h, ±8h 等のズレを自動検出)
+        const scan = scanBestTimezoneOffset(track.rawRecordedAt, p0Date, circuitTz);
+        const absDiff = Math.abs(scan.bestOffsetSec);
+
+        if (absDiff < minDiffSec) {
+          minDiffSec = absDiff;
           bestSession = sess;
+          bestOffset = scan.bestOffsetSec;
+          detectedCircuitTz = circuitTz;
+          detectedShift = scan.detectedShiftHours;
         }
       }
 
       if (bestSession && bestSession.points.length > 0 && bestSession.points[0].timestamp) {
-        const p0Date = new Date(bestSession.points[0].timestamp);
-        const offsetSec = this.calculateSyncOffset(track.rawRecordedAt, vidTz, p0Date, gpsTz);
-
         track.matchedSessionId = bestSession.id;
-        track.syncOffsetSec = offsetSec;
+        track.syncOffsetSec = bestOffset;
+        track.gpsTimezone = detectedCircuitTz;
+        // もし動画がUTCで記録されていた場合 (9時間ズレ検出)
+        if (detectedShift === 9) {
+          track.videoTimezone = 'UTC';
+        } else if (detectedShift === -9) {
+          track.videoTimezone = 'JST';
+        } else {
+          track.videoTimezone = detectedCircuitTz;
+        }
         track.isAutoMatched = true;
-        console.log(`[VideoSync] 自動同期マッチ: ${track.fileName} -> ${bestSession.fileName} (オフセット: ${offsetSec}秒)`);
+        console.log(`[VideoSync] 自動TZ同期完了: ${track.fileName} -> ${bestSession.fileName} (オフセット: ${bestOffset}s, TZ: ${track.videoTimezone}/${track.gpsTimezone}, シフト: ${detectedShift}h)`);
       }
     }
   }

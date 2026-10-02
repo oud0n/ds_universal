@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, BarChart2, List, ShieldCheck, Video } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, BarChart2, List, ShieldCheck, Video, Download } from 'lucide-react';
 import { SelectedCarSlot, Session } from '../types/telemetry';
 
 interface HeaderProps {
@@ -14,6 +14,7 @@ interface HeaderProps {
   playbackSpeed: number;
   onChangePlaybackSpeed: (speed: number) => void;
   onOpenFile: () => void;
+  onExportNmea?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -27,7 +28,8 @@ export const Header: React.FC<HeaderProps> = ({
   onStepBack,
   playbackSpeed,
   onChangePlaybackSpeed,
-  onOpenFile
+  onOpenFile,
+  onExportNmea
 }) => {
   return (
     <header className="bg-[#161922] border-b border-[#262c3d] text-slate-200 px-4 py-2 flex items-center justify-between select-none">
@@ -150,10 +152,22 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* ファイル操作 */}
       <div className="flex items-center gap-2">
+        {/* NMEA-0183 出力 (RaceChrono連携) */}
+        {sessions.length > 0 && onExportNmea && (
+          <button
+            onClick={onExportNmea}
+            className="flex items-center gap-1.5 text-xs bg-[#1f2638] hover:bg-[#2b354d] text-slate-200 border border-[#374463] font-medium px-3 py-1.5 rounded transition-all cursor-pointer"
+            title="現在の走行データを RaceChrono 互換の NMEA-0183 (.nmea) としてエクスポート"
+          >
+            <Download size={13} className="text-cyan-400" />
+            NMEA出力
+          </button>
+        )}
+
         {/* ファイル読み込み */}
         <button
           onClick={onOpenFile}
-          className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-500 text-white font-medium px-3.5 py-1.5 rounded shadow transition-all hover:shadow-red-600/30"
+          className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-500 text-white font-medium px-3.5 py-1.5 rounded shadow transition-all hover:shadow-red-600/30 cursor-pointer"
         >
           <FolderOpen size={14} />
           ファイル読込
