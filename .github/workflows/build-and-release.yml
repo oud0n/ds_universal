@@ -1,0 +1,73 @@
+name: Build & Release Multiplatform
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target_cmd: npm run dist:win
+            artifact_pattern: release/*.exe
+          - os: macos-latest
+            target_cmd: npm run dist:mac
+            artifact_pattern: |
+              release/*.dmg
+              release/*.zip
+          - os: ubuntu-latest
+            target_cmd: npm run dist:linux
+            artifact_pattern: |
+              release/*.AppImage
+              release/*.deb
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check & Vite build
+        run: npm run build
+
+      - name: Build Electron Package
+        run: ${{ matrix.target_cmd }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Artifacts (Branch pushes)
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: ds-universal-${{ matrix.os }}
+          path: ${{ matrix.artifact_pattern }}
+
+      - name: Release to GitHub (Tag pushes)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact_pattern }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

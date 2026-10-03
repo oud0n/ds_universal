@@ -1,6 +1,6 @@
 {
   "name": "ds-universal",
-  "version": "1.0.0",
+  "version": "0.5.0",
   "description": "DigiSpice Universal Suite - GPS Data Logger Communication & Motorsports Telemetry Analyser",
   "type": "module",
   "main": "electron/main.cjs",
