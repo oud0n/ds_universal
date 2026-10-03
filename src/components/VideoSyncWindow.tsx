@@ -27,6 +27,7 @@ import {
   exportBurnedInVideo, 
   VideoExportController 
 } from '../services/telemetryVideoExporter';
+import { MasterTimelineTrackBar } from './MasterTimelineTrackBar';
 
 export type VideoViewMode = 'single' | 'split' | 'pip';
 export type PipPosition = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
@@ -212,6 +213,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const [viewMode, setViewMode] = useState<VideoViewMode>('single');
   const [pipPosition, setPipPosition] = useState<PipPosition>('bottom-right');
   const [isSubMuted, setIsSubMuted] = useState<boolean>(true);
+
+  // シークバースコープ ('lap': 速度ウィンドウ選択中ラップ時間, 'session': セッション全体時間)
+  const [seekbarScope, setSeekbarScope] = useState<'lap' | 'session'>('lap');
 
   // 表示切替
   const [showOverlay, setShowOverlay] = useState<boolean>(true);
@@ -1136,37 +1140,101 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         </div>
       )}
 
-      {/* 5. 動画タイムライン シークバー */}
-      {activeTrack && activeTrack.durationSec && (() => {
-        const effectiveTime = isGraphEmbedded && baseLap ? (baseLap.startTime + currentTimeSec) : currentTimeSec;
-        const currentVideoSec = Math.max(0, effectiveTime - activeTrack.syncOffsetSec);
+      {/* 5. マスタータイムライン マルチトラックインスペクター (NLE風) */}
+      {(() => {
+        const effectiveSessionTime = isGraphEmbedded && baseLap ? (baseLap.startTime + currentTimeSec) : currentTimeSec;
         return (
-          <div className="bg-[#10141f] border-t border-[#1d2333] px-3 py-1 flex items-center gap-2.5 shrink-0 select-none">
-            <span className="text-[10px] font-mono text-slate-400 min-w-[50px]">
-              {formatDuration(currentVideoSec)}
+          <MasterTimelineTrackBar
+            session={baseSession}
+            baseLap={baseLap}
+            activeTrack={activeTrack}
+            subTrack={subTrack}
+            chapterGroup={currentGroup}
+            pins={pins}
+            currentSessionTimeSec={effectiveSessionTime}
+            onSeekSessionTime={(targetSessionTime) => {
+              if (isGraphEmbedded && baseLap) {
+                onSeekTime(Math.max(0, targetSessionTime - baseLap.startTime));
+              } else {
+                onSeekTime(targetSessionTime);
+              }
+            }}
+            formatDuration={formatDuration}
+          />
+        );
+      })()}
+
+      {/* 6. 速度ウィンドウ完全同期 シークバー (Lap/Session切替対応) */}
+      {(() => {
+        const effectiveSessionTime = isGraphEmbedded && baseLap ? (baseLap.startTime + currentTimeSec) : currentTimeSec;
+        const isLapMode = seekbarScope === 'lap' && baseLap;
+        
+        let sessionMax = 60;
+        if (baseSession && baseSession.points.length > 0) {
+          sessionMax = baseSession.points[baseSession.points.length - 1].time;
+        } else if (activeTrack) {
+          sessionMax = activeTrack.syncOffsetSec + (activeTrack.durationSec || 60);
+        }
+
+        const maxVal = isLapMode ? (baseLap.lapTime || 60) : sessionMax;
+        const curVal = isLapMode ? currentTimeSec : effectiveSessionTime;
+
+        return (
+          <div className="bg-[#10141f] border-t border-[#1d2333] px-3 py-1 flex items-center justify-between gap-2.5 shrink-0 select-none">
+            {/* スコープ切替スイッチ (Lap / Session) */}
+            {baseLap && (
+              <div className="flex items-center rounded border border-[#263147] bg-[#161a26] text-[10px] overflow-hidden shrink-0">
+                <button
+                  onClick={() => setSeekbarScope('lap')}
+                  className={`px-2 py-0.5 font-bold transition-colors cursor-pointer ${
+                    isLapMode ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="速度ウィンドウで選択中のラップ時間 (0〜lapTime) に同期"
+                >
+                  L{baseLap.lapNumber}
+                </button>
+                <button
+                  onClick={() => setSeekbarScope('session')}
+                  className={`px-2 py-0.5 font-bold transition-colors cursor-pointer ${
+                    !isLapMode ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="セッション全体の絶対時間に同期"
+                >
+                  全体
+                </button>
+              </div>
+            )}
+
+            {/* 現在時刻表示 */}
+            <span className="text-[11px] font-mono text-emerald-400 min-w-[50px] font-bold">
+              {formatDuration(curVal)}
             </span>
+
+            {/* スライダー本体 (速度ウィンドウと完全同期) */}
             <input
               type="range"
               min={0}
-              max={activeTrack.durationSec}
-              step={0.1}
-              value={Math.min(activeTrack.durationSec, currentVideoSec)}
+              max={maxVal}
+              step={0.05}
+              value={Math.max(0, Math.min(maxVal, curVal))}
               onChange={e => {
-                const vTime = parseFloat(e.target.value);
-                if (videoRef.current) {
-                  videoRef.current.currentTime = vTime;
-                }
-                const sessionTime = vTime + activeTrack.syncOffsetSec;
-                if (isGraphEmbedded && baseLap) {
-                  onSeekTime(Math.max(0, sessionTime - baseLap.startTime));
+                const val = parseFloat(e.target.value);
+                if (isLapMode) {
+                  onSeekTime(val);
                 } else {
-                  onSeekTime(sessionTime);
+                  if (isGraphEmbedded && baseLap) {
+                    onSeekTime(Math.max(0, val - baseLap.startTime));
+                  } else {
+                    onSeekTime(val);
+                  }
                 }
               }}
               className="flex-1 h-1 bg-slate-700 rounded appearance-none cursor-pointer accent-red-500"
             />
-            <span className="text-[10px] font-mono text-slate-500 min-w-[50px] text-right">
-              {formatDuration(activeTrack.durationSec)}
+
+            {/* 終了時刻表示 */}
+            <span className="text-[11px] font-mono text-slate-400 min-w-[50px] text-right font-medium">
+              {formatDuration(maxVal)}
             </span>
           </div>
         );
