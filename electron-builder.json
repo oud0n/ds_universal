@@ -1,6 +1,7 @@
 {
   "appId": "com.oud0n.dsuniversal",
   "productName": "DigiSpice Universal Suite",
+  "publish": null,
   "directories": {
     "output": "release"
   },
