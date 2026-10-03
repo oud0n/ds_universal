@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, BarChart2, List, ShieldCheck, Video, Download } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, BarChart2, List, ShieldCheck, Video, Download, Coffee } from 'lucide-react';
 import { SelectedCarSlot, Session } from '../types/telemetry';
 
 interface HeaderProps {
@@ -15,6 +15,7 @@ interface HeaderProps {
   onChangePlaybackSpeed: (speed: number) => void;
   onOpenFile: () => void;
   onExportNmea?: () => void;
+  onOpenDonate?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -29,7 +30,8 @@ export const Header: React.FC<HeaderProps> = ({
   playbackSpeed,
   onChangePlaybackSpeed,
   onOpenFile,
-  onExportNmea
+  onExportNmea,
+  onOpenDonate
 }) => {
   return (
     <header className="bg-[#131620] border-b border-[#222838] text-slate-200 px-4 py-2 flex items-center justify-between select-none">
@@ -172,6 +174,18 @@ export const Header: React.FC<HeaderProps> = ({
           <FolderOpen size={13} />
           ファイル読込
         </button>
+
+        {/* 開発支援 / Buy Me a Coffee */}
+        {onOpenDonate && (
+          <button
+            onClick={onOpenDonate}
+            className="flex items-center gap-1.5 text-xs bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 hover:text-amber-200 border border-amber-500/30 hover:border-amber-400/50 font-medium px-2.5 py-1.5 rounded transition-colors cursor-pointer"
+            title="Buy Me a Coffee で開発者を支援"
+          >
+            <Coffee size={13} className="text-amber-400" />
+            <span className="hidden sm:inline">開発支援</span>
+          </button>
+        )}
       </div>
     </header>
   );

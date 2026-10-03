@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -24,6 +24,15 @@ function createWindow() {
       contextIsolation: true,
       sandbox: false
     }
+  });
+
+  // 外部リンク (Buy Me a Coffee, GitHub等) をOS標準ブラウザで開く
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https:') || url.startsWith('http:')) {
+      shell.openExternal(url);
+      return { action: 'deny' };
+    }
+    return { action: 'allow' };
   });
 
   // Web Serial API の自動検出 & 自動選択ハンドラ (デジスパイスIV VID: 0x2DCF / 11727, PID: 0x6002 / 24578)
@@ -171,13 +180,24 @@ function createWindow() {
       label: 'ヘルプ',
       submenu: [
         {
+          label: '開発者を支援 (Buy Me a Coffee)...',
+          click: () => {
+            if (mainWindow) {
+              mainWindow.webContents.send('open-donate-modal');
+            } else {
+              shell.openExternal('https://buymeacoffee.com/oud0n');
+            }
+          }
+        },
+        { type: 'separator' },
+        {
           label: 'DigiSpice Universal Suite について',
           click: () => {
             dialog.showMessageBox(mainWindow, {
               type: 'info',
               title: 'バージョン情報',
-              message: 'DigiSpice Universal Suite v1.0.0',
-              detail: 'デジスパイスIV USB直接通信・ダウンロード & オフライン走行解析ユニバーサルアプリケーション'
+              message: 'DigiSpice Universal Suite v0.6.0',
+              detail: 'デジスパイスIV USB直接通信・ダウンロード & オフライン走行解析ユニバーサルアプリケーション\n作者: oud0n (https://github.com/oud0n/ds_universal)'
             });
           }
         }
@@ -192,6 +212,15 @@ function createWindow() {
     mainWindow = null;
   });
 }
+
+// 外部URL起動 IPC ハンドラ
+ipcMain.handle('open-external', async (_event, url) => {
+  if (url && (url.startsWith('https:') || url.startsWith('http:'))) {
+    await shell.openExternal(url);
+    return true;
+  }
+  return false;
+});
 
 // バイナリファイル保存 IPC ハンドラ
 ipcMain.handle('save-binary-file', async (event, { defaultName, dataArray }) => {

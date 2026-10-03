@@ -4,9 +4,10 @@
 
 ![対応OS](https://img.shields.io/badge/OS-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 ![検証状況](https://img.shields.io/badge/Verified-Windows%20Only-amber)
-![バージョン](https://img.shields.io/badge/Version-0.5.0-red)
+![バージョン](https://img.shields.io/badge/Version-0.6.0-red)
 ![デバイス](https://img.shields.io/badge/Device-DigSpice%20IV-red)
 ![ライセンス](https://img.shields.io/badge/License-MIT-brightgreen)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-oud0n-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/oud0n)
 
 > [!WARNING]
 > ### ⚠️ 動作確認状況について（重要）
@@ -98,6 +99,15 @@ npm run dist:win   # Windows用 (.exe, .zip)
 npm run dist:mac   # macOS用 (.dmg, .zip)
 npm run dist:linux # Linux用 (.deb, .zip)
 ```
+
+---
+
+## ☕ 開発者を支援（Buy Me a Coffee）
+
+**DigiSpice Universal Suite (`ds_universal`)** は有志による完全オープンソースプロジェクトです。  
+サーキット現地での実車走行テスト・GPSログ検証、Mac / Linux 環境への対応・維持、GoPro車載動画とのミリ秒精度同期やテレメトリオーバーレイ機能の開発を継続するため、コーヒー1杯（$3〜）からの温かいご支援をいただけると大変励みになります！☕🏎️
+
+👉 **[Buy Me a Coffee で oud0n を支援する](https://buymeacoffee.com/oud0n)**
 
 ---
 

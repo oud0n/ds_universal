@@ -19,6 +19,7 @@ import { VideoSyncWindow } from './components/VideoSyncWindow';
 import { DataTab } from './components/DataTab';
 import { LoggerTab } from './components/LoggerTab';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
+import { DonateModal } from './components/DonateModal';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { SplitResizer } from './components/SplitResizer';
 import { exportSessionToNmea, triggerFileDownload } from './services/nmeaExporter';
@@ -60,6 +61,7 @@ export const App: React.FC = () => {
 
   // モーダル
   const [isCircuitEditorOpen, setIsCircuitEditorOpen] = useState(false);
+  const [isDonateModalOpen, setIsDonateModalOpen] = useState(false);
 
   // 非表示ファイルインプット参照
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -166,6 +168,12 @@ export const App: React.FC = () => {
             console.error('Electron file open error:', err);
           }
         }
+      });
+    }
+
+    if (nav.electronAPI?.onOpenDonateModal) {
+      nav.electronAPI.onOpenDonateModal(() => {
+        setIsDonateModalOpen(true);
       });
     }
   }, []);
@@ -457,6 +465,7 @@ export const App: React.FC = () => {
         onChangePlaybackSpeed={setPlaybackSpeed}
         onOpenFile={() => fileInputRef.current?.click()}
         onExportNmea={sessions.length > 0 ? handleExportCurrentNmea : undefined}
+        onOpenDonate={() => setIsDonateModalOpen(true)}
       />
 
       {/* メインコンテンツ */}
@@ -721,6 +730,12 @@ export const App: React.FC = () => {
             })
           );
         }}
+      />
+
+      {/* 開発支援 (Buy Me a Coffee) モーダル */}
+      <DonateModal
+        isOpen={isDonateModalOpen}
+        onClose={() => setIsDonateModalOpen(false)}
       />
     </div>
   );
