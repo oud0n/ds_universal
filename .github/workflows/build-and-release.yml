@@ -23,6 +23,7 @@ jobs:
             target_cmd: npm run dist:win
             artifact_pattern: |
               release/*.exe
+              release/*.zip
           - os: macos-latest
             target_cmd: npm run dist:mac
             artifact_pattern: |
@@ -31,8 +32,8 @@ jobs:
           - os: ubuntu-latest
             target_cmd: npm run dist:linux
             artifact_pattern: |
-              release/*.AppImage
               release/*.deb
+              release/*.zip
 
     steps:
       - name: Checkout code

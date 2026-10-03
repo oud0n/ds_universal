@@ -60,13 +60,13 @@
 
 ## 📥 ダウンロード & インストール
 
-[GitHub Releases](https://github.com/oud0n/ds_universal/releases) より、ご利用のOSに合わせた最新のインストーラー / バイナリをダウンロードしてください。
+[GitHub Releases](https://github.com/oud0n/ds_universal/releases) より、ご利用のOSに合わせた最新のインストーラー / zip版をダウンロードしてください。
 
-| OS | 配布形式 | 動作状況 |
+| OS | 配布形式（インストーラー版 / zip版） | 動作状況 |
 | :--- | :--- | :--- |
-| **Windows** | `.exe` (NSISインストーラー / ポータブル版) | **動作確認済み (推奨)** |
-| **macOS** | `.dmg` / `.zip` (Intel & Apple Silicon ユニバーサル) | ビルド配布中（未検証） |
-| **Linux** | `.AppImage` / `.deb` (x64) | ビルド配布中（未検証） |
+| **Windows** | `.exe` (インストーラー) / `.zip` (ポータブル版) | **動作確認済み (推奨)** |
+| **macOS** | `.dmg` (インストーラー) / `.zip` (Intel & Apple Silicon) | ビルド配布中（未検証） |
+| **Linux** | `.deb` (インストーラー) / `.zip` (x64) | ビルド配布中（未検証） |
 
 ---
 
@@ -94,13 +94,22 @@ npm start
 npm run build
 
 # 各OS向けパッケージング
-npm run dist:win   # Windows用 (.exe)
+npm run dist:win   # Windows用 (.exe, .zip)
 npm run dist:mac   # macOS用 (.dmg, .zip)
-npm run dist:linux # Linux用 (.AppImage, .deb)
+npm run dist:linux # Linux用 (.deb, .zip)
 ```
+
+---
+
+## ⚖️ 商標および免責事項（Disclaimer）
+
+- **商標について**: 「デジスパイス」および「DigSpice」は、デジスパイス株式会社の商標または登録商標です。その他の製品名、社名等は各社の商標または登録商標です。
+- **非公式互換ソフトウェア**: 本ソフトウェア（`ds_universal`）は有志によって開発されている非公式（サードパーティ）の互換ツールであり、デジスパイス株式会社とは一切の関係、提携、公認はありません。
+- **免責**: 本ソフトウェアの使用、または使用不能によって生じたいかなる損害・機器の不具合についても、開発者は一切の責任を負いません。各自の責任においてご利用ください。
 
 ---
 
 ## 📜 ライセンス
 
 MIT License
+

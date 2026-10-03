@@ -1,6 +1,7 @@
 # Packet captures / large binary dumps
 wireshark/
 sample/
+sample_doc/
 public/samples/
 public/circuit_data/
 *.pcapng
