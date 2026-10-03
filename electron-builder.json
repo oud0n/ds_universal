@@ -51,6 +51,8 @@
         "arch": ["x64"]
       }
     ],
-    "category": "Utility"
+    "category": "Utility",
+    "maintainer": "oud0n <oud0n@users.noreply.github.com>",
+    "syncDesktopName": true
   }
 }

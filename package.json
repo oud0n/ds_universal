@@ -2,6 +2,11 @@
   "name": "ds-universal",
   "version": "0.5.0",
   "description": "DigiSpice Universal Suite - GPS Data Logger Communication & Motorsports Telemetry Analyser",
+  "author": {
+    "name": "oud0n",
+    "email": "oud0n@users.noreply.github.com"
+  },
+  "desktopName": "ds-universal.desktop",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
