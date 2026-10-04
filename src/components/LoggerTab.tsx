@@ -163,12 +163,21 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
     URL.revokeObjectURL(url);
   };
 
+  const [isOpeningAnalyser, setIsOpeningAnalyser] = useState<boolean>(false);
+
   // ダウンロードしたデータを解析画面で開く
-  const handleOpenInAnalyser = () => {
-    if (!downloadedData || !onLoadSession) return;
-    onLoadSession(downloadedData.fileName, downloadedData.buffer.buffer as ArrayBuffer);
-    if (onNavigateToGraph) {
-      onNavigateToGraph();
+  const handleOpenInAnalyser = async () => {
+    if (!downloadedData || !onLoadSession || isOpeningAnalyser) return;
+    try {
+      setIsOpeningAnalyser(true);
+      await onLoadSession(downloadedData.fileName, downloadedData.buffer.buffer as ArrayBuffer);
+      if (onNavigateToGraph) {
+        onNavigateToGraph();
+      }
+    } catch (err: any) {
+      alert(`解析画面での展開エラー: ${err?.message || err}`);
+    } finally {
+      setIsOpeningAnalyser(false);
     }
   };
 
@@ -332,10 +341,20 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
                 <div className="flex flex-wrap gap-2.5 pt-1">
                   <button
                     onClick={handleOpenInAnalyser}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all shadow-md cursor-pointer"
+                    disabled={isOpeningAnalyser}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all shadow-md cursor-pointer disabled:opacity-50"
                   >
-                    <PlayCircle size={16} />
-                    このデータを即座に解析する (グラフへ移動)
+                    {isOpeningAnalyser ? (
+                      <>
+                        <RefreshCw size={16} className="animate-spin" />
+                        解析データ展開中...
+                      </>
+                    ) : (
+                      <>
+                        <PlayCircle size={16} />
+                        このデータを即座に解析する (グラフへ移動)
+                      </>
+                    )}
                   </button>
                   <button
                     onClick={handleSaveFile}

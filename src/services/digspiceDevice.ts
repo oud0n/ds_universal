@@ -25,6 +25,8 @@ export class DigSpiceDevice {
   private pendingLineResolvers: Array<(line: string) => void> = [];
   private streamingHandler: ((line: string) => void) | null = null;
   private isBusy: boolean = false;
+  private keepReading: boolean = false;
+  private readLoopPromise: Promise<void> | null = null;
 
   public onLogMessage?: (type: 'tx' | 'rx' | 'sys' | 'err', msg: string) => void;
 
@@ -90,29 +92,38 @@ export class DigSpiceDevice {
     }
 
     this.log('sys', 'シリアルポートを 115200 bps でオープンしました。');
-    this.startReadLoop();
+    this.keepReading = true;
+    this.readLoopPromise = this.startReadLoop();
     return true;
   }
 
   public async disconnect(): Promise<void> {
     this.isBusy = false;
     this.streamingHandler = null;
+    this.keepReading = false;
 
     if (this.reader) {
       try {
         await this.reader.cancel();
-        this.reader.releaseLock();
       } catch (e) {
-        console.warn(e);
+        console.warn('reader.cancel warn:', e);
       }
-      this.reader = null;
+    }
+
+    if (this.readLoopPromise) {
+      try {
+        await this.readLoopPromise;
+      } catch (e) {
+        console.warn('readLoopPromise warn:', e);
+      }
+      this.readLoopPromise = null;
     }
 
     if (this.port) {
       try {
         await this.port.close();
       } catch (e) {
-        console.warn(e);
+        console.warn('port.close warn:', e);
       }
       this.port = null;
     }
@@ -162,10 +173,10 @@ export class DigSpiceDevice {
 
   private async startReadLoop(): Promise<void> {
     const decoder = new TextDecoder();
-    while (this.port && this.port.readable) {
+    while (this.port && this.port.readable && this.keepReading) {
       try {
         this.reader = this.port.readable.getReader();
-        while (true) {
+        while (this.keepReading) {
           const { value, done } = await this.reader.read();
           if (done) break;
           if (value) {
@@ -192,7 +203,7 @@ export class DigSpiceDevice {
           }
         }
       } catch (err: any) {
-        if (this.port) {
+        if (this.port && this.keepReading) {
           this.log('err', `受信ループ例外: ${err?.message || err}`);
         }
         break;

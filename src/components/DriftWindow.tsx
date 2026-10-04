@@ -1,6 +1,7 @@
 import React from 'react';
 import { Lap, SelectedCarSlot } from '../types/telemetry';
 import { Gauge, Flame } from 'lucide-react';
+import { findClosestPointByDistance } from '../utils/telemetrySearch';
 
 interface DriftWindowProps {
   cars: {
@@ -16,12 +17,10 @@ export const DriftWindow: React.FC<DriftWindowProps> = ({
 }) => {
   const baseCar = cars[0];
 
-  // 現在ポイント
-  const curPt = baseCar?.lap.points.reduce((prev, curr) => {
-    return Math.abs(curr.distance - currentDistance) < Math.abs(prev.distance - currentDistance)
-      ? curr
-      : prev;
-  }, baseCar.lap.points[0]);
+  // 現在ポイント (O(log N) 二分探索)
+  const curPt = baseCar?.lap.points
+    ? findClosestPointByDistance(baseCar.lap.points, currentDistance) || baseCar.lap.points[0]
+    : undefined;
 
   // ドリフト統計の計算
   const driftStats = React.useMemo(() => {

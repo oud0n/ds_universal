@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { Lap, SelectedCarSlot } from '../types/telemetry';
 import { CircleDot, Disc } from 'lucide-react';
+import { findClosestPointByDistance } from '../utils/telemetrySearch';
 
 interface FrictionCircleWindowProps {
   cars: {
@@ -18,15 +19,11 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
 
   const baseCar = cars[0];
 
-  // 現在ポイントの取得
+  // 現在ポイントの取得 (O(log N) 二分探索)
   const currentPoints = cars.map(c => {
     const pts = c.lap.points;
     if (pts.length === 0) return null;
-    return pts.reduce((prev, curr) => {
-      return Math.abs(curr.distance - currentDistance) < Math.abs(prev.distance - currentDistance)
-        ? curr
-        : prev;
-    }, pts[0]);
+    return findClosestPointByDistance(pts, currentDistance) || pts[0];
   });
 
   const basePoint = currentPoints[0];

@@ -100,31 +100,29 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
             const fix = view.getUint16(pos + 4, true);
             const lat = view.getFloat64(pos + 6, true);
             const lon = view.getFloat64(pos + 14, true);
-            const hdg = view.getFloat32(pos + 22, true);
+            const alt = view.getFloat32(pos + 22, true);
             const spd = view.getFloat32(pos + 26, true);
-            const alt = view.getInt16(pos + 30, true) / 10.0;
-            const ms = view.getUint16(pos + 32, true);
+            const hdg = view.getFloat32(pos + 30, true);
 
-            // 妥当性判定: 3D/2D Fix, 有効な緯度経度, ms < 1000, 2000年〜2050年頃のタイムスタンプ
+            // 妥当性判定: 3D/2D Fix, 有効な緯度経度, 2000年〜2050年頃のタイムスタンプ
             if (
               (fix === 2 || fix === 3) &&
               lat >= -90 && lat <= 90 && lat !== 0 &&
               lon >= -180 && lon <= 180 && lon !== 0 &&
-              ms < 1000 &&
               ts > 946684800 && ts < 2524608000
             ) {
               const cleanSpeed = !isNaN(spd) && spd >= 0 && spd < 500 ? spd : 0;
               const cleanHeading = !isNaN(hdg) && hdg >= 0 && hdg <= 360 ? hdg : 0;
-              const timeSec = ts + ms / 1000;
+              const cleanAltitude = !isNaN(alt) && alt >= -500 && alt < 10000 ? alt : 0;
 
               rawPoints.push({
                 lat,
                 lon,
                 speedKmh: cleanSpeed,
-                timeSec,
-                timestamp: new Date(timeSec * 1000),
+                timeSec: ts, // 後で同一秒グループごとにサブ秒補間
+                timestamp: new Date(ts * 1000),
                 heading: cleanHeading,
-                altitude: !isNaN(alt) ? alt : 0
+                altitude: cleanAltitude
               });
             }
           } catch {
@@ -132,6 +130,25 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
           }
 
           esi += 36;
+        }
+      }
+
+      // 同一秒（同じts）内のサブ秒補間 (20Hz / 10Hz)
+      if (rawPoints.length > 0) {
+        let i = 0;
+        while (i < rawPoints.length) {
+          const curTs = rawPoints[i].timeSec;
+          let count = 1;
+          while (i + count < rawPoints.length && rawPoints[i + count].timeSec === curTs) {
+            count++;
+          }
+          for (let k = 0; k < count; k++) {
+            const frac = count > 1 ? k / count : 0;
+            const preciseTime = curTs + frac;
+            rawPoints[i + k].timeSec = preciseTime;
+            rawPoints[i + k].timestamp = new Date(preciseTime * 1000);
+          }
+          i += count;
         }
       }
     }
@@ -163,11 +180,10 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
               const u_t = v.getUint32(z + 0, true);
               const lat = v.getFloat64(z + 6, true);
               const lon = v.getFloat64(z + 14, true);
-              const heading = v.getFloat32(z + 22, true);
+              const alt = v.getFloat32(z + 22, true);
               const speedKmh = v.getFloat32(z + 26, true);
-              const alt = v.getInt16(z + 30, true) / 10.0;
-              const ms = v.getUint16(z + 32, true);
-              return { lat, lon, speedKmh, heading, ms, u_t, alt };
+              const heading = v.getFloat32(z + 30, true);
+              return { lat, lon, speedKmh, heading, ms: 0, u_t, alt };
             } catch {
               return null;
             }
@@ -207,6 +223,8 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
       };
 
       let z = 0;
+      // 4バイト境界でスキャンしてメインスレッドの過負荷を防止
+      const step = 4;
       while (z + 36 <= bytes.length) {
         let matched = false;
 
@@ -239,7 +257,7 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
         }
 
         if (!matched) {
-          z += 1;
+          z += step;
         }
       }
     }

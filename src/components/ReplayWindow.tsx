@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Lap, SelectedCarSlot, Sector } from '../types/telemetry';
 import { Play, Pause, SkipBack, SkipForward, PlaySquare, Compass, Eye } from 'lucide-react';
+import { findClosestPointByDistance } from '../utils/telemetrySearch';
 
 interface ReplayWindowProps {
   cars: {
@@ -65,13 +66,9 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
       return;
     }
 
-    // 基準車の現在位置と向き
+    // 基準車の現在位置と向き (O(log N) 二分探索)
     const basePts = baseCar.lap.points;
-    const curBasePt = basePts.reduce((prev, curr) => {
-      return Math.abs(curr.distance - currentDistance) < Math.abs(prev.distance - currentDistance)
-        ? curr
-        : prev;
-    }, basePts[0]);
+    const curBasePt = findClosestPointByDistance(basePts, currentDistance) || basePts[0];
 
     const centerLat = curBasePt.latitude;
     const centerLon = curBasePt.longitude;
@@ -141,11 +138,7 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
       const pts = car.lap.points;
       if (pts.length === 0) return;
 
-      const pt = pts.reduce((prev, curr) => {
-        return Math.abs(curr.distance - currentDistance) < Math.abs(prev.distance - currentDistance)
-          ? curr
-          : prev;
-      }, pts[0]);
+      const pt = findClosestPointByDistance(pts, currentDistance) || pts[0];
 
       const pos = toScreen(pt.latitude, pt.longitude);
       const headingRad = ((pt.heading - 90) * Math.PI) / 180;

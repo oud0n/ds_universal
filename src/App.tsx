@@ -23,6 +23,7 @@ import { DonateModal } from './components/DonateModal';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { SplitResizer } from './components/SplitResizer';
 import { exportSessionToNmea, triggerFileDownload } from './services/nmeaExporter';
+import { findClosestPointByDistance, findClosestPointByTime } from './utils/telemetrySearch';
 
 export const App: React.FC = () => {
   // タブ
@@ -107,11 +108,9 @@ export const App: React.FC = () => {
           nextTime = 0; // ループ
         }
 
-        // タイムに対応する距離を計算
+        // タイムに対応する距離を計算 (O(log N) 二分探索)
         const pts = baseLap.points;
-        const curPt = pts.reduce((prev, curr) => {
-          return Math.abs(curr.time - nextTime) < Math.abs(prev.time - nextTime) ? curr : prev;
-        }, pts[0]);
+        const curPt = findClosestPointByTime(pts, nextTime);
 
         if (curPt) {
           setCurrentDistanceKm(curPt.distance);
@@ -186,7 +185,7 @@ export const App: React.FC = () => {
       const next = Math.max(0, Math.min(maxLimit, prev + stepSec));
       const pts = (currentTab === 'video' ? baseSession?.points : baseLap?.points) || baseSession?.points;
       if (pts && pts.length > 0) {
-        const curPt = pts.reduce((p, c) => (Math.abs(c.time - next) < Math.abs(p.time - next) ? c : p), pts[0]);
+        const curPt = findClosestPointByTime(pts, next);
         if (curPt) setCurrentDistanceKm(curPt.distance);
       }
       return next;
@@ -198,7 +197,7 @@ export const App: React.FC = () => {
     setCurrentTimeSec(timeSec);
     const pts = (currentTab === 'video' ? baseSession?.points : baseLap?.points) || baseSession?.points;
     if (pts && pts.length > 0) {
-      const curPt = pts.reduce((p, c) => (Math.abs(c.time - timeSec) < Math.abs(p.time - timeSec) ? c : p), pts[0]);
+      const curPt = findClosestPointByTime(pts, timeSec);
       if (curPt) setCurrentDistanceKm(curPt.distance);
     }
   };
@@ -207,7 +206,7 @@ export const App: React.FC = () => {
     if (!baseLap) return;
     setCurrentDistanceKm(distKm);
     const pts = baseLap.points;
-    const curPt = pts.reduce((p, c) => (Math.abs(c.distance - distKm) < Math.abs(p.distance - distKm) ? c : p), pts[0]);
+    const curPt = findClosestPointByDistance(pts, distKm);
     if (curPt) setCurrentTimeSec(curPt.time);
   };
 
@@ -470,221 +469,220 @@ export const App: React.FC = () => {
 
       {/* メインコンテンツ */}
       <main className="flex-1 overflow-hidden p-3">
-        {currentTab === 'graph' && (
+        {/* グラフ解析タブ */}
+        <div
+          ref={horizSplit.containerRef}
+          className={`flex-row h-full w-full overflow-hidden select-none ${currentTab === 'graph' ? 'flex' : 'hidden'}`}
+        >
+          {/* 左側 / メイン: 速度ウインドウ & アニメーション/動画 (上下分割) */}
           <div
-            ref={horizSplit.containerRef}
-            className="flex flex-row h-full w-full overflow-hidden select-none"
+            ref={leftVertSplit.containerRef}
+            style={{ width: `${horizSplit.ratio * 100}%` }}
+            className="flex flex-col h-full overflow-hidden min-w-[200px]"
           >
-            {/* 左側 / メイン: 速度ウインドウ & アニメーション/動画 (上下分割) */}
+            {/* 上部: 速度グラフ */}
             <div
-              ref={leftVertSplit.containerRef}
-              style={{ width: `${horizSplit.ratio * 100}%` }}
-              className="flex flex-col h-full overflow-hidden min-w-[200px]"
+              style={{ height: `${leftVertSplit.ratio * 100}%` }}
+              className="min-h-[120px] overflow-hidden"
             >
-              {/* 上部: 速度グラフ */}
-              <div
-                style={{ height: `${leftVertSplit.ratio * 100}%` }}
-                className="min-h-[120px] overflow-hidden"
-              >
-                <SpeedGraphWindow
-                  cars={activeCars}
-                  sectors={currentSectors}
-                  currentTime={currentTimeSec}
-                  currentDistance={currentDistanceKm}
-                  onSeekTime={handleSeekTime}
-                  onSeekDistance={handleSeekDistance}
-                />
-              </div>
-
-              {/* 左上下スプリッター */}
-              <SplitResizer
-                direction="vertical"
-                isDragging={leftVertSplit.isDragging}
-                {...leftVertSplit.resizerProps}
+              <SpeedGraphWindow
+                cars={activeCars}
+                sectors={currentSectors}
+                currentTime={currentTimeSec}
+                currentDistance={currentDistanceKm}
+                onSeekTime={handleSeekTime}
+                onSeekDistance={handleSeekDistance}
               />
-
-              {/* 下部: 走行アニメーション or 車載動画 切替エリア (フラットデザイン) */}
-              <div
-                style={{ height: `${(1 - leftVertSplit.ratio) * 100}%` }}
-                className="min-h-[120px] overflow-hidden flex flex-col bg-[#12141c] rounded border border-[#22293a]"
-              >
-                {/* 左下タブバー */}
-                <div className="flex bg-[#161a25] p-1 border-b border-[#22293a] text-[11px] gap-1 shrink-0">
-                  <button
-                    onClick={() => setLeftBottomMode('replay')}
-                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
-                      leftBottomMode === 'replay'
-                        ? 'bg-red-600 text-white'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    走行アニメーション
-                  </button>
-                  <button
-                    onClick={() => setLeftBottomMode('video')}
-                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
-                      leftBottomMode === 'video'
-                        ? 'bg-red-600 text-white'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    車載動画 (GoPro/MP4)
-                  </button>
-                </div>
-
-                <div className="flex-1 min-h-0 overflow-hidden">
-                  {leftBottomMode === 'replay' ? (
-                    <ReplayWindow
-                      cars={activeCars}
-                      sectors={currentSectors}
-                      currentTime={currentTimeSec}
-                      currentDistance={currentDistanceKm}
-                      isPlaying={isPlaying}
-                      onTogglePlay={() => setIsPlaying(!isPlaying)}
-                      onStepForward={() => handleStep(0.1)}
-                      onStepBack={() => handleStep(-0.1)}
-                      onSeekDistance={handleSeekDistance}
-                      onSyncSectorStart={handleSyncSectorStart}
-                    />
-                  ) : (
-                    <VideoSyncWindow
-                      sessions={sessions}
-                      selectedCars={selectedCars}
-                      currentTimeSec={currentTimeSec}
-                      currentDistanceKm={currentDistanceKm}
-                      isPlaying={isPlaying}
-                      onSeekTime={handleSeekTime}
-                      onTogglePlay={() => setIsPlaying(!isPlaying)}
-                      circuitName={currentCircuitName}
-                      targetSessionId={baseSession?.id}
-                      targetLap={baseLap}
-                      isGraphEmbedded={true}
-                    />
-                  )}
-                </div>
-              </div>
             </div>
 
-            {/* 左右スプリッター */}
+            {/* 左上下スプリッター */}
             <SplitResizer
-              direction="horizontal"
-              isDragging={horizSplit.isDragging}
-              {...horizSplit.resizerProps}
+              direction="vertical"
+              isDragging={leftVertSplit.isDragging}
+              {...leftVertSplit.resizerProps}
             />
 
-            {/* 右側: 全コースウインドウ ＆ フリクションサークル / ドリフト */}
+            {/* 下部: 走行アニメーション or 車載動画 切替エリア (フラットデザイン) */}
             <div
-              ref={rightVertSplit.containerRef}
-              style={{ width: `${(1 - horizSplit.ratio) * 100}%` }}
-              className="flex flex-col h-full overflow-hidden min-w-[200px]"
+              style={{ height: `${(1 - leftVertSplit.ratio) * 100}%` }}
+              className="min-h-[120px] overflow-hidden flex flex-col bg-[#12141c] rounded border border-[#22293a]"
             >
-              {/* 右上: 全コースウインドウ */}
-              <div
-                style={{ height: `${rightVertSplit.ratio * 100}%` }}
-                className="min-h-[120px] overflow-hidden"
-              >
-                <TrackMapWindow
-                  cars={activeCars}
-                  controlLine={currentControlLine}
-                  sectors={currentSectors}
-                  pathPolylines={currentPthPolylines}
-                  currentDistance={currentDistanceKm}
-                  onSeekDistance={handleSeekDistance}
-                />
+              {/* 左下タブバー */}
+              <div className="flex bg-[#161a25] p-1 border-b border-[#22293a] text-[11px] gap-1 shrink-0">
+                <button
+                  onClick={() => setLeftBottomMode('replay')}
+                  className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                    leftBottomMode === 'replay'
+                      ? 'bg-red-600 text-white'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  走行アニメーション
+                </button>
+                <button
+                  onClick={() => setLeftBottomMode('video')}
+                  className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                    leftBottomMode === 'video'
+                      ? 'bg-red-600 text-white'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  車載動画 (GoPro/MP4)
+                </button>
               </div>
 
-              {/* 右上下スプリッター */}
-              <SplitResizer
-                direction="vertical"
-                isDragging={rightVertSplit.isDragging}
-                {...rightVertSplit.resizerProps}
-              />
-
-              {/* 右下: サブウインドウ切替タブ (フラットデザイン) */}
-              <div
-                style={{ height: `${(1 - rightVertSplit.ratio) * 100}%` }}
-                className="min-h-[120px] overflow-hidden flex flex-col bg-[#12141c] rounded border border-[#22293a]"
-              >
-                <div className="flex bg-[#161a25] p-1 border-b border-[#22293a] text-[11px] gap-1 shrink-0">
-                  <button
-                    onClick={() => setSubWindowMode('all')}
-                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
-                      subWindowMode === 'all'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    フリクションサークル (GG)
-                  </button>
-                  <button
-                    onClick={() => setSubWindowMode('track_friction')}
-                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
-                      subWindowMode === 'track_friction'
-                        ? 'bg-orange-600 text-white'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    ドリフト採点・評価
-                  </button>
-                  <button
-                    onClick={() => setSubWindowMode('video')}
-                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
-                      subWindowMode === 'video'
-                        ? 'bg-red-600 text-white'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    車載動画同期
-                  </button>
-                </div>
-
-                <div className="flex-1 min-h-0 overflow-hidden">
-                  {subWindowMode === 'all' && (
-                    <FrictionCircleWindow cars={activeCars} currentDistance={currentDistanceKm} />
-                  )}
-                  {subWindowMode === 'track_friction' && (
-                    <DriftWindow cars={activeCars} currentDistance={currentDistanceKm} />
-                  )}
-                  {subWindowMode === 'video' && (
-                    <VideoSyncWindow
-                      sessions={sessions}
-                      selectedCars={selectedCars}
-                      currentTimeSec={currentTimeSec}
-                      currentDistanceKm={currentDistanceKm}
-                      isPlaying={isPlaying}
-                      onSeekTime={handleSeekTime}
-                      onTogglePlay={() => setIsPlaying(!isPlaying)}
-                      circuitName={currentCircuitName}
-                      targetSessionId={baseSession?.id}
-                      targetLap={baseLap}
-                      isGraphEmbedded={true}
-                    />
-                  )}
-                </div>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                {leftBottomMode === 'replay' ? (
+                  <ReplayWindow
+                    cars={activeCars}
+                    sectors={currentSectors}
+                    currentTime={currentTimeSec}
+                    currentDistance={currentDistanceKm}
+                    isPlaying={isPlaying}
+                    onTogglePlay={() => setIsPlaying(!isPlaying)}
+                    onStepForward={() => handleStep(0.1)}
+                    onStepBack={() => handleStep(-0.1)}
+                    onSeekDistance={handleSeekDistance}
+                    onSyncSectorStart={handleSyncSectorStart}
+                  />
+                ) : (
+                  <VideoSyncWindow
+                    sessions={sessions}
+                    selectedCars={selectedCars}
+                    currentTimeSec={currentTimeSec}
+                    currentDistanceKm={currentDistanceKm}
+                    isPlaying={isPlaying}
+                    onSeekTime={handleSeekTime}
+                    onTogglePlay={() => setIsPlaying(!isPlaying)}
+                    circuitName={currentCircuitName}
+                    targetSessionId={baseSession?.id}
+                    targetLap={baseLap}
+                    isGraphEmbedded={true}
+                  />
+                )}
               </div>
             </div>
           </div>
-        )}
 
-        {currentTab === 'video' && (
-          <div className="h-full w-full overflow-hidden">
-            <VideoSyncWindow
-              sessions={sessions}
-              selectedCars={selectedCars}
-              currentTimeSec={currentTimeSec}
-              currentDistanceKm={currentDistanceKm}
-              isPlaying={isPlaying}
-              onSeekTime={handleSeekTime}
-              onTogglePlay={() => setIsPlaying(!isPlaying)}
-              circuitName={currentCircuitName}
-              targetSessionId={baseSession?.id}
-              targetLap={baseLap}
-              isGraphEmbedded={false}
+          {/* 左右スプリッター */}
+          <SplitResizer
+            direction="horizontal"
+            isDragging={horizSplit.isDragging}
+            {...horizSplit.resizerProps}
+          />
+
+          {/* 右側: 全コースウインドウ ＆ フリクションサークル / ドリフト */}
+          <div
+            ref={rightVertSplit.containerRef}
+            style={{ width: `${(1 - horizSplit.ratio) * 100}%` }}
+            className="flex flex-col h-full overflow-hidden min-w-[200px]"
+          >
+            {/* 右上: 全コースウインドウ */}
+            <div
+              style={{ height: `${rightVertSplit.ratio * 100}%` }}
+              className="min-h-[120px] overflow-hidden"
+            >
+              <TrackMapWindow
+                cars={activeCars}
+                controlLine={currentControlLine}
+                sectors={currentSectors}
+                pathPolylines={currentPthPolylines}
+                currentDistance={currentDistanceKm}
+                onSeekDistance={handleSeekDistance}
+              />
+            </div>
+
+            {/* 右上下スプリッター */}
+            <SplitResizer
+              direction="vertical"
+              isDragging={rightVertSplit.isDragging}
+              {...rightVertSplit.resizerProps}
             />
-          </div>
-        )}
 
-        {currentTab === 'data' && (
+            {/* 右下: サブウインドウ切替タブ (フラットデザイン) */}
+            <div
+              style={{ height: `${(1 - rightVertSplit.ratio) * 100}%` }}
+              className="min-h-[120px] overflow-hidden flex flex-col bg-[#12141c] rounded border border-[#22293a]"
+            >
+              <div className="flex bg-[#161a25] p-1 border-b border-[#22293a] text-[11px] gap-1 shrink-0">
+                <button
+                  onClick={() => setSubWindowMode('all')}
+                  className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                    subWindowMode === 'all'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  フリクションサークル (GG)
+                </button>
+                <button
+                  onClick={() => setSubWindowMode('track_friction')}
+                  className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                    subWindowMode === 'track_friction'
+                      ? 'bg-orange-600 text-white'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  ドリフト採点・評価
+                </button>
+                <button
+                  onClick={() => setSubWindowMode('video')}
+                  className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                    subWindowMode === 'video'
+                      ? 'bg-red-600 text-white'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  車載動画同期
+                </button>
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-hidden">
+                {subWindowMode === 'all' && (
+                  <FrictionCircleWindow cars={activeCars} currentDistance={currentDistanceKm} />
+                )}
+                {subWindowMode === 'track_friction' && (
+                  <DriftWindow cars={activeCars} currentDistance={currentDistanceKm} />
+                )}
+                {subWindowMode === 'video' && (
+                  <VideoSyncWindow
+                    sessions={sessions}
+                    selectedCars={selectedCars}
+                    currentTimeSec={currentTimeSec}
+                    currentDistanceKm={currentDistanceKm}
+                    isPlaying={isPlaying}
+                    onSeekTime={handleSeekTime}
+                    onTogglePlay={() => setIsPlaying(!isPlaying)}
+                    circuitName={currentCircuitName}
+                    targetSessionId={baseSession?.id}
+                    targetLap={baseLap}
+                    isGraphEmbedded={true}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 動画同期タブ */}
+        <div className={`h-full w-full overflow-hidden ${currentTab === 'video' ? 'block' : 'hidden'}`}>
+          <VideoSyncWindow
+            sessions={sessions}
+            selectedCars={selectedCars}
+            currentTimeSec={currentTimeSec}
+            currentDistanceKm={currentDistanceKm}
+            isPlaying={isPlaying}
+            onSeekTime={handleSeekTime}
+            onTogglePlay={() => setIsPlaying(!isPlaying)}
+            circuitName={currentCircuitName}
+            targetSessionId={baseSession?.id}
+            targetLap={baseLap}
+            isGraphEmbedded={false}
+          />
+        </div>
+
+        {/* データ管理タブ */}
+        <div className={`h-full w-full overflow-hidden ${currentTab === 'data' ? 'block' : 'hidden'}`}>
           <DataTab
             sessions={sessions}
             selectedCars={selectedCars}
@@ -702,14 +700,15 @@ export const App: React.FC = () => {
             onLoadClnFile={() => clnInputRef.current?.click()}
             onLoadCircuitFolder={() => folderInputRef.current?.click()}
           />
-        )}
+        </div>
 
-        {currentTab === 'logger' && (
+        {/* ロガー設定タブ (マウント状態を維持し、USBシリアル切断を防止) */}
+        <div className={`h-full w-full overflow-hidden ${currentTab === 'logger' ? 'block' : 'hidden'}`}>
           <LoggerTab
             onLoadSession={(fileName, buffer) => loadFileData(fileName, buffer)}
             onNavigateToGraph={() => setCurrentTab('graph')}
           />
-        )}
+        </div>
       </main>
 
       {/* コース編集モーダル */}

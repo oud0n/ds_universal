@@ -4,7 +4,7 @@
 
 ![対応OS](https://img.shields.io/badge/OS-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 ![検証状況](https://img.shields.io/badge/Verified-Windows%20Only-amber)
-![バージョン](https://img.shields.io/badge/Version-0.6.0-red)
+![バージョン](https://img.shields.io/badge/Version-0.6.1-red)
 ![デバイス](https://img.shields.io/badge/Device-DigSpice%20IV-red)
 ![ライセンス](https://img.shields.io/badge/License-MIT-brightgreen)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-oud0n-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/oud0n)
@@ -66,8 +66,49 @@
 | OS | 配布形式（インストーラー版 / zip版） | 動作状況 |
 | :--- | :--- | :--- |
 | **Windows** | `.exe` (インストーラー) / `.zip` (ポータブル版) | **動作確認済み (推奨)** |
-| **macOS** | `.dmg` (インストーラー) / `.zip` (Intel & Apple Silicon) | ビルド配布中（未検証） |
+| **macOS** | `.dmg` (インストーラー) / `.zip` (Intel & Apple Silicon) | ビルド配布中（下記 Notice 参照） |
 | **Linux** | `.deb` (インストーラー) / `.zip` (x64) | ビルド配布中（未検証） |
+
+---
+
+### 🍎 macOS 版ご利用時の注意事項（「壊れているため開けません」と表示される場合）
+
+macOS で DMG を展開してアプリを起動しようとした際、**「“ds-universal”は壊れているため開けません。ゴミ箱に入れる必要があります。」** という警告ダイアログが表示される場合があります。
+
+#### 💡 原因
+本アプリはオープンソース（有志開発）であり、有償の Apple Developer Program による公証（Notarization）および正規の開発者署名を付与していません。  
+macOS のセキュリティ機能（Gatekeeper）は、Web ブラウザ等からダウンロードされた未署名・未公証のバイナリに対してダウンロード検疫フラグ（`com.apple.quarantine`）を付与し、セキュリティ保護のために「破損している（BundleIntegrity 警告）」と表示して実行を強制キル（SIGKILL）する仕様になっています（**実際のファイル破損ではありません**）。
+
+#### 🚀 解決方法（ターミナルでの解除コマンド）
+
+1. DMG 内の `ds-universal.app` を「**アプリケーション（/Applications）**」フォルダにコピーします。
+2. **ターミナル.app** を開き、以下のコマンドを実行します：
+
+```bash
+xattr -cr /Applications/ds-universal.app
+```
+
+##### 📖 コマンドの解説
+* `xattr`: macOS の拡張ファイル属性（Extended Attributes）を表示・操作するシステム標準コマンドです。
+* `-c` (`--clear`): ファイルに付与されているすべての拡張属性を消去します。ブラウザから保存された際に自動付与される **検疫属性（`com.apple.quarantine`）** を剥がすことで、Gatekeeper による起動ブロックを無効化します。
+* `-r` (`--recursive`): アプリバンドル（.app）内の全バイナリ・ライブラリ・リソースに対して再帰的に属性削除を適用します。
+
+---
+
+##### ⚠️ それでも開かない場合（Ad-hoc 自己署名の適用）
+macOS のセキュリティポリシー（macOS Sequoia / Sonoma 等）によっては、未署名コードの実行が厳格に遮断される場合があります。その場合はターミナルで以下の自己署名コマンドを実行してください：
+
+```bash
+codesign --force --deep --sign - /Applications/ds-universal.app
+```
+
+##### 📖 コマンドの解説
+* `codesign`: macOS のコード署名（Code Signature）を作成・検証するツールです。
+* `--force`: 既存の不完全な署名情報を強制的に上書きします。
+* `--deep`: アプリバンドルに含まれるすべての埋め込みフレームワーク（Electron Framework / Chromium 等）に対して再帰的に署名を適用します。
+* `--sign -`: 開発者証明書（Apple Developer ID）の代わりに「Ad-hoc 署名（ハイフン `-`）」を指定し、ローカル実行を許可する自己完結署名を生成します。
+
+上記を実行後、通常通りダブルクリックするか、**Control キーを押しながらクリック（右クリック）して「開く」** を選択してください。
 
 ---
 
