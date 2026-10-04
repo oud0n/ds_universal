@@ -4,6 +4,21 @@
 
 ---
 
+## 📌 直近の残件タスク（Pending / TODO）
+
+- [ ] **Linux 向けビルドの削除**
+  - [ ] GitHub Actions CI/CD ワークフロー (`build-and-release.yml`) から Linux ビルドジョブ（`ubuntu-latest`）を削除
+  - [ ] `electron-builder.json` から Linux 向けビルド設定（`linux` セクション）を削除
+  - [ ] `package.json` から `dist:linux` スクリプトを削除
+  - [ ] ドキュメント（`README.md` 等）から Linux 向けバイナリ配布に関する記載を整理・削除
+- [ ] **macOS 版の変更（Rosetta を使用しない Apple Silicon ネイティブ化）**
+  - [ ] Apple Silicon（M1/M2/M3/M4等）環境において Rosetta 2 エミュレーションを使用せず、ネイティブ（`arm64`）で直接動作するようにビルド構成を変更
+  - [ ] `electron-builder.json` の macOS 向けアーキテクチャ・パッケージング設定の見直し（ネイティブバイナリの適切な生成）
+  - [ ] GitHub Actions CI/CD での macOS ビルド環境および生成される DMG / ZIP 成果物の動作検証
+  - [ ] ドキュメントの macOS 向け利用案内・トラブルシューティングの更新
+
+---
+
 ## 📌 優先度別ロードマップ
 
 ```mermaid
@@ -81,16 +96,19 @@ USB シリアル通信をさらに拡張し、公式アプリを使わずにロ�
 
 ---
 
-## 📦 Phase 4: マルチOSパッケージング & 配布環境の整備
+## 📦 Phase 4: プラットフォーム最適化 & パッケージング・配布環境の整備
 
-一般のドライバーやチーム関係者が専門知識なしでワンクリック実行できるネイティブアプリ化。
+一般のドライバーやチーム関係者が専門知識なしでワンクリック実行できるネイティブアプリ化およびプラットフォームの最適化。
 
-- [ ] **4.1 各 OS 向けインストーラーのビルド設定整備 (`electron-builder`)**
-  - [ ] **Windows**: `.exe`（NSIS インストーラー & USB メモリ等で持ち運べるポータブル版）
-  - [ ] **macOS**: `.dmg` / `.app`（Apple Silicon M1/M2/M3/M4 および Intel Mac 対応 Universal バイナリ）
-  - [ ] **Linux**: `.AppImage` / `.deb`
+- [ ] **4.1 パッケージング構成の適正化・残件対応 (`electron-builder`)**
+  - [x] **Windows**: `.exe`（NSIS インストーラー & USB メモリ等で持ち運べるポータブル `.zip` 版）
+  - [ ] **macOS**: Rosetta 2 を使用しない Apple Silicon ネイティブ対応への変更 (`arm64` 最適化 / ネイティブ実行)
+  - [ ] **Linux**: Linux 向けビルドの削除・廃止（設定ファイルおよびスクリプトの整理）
 - [ ] **4.2 GitHub Actions による自動ビルド & リリースパイプライン (CI/CD)**
-  - [ ] タグプッシュ時に自動で Windows / Mac / Linux 用バイナリをビルドし GitHub Releases にアタッチ
+  - [x] タグプッシュ時に自動でバイナリをビルドし GitHub Releases にアタッチ
+  - [ ] Linux ビルドジョブ (`ubuntu-latest`) の削除
+  - [ ] macOS ネイティブバイナリの CI ビルド動作検証
 - [ ] **4.3 UI 多言語化 & テーマ切替**
   - [ ] 日本語 / 英語 切り替え対応 (i18n)
   - [ ] サーキットの屋外直射日光下で見やすいハイコントラスト表示モード
+
