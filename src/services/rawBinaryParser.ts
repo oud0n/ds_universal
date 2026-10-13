@@ -69,6 +69,9 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
         const minute = view.getUint8(offset + 23);
         const second = view.getUint8(offset + 24);
         const subSec = view.getUint8(offset + 25);
+        // +12 の int32 は標高 (0.1 m 単位)。.bon4 の実ログで確認。.bon は未確認のため読まない
+        const rawAlt = ext === 'bon4' ? view.getInt32(offset + 12, true) / 10 : 0;
+        const altitude = rawAlt > -500 && rawAlt < 10000 ? rawAlt : 0;
 
         const speedKmh = (rawSpeed / 100) * 3.6;
         const lat = rawLat / 1e7;
@@ -86,7 +89,7 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
             speedKmh,
             timeSec,
             timestamp: utcDate,
-            altitude: 0
+            altitude
           });
         }
       } catch {
