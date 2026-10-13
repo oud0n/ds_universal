@@ -106,9 +106,9 @@ export function convertToNmea(points: ConvertedPoint[], talkerId: 'GP' | 'GN' = 
     const lat = formatNmeaCoord(p.latitude, true);
     const lon = formatNmeaCoord(p.longitude, false);
     if (includeGga) {
-      // 衛星数が記録されていないログは 12 とする (受信側で無効扱いにされないための既定値)
-      const sat = pad(Math.min(99, Math.max(0, p.satellites ?? 12)));
-      lines.push(createNmeaSentence(`${talkerId}GGA,${timeStr},${lat.nmea},${lat.dir},${lon.nmea},${lon.dir},1,${sat},0.9,${p.altitude.toFixed(1)},M,,M,,`).trimEnd());
+      // 記録されていない項目 (衛星数・HDOP・ジオイド高) は固定値で埋めず、空欄にする
+      const sat = p.satellites != null ? pad(Math.min(99, Math.max(0, p.satellites))) : '';
+      lines.push(createNmeaSentence(`${talkerId}GGA,${timeStr},${lat.nmea},${lat.dir},${lon.nmea},${lon.dir},1,${sat},,${p.altitude.toFixed(1)},M,,M,,`).trimEnd());
     }
     lines.push(createNmeaSentence(`${talkerId}RMC,${timeStr},A,${lat.nmea},${lat.dir},${lon.nmea},${lon.dir},${(p.speed / 1.852).toFixed(1)},${p.heading.toFixed(2)},${dateStr},,,A`).trimEnd());
   }

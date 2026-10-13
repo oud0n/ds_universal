@@ -220,7 +220,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
                   <span>開始: {summary.start}</span>
                   <span>終了: {summary.end}</span>
                   <span>最高速度: {summary.maxSpeed.toFixed(1)} km/h</span>
-                  <span>衛星数の記録: {summary.hasSatellites ? 'あり' : 'なし（NMEA では 12 として出力）'}</span>
+                  <span>衛星数の記録: {summary.hasSatellites ? 'あり' : 'なし（NMEA では空欄）'}</span>
                 </div>
               ) : (
                 <span className="text-amber-400">この範囲に書き出せる点がありません。</span>
