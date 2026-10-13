@@ -4,7 +4,7 @@
 
 ![対応OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon-blue)
 ![検証状況](https://img.shields.io/badge/Verified-Windows%20Only-amber)
-![バージョン](https://img.shields.io/badge/Version-0.7.0-red)
+![バージョン](https://img.shields.io/badge/Version-0.7.1-red)
 ![デバイス](https://img.shields.io/badge/Device-DigSpice%20IV-red)
 ![ライセンス](https://img.shields.io/badge/License-MIT-brightgreen)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-oud0n-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/oud0n)
@@ -166,9 +166,7 @@ codesign --force --deep --sign - "/Applications/DS Universal Suite.app"
 
 ## 📝 リリースノート
 
-### 次回リリース（v0.7.1 予定・未リリース）
-
-現在はブラウザ版にのみ反映されています。インストール版には次回のリリースで入ります。
+### v0.7.1
 
 **追加**
 
