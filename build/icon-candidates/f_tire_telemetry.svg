@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1c2436"/><stop offset="1" stop-color="#0d1017"/></linearGradient>
+<clipPath id="sq"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+</defs>
+<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+<g clip-path="url(#sq)">
+<circle cx="512" cy="512" r="250" fill="none" stroke="#14171d" stroke-width="120"/><circle cx="512" cy="512" r="250" fill="none" stroke="#2a303b" stroke-width="120" stroke-dasharray="14 30"/><circle cx="512" cy="512" r="186" fill="none" stroke="#c9d1dc" stroke-width="12"/><circle cx="512" cy="512" r="314" fill="none" stroke="#e11d2e" stroke-width="10"/><path d="M130,560 L300,560 L360,430 L440,650 L520,380 L600,600 L660,520 L900,520" fill="none" stroke="#0d1017" stroke-width="54" stroke-linejoin="round" stroke-linecap="round"/><path d="M130,560 L300,560 L360,430 L440,650 L520,380 L600,600 L660,520 L900,520" fill="none" stroke="#f5a524" stroke-width="26" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+</svg>

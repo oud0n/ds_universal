@@ -1,0 +1,728 @@
+import React, { useRef, useEffect, useState, useMemo } from 'react';
+import { Lap, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
+import { Map, ZoomIn, ZoomOut, RotateCcw, Eye, Palette, Move } from 'lucide-react';
+import { getTileImage, MapBackground, TILE_ATTRIBUTION, TILE_SOURCES, tilesForView } from '../services/mapTiles';
+import { useLapGeometries } from '../hooks/useLapGeometries';
+import { computeCorrectedLineDelta, computeLineDelta, detectCorners } from '../services/drivingAnalysis';
+
+const BACKGROUND_STORAGE_KEY = 'ds_map_background';
+const METERS_PER_DEG_LAT = 111320;
+
+// 背景地図の位置補正 (m) の保存キー。場所ごと (約 1km 四方) に覚える
+function offsetStorageKey(lat: number, lon: number): string {
+  return `ds_map_offset_${lat.toFixed(2)}_${lon.toFixed(2)}`;
+}
+
+function loadStored<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function store(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // 保存できなくても表示には影響しない
+  }
+}
+
+// ライン偏差の色分けで、最も濃い色になるズレ量 (m)
+const LINE_DELTA_FULL_SCALE_M = 3;
+
+interface TrackMapWindowProps {
+  cars: {
+    slot: SelectedCarSlot;
+    lap: Lap;
+  }[];
+  controlLine?: ControlLine;
+  sectors: Sector[];
+  pathPolylines?: Array<Array<[number, number]>>;
+  currentDistance: number;
+  onSeekDistance: (distKm: number) => void;
+}
+
+export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
+  cars,
+  controlLine,
+  sectors,
+  pathPolylines,
+  currentDistance,
+  onSeekDistance
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const [colorMode, setColorMode] = useState<'car' | 'speed' | 'accel' | 'line'>('car');
+  const [showCorners, setShowCorners] = useState(true);
+  // ラップ間の GPS の位置ずれ (平行移動) を推定して差し引く
+  const [correctGpsShift, setCorrectGpsShift] = useState(true);
+  const [zoom, setZoom] = useState(1.0);
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // 背景地図 (既定はなし = オフライン動作)
+  const [background, setBackground] = useState<MapBackground>(() => {
+    const saved = loadStored<MapBackground>(BACKGROUND_STORAGE_KEY, 'none');
+    return saved === 'photo' || saved === 'standard' ? saved : 'none';
+  });
+  // 地図の位置調整モード。ON の間はドラッグで地図だけを動かす
+  const [isAdjustingMap, setIsAdjustingMap] = useState(false);
+  // GPS 軌跡に対する背景地図の位置補正 (m)。東・北が正
+  const [mapOffset, setMapOffset] = useState<{ eastM: number; northM: number }>({ eastM: 0, northM: 0 });
+  const [tileTick, setTileTick] = useState(0);
+  // ドラッグ量を距離へ換算するための、現在の表示倍率 (m / px)
+  const metersPerPixelRef = useRef(1);
+
+  // 基準車
+  const baseCar = cars[0];
+
+  // コーナー番号と、基準車のラインに対する各車両の左右のズレ
+  const analysed = useLapGeometries(cars);
+  const corners = useMemo(() => (analysed[0] ? detectCorners(analysed[0].geo) : []), [analysed]);
+  const lineDeltas = useMemo(() => {
+    if (colorMode !== 'line' || analysed.length < 2) return [];
+    return analysed.slice(1).map(car => ({
+      lap: car.lap,
+      delta: correctGpsShift ? computeCorrectedLineDelta(analysed[0].geo, car.geo) : computeLineDelta(analysed[0].geo, car.geo)
+    }));
+  }, [analysed, colorMode, correctGpsShift]);
+
+  // 全座標のバウンディングボックス計算
+  const bounds = useMemo(() => {
+    let minLat = 90;
+    let maxLat = -90;
+    let minLon = 180;
+    let maxLon = -180;
+
+    const includePoint = (lat: number, lon: number) => {
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lon < minLon) minLon = lon;
+      if (lon > maxLon) maxLon = lon;
+    };
+
+    // コースポリライン
+    if (pathPolylines && pathPolylines.length > 0) {
+      for (const poly of pathPolylines) {
+        for (const [lon, lat] of poly) {
+          includePoint(lat, lon);
+        }
+      }
+    }
+
+    // 車両ポイント
+    for (const car of cars) {
+      for (const p of car.lap.points) {
+        includePoint(p.latitude, p.longitude);
+      }
+    }
+
+    if (minLat === 90) {
+      return { minLat: 35.37, maxLat: 35.38, minLon: 138.92, maxLon: 138.93 };
+    }
+
+    // パディング
+    const latSpan = maxLat - minLat || 0.005;
+    const lonSpan = maxLon - minLon || 0.005;
+
+    return {
+      minLat: minLat - latSpan * 0.08,
+      maxLat: maxLat + latSpan * 0.08,
+      minLon: minLon - lonSpan * 0.08,
+      maxLon: maxLon + lonSpan * 0.08
+    };
+  }, [cars, pathPolylines]);
+
+  // 場所が変わったら、その場所で保存した地図の位置補正を読み込む
+  const offsetKey = offsetStorageKey((bounds.minLat + bounds.maxLat) / 2, (bounds.minLon + bounds.maxLon) / 2);
+  useEffect(() => {
+    const saved = loadStored<{ eastM: number; northM: number } | null>(offsetKey, null);
+    setMapOffset(saved && Number.isFinite(saved.eastM) && Number.isFinite(saved.northM) ? saved : { eastM: 0, northM: 0 });
+  }, [offsetKey]);
+
+  useEffect(() => {
+    if (background === 'none') setIsAdjustingMap(false);
+  }, [background]);
+
+  // Canvas描画
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const width = canvas.parentElement?.clientWidth || 400;
+    const height = canvas.parentElement?.clientHeight || 400;
+
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+
+    ctx.scale(dpr, dpr);
+
+    // 背景
+    ctx.fillStyle = '#11141d';
+    ctx.fillRect(0, 0, width, height);
+
+    if (cars.length === 0 && (!pathPolylines || pathPolylines.length === 0)) {
+      ctx.fillStyle = '#64748b';
+      ctx.font = '13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('コースデータがありません', width / 2, height / 2);
+      return;
+    }
+
+    // アスペクト比維持の座標変換
+    const latMid = (bounds.minLat + bounds.maxLat) / 2;
+    const lonMid = (bounds.minLon + bounds.maxLon) / 2;
+    const cosLat = Math.cos((latMid * Math.PI) / 180);
+
+    const geoWidth = (bounds.maxLon - bounds.minLon) * cosLat;
+    const geoHeight = bounds.maxLat - bounds.minLat;
+
+    const scaleX = (width * 0.85) / geoWidth;
+    const scaleY = (height * 0.85) / geoHeight;
+    const baseScale = Math.min(scaleX, scaleY) * zoom;
+
+    const toScreen = (lat: number, lon: number) => {
+      const x = width / 2 + (lon - lonMid) * cosLat * baseScale + panOffset.x;
+      const y = height / 2 - (lat - latMid) * baseScale + panOffset.y;
+      return { x, y };
+    };
+
+    metersPerPixelRef.current = METERS_PER_DEG_LAT / baseScale;
+
+    // 0. 背景地図タイル
+    if (background !== 'none') {
+      // 位置補正の分だけ、地図を GPS 軌跡に対してずらして描く
+      const dLat = mapOffset.northM / METERS_PER_DEG_LAT;
+      const dLon = mapOffset.eastM / (METERS_PER_DEG_LAT * cosLat);
+      const toGeo = (x: number, y: number) => ({
+        lat: latMid - (y - height / 2 - panOffset.y) / baseScale - dLat,
+        lon: lonMid + (x - width / 2 - panOffset.x) / (cosLat * baseScale) - dLon
+      });
+      const topLeft = toGeo(0, 0);
+      const bottomRight = toGeo(width, height);
+      const tiles = tilesForView(
+        background,
+        { north: topLeft.lat, south: bottomRight.lat, west: topLeft.lon, east: bottomRight.lon },
+        metersPerPixelRef.current
+      );
+      // 走行ラインが見やすいよう、少し暗くして敷く
+      ctx.globalAlpha = background === 'photo' ? 0.8 : 0.7;
+      for (const tile of tiles) {
+        const image = getTileImage(tile, () => setTileTick(t => t + 1));
+        if (!image) continue;
+        const nw = toScreen(tile.north + dLat, tile.west + dLon);
+        const se = toScreen(tile.south + dLat, tile.east + dLon);
+        // 継ぎ目が出ないよう 0.5px 重ねる
+        ctx.drawImage(image, nw.x, nw.y, se.x - nw.x + 0.5, se.y - nw.y + 0.5);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // 1. コース形状ポリライン (.pth) の描画
+    //    背景地図があるときは路面が見えるよう、下地は描かず境界線だけを薄く重ねる
+    if (pathPolylines && pathPolylines.length > 0 && background !== 'none') {
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+      ctx.lineWidth = 1;
+      for (const poly of pathPolylines) {
+        if (poly.length < 2) continue;
+        ctx.beginPath();
+        const start = toScreen(poly[0][1], poly[0][0]);
+        ctx.moveTo(start.x, start.y);
+        for (let i = 1; i < poly.length; i++) {
+          const pt = toScreen(poly[i][1], poly[i][0]);
+          ctx.lineTo(pt.x, pt.y);
+        }
+        ctx.stroke();
+      }
+    } else if (pathPolylines && pathPolylines.length > 0) {
+      ctx.strokeStyle = '#273147';
+      ctx.lineWidth = 14;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      // 道路の下地 (アスファルト風)
+      for (const poly of pathPolylines) {
+        if (poly.length < 2) continue;
+        ctx.beginPath();
+        const start = toScreen(poly[0][1], poly[0][0]);
+        ctx.moveTo(start.x, start.y);
+        for (let i = 1; i < poly.length; i++) {
+          const pt = toScreen(poly[i][1], poly[i][0]);
+          ctx.lineTo(pt.x, pt.y);
+        }
+        ctx.stroke();
+      }
+
+      // コース境界線
+      ctx.strokeStyle = '#3b4866';
+      ctx.lineWidth = 1.5;
+      for (const poly of pathPolylines) {
+        if (poly.length < 2) continue;
+        ctx.beginPath();
+        const start = toScreen(poly[0][1], poly[0][0]);
+        ctx.moveTo(start.x, start.y);
+        for (let i = 1; i < poly.length; i++) {
+          const pt = toScreen(poly[i][1], poly[i][0]);
+          ctx.lineTo(pt.x, pt.y);
+        }
+        ctx.stroke();
+      }
+    }
+
+    // 2. コントロールライン (スタート/フィニッシュ)
+    if (controlLine) {
+      const pA = toScreen(controlLine.latA, controlLine.lonA);
+      const pB = toScreen(controlLine.latB, controlLine.lonB);
+
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(pA.x, pA.y);
+      ctx.lineTo(pB.x, pB.y);
+      ctx.stroke();
+
+      // チェッカー柄またはラベル
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('FINISH', (pA.x + pB.x) / 2, (pA.y + pB.y) / 2 - 6);
+    }
+
+    // 3. セクターゲート (S1, S2, S3...)
+    sectors.forEach((sec, idx) => {
+      const pA = toScreen(sec.latA, sec.lonA);
+      const pB = toScreen(sec.latB, sec.lonB);
+
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(pA.x, pA.y);
+      ctx.lineTo(pB.x, pB.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#facc15';
+      ctx.font = 'bold 9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(sec.name || `S${idx + 1}`, (pA.x + pB.x) / 2, (pA.y + pB.y) / 2 - 5);
+    });
+
+    // 4. 車両の走行ライン (GPSトラック)
+    cars.forEach(car => {
+      const pts = car.lap.points;
+      if (pts.length < 2) return;
+
+      const lineDelta = lineDeltas.find(d => d.lap === car.lap);
+      if (colorMode === 'line' && lineDelta) {
+        // 基準車のラインからのズレ (進行方向に対して左: 青 / 右: オレンジ、濃いほど大きい)
+        ctx.lineWidth = 3.5;
+        // 補正した位置ずれの分だけ、描画位置も基準車側へ寄せる
+        const dLat = lineDelta.delta.shiftNorthM / 111320;
+        const dLon = lineDelta.delta.shiftEastM / (111320 * Math.cos((pts[0].latitude * Math.PI) / 180));
+        for (let i = 0; i < pts.length - 1; i++) {
+          const off = lineDelta.delta.offsetM[i];
+          if (!Number.isFinite(off)) continue;
+          const p1 = toScreen(pts[i].latitude - dLat, pts[i].longitude - dLon);
+          const p2 = toScreen(pts[i + 1].latitude - dLat, pts[i + 1].longitude - dLon);
+          const strength = Math.min(1, Math.abs(off) / LINE_DELTA_FULL_SCALE_M);
+          ctx.strokeStyle = off < 0
+            ? `rgba(56, 189, 248, ${0.25 + strength * 0.75})`
+            : `rgba(251, 146, 60, ${0.25 + strength * 0.75})`;
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.stroke();
+        }
+      } else if (colorMode === 'car' || colorMode === 'line') {
+        // ライン偏差モードでは、基準車を細い白線で描く
+        ctx.strokeStyle = colorMode === 'line' ? '#e2e8f0' : car.slot.colorHex;
+        ctx.lineWidth = colorMode === 'line' ? 1.5 : car.slot.slot === 0 ? 3 : 2;
+        ctx.beginPath();
+        const start = toScreen(pts[0].latitude, pts[0].longitude);
+        ctx.moveTo(start.x, start.y);
+        for (let i = 1; i < pts.length; i++) {
+          const pt = toScreen(pts[i].latitude, pts[i].longitude);
+          ctx.lineTo(pt.x, pt.y);
+        }
+        ctx.stroke();
+      } else if (colorMode === 'speed') {
+        // 車速ヒートマップ (低速: 青 〜 中速: 緑/黄 〜 高速: 赤)
+        const maxSpd = car.lap.topSpeed || 150;
+        const minSpd = car.lap.bottomSpeed || 40;
+        const spdRange = Math.max(1, maxSpd - minSpd);
+
+        ctx.lineWidth = 3;
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p1 = toScreen(pts[i].latitude, pts[i].longitude);
+          const p2 = toScreen(pts[i + 1].latitude, pts[i + 1].longitude);
+
+          const ratio = Math.max(0, Math.min(1, (pts[i].speed - minSpd) / spdRange));
+          // HSL: 240(Blue) -> 120(Green) -> 0(Red)
+          const hue = (1 - ratio) * 240;
+          ctx.strokeStyle = `hsl(${hue}, 100%, 50%)`;
+
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.stroke();
+        }
+      } else if (colorMode === 'accel') {
+        // 加減速ヒートマップ (+加速: シアン, -減速: 赤/オレンジ)
+        ctx.lineWidth = 3;
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p1 = toScreen(pts[i].latitude, pts[i].longitude);
+          const p2 = toScreen(pts[i + 1].latitude, pts[i + 1].longitude);
+
+          const g = pts[i].accelG;
+          if (g < -0.15) {
+            // 減速 (赤)
+            const alpha = Math.min(1, Math.abs(g) / 1.0);
+            ctx.strokeStyle = `rgba(239, 68, 68, ${0.4 + alpha * 0.6})`;
+          } else if (g > 0.1) {
+            // 加速 (青/シアン)
+            const alpha = Math.min(1, g / 0.5);
+            ctx.strokeStyle = `rgba(6, 182, 212, ${0.4 + alpha * 0.6})`;
+          } else {
+            ctx.strokeStyle = '#64748b';
+          }
+
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.stroke();
+        }
+      }
+    });
+
+    // コーナー番号 (基準車のアペックス位置)
+    if (showCorners && baseCar) {
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (const c of corners) {
+        const p = baseCar.lap.points[c.apexIndex];
+        if (!p) continue;
+        const pos = toScreen(p.latitude, p.longitude);
+        ctx.fillStyle = '#0f1117d0';
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y - 14, 9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillText(`C${c.number}`, pos.x, pos.y - 14);
+      }
+    }
+
+    // 5. 各車両の現在位置マーカー
+    cars.forEach(car => {
+      const pts = car.lap.points;
+      if (pts.length === 0) return;
+
+      // 現在距離に最も近いポイントを探す
+      const curPt = pts.reduce((prev, curr) => {
+        return Math.abs(curr.distance - currentDistance) < Math.abs(prev.distance - currentDistance)
+          ? curr
+          : prev;
+      }, pts[0]);
+
+      const pos = toScreen(curPt.latitude, curPt.longitude);
+
+      // 5. 各車両の進行方向を向いたレーシングカーアイコン描画
+      ctx.save();
+      ctx.translate(pos.x, pos.y);
+
+      // 地理的Heading (0°:北/画面上, 90°:東/画面右, 180°:南/画面下, 270°:西/画面左)
+      const headingRad = (curPt.heading * Math.PI) / 180;
+      ctx.rotate(headingRad);
+
+      // 車両シャドウ・グロー
+      ctx.shadowColor = car.slot.colorHex;
+      ctx.shadowBlur = 10;
+
+      // レーシングカー型ポリゴン描画 (先端が前・画面上向き)
+      ctx.fillStyle = car.slot.colorHex;
+      ctx.beginPath();
+      ctx.moveTo(0, -11); // ノーズ先端
+      ctx.lineTo(4.5, -4); // 右フロントフェンダー
+      ctx.lineTo(4, 6);   // 右サイド
+      ctx.lineTo(7, 8);   // 右リアウィング端
+      ctx.lineTo(7, 10);
+      ctx.lineTo(0, 7.5); // リア中央イン
+      ctx.lineTo(-7, 10); // 左リアウィング端
+      ctx.lineTo(-7, 8);
+      ctx.lineTo(-4, 6);  // 左サイド
+      ctx.lineTo(-4.5, -4); // 左フロントフェンダー
+      ctx.closePath();
+      ctx.fill();
+
+      // ウィンドシールド (コックピット白抜き)
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(0, -6);
+      ctx.lineTo(2.5, -1);
+      ctx.lineTo(2, 3);
+      ctx.lineTo(-2, 3);
+      ctx.lineTo(-2.5, -1);
+      ctx.closePath();
+      ctx.fill();
+
+      // スロット番号表示 (1..4)
+      ctx.fillStyle = '#0f1117';
+      ctx.font = 'bold 7px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(car.slot.slot + 1), 0, 1);
+
+      ctx.restore();
+    });
+  }, [cars, controlLine, sectors, pathPolylines, currentDistance, bounds, zoom, panOffset, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick]);
+
+  // パン操作 (ドラッグ)
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    setIsPanning(true);
+    // 位置調整モードでは、前回のマウス位置からの移動量で地図を動かす
+    setPanStart(isAdjustingMap ? { x: e.clientX, y: e.clientY } : { x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isPanning) return;
+    if (isAdjustingMap) {
+      const mpp = metersPerPixelRef.current;
+      const dx = e.clientX - panStart.x;
+      const dy = e.clientY - panStart.y;
+      setPanStart({ x: e.clientX, y: e.clientY });
+      // 画面の右 = 東、上 = 北
+      setMapOffset(o => ({ eastM: o.eastM + dx * mpp, northM: o.northM - dy * mpp }));
+      return;
+    }
+    setPanOffset({
+      x: e.clientX - panStart.x,
+      y: e.clientY - panStart.y
+    });
+  };
+
+  const handleMouseUp = () => {
+    if (isPanning && isAdjustingMap) store(offsetKey, mapOffset);
+    setIsPanning(false);
+  };
+
+  const handleSelectBackground = (value: MapBackground) => {
+    setBackground(value);
+    store(BACKGROUND_STORAGE_KEY, value);
+  };
+
+  const handleResetMapOffset = () => {
+    setMapOffset({ eastM: 0, northM: 0 });
+    store(offsetKey, { eastM: 0, northM: 0 });
+  };
+
+  // ホイールズーム
+  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.15 : 0.85;
+    setZoom(z => Math.max(0.4, Math.min(10.0, z * factor)));
+  };
+
+  const handleReset = () => {
+    setZoom(1.0);
+    setPanOffset({ x: 0, y: 0 });
+  };
+
+  return (
+    <div className="flex flex-col h-full bg-[#161922] rounded-lg border border-[#262c3d] overflow-hidden select-none shadow-lg">
+      {/* ツールバー */}
+      <div className="flex flex-wrap items-center justify-between gap-y-1 px-3 py-1.5 bg-[#1b202d] border-b border-[#2a3245] text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-bold text-slate-200 flex items-center gap-1.5">
+            <Map size={14} className="text-emerald-400" />
+            全コースウインドウ
+          </span>
+
+          {/* カラーモード切替 */}
+          <div className="flex items-center bg-[#12141c] rounded p-0.5 border border-[#2e374c]">
+            <button
+              onClick={() => setColorMode('car')}
+              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
+                colorMode === 'car' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              車両色
+            </button>
+            <button
+              onClick={() => setColorMode('speed')}
+              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
+                colorMode === 'speed' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              車速ヒート
+            </button>
+            <button
+              onClick={() => setColorMode('accel')}
+              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
+                colorMode === 'accel' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              加減速
+            </button>
+            <button
+              onClick={() => setColorMode('line')}
+              title="基準車 (Car 1) の走行ラインに対する、他の車両の左右のズレを色分け表示"
+              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
+                colorMode === 'line' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              ライン偏差
+            </button>
+          </div>
+          <button
+            onClick={() => setShowCorners(v => !v)}
+            title="コーナー番号の表示切替"
+            className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-all ${
+              showCorners ? 'border-amber-500/50 text-amber-300' : 'border-[#2e374c] text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            コーナー番号
+          </button>
+          <select
+            value={background}
+            onChange={e => handleSelectBackground(e.target.value as MapBackground)}
+            title="コース図の背景に地図を表示します (国土地理院タイル。表示にはインターネット接続が必要です)"
+            aria-label="背景地図"
+            className="bg-[#12141c] border border-[#2e374c] text-[11px] text-slate-300 rounded px-1.5 py-0.5 outline-none"
+          >
+            <option value="none">背景: なし</option>
+            <option value="photo">背景: {TILE_SOURCES.photo.label}</option>
+            <option value="standard">背景: {TILE_SOURCES.standard.label}</option>
+          </select>
+          {background !== 'none' && (
+            <button
+              onClick={() => setIsAdjustingMap(v => !v)}
+              aria-pressed={isAdjustingMap}
+              title="ON の間は、ドラッグで背景地図だけを動かして GPS 軌跡に合わせます。OFF にすると通常の移動・拡大操作に戻ります"
+              className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border transition-all ${
+                isAdjustingMap ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-[#2e374c] text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Move size={11} />
+              地図の位置調整{isAdjustingMap ? ': ON' : ''}
+            </button>
+          )}
+        </div>
+
+        {/* コントロール */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setZoom(z => Math.min(10, z * 1.25))}
+            title="拡大"
+            className="p-1 hover:bg-[#283247] rounded text-slate-300 transition-colors"
+          >
+            <ZoomIn size={14} />
+          </button>
+          <button
+            onClick={() => setZoom(z => Math.max(0.4, z * 0.8))}
+            title="縮小"
+            className="p-1 hover:bg-[#283247] rounded text-slate-300 transition-colors"
+          >
+            <ZoomOut size={14} />
+          </button>
+          <button
+            onClick={handleReset}
+            title="初期位置に戻す"
+            className="p-1 hover:bg-[#283247] rounded text-slate-300 transition-colors"
+          >
+            <RotateCcw size={13} />
+          </button>
+        </div>
+      </div>
+
+      {/* Canvas */}
+      <div className="relative flex-1 w-full h-full min-h-[220px]">
+        <canvas
+          ref={canvasRef}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          onWheel={handleWheel}
+          className={`w-full h-full block ${isAdjustingMap ? 'cursor-move' : 'cursor-grab active:cursor-grabbing'}`}
+        />
+
+        {/* 地図の位置調整中の案内 */}
+        {isAdjustingMap && (
+          <div className="absolute top-2 left-2 bg-emerald-950/90 border border-emerald-500/60 rounded px-2 py-1 text-[10px] text-emerald-100 flex items-center gap-2" data-testid="map-adjust-panel">
+            <span>ドラッグで地図を移動 (ホイールで拡大縮小)</span>
+            <span className="font-mono" data-testid="map-offset">
+              東 {mapOffset.eastM >= 0 ? '+' : ''}{mapOffset.eastM.toFixed(1)}m / 北 {mapOffset.northM >= 0 ? '+' : ''}{mapOffset.northM.toFixed(1)}m
+            </span>
+            <button onClick={handleResetMapOffset} className="px-1.5 py-0.5 rounded border border-emerald-500/60 hover:bg-emerald-800/60">リセット</button>
+            <button onClick={() => setIsAdjustingMap(false)} className="px-1.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 font-bold">完了</button>
+          </div>
+        )}
+
+        {/* 地図タイルの出典表示 */}
+        {background !== 'none' && (
+          <a
+            href={TILE_ATTRIBUTION.url}
+            target="_blank"
+            rel="noreferrer"
+            className="absolute bottom-1 right-1 bg-[#12141cd0] rounded px-1.5 py-0.5 text-[9px] text-slate-300 hover:text-white"
+          >
+            {TILE_ATTRIBUTION.text}
+          </a>
+        )}
+
+        {/* 凡例 / ガイド */}
+        {colorMode === 'speed' && (
+          <div className="absolute bottom-2 left-2 bg-[#12141ce0] border border-[#2e374c] rounded px-2 py-1 text-[10px] text-slate-300 flex items-center gap-2">
+            <span>低速 (青)</span>
+            <div className="w-16 h-2 rounded bg-gradient-to-r from-blue-600 via-green-500 to-red-500"></div>
+            <span>高速 (赤)</span>
+          </div>
+        )}
+        {colorMode === 'line' && (
+          <div className="absolute bottom-2 left-2 bg-[#12141ce0] border border-[#2e374c] rounded px-2 py-1 text-[10px] text-slate-300 flex items-center gap-2" data-testid="line-delta-legend">
+            {lineDeltas.length === 0 ? (
+              <span className="text-amber-300">比較する車両 (Car 2 以降) を「データ管理」で選択してください</span>
+            ) : (
+              <>
+                <span className="text-sky-400">左 {LINE_DELTA_FULL_SCALE_M}m</span>
+                <div className="w-20 h-2 rounded bg-gradient-to-r from-sky-400 via-slate-700 to-orange-400"></div>
+                <span className="text-orange-400">右 {LINE_DELTA_FULL_SCALE_M}m</span>
+                <span className="text-slate-500">白線: 基準車 / 進行方向に対する左右</span>
+                <label className="flex items-center gap-1 text-slate-300 cursor-pointer" title="ラップ間の GPS の位置ずれ (ほぼ一定の平行移動として現れる誤差) を推定して差し引きます。周回コースでのみ有効です">
+                  <input type="checkbox" checked={correctGpsShift} onChange={e => setCorrectGpsShift(e.target.checked)} className="accent-red-500" />
+                  GPS ずれ補正
+                </label>
+                {correctGpsShift && (
+                  <span className="text-slate-500" data-testid="gps-shift-amount">
+                    {lineDeltas.map(d => {
+                      const amount = Math.hypot(d.delta.shiftEastM, d.delta.shiftNorthM);
+                      return amount > 0 ? `${amount.toFixed(1)}m` : '推定不可';
+                    }).join(' / ')}
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        )}
+        {colorMode === 'accel' && (
+          <div className="absolute bottom-2 left-2 bg-[#12141ce0] border border-[#2e374c] rounded px-2 py-1 text-[10px] text-slate-300 flex items-center gap-2">
+            <span className="text-red-400">減速G (赤)</span>
+            <div className="w-16 h-2 rounded bg-gradient-to-r from-red-500 via-slate-600 to-cyan-400"></div>
+            <span className="text-cyan-400">加速G (青)</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
