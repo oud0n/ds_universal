@@ -29,11 +29,17 @@ export function formatNmeaCoord(val: number, isLat: boolean): { nmea: string; di
   const degStr = isLat
     ? degrees.toString().padStart(2, '0')
     : degrees.toString().padStart(3, '0');
-  const minStr = minutes.toFixed(6).padStart(9, '0');
+  let minStr = minutes.toFixed(6).padStart(9, '0');
+  let degOut = degStr;
+  // 丸めで分が 60 になった場合は度へ繰り上げる
+  if (parseFloat(minStr) >= 60) {
+    minStr = (0).toFixed(6).padStart(9, '0');
+    degOut = (degrees + 1).toString().padStart(isLat ? 2 : 3, '0');
+  }
   const dir = isLat ? (sign ? 'N' : 'S') : (sign ? 'E' : 'W');
 
   return {
-    nmea: `${degStr}${minStr}`,
+    nmea: `${degOut}${minStr}`,
     dir
   };
 }
@@ -87,7 +93,7 @@ export function exportSessionToNmea(
 
     const speedKnots = (pt.speed || 0) / 1.852;
     const heading = pt.heading || 0;
-    const altitude = pt.altitude || 10.0;
+    const altitude = Number.isFinite(pt.altitude) ? pt.altitude : 0;
 
     // GGA センテンス (位置 & 標高 & 衛星数)
     if (exportBothGgaAndRmc) {
@@ -137,8 +143,9 @@ export function exportSessionToGpx(
       </trkpt>`;
   }).join('\n');
 
+  const escapeXml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const lapLabel = lapNumber !== undefined ? `_Lap${lapNumber}` : '';
-  const trackName = `${session.sessionName}${lapLabel}`;
+  const trackName = escapeXml(`${session.sessionName}${lapLabel}`);
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="DS Universal Suite" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
@@ -149,7 +156,7 @@ export function exportSessionToGpx(
   </metadata>
   <trk>
     <name>${trackName}</name>
-    <desc>${session.circuitName || 'Motorsport Circuit'} Tracklog</desc>
+    <desc>${escapeXml(session.circuitName || 'Motorsport Circuit')} Tracklog</desc>
     <trkseg>
 ${trkpts}
     </trkseg>

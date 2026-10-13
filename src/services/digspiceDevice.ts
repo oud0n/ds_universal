@@ -40,6 +40,10 @@ export interface DeviceConfig {
 export type SamplingRateHz = 5 | 10 | 20;
 
 const FLASH_CAPACITY_BYTES = 0x1000000;
+// ログ吸い出しで本体が 1 行に載せて返すデータの大きさ
+const DOWNLOAD_BLOCK_SIZE = 0x800;
+// ログ全消去の完了応答を待つ最大時間
+const ERASE_TIMEOUT_MS = 120000;
 
 // 実機キャプチャで確認済みなのは 10 / 20 / 30 / 35 km/h。極端な値で記録が始まらなくなるのを防ぐ
 export const AUTO_LOG_SPEED_MIN = 5;
@@ -174,6 +178,10 @@ export class DigSpiceDevice {
   }
 
   public async disconnect(): Promise<void> {
+    // 応答待ち・ダウンロード中の処理を中断させる (切断後に残った待機が、次の接続の応答を拾わないように)
+    const closed = new Error('シリアルポートを切断しました');
+    Array.from(this.pendingCancels).forEach(cancel => cancel(closed));
+    if (this.streamAbort) this.streamAbort(closed);
     this.isBusy = false;
     this.streamingHandler = null;
     this.keepReading = false;
@@ -407,8 +415,9 @@ export class DigSpiceDevice {
   // ログ全消去
   public async eraseLogs(): Promise<void> {
     return this.exclusive(async () => {
-      this.log('sys', 'ロガーのメモリ全消去を実行中...');
-      await this.sendExpectAck('PMTK182,6,1', '$PMTK001,182,6,', 3, 15000); // 消去は最大15秒
+      this.log('sys', 'ロガーのメモリ全消去を実行中... (記録量が多いと 1〜2 分かかることがあります)');
+      // 本体の完了応答が届いた時点で終了する。記録量によって所要時間が変わるため、待ち時間には余裕を持たせる
+      await this.sendExpectAck('PMTK182,6,1', '$PMTK001,182,6,', 3, ERASE_TIMEOUT_MS);
       this.log('sys', 'ロガーのメモリ全消去が完了しました。');
     });
   }
@@ -519,83 +528,103 @@ export class DigSpiceDevice {
     if (this.isBusy) throw new Error('他の操作が実行中です');
     this.isBusy = true;
 
-    const collectedBytes: number[] = [];
+    // 無通信の監視タイマー。成否にかかわらず finally で必ず止める
+    let checkInterval: ReturnType<typeof setInterval> | null = null;
 
     try {
       // 1. 書き込みポインタ確認
-      await this.sendCommand('PMTK605');
-      await this.waitForLine('$PMTK705');
-
-      await this.sendCommand('PMTK182,2,8');
-      const wpLine = await this.waitForLine('$PMTK182,3,8');
-      const wpHex = wpLine.split('*')[0].split(',')[3];
+      await this.query('PMTK605', '$PMTK705');
+      const wpLine = await this.query('PMTK182,2,8', '$PMTK182,3,8,');
+      const wpHex = DigSpiceDevice.field(wpLine, 3);
       const wpAddr = parseInt(wpHex, 16);
+      if (Number.isNaN(wpAddr)) throw new Error(`本体から想定外の応答を受信しました: ${wpLine}`);
 
       // 要求サイズの計算: 0x1000 (セクタ境界) に切り上げ
       let reqSize = (wpAddr + 0x0FFF) & ~0x0FFF;
       if (reqSize < 0x1000) reqSize = 0x1000;
       const reqSizeHex = reqSize.toString(16).toUpperCase();
-      const totalBlocks = Math.ceil(reqSize / 0x800);
+      const totalBlocks = Math.ceil(reqSize / DOWNLOAD_BLOCK_SIZE);
 
       this.log('sys', `ダウンロード開始: アドレス=0x${wpHex}, 要求サイズ=0x${reqSizeHex} (${totalBlocks} ブロック)`);
 
-      let lastActivityTime = Date.now();
+      // 受信したブロックは応答に書かれたアドレスの位置へ格納する (未受信の部分は消去状態の 0xFF)
+      const image = new Uint8Array(reqSize).fill(0xff);
+      const received = new Uint8Array(totalBlocks);
       let receivedBlocks = 0;
+      let rejectedLines = 0;
+      let lastActivityTime = Date.now();
 
       const streamPromise = new Promise<void>((resolve, reject) => {
-        const checkInterval = setInterval(() => {
+        checkInterval = setInterval(() => {
           if (Date.now() - lastActivityTime > 8000) {
-            clearInterval(checkInterval);
-            this.streamingHandler = null;
             reject(new Error(`受信タイムアウト: 8秒間データが途絶えました (${receivedBlocks}/${totalBlocks} ブロック受信済)`));
           }
         }, 1000);
 
         let lastUiUpdate = 0;
 
-        // 通信断のときは無通信タイムアウトを待たずに中断する
-        this.streamAbort = (err: Error) => {
-          clearInterval(checkInterval);
-          this.streamingHandler = null;
-          reject(err);
-        };
+        // 通信断・切断のときは無通信タイムアウトを待たずに中断する
+        this.streamAbort = reject;
 
         this.streamingHandler = (line: string) => {
-          if (line.startsWith('$PMTK182,8,')) {
-            // 位置系 NMEA 等の無関係な行では無通信タイムアウトを延長しない
-            lastActivityTime = Date.now();
-            const parts = line.split('*')[0].split(',');
-            if (parts.length >= 4) {
-              const addrHex = parts[2];
-              const hexData = parts[3];
+          if (!line.startsWith('$PMTK182,8,')) return;
+          // 位置系 NMEA 等の無関係な行では無通信タイムアウトを延長しない
+          lastActivityTime = Date.now();
 
-              if (addrHex === '00FFFFF0') {
-                clearInterval(checkInterval);
-                this.streamingHandler = null;
-                resolve();
+          const parts = DigSpiceDevice.fields(line);
+          const addr = parseInt(parts[2] ?? '', 16);
+          const hexData = parts[3] ?? '';
+          // 化けた行・書式の合わない行は採用しない (欠落として最後に検出される)
+          if (!verifyNmeaChecksum(line) || Number.isNaN(addr) || hexData.length % 2 !== 0 || !/^[0-9A-Fa-f]*$/.test(hexData)) {
+            rejectedLines++;
+            return;
+          }
+
+          if (addr === 0xfffff0) {
+            // 終端の応答。ここまでに全ブロックが届いているはず
+            resolve();
+            return;
+          }
+
+          const size = hexData.length / 2;
+          const blockIndex = addr / DOWNLOAD_BLOCK_SIZE;
+          // ブロック境界から始まり、1 ブロック分 (末尾だけは残り全部) そろっている応答だけを採用する
+          const expectedSize = Math.min(DOWNLOAD_BLOCK_SIZE, reqSize - addr);
+          if (!Number.isInteger(blockIndex) || addr >= reqSize || size !== expectedSize) {
+            rejectedLines++;
+            return;
+          }
+          const block = new Uint8Array(size);
+          for (let j = 0; j < size; j++) {
+            block[j] = parseInt(hexData.substring(j * 2, j * 2 + 2), 16);
+          }
+          if (received[blockIndex]) {
+            // 同じ位置が再度届いた場合、内容が食い違えばどちらが正しいか判断できないため失敗にする
+            for (let j = 0; j < size; j++) {
+              if (image[addr + j] !== block[j]) {
+                reject(new Error(`受信データが食い違っています (位置 0x${addr.toString(16).toUpperCase()})。もう一度ダウンロードしてください。`));
                 return;
               }
+            }
+            return;
+          }
+          image.set(block, addr);
+          received[blockIndex] = 1;
+          receivedBlocks++;
 
-              for (let j = 0; j < hexData.length; j += 2) {
-                collectedBytes.push(parseInt(hexData.substring(j, j + 2), 16));
-              }
-              receivedBlocks++;
-
-              const now = Date.now();
-              if (now - lastUiUpdate > 80 || receivedBlocks >= totalBlocks) {
-                lastUiUpdate = now;
-                const pct = Math.min(100, Math.round((receivedBlocks / totalBlocks) * 100));
-                if (onProgress) {
-                  onProgress({
-                    receivedBytes: collectedBytes.length,
-                    totalBytes: reqSize,
-                    percent: pct,
-                    receivedBlocks,
-                    totalBlocks,
-                    statusText: `データ受信中: ${receivedBlocks} / ${totalBlocks} ブロック (${Math.round(collectedBytes.length / 1024)} KB)`
-                  });
-                }
-              }
+          const now = Date.now();
+          if (now - lastUiUpdate > 80 || receivedBlocks >= totalBlocks) {
+            lastUiUpdate = now;
+            const receivedBytes = Math.min(reqSize, receivedBlocks * DOWNLOAD_BLOCK_SIZE);
+            if (onProgress) {
+              onProgress({
+                receivedBytes,
+                totalBytes: reqSize,
+                percent: Math.min(100, Math.round((receivedBlocks / totalBlocks) * 100)),
+                receivedBlocks,
+                totalBlocks,
+                statusText: `データ受信中: ${receivedBlocks} / ${totalBlocks} ブロック (${Math.round(receivedBytes / 1024)} KB)`
+              });
             }
           }
         };
@@ -611,17 +640,27 @@ export class DigSpiceDevice {
 
       await streamPromise;
 
-      const uint8Array = new Uint8Array(collectedBytes);
-      DigSpiceDevice.applyOfficialMetadata(uint8Array);
+      // 欠けたブロックがあるデータを「吸い出し成功」として渡さない (消去前のバックアップに使われるため)
+      if (receivedBlocks < totalBlocks) {
+        const firstMissing = received.indexOf(0);
+        throw new Error(
+          `受信データに欠落があります: ${totalBlocks - receivedBlocks} / ${totalBlocks} ブロックが未受信 ` +
+          `(最初の欠落位置 0x${(firstMissing * DOWNLOAD_BLOCK_SIZE).toString(16).toUpperCase()}` +
+          `${rejectedLines > 0 ? `、破損した行 ${rejectedLines} 件` : ''})。もう一度ダウンロードしてください。`
+        );
+      }
+
+      DigSpiceDevice.applyOfficialMetadata(image);
 
       const fileName = DigSpiceDevice.generateDefaultFileName();
-      this.log('sys', `ダウンロード完了: ${collectedBytes.length} バイト (${fileName})`);
+      this.log('sys', `ダウンロード完了: ${image.length} バイト (${fileName})`);
 
       return {
-        buffer: uint8Array,
+        buffer: image,
         fileName
       };
     } finally {
+      if (checkInterval) clearInterval(checkInterval);
       this.isBusy = false;
       this.streamingHandler = null;
       this.streamAbort = null;

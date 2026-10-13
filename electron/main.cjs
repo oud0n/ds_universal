@@ -10,6 +10,18 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist');
 
 let mainWindow = null;
 
+// デジスパイスIV の USB シリアル (VID 0x2DCF / PID 0x6002)
+const LOGGER_VENDOR_ID = 0x2dcf;
+const LOGGER_PRODUCT_ID = 0x6002;
+// メニューの「開く」ダイアログで利用者が選んだファイルだけを、レンダラーから読めるようにする
+const approvedReadPaths = new Set();
+// 1 ファイルとして読み込む大きさの上限
+const MAX_READ_BYTES = 512 * 1024 * 1024;
+
+function isLoggerPort(port) {
+  return Number(port.vendorId) === LOGGER_VENDOR_ID && Number(port.productId) === LOGGER_PRODUCT_ID;
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -30,50 +42,49 @@ function createWindow() {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https:') || url.startsWith('http:')) {
       shell.openExternal(url);
-      return { action: 'deny' };
     }
-    return { action: 'allow' };
+    // アプリ内で新しいウインドウは開かない
+    return { action: 'deny' };
   });
 
-  // Web Serial API の自動検出 & 自動選択ハンドラ (デジスパイスIV VID: 0x2DCF / 11727, PID: 0x6002 / 24578)
+  // アプリ自身のページ以外へは遷移させない (外部ページにアプリの権限を渡さない)
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url !== mainWindow.webContents.getURL()) {
+      event.preventDefault();
+      if (url.startsWith('https:') || url.startsWith('http:')) shell.openExternal(url);
+    }
+  });
+
+  // Web Serial API のポート選択: デジスパイスIV だけを自動で選ぶ (見つからなければ何も選ばない)
   mainWindow.webContents.session.on('select-serial-port', (event, portList, webContents, callback) => {
     event.preventDefault();
-    console.log('[メインプロセス] 検出されたシリアルポート:', portList);
-
-    if (portList && portList.length > 0) {
-      const dsPort = portList.find(p => {
-        const vid = String(p.vendorId).toLowerCase();
-        const pid = String(p.productId).toLowerCase();
-        return (vid === '11727' || vid === '0x2dcf' || vid === '2dcf') &&
-               (pid === '24578' || pid === '0x6002' || pid === '6002');
-      });
-
-      if (dsPort) {
-        console.log('[メインプロセス] デジスパイスIVを自動選択:', dsPort.portId);
-        callback(dsPort.portId);
-      } else {
-        console.log('[メインプロセス] 候補ポートを選択:', portList[0].portId);
-        callback(portList[0].portId);
-      }
+    const dsPort = webContents === mainWindow.webContents ? (portList || []).find(isLoggerPort) : undefined;
+    if (dsPort) {
+      console.log('[メインプロセス] デジスパイスIVを自動選択:', dsPort.portId);
+      callback(dsPort.portId);
     } else {
       callback('');
     }
   });
 
-  // シリアルポートアクセス権限の自動許可
+  // シリアルポートの権限: このアプリの画面からの要求で、対象がデジスパイスIV の場合だけ許可する
   mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission) => {
-    if (permission === 'serial') return true;
-    return false;
+    return permission === 'serial' && webContents === mainWindow.webContents;
   });
 
   mainWindow.webContents.session.setDevicePermissionHandler((details) => {
-    if (details.deviceType === 'serial') return true;
-    return false;
+    return details.deviceType === 'serial' && !!details.device && isLoggerPort(details.device);
   });
 
   const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
   async function loadApp() {
+    // 配布版は同梱した画面だけを読み込む (開発サーバーや環境変数の URL は開発時のみ)
+    if (app.isPackaged) {
+      mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+      return;
+    }
+
     if (process.env.ELECTRON_START_URL) {
       mainWindow.loadURL(process.env.ELECTRON_START_URL);
       return;
@@ -155,6 +166,7 @@ function createWindow() {
               ]
             });
             if (filePaths && filePaths.length > 0) {
+              filePaths.forEach(p => approvedReadPaths.add(p));
               mainWindow.webContents.send('open-files', filePaths);
             }
           }
@@ -250,11 +262,21 @@ ipcMain.handle('save-binary-file', async (event, { defaultName, dataArray }) => 
 // ファイル読み込み IPC ハンドラ
 ipcMain.handle('read-file-buffer', async (event, filePath) => {
   try {
-    const buffer = fs.readFileSync(filePath);
+    // 「開く」ダイアログで選ばれたファイル以外は読ませない
+    if (typeof filePath !== 'string' || !approvedReadPaths.has(filePath)) {
+      return { success: false, error: 'このファイルの読み込みは許可されていません' };
+    }
+    approvedReadPaths.delete(filePath);
+    const stat = await fs.promises.stat(filePath);
+    if (stat.size > MAX_READ_BYTES) {
+      return { success: false, error: 'ファイルが大きすぎます' };
+    }
+    const buffer = await fs.promises.readFile(filePath);
     return {
       success: true,
       name: path.basename(filePath),
-      dataArray: Array.from(buffer)
+      // バイト列のまま渡す (数値の配列に展開しない)
+      dataArray: new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
     };
   } catch (err) {
     return { success: false, error: err.message };

@@ -74,6 +74,15 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   // GPS 軌跡に対する背景地図の位置補正 (m)。東・北が正
   const [mapOffset, setMapOffset] = useState<{ eastM: number; northM: number }>({ eastM: 0, northM: 0 });
   const [tileTick, setTileTick] = useState(0);
+  // 表示領域の大きさが変わったら描き直す
+  const [resizeTick, setResizeTick] = useState(0);
+  useEffect(() => {
+    const parent = canvasRef.current?.parentElement;
+    if (!parent || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => setResizeTick(t => t + 1));
+    observer.observe(parent);
+    return () => observer.disconnect();
+  }, []);
   // ドラッグ量を距離へ換算するための、現在の表示倍率 (m / px)
   const metersPerPixelRef = useRef(1);
 
@@ -357,8 +366,9 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         ctx.stroke();
       } else if (colorMode === 'speed') {
         // 車速ヒートマップ (低速: 青 〜 中速: 緑/黄 〜 高速: 赤)
-        const maxSpd = car.lap.topSpeed || 150;
-        const minSpd = car.lap.bottomSpeed || 40;
+        // 0 km/h (停車) も有効な値として扱う
+        const maxSpd = Number.isFinite(car.lap.topSpeed) && car.lap.topSpeed > 0 ? car.lap.topSpeed : 150;
+        const minSpd = Number.isFinite(car.lap.bottomSpeed) ? car.lap.bottomSpeed : 40;
         const spdRange = Math.max(1, maxSpd - minSpd);
 
         ctx.lineWidth = 3;
@@ -485,7 +495,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 
       ctx.restore();
     });
-  }, [cars, controlLine, sectors, pathPolylines, currentDistance, bounds, zoom, panOffset, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick]);
+  }, [cars, controlLine, sectors, pathPolylines, currentDistance, bounds, zoom, panOffset, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick]);
 
   // パン操作 (ドラッグ)
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {

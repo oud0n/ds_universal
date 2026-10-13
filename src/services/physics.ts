@@ -2,6 +2,13 @@ import { TelemetryPoint } from '../types/telemetry';
 
 const GRAVITY = 9.80665; // m/s^2
 
+/** 角度差を -180〜+180 度に収める。有限でない値は 0 として扱う (壊れた入力で処理が止まらないように) */
+function wrapDegrees(deg: number): number {
+  if (!Number.isFinite(deg)) return 0;
+  const wrapped = ((deg + 180) % 360 + 360) % 360 - 180;
+  return wrapped === -180 ? 180 : wrapped;
+}
+
 /**
  * 2点間の緯度経度から距離(メートル)と方位角(度)を計算する (Hubeny / Haversine)
  */
@@ -51,7 +58,8 @@ export function calculatePhysics(points: TelemetryPoint[]): TelemetryPoint[] {
   }));
 
   // 累積距離と進行方向（方位角）の検証・補正 (ds4_convert 準拠)
-  let currentDistKm = 0;
+  // 先頭の点に距離が入っているログでは、そこから積算する (途中で距離欄が 0 に戻っても逆行させない)
+  let currentDistKm = result[0].distance > 0 ? result[0].distance : 0;
   for (let i = 0; i < n; i++) {
     if (i > 0) {
       const prev = result[i - 1];
@@ -79,8 +87,7 @@ export function calculatePhysics(points: TelemetryPoint[]): TelemetryPoint[] {
         } else {
           // GPS方位角と実移動ベクトルの偏差を緩やかにブレンド
           let diff = headingDeg - cur.heading;
-          while (diff > 180) diff -= 360;
-          while (diff < -180) diff += 360;
+          diff = wrapDegrees(diff);
           cur.heading = Number(((cur.heading + diff * 0.4 + 360) % 360).toFixed(1));
         }
       } else {
@@ -106,12 +113,10 @@ export function calculatePhysics(points: TelemetryPoint[]): TelemetryPoint[] {
   for (let i = 1; i < n - 1; i++) {
     if (result[i].speed > 5.0) {
       let diffPrev = result[i - 1].heading - result[i].heading;
-      while (diffPrev > 180) diffPrev -= 360;
-      while (diffPrev < -180) diffPrev += 360;
+      diffPrev = wrapDegrees(diffPrev);
 
       let diffNext = result[i + 1].heading - result[i].heading;
-      while (diffNext > 180) diffNext -= 360;
-      while (diffNext < -180) diffNext += 360;
+      diffNext = wrapDegrees(diffNext);
 
       // 前後との平均補正
       const smoothed = result[i].heading + (diffPrev + diffNext) * 0.25;
@@ -139,8 +144,7 @@ export function calculatePhysics(points: TelemetryPoint[]): TelemetryPoint[] {
       // 方位角変化 (dTheta)
       let dHeading = result[i2].heading - result[i1].heading;
       // 360度境界処理
-      while (dHeading > 180) dHeading -= 360;
-      while (dHeading < -180) dHeading += 360;
+      dHeading = wrapDegrees(dHeading);
 
       const yawRateRad = ((dHeading * Math.PI) / 180) / dt; // rad/s
       // Lateral acceleration = v * omega

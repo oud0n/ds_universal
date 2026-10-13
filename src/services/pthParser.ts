@@ -24,7 +24,7 @@ export function parsePth(pthText: string): Array<Array<[number, number]>> {
       if (parts.length >= 2) {
         const lon = parseFloat(parts[0]);
         const lat = parseFloat(parts[1]);
-        if (!isNaN(lon) && !isNaN(lat)) {
+        if (Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lon) <= 180 && Math.abs(lat) <= 90) {
           currentPath.push([lon, lat]);
         }
       }
@@ -40,7 +40,7 @@ export function parsePth(pthText: string): Array<Array<[number, number]>> {
         const parts = trimmed.split(',');
         const lon = parseFloat(parts[0]);
         const lat = parseFloat(parts[1]);
-        if (!isNaN(lon) && !isNaN(lat)) {
+        if (Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lon) <= 180 && Math.abs(lat) <= 90) {
           fallbackPoints.push([lon, lat]);
         }
       }
@@ -91,7 +91,9 @@ export function parseCln(clnText: string, name = 'Control Line'): ControlLine {
   const latB = parseFloat(lines[3]);
   const lonB = parseFloat(lines[4]);
 
-  if (isNaN(latA) || isNaN(lonA) || isNaN(latB) || isNaN(lonB)) {
+  const inRange = [latA, latB].every(v => Number.isFinite(v) && Math.abs(v) <= 90) &&
+    [lonA, lonB].every(v => Number.isFinite(v) && Math.abs(v) <= 180);
+  if (!inRange || (latA === latB && lonA === lonB)) {
     throw new Error('.cln ファイルの座標値が不正です');
   }
 

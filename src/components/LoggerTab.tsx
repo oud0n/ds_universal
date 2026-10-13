@@ -136,7 +136,9 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
       setIsBusy(true);
       await device.eraseLogs();
       alert('ロガーの全ログ消去が完了しました。');
-      await handleRefreshInfo();
+      // 消去後の容量と本体設定を読み直す (書き込み位置が先頭に戻る)
+      setLogInfo(await device.getLogInfo());
+      setConfig(await device.getDeviceConfig());
     } catch (err: any) {
       alert(`消去エラー: ${err.message}`);
     } finally {
@@ -179,7 +181,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
     if (nav.electronAPI && nav.electronAPI.saveBinaryFile) {
       const res = await nav.electronAPI.saveBinaryFile({
         defaultName: downloadedData.fileName,
-        dataArray: Array.from(downloadedData.buffer)
+        dataArray: downloadedData.buffer
       });
       if (res.success) {
         alert(`ファイルを保存しました:\n${res.filePath}`);

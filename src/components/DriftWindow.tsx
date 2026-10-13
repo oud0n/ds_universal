@@ -29,25 +29,29 @@ export const DriftWindow: React.FC<DriftWindowProps> = ({
     let maxAngle = 0;
     let sumAngle = 0;
     let driftPoints = 0;
+    // 継続時間は点数ではなく時刻の差から積算する (記録レートに依存させない)
+    let driftSeconds = 0;
 
-    for (const p of baseCar.lap.points) {
-      const angle = Math.abs(p.driftAngle);
+    const pts = baseCar.lap.points;
+    for (let i = 0; i < pts.length; i++) {
+      const angle = Math.abs(pts[i].driftAngle);
       if (angle > 5) {
         if (angle > maxAngle) maxAngle = angle;
         sumAngle += angle;
         driftPoints++;
+        if (i > 0) driftSeconds += Math.max(0, pts[i].time - pts[i - 1].time);
       }
     }
 
     const avgAngle = driftPoints > 0 ? sumAngle / driftPoints : 0;
     // ドリフトスコア算出 (本アプリ独自の簡易指標。公式ソフトの採点方式とは無関係)
-    const score = Math.min(100, Math.round(maxAngle * 1.5 + avgAngle * 0.8 + (driftPoints / 10) * 0.5));
+    const score = Math.min(100, Math.round(maxAngle * 1.5 + avgAngle * 0.8 + driftSeconds * 0.5));
 
     return {
       maxAngle: Number(maxAngle.toFixed(1)),
       avgAngle: Number(avgAngle.toFixed(1)),
       score,
-      driftCount: Math.round(driftPoints / 10)
+      driftCount: Math.round(driftSeconds)
     };
   }, [baseCar]);
 

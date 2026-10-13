@@ -56,18 +56,25 @@ export function encodeExtendedFloat(value: number, bytes: Uint8Array, offset: nu
 /**
  * OLE Automation Date (COM Date: 1899-12-30からの日数) を Date オブジェクトに変換
  */
+// .dtb の日時は「保存した PC の現地時刻」で記録されている (同じ走行の .bnx4 の UTC 時刻と照合して確認)。
+// そのため、この PC のタイムゾーンの現地時刻として解釈する
 export function oleDateToDate(oleDate: number): Date {
-  const epoch = new Date(Date.UTC(1899, 11, 30));
-  const ms = oleDate * 86400000;
-  return new Date(epoch.getTime() + ms);
+  const wall = new Date(Date.UTC(1899, 11, 30) + oleDate * 86400000);
+  return new Date(
+    wall.getUTCFullYear(), wall.getUTCMonth(), wall.getUTCDate(),
+    wall.getUTCHours(), wall.getUTCMinutes(), wall.getUTCSeconds(), wall.getUTCMilliseconds()
+  );
 }
 
 /**
  * Date オブジェクトを OLE Automation Date に変換
  */
 export function dateToOleDate(date: Date): number {
-  const epoch = new Date(Date.UTC(1899, 11, 30));
-  return (date.getTime() - epoch.getTime()) / 86400000;
+  const wall = Date.UTC(
+    date.getFullYear(), date.getMonth(), date.getDate(),
+    date.getHours(), date.getMinutes(), date.getSeconds(), date.getMilliseconds()
+  );
+  return (wall - Date.UTC(1899, 11, 30)) / 86400000;
 }
 
 /**
@@ -115,20 +122,23 @@ export function parseDtb(buffer: ArrayBuffer): {
     // off 112: distance (Extended, km)
     const distance = decodeExtendedFloat(bytes, offset + 112);
 
-    // off 124: sampling rate (int32)
-    if (offset + 128 <= bytes.length) {
-      const rate = view.getInt32(offset + 124, true);
-      if (rate >= 1 && rate <= 100) {
-        samplingRate = rate;
-      }
-    }
+    // off 8: 先頭からの経過時間 (日単位, Double)。off 16 の秒と同じ内容
+    // off 124: 衛星数とみられる値 (int32)。記録レートではない。再保存で失わないよう保持する
+    const tail = view.getInt32(offset + 124, true);
 
-    // 妥当性チェック
-    if (Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180) {
+    // 妥当性チェック (壊れたファイルの無限大・非数・範囲外の値は取り込まない)
+    const values = [time, latitude, longitude, altitude, speed, heading, distance];
+    if (
+      values.every(Number.isFinite) &&
+      Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 &&
+      time >= 0 && speed >= 0 && speed < 1000 && Math.abs(heading) <= 360 &&
+      (points.length === 0 || time >= points[points.length - 1].time)
+    ) {
       points.push({
         index: i,
         time: Number(time.toFixed(4)),
         oleDate,
+        satellites: tail,
         timestamp: oleDate > 0 ? oleDateToDate(oleDate).toISOString() : undefined,
         latitude: Number(latitude.toFixed(7)),
         longitude: Number(longitude.toFixed(7)),
@@ -147,6 +157,18 @@ export function parseDtb(buffer: ArrayBuffer): {
 
   // 物理計算（加減速G、横G、合算G、旋回半径、ドリフトアングル）を付与
   const enrichedPoints = calculatePhysics(points);
+
+  // 記録レートは時刻の刻み (中央値) から求める
+  if (points.length > 2) {
+    const steps: number[] = [];
+    for (let i = 1; i < points.length; i++) {
+      const dt = points[i].time - points[i - 1].time;
+      if (dt > 0) steps.push(dt);
+    }
+    steps.sort((x, y) => x - y);
+    const median = steps[steps.length >> 1];
+    if (median > 0) samplingRate = Math.max(1, Math.round(1 / median));
+  }
 
   return {
     points: enrichedPoints,
@@ -170,9 +192,11 @@ export function exportDtb(points: TelemetryPoint[], samplingRate = 10, startDate
     const p = points[i];
     const offset = i * RECORD_SIZE;
 
-    // OLE Date (経過時間を加算)
-    const curOle = p.oleDate || (startOle + p.time / 86400);
+    // 日時 (PC の現地時刻)。ログの記録時刻があればそれを使う
+    const curOle = p.oleDate || (p.timestamp ? dateToOleDate(new Date(p.timestamp)) : startOle + p.time / 86400);
     view.setFloat64(offset + 0, curOle, true);
+    // 経過時間 (日単位)。off 16 の秒と同じ値を単位だけ変えて入れる
+    view.setFloat64(offset + 8, p.time / 86400, true);
 
     encodeExtendedFloat(p.time, bytes, offset + 16);
     encodeExtendedFloat(p.latitude, bytes, offset + 32);
@@ -182,7 +206,8 @@ export function exportDtb(points: TelemetryPoint[], samplingRate = 10, startDate
     encodeExtendedFloat(p.heading, bytes, offset + 96);
     encodeExtendedFloat(p.distance, bytes, offset + 112);
 
-    view.setInt32(offset + 124, samplingRate, true);
+    // off 124 (衛星数とみられる値): 元の値があればそのまま書き戻す。他形式から変換した点は値を持たないため、従来どおり記録レートの数値を入れる
+    view.setInt32(offset + 124, Number.isInteger(p.satellites) ? (p.satellites as number) : samplingRate, true);
   }
 
   return bytes;

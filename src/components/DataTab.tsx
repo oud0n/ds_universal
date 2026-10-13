@@ -309,6 +309,16 @@ export const DataTab: React.FC<DataTabProps> = ({
               </div>
             </div>
 
+            {/* 周回を区切れていないときは、その理由と対処を示す (全体が 1 周として表示されるため) */}
+            {(!session.controlLine || session.laps.some(l => l.isWholeSession)) && (
+              <div className="px-4 py-2 text-xs text-amber-300 bg-amber-500/10 border-b border-amber-500/30">
+                {session.controlLine
+                  ? '計測線を 2 回以上通過していないため、周回を区切れていません。計測線の位置が合っているか確認してください。'
+                  : '計測線が未設定のため、周回を区切れません。'}
+                「コースフォルダ一括設置」でコースデータを読み込むか、「コース編集」で計測線を設定してください。
+              </div>
+            )}
+
             {/* ラップ一覧テーブル */}
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-left">

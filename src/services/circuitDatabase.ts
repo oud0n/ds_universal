@@ -1,4 +1,5 @@
-import { CircuitPreset, ControlLine, Sector } from '../types/telemetry';
+import { CircuitPreset, TelemetryPoint } from '../types/telemetry';
+import { extractLaps } from './lapCalculator';
 import { userCircuitStorage } from './userCircuitStorage';
 import { fetchOsmCircuitPolylines } from './osmCircuitService';
 
@@ -209,8 +210,10 @@ export const ALL_CIRCUITS: CircuitPreset[] = CIRCUIT_PRESETS;
  * 緯度経度から最も近いサーキットプリセットを検索（自動認識）
  * 1. ユーザー設置サーキットから検索
  * 2. 登録済みプリセットから検索
+ * 走行データ (points) を渡すと、同じ敷地に複数のコースがある場合 (筑波 2000 / 1000 など) に、
+ * 計測線で最も多く周回を区切れたコースを選ぶ
  */
-export function findMatchingCircuit(lat: number, lon: number): CircuitPreset | undefined {
+export function findMatchingCircuit(lat: number, lon: number, points?: TelemetryPoint[]): CircuitPreset | undefined {
   // 1. ユーザー設置データを確認
   const userMatch = userCircuitStorage.findNearCircuit(lat, lon, 15000);
   if (userMatch && userMatch.controlLine) {
@@ -229,6 +232,7 @@ export function findMatchingCircuit(lat: number, lon: number): CircuitPreset | u
   // 2. プリセットから検索
   let closest: CircuitPreset | undefined;
   let minDistance = 15000; // 15km以内
+  const nearby: CircuitPreset[] = [];
 
   for (const circuit of CIRCUIT_PRESETS) {
     const dLat = (circuit.centerLat - lat) * 111320;
@@ -239,6 +243,24 @@ export function findMatchingCircuit(lat: number, lon: number): CircuitPreset | u
       minDistance = distMeters;
       closest = circuit;
     }
+    if (distMeters < 15000) nearby.push(circuit);
+  }
+
+  // 近くに候補が複数あるときは、実際の走行で計測線を通過しているコースを優先する
+  if (points && nearby.length > 1) {
+    let bestLaps = 0;
+    let best: CircuitPreset | undefined;
+    for (const circuit of nearby) {
+      if (!circuit.controlLine) continue;
+      const laps = extractLaps(points, circuit.controlLine, []).laps;
+      const count = laps.some(l => l.isWholeSession) ? 0 : laps.length;
+      // 同数なら先頭位置に近い方 (closest) を残す
+      if (count > bestLaps || (count === bestLaps && count > 0 && circuit === closest)) {
+        bestLaps = count;
+        best = circuit;
+      }
+    }
+    if (best) return best;
   }
 
   return closest;

@@ -40,20 +40,37 @@ export async function fetchOsmCircuitPolylines(
   for (const endpoint of OVERPASS_ENDPOINTS) {
     try {
       console.log(`[OSM] Overpass API に問い合わせ中 (${endpoint})...`);
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: `data=${encodeURIComponent(query)}`
-      });
+      // 応答しないサーバーで止まらないよう、一定時間で打ち切って次のエンドポイントへ進む
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20000);
+      let response: Response;
+      try {
+        response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: `data=${encodeURIComponent(query)}`,
+          signal: controller.signal
+        });
+      } catch (e) {
+        clearTimeout(timer);
+        throw e;
+      }
 
       if (!response.ok) {
+        clearTimeout(timer);
         console.warn(`[OSM] エンドポイント ${endpoint} レスポンスエラー: ${response.status}`);
         continue;
       }
 
-      const json = await response.json();
+      // 本文の受信が終わるまで打ち切りの監視を続ける
+      let json: any;
+      try {
+        json = await response.json();
+      } finally {
+        clearTimeout(timer);
+      }
       if (!json || !json.elements) continue;
 
       const nodes = new Map<number, [number, number]>();

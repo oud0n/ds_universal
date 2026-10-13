@@ -34,6 +34,9 @@ const BRAKE_MIN_DURATION_S = 0.4;
 // これ以上の横 G が出ている制動区間を「トレイルブレーキング」とみなす
 const TRAIL_LATERAL_G = 0.3;
 
+// 始点と終点の距離がこれ以下なら周回コースとみなす (GPS ずれ補正の適用条件)
+const LOOP_CLOSURE_MAX_GAP_M = 50;
+
 // 比較ラップ上の対応点を探す範囲と、対応なしとみなす距離
 const MATCH_SEARCH_WINDOW_M = 80;
 const MATCH_MAX_DISTANCE_M = 30;
@@ -359,7 +362,8 @@ export function detectBrakingZones(geo: LapGeometry): BrakingZone[] {
 
       let trailS = 0;
       let trailMaxLatG = 0;
-      for (let k = Math.max(peak, onset + 1); k <= end; k++) {
+      // 旋回しながら制動している時間 (制動開始から終了まで)
+      for (let k = onset + 1; k <= end; k++) {
         if (Math.abs(latG[k]) >= TRAIL_LATERAL_G) {
           trailS += t[k] - t[k - 1];
           trailMaxLatG = Math.max(trailMaxLatG, Math.abs(latG[k]));
@@ -432,18 +436,22 @@ export interface GpsShift {
   northM: number;
 }
 
-/** 点 (px, py) から線分 a-b への符号付き距離。線分の進行方向に対して右が正 */
-function signedDistanceToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): { d: number; d2: number } {
+/**
+ * 点 (px, py) と線分 a-b の位置関係。
+ *  d2: 線分上の最近点までの距離の 2 乗 (どの線分に対応させるかの判定用)
+ *  lateral: 線分の進行方向に対する左右のズレ (右が正)。前後方向の差は含めない
+ */
+function signedDistanceToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): { lateral: number; d2: number } {
   const dx = bx - ax;
   const dy = by - ay;
   const len2 = dx * dx + dy * dy;
-  const u = len2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
+  if (len2 === 0) return { lateral: NaN, d2: (px - ax) ** 2 + (py - ay) ** 2 };
+  const u = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
   const cx = ax + u * dx;
   const cy = ay + u * dy;
-  const d2 = (px - cx) ** 2 + (py - cy) ** 2;
   // 外積 dx*vy - dy*vx は左側で正になるため符号を反転する
   const cross = dx * (py - ay) - dy * (px - ax);
-  return { d: cross > 0 ? -Math.sqrt(d2) : Math.sqrt(d2), d2 };
+  return { lateral: -cross / Math.sqrt(len2), d2: (px - cx) ** 2 + (py - cy) ** 2 };
 }
 
 /**
@@ -471,16 +479,15 @@ export function computeLineDelta(ref: LapGeometry, target: LapGeometry, shift: G
     for (let k = from; k < m - 1; k++) {
       if (ref.s[k] - ref.s[j] > MATCH_SEARCH_WINDOW_M) break;
       const r = signedDistanceToSegment(px, py, ref.x[k], ref.y[k], ref.x[k + 1], ref.y[k + 1]);
-      if (r.d2 < bestD2) { bestD2 = r.d2; bestD = r.d; best = k; }
+      if (r.d2 < bestD2 && Number.isFinite(r.lateral)) { bestD2 = r.d2; bestD = r.lateral; best = k; }
     }
     if (best < 0) {
-      // 見失った場合 (ピットイン等) は全体から探し直す
-      for (let k = 0; k < m - 1; k += 5) {
-        const d2 = (px - ref.x[k]) ** 2 + (py - ref.y[k]) ** 2;
-        if (d2 < bestD2) { bestD2 = d2; best = k; }
+      // 見失った場合 (ピットから戻った直後等) は、基準ラインの全線分から探し直す
+      for (let k = 0; k < m - 1; k++) {
+        const r = signedDistanceToSegment(px, py, ref.x[k], ref.y[k], ref.x[k + 1], ref.y[k + 1]);
+        if (r.d2 < bestD2 && Number.isFinite(r.lateral)) { bestD2 = r.d2; bestD = r.lateral; best = k; }
       }
-      if (best >= 0) j = best;
-      continue;
+      if (best < 0) continue;
     }
     j = best;
     offsetM[i] = bestD;
@@ -500,6 +507,10 @@ export function computeLineDelta(ref: LapGeometry, target: LapGeometry, shift: G
  * 進行方向が十分にばらけていない (直線だけ等) 場合は分離できないので null を返す
  */
 export function estimateGpsShift(ref: LapGeometry, target: LapGeometry): GpsShift | null {
+  // 周回コース (始点と終点がほぼ同じ場所) でなければ、位置ずれとライン取りの差を分離できない
+  const m = ref.s.length;
+  if (m < 2 || Math.hypot(ref.x[m - 1] - ref.x[0], ref.y[m - 1] - ref.y[0]) > LOOP_CLOSURE_MAX_GAP_M) return null;
+
   let shift: GpsShift = { eastM: 0, northM: 0 };
   for (let iter = 0; iter < 4; iter++) {
     const delta = computeLineDelta(ref, target, shift);

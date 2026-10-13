@@ -63,6 +63,7 @@ function findGateCrossings(
 
         const interpPoint: TelemetryPoint = {
           ...p1,
+          ...interpolateClock(p1, p2, result.t),
           time: Number(interpTime.toFixed(4)),
           distance: Number(interpDist.toFixed(4)),
           speed: Number(interpSpeed.toFixed(2)),
@@ -99,14 +100,19 @@ function calculateLapSectors(
   let prevSplitDist = 0;
 
   sectors.forEach((sec, sIdx) => {
-    // セクターラインとの交差を探す
-    const crossings = findGateCrossings(lapPoints, sec, 2);
+    // セクターラインとの交差を探す。前のセクター通過より後のものだけを対象にする
+    // (ラップの先頭はコントロールライン上にあるため、フィニッシュ線を兼ねるセクターが 0 秒で検出されるのを防ぐ)
+    const crossing = findGateCrossings(lapPoints, sec, 2).find(c => c.time - lapStartTime > prevSplitTime + 0.5);
     let splitTime = 0;
     let splitDist = 0;
 
-    if (crossings.length > 0) {
-      splitTime = crossings[0].time - lapStartTime;
-      splitDist = crossings[0].distance - lapPoints[0].distance;
+    if (crossing) {
+      splitTime = crossing.time - lapStartTime;
+      splitDist = crossing.distance - lapPoints[0].distance;
+    } else if (sIdx === sectors.length - 1) {
+      // 最後のセクターで交差が見つからない場合は、ラップの終わり (フィニッシュ通過) までとする
+      splitTime = lapPoints[lapPoints.length - 1].time - lapStartTime;
+      splitDist = lapPoints[lapPoints.length - 1].distance - lapPoints[0].distance;
     } else {
       // ゲート通過が検出できない場合は距離または時間の等分推計
       const fraction = (sIdx + 1) / (sectors.length + 1);
@@ -159,6 +165,26 @@ function calculateLapSectors(
 /**
  * テレメトリデータからラップを自動分割・解析
  */
+/**
+ * 2 点の間を比率 t で補間した記録時刻 (timestamp / oleDate)。どちらも無い点では何も返さない
+ */
+function interpolateClock(p1: TelemetryPoint, p2: TelemetryPoint, t: number): Partial<TelemetryPoint> {
+  const out: Partial<TelemetryPoint> = {};
+  if (p1.timestamp != null && p2.timestamp != null) {
+    const a = new Date(p1.timestamp).getTime();
+    const b = new Date(p2.timestamp).getTime();
+    if (Number.isFinite(a) && Number.isFinite(b)) {
+      const d = new Date(a + t * (b - a));
+      // 元の点と同じ型 (文字列 / Date) で持つ
+      out.timestamp = (typeof p1.timestamp === 'string' ? d.toISOString() : d) as TelemetryPoint['timestamp'];
+    }
+  }
+  if (typeof p1.oleDate === 'number' && typeof p2.oleDate === 'number' && p1.oleDate > 0 && p2.oleDate > 0) {
+    out.oleDate = p1.oleDate + t * (p2.oleDate - p1.oleDate);
+  }
+  return out;
+}
+
 export function extractLaps(
   points: TelemetryPoint[],
   controlLine?: ControlLine,
@@ -168,7 +194,15 @@ export function extractLaps(
     return { laps: [], bestLapIndex: -1, theoreticalBestTime: 0 };
   }
 
-  let lapRanges: Array<{ startIndex: number; endIndex: number; startTime: number; endTime: number }> = [];
+  let lapRanges: Array<{
+    startIndex: number;
+    endIndex: number;
+    startTime: number;
+    endTime: number;
+    // コントロールライン上に補間した通過点 (ラップの先頭と末尾)
+    startPoint?: TelemetryPoint;
+    endPoint?: TelemetryPoint;
+  }> = [];
 
   // コントロールラインがある場合は交差検出でラップ分割
   if (controlLine) {
@@ -181,13 +215,16 @@ export function extractLaps(
           startIndex: c1.index,
           endIndex: c2.index,
           startTime: c1.time,
-          endTime: c2.time
+          endTime: c2.time,
+          startPoint: c1.interpolatedPoint,
+          endPoint: c2.interpolatedPoint
         });
       }
     }
   }
 
   // 交差が2回未満（単一ラップデータなど）の場合は全体を1つのラップとする
+  const isWholeSession = lapRanges.length === 0;
   if (lapRanges.length === 0) {
     lapRanges.push({
       startIndex: 0,
@@ -200,7 +237,11 @@ export function extractLaps(
   const laps: Lap[] = [];
 
   lapRanges.forEach((r, idx) => {
-    const rawPoints = points.slice(r.startIndex, r.endIndex + 1);
+    // コントロールラインで区切ったラップは、通過点 (補間) を先頭と末尾に置き、その間の実測点を挟む。
+    // こうすると先頭が 0 秒・0 km、末尾がちょうどラップタイム・1 周の距離になる
+    const rawPoints = r.startPoint && r.endPoint
+      ? [r.startPoint, ...points.slice(r.startIndex, r.endIndex), r.endPoint]
+      : points.slice(r.startIndex, r.endIndex + 1);
     if (rawPoints.length < 2) return;
 
     // 各ラップ内のタイムと距離を t=0, dist=0 からに正規化
@@ -241,7 +282,8 @@ export function extractLaps(
       bottomSpeed: Number((bottomSpeed === 999 ? 0 : bottomSpeed).toFixed(1)),
       avgSpeed: Number(avgSpeed.toFixed(1)),
       sectors: sectorResults,
-      points: lapPoints
+      points: lapPoints,
+      ...(isWholeSession ? { isWholeSession: true } : {})
     });
   });
 

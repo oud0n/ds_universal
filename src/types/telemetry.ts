@@ -2,6 +2,7 @@ export interface TelemetryPoint {
   index: number;
   time: number;          // 秒単位 (t=0からの経過時間)
   oleDate?: number;      // COM / OLE Automation Date
+  satellites?: number;   // 衛星数 (記録されている形式のみ)
   timestamp?: string;    // 日時文字列 (例: "2026-09-21 10:23:45.100")
   latitude: number;      // 緯度 (度)
   longitude: number;     // 経度 (度)
@@ -61,6 +62,8 @@ export interface Lap {
   bottomSpeed: number;   // km/h
   avgSpeed: number;      // km/h
   isBestLap?: boolean;
+  // 計測線で区切れず、ログ全体を 1 周として扱ったもの
+  isWholeSession?: boolean;
   sectors: LapSectorResult[];
   points: TelemetryPoint[];
 }

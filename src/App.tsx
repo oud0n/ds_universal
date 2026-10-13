@@ -66,6 +66,9 @@ export const App: React.FC = () => {
   const [isCircuitEditorOpen, setIsCircuitEditorOpen] = useState(false);
   const [isDonateModalOpen, setIsDonateModalOpen] = useState(false);
 
+  // コース図の問い合わせの通し番号 (最後に出した問い合わせの応答だけを反映するため)
+  const circuitRequestRef = useRef(0);
+
   // 非表示ファイルインプット参照
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pthInputRef = useRef<HTMLInputElement | null>(null);
@@ -151,39 +154,49 @@ export const App: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [baseLap]);
+  }, [baseLap, baseSession, currentTab]);
 
   // Electron ネイティブメニューからのファイルオープン受信
   useEffect(() => {
     const nav = window as any;
+    const unsubscribers: Array<() => void> = [];
     if (nav.electronAPI?.onOpenFiles && nav.electronAPI?.readFileBuffer) {
-      nav.electronAPI.onOpenFiles(async (filePaths: string[]) => {
+      const off = nav.electronAPI.onOpenFiles(async (filePaths: string[]) => {
         for (const fp of filePaths) {
           try {
             const res = await nav.electronAPI.readFileBuffer(fp);
             if (res.success) {
               const buffer = new Uint8Array(res.dataArray).buffer;
-              await loadFileData(res.name, buffer);
+              // 最新のコース設定で読み込む (登録時点の関数を使い続けない)
+              await loadFileDataRef.current(res.name, buffer);
+            } else {
+              alert(`ファイルの読み込みに失敗しました: ${res.error}`);
             }
           } catch (err: any) {
             console.error('Electron file open error:', err);
+            alert(`ファイルの読み込みに失敗しました: ${err?.message || err}`);
           }
         }
       });
+      if (typeof off === 'function') unsubscribers.push(off);
     }
 
     if (nav.electronAPI?.onOpenDonateModal) {
-      nav.electronAPI.onOpenDonateModal(() => {
+      const off = nav.electronAPI.onOpenDonateModal(() => {
         setIsDonateModalOpen(true);
       });
+      if (typeof off === 'function') unsubscribers.push(off);
     }
+    return () => unsubscribers.forEach(off => off());
   }, []);
 
   const handleStep = (stepSec: number) => {
     if (!baseLap) return;
     setIsPlaying(false);
     setCurrentTimeSec(prev => {
-      const maxLimit = currentTab === 'video' ? (baseSession?.totalDistance || 99999) : baseLap.lapTime;
+      // 動画タブではセッション全体の時間、それ以外では選択中ラップの時間が上限
+      const sessionEnd = baseSession?.points.length ? baseSession.points[baseSession.points.length - 1].time : 99999;
+      const maxLimit = currentTab === 'video' ? sessionEnd : baseLap.lapTime;
       const next = Math.max(0, Math.min(maxLimit, prev + stepSec));
       const pts = (currentTab === 'video' ? baseSession?.points : baseLap?.points) || baseSession?.points;
       if (pts && pts.length > 0) {
@@ -264,9 +277,13 @@ export const App: React.FC = () => {
     } else if (ext === 'csv' || ext === 'txt') {
       const text = new TextDecoder('utf-8').decode(buffer);
       // 他社形式の CSV は先頭の書式で判別する
+      // MoTeC CSV は単位行などの構造が汎用 CSV と違うため、無効の間は汎用の読み込みに回さず断る
+      if (isMotecCsv(text) && !MOTEC_CSV_ENABLED) {
+        throw new Error('MoTeC CSV の読み込みには現在対応していません');
+      }
       const parsed: { points: any[]; samplingRate: number; startDate?: Date } =
         isRaceChronoCsv(text) ? parseRaceChronoCsv(text)
-        : MOTEC_CSV_ENABLED && isMotecCsv(text) ? parseMotecCsv(text)
+        : isMotecCsv(text) ? parseMotecCsv(text)
         : parseCsv(text);
       rawPoints = parsed.points;
       samplingRate = parsed.samplingRate;
@@ -276,6 +293,7 @@ export const App: React.FC = () => {
       const parsed = parseNmea(text);
       rawPoints = parsed.points;
       samplingRate = parsed.samplingRate;
+      startDate = parsed.startDate;
     } else {
       throw new Error(`未対応のファイル形式です: .${ext}`);
     }
@@ -285,7 +303,7 @@ export const App: React.FC = () => {
     }
 
     // サーキット自動判定
-    let matchedCircuit = findMatchingCircuit(rawPoints[0].latitude, rawPoints[0].longitude);
+    let matchedCircuit = findMatchingCircuit(rawPoints[0].latitude, rawPoints[0].longitude, rawPoints);
     let cl = currentControlLine;
     let sec = currentSectors;
     let circName = currentCircuitName;
@@ -299,7 +317,10 @@ export const App: React.FC = () => {
       setCurrentCircuitName(circName);
 
       // コース図ポリラインの自動読込 (ユーザー設置 -> OpenStreetMap 自動解決)
+      // 応答が遅れている間に別のコースを読み込んだ場合は、古い応答でコース図を上書きしない
+      const requestId = ++circuitRequestRef.current;
       resolveCircuitPolylines(matchedCircuit).then(polylines => {
+        if (requestId !== circuitRequestRef.current) return;
         if (polylines && polylines.length > 0) {
           setCurrentPthPolylines(polylines);
         }
@@ -359,21 +380,44 @@ export const App: React.FC = () => {
     setCurrentTab('graph');
   };
 
+  const loadFileDataRef = useRef(loadFileData);
+  loadFileDataRef.current = loadFileData;
+
+  // 計測線・セクターを差し替えて、読み込み済みの全セッションの周回を計算し直す。
+  // 周回数が変わって選択中の周が無くなった車両は、そのセッションのベストラップへ移す (画面から消えないように)
+  const recalcSessions = (
+    resolve: (s: Session) => { cl?: ControlLine; sec: Sector[]; name?: string }
+  ) => {
+    const updated = sessions.map(s => {
+      const { cl, sec, name } = resolve(s);
+      const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(s.points, cl, sec);
+      return {
+        ...s, laps, bestLapIndex, theoreticalBestTime, controlLine: cl, sectors: sec,
+        ...(name ? { circuitName: name } : {})
+      };
+    });
+    setSessions(updated);
+    setSelectedCars(prev =>
+      prev.map(c => {
+        const s = updated.find(x => x.id === c.sessionId);
+        if (!s || s.laps.some(l => l.lapNumber === c.lapNumber)) return c;
+        const lapNumber = s.laps[s.bestLapIndex]?.lapNumber ?? s.laps[0]?.lapNumber ?? 1;
+        return { ...c, lapNumber, label: `${s.sessionName} (L${lapNumber})` };
+      })
+    );
+  };
+
   // サーキットプリセット選択
   const handleSelectCircuitPreset = (presetId: string) => {
     const p = CIRCUIT_PRESETS.find(c => c.id === presetId);
     if (!p) return;
+    circuitRequestRef.current++;
     setCurrentControlLine(p.controlLine);
     setCurrentSectors(p.sectors);
     setCurrentCircuitName(p.name);
 
     // 全セッションのラップを再計算
-    setSessions(prev =>
-      prev.map(s => {
-        const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(s.points, p.controlLine, p.sectors);
-        return { ...s, laps, bestLapIndex, theoreticalBestTime, controlLine: p.controlLine, sectors: p.sectors };
-      })
-    );
+    recalcSessions(() => ({ cl: p.controlLine, sec: p.sectors }));
   };
 
   // スロット選択
@@ -421,6 +465,8 @@ export const App: React.FC = () => {
           const f = e.target.files?.[0];
           if (f) {
             const txt = await f.text();
+            // 手動で読み込んだコース図を、遅れて届いた自動取得の結果で上書きしない
+            circuitRequestRef.current++;
             setCurrentPthPolylines(parsePth(txt));
           }
           e.target.value = '';
@@ -437,6 +483,8 @@ export const App: React.FC = () => {
             const txt = await f.text();
             const cl = parseCln(txt, f.name);
             setCurrentControlLine(cl);
+            // 読み込み済みのログにも反映する (セクターは各セッションのものを保つ)
+            recalcSessions(s => ({ cl, sec: s.sectors || [] }));
           }
           e.target.value = '';
         }}
@@ -451,6 +499,20 @@ export const App: React.FC = () => {
           if (files && files.length > 0) {
             const { pthCount, clnCount, sciCount } = await userCircuitStorage.importFiles(files);
             alert(`ユーザーコースデータを登録しました:\nコース図 (.pth): ${pthCount} 件\nコントロールライン (.cln): ${clnCount} 件\nセクター (.sci): ${sciCount} 件`);
+            // 読み込み済みのログにも反映する: 各ログの位置で改めてコースを引き当て、周回を計算し直す
+            recalcSessions(s => {
+              const m = s.points[0] && findMatchingCircuit(s.points[0].latitude, s.points[0].longitude, s.points);
+              return m
+                ? { cl: m.controlLine, sec: m.sectors, name: m.name }
+                : { cl: s.controlLine, sec: s.sectors || [] };
+            });
+            const first = (baseSession ?? sessions[0])?.points[0];
+            const cur = first && findMatchingCircuit(first.latitude, first.longitude, (baseSession ?? sessions[0])?.points);
+            if (cur) {
+              setCurrentControlLine(cur.controlLine);
+              setCurrentSectors(cur.sectors);
+              setCurrentCircuitName(cur.name);
+            }
           }
           e.target.value = '';
         }}
@@ -750,24 +812,29 @@ export const App: React.FC = () => {
       </main>
 
       {/* コース編集モーダル */}
+      {isCircuitEditorOpen && (
       <CircuitEditorModal
         isOpen={isCircuitEditorOpen}
         onClose={() => setIsCircuitEditorOpen(false)}
         currentCircuitName={currentCircuitName}
         controlLine={currentControlLine}
+        defaultPosition={
+          (baseSession ?? sessions[0])?.points[0]
+            ? {
+                lat: (baseSession ?? sessions[0]).points[0].latitude,
+                lon: (baseSession ?? sessions[0]).points[0].longitude
+              }
+            : undefined
+        }
         sectors={currentSectors}
         onSaveCircuit={(name, cl, sec) => {
           setCurrentCircuitName(name);
           setCurrentControlLine(cl);
           setCurrentSectors(sec);
-          setSessions(prev =>
-            prev.map(s => {
-              const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(s.points, cl, sec);
-              return { ...s, laps, bestLapIndex, theoreticalBestTime, controlLine: cl, sectors: sec };
-            })
-          );
+          recalcSessions(() => ({ cl, sec }));
         }}
       />
+      )}
 
       {/* 開発支援 (Buy Me a Coffee) モーダル */}
       <DonateModal

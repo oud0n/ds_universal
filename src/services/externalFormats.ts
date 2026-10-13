@@ -330,7 +330,7 @@ export function exportMotecCsv(session: Session): string {
     `${q('Beacon Markers')},${q(beacons)}`,
     '',
     '',
-    ['Time', 'Distance', 'GPS Latitude', 'GPS Longitude', 'GPS Altitude', 'GPS Speed', 'GPS Heading', 'G Force Long', 'G Force Lat'].map(q).join(','),
+    ['Time', 'Distance', 'GPS Latitude', 'GPS Longitude', 'GPS Altitude', 'Ground Speed', 'GPS Heading', 'G Force Long', 'G Force Lat'].map(q).join(','),
     ['s', 'm', 'deg', 'deg', 'm', 'km/h', 'deg', 'G', 'G'].map(q).join(','),
     '',
     ''

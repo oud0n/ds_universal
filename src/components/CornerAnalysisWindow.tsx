@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { CornerDownRight } from 'lucide-react';
 import { Lap, SelectedCarSlot } from '../types/telemetry';
 import { useLapGeometries } from '../hooks/useLapGeometries';
-import { computeCorrectedLineDelta, detectCorners, insideOutside, matchIndex, measureCorners } from '../services/drivingAnalysis';
+import { computeCorrectedLineDelta, detectCorners, indexAtDistance, insideOutside, matchIndex, measureCorners } from '../services/drivingAnalysis';
 
 interface CornerAnalysisWindowProps {
   cars: { slot: SelectedCarSlot; lap: Lap }[];
@@ -49,7 +49,8 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
     return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-[#141722]">このラップからコーナーを検出できませんでした</div>;
   }
 
-  const currentM = currentDistance * 1000;
+  // 現在位置は、ログの距離欄ではなく解析用に積算し直した距離で比べる (両者の尺度が違う場合があるため)
+  const currentM = base.geo.s[indexAtDistance(base.lap.points, currentDistance)] ?? 0;
   const baseMetrics = result.perCar[0].metrics;
 
   return (

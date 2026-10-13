@@ -7,6 +7,8 @@ interface CircuitEditorModalProps {
   onClose: () => void;
   currentCircuitName: string;
   controlLine?: ControlLine;
+  // 計測線が未設定のときの初期値に使う位置 (読み込んだログの先頭など)
+  defaultPosition?: { lat: number; lon: number };
   sectors: Sector[];
   onSaveCircuit: (name: string, controlLine: ControlLine, sectors: Sector[]) => void;
 }
@@ -16,16 +18,25 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   onClose,
   currentCircuitName,
   controlLine,
+  defaultPosition,
   sectors: initialSectors,
   onSaveCircuit
 }) => {
   if (!isOpen) return null;
 
   const [name, setName] = useState(currentCircuitName || 'カスタムコース');
-  const [clLatA, setClLatA] = useState(controlLine?.latA.toString() || '');
-  const [clLonA, setClLonA] = useState(controlLine?.lonA.toString() || '');
-  const [clLatB, setClLatB] = useState(controlLine?.latB.toString() || '');
-  const [clLonB, setClLonB] = useState(controlLine?.lonB.toString() || '');
+  // 計測線が未設定なら、ログの位置を挟む南北約 30 m の線分を仮の初期値にする (ログも無ければ空欄)
+  const initial = controlLine ?? (defaultPosition && {
+    latA: Number((defaultPosition.lat + 0.00015).toFixed(6)),
+    lonA: Number(defaultPosition.lon.toFixed(6)),
+    latB: Number((defaultPosition.lat - 0.00015).toFixed(6)),
+    lonB: Number(defaultPosition.lon.toFixed(6))
+  });
+  const [clLatA, setClLatA] = useState(initial ? initial.latA.toString() : '');
+  const [clLonA, setClLonA] = useState(initial ? initial.lonA.toString() : '');
+  const [clLatB, setClLatB] = useState(initial ? initial.latB.toString() : '');
+  const [clLonB, setClLonB] = useState(initial ? initial.lonB.toString() : '');
+  const [saveError, setSaveError] = useState('');
 
   const [sectors, setSectors] = useState<Sector[]>(initialSectors);
 
@@ -36,10 +47,10 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
       {
         id: `custom_s${Date.now()}`,
         name: `Sector ${nextIdx}`,
-        latA: parseFloat(clLatA) + 0.002 * nextIdx,
-        lonA: parseFloat(clLonA) + 0.002 * nextIdx,
-        latB: parseFloat(clLatB) + 0.002 * nextIdx,
-        lonB: parseFloat(clLonB) + 0.002 * nextIdx
+        latA: (parseFloat(clLatA) || 0) + 0.002 * nextIdx,
+        lonA: (parseFloat(clLonA) || 0) + 0.002 * nextIdx,
+        latB: (parseFloat(clLatB) || 0) + 0.002 * nextIdx,
+        lonB: (parseFloat(clLonB) || 0) + 0.002 * nextIdx
       }
     ]);
   };
@@ -55,13 +66,28 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   };
 
   const handleSave = () => {
-    const newControlLine: ControlLine = {
-      name: 'Start/Finish Line',
-      latA: parseFloat(clLatA) || 0,
-      lonA: parseFloat(clLonA) || 0,
-      latB: parseFloat(clLatB) || 0,
-      lonB: parseFloat(clLonB) || 0
-    };
+    const values = [clLatA, clLonA, clLatB, clLonB].map(v => parseFloat(v));
+    const [latA, lonA, latB, lonB] = values;
+    // 空欄や範囲外の値を 0 に置き換えて保存しない (緯度経度 0 の計測線になってしまう)
+    if (
+      values.some(v => !Number.isFinite(v)) ||
+      Math.abs(latA) > 90 || Math.abs(latB) > 90 || Math.abs(lonA) > 180 || Math.abs(lonB) > 180 ||
+      (latA === latB && lonA === lonB)
+    ) {
+      setSaveError('計測線の 2 点の緯度・経度を正しく入力してください');
+      return;
+    }
+    const badSector = sectors.find(sec =>
+      ![sec.latA, sec.lonA, sec.latB, sec.lonB].every(Number.isFinite) ||
+      Math.abs(sec.latA) > 90 || Math.abs(sec.latB) > 90 || Math.abs(sec.lonA) > 180 || Math.abs(sec.lonB) > 180 ||
+      (sec.latA === 0 && sec.lonA === 0) || (sec.latB === 0 && sec.lonB === 0) ||
+      (sec.latA === sec.latB && sec.lonA === sec.lonB)
+    );
+    if (badSector) {
+      setSaveError(`セクター「${badSector.name}」の 2 点の緯度・経度を正しく入力してください`);
+      return;
+    }
+    const newControlLine: ControlLine = { name: 'Start/Finish Line', latA, lonA, latB, lonB };
 
     onSaveCircuit(name, newControlLine, sectors);
     onClose();
@@ -222,6 +248,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
 
         {/* フッター */}
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[#272f42] bg-[#141722]">
+          {saveError && <span className="mr-auto text-xs text-amber-400">{saveError}</span>}
           <button
             onClick={onClose}
             className="px-4 py-1.5 rounded-lg border border-[#2d364c] text-xs text-slate-300 hover:bg-[#222838]"

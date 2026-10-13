@@ -56,7 +56,9 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
 
   headers.forEach((h, idx) => {
     const hl = h.toLowerCase();
-    if (colTime === -1 && (hl === '秒' || hl === 'time' || hl === 'sec' || hl.startsWith('time('))) colTime = idx;
+    // 「Time (s)」のように単位が付いた見出しも時刻列として扱う
+    const base = hl.replace(/\s*[(\[].*$/, '').trim();
+    if (colTime === -1 && (base === '秒' || base === 'time' || base === 'sec' || base === 'seconds' || base === 'elapsed time')) colTime = idx;
     if (colLat === -1 && (hl.includes('緯度') || hl.includes('lat'))) colLat = idx;
     if (colLon === -1 && (hl.includes('経度') || hl.includes('lon') || hl.includes('lng'))) colLon = idx;
     if (colAlt === -1 && (hl.includes('標高') || hl.includes('alt'))) colAlt = idx;
@@ -68,15 +70,21 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
     if (colRadius === -1 && (hl.includes('旋回半径') || hl.includes('radius'))) colRadius = idx;
   });
 
+  // 位置がなければ解析できない
+  if (colLat === -1 || colLon === -1) {
+    throw new Error('CSV に緯度・経度の列が見つかりません');
+  }
+
   const points: TelemetryPoint[] = [];
 
   for (let i = headerIndex + 1; i < lines.length; i++) {
     const rawCols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
     if (rawCols.length < 2) continue;
 
-    const time = colTime !== -1 ? parseFloat(rawCols[colTime]) || 0 : (i - headerIndex - 1) * 0.1;
-    const lat = colLat !== -1 ? parseFloat(rawCols[colLat]) || 0 : 0;
-    const lon = colLon !== -1 ? parseFloat(rawCols[colLon]) || 0 : 0;
+    const time = colTime !== -1 ? parseFloat(rawCols[colTime]) : (i - headerIndex - 1) * 0.1;
+    // 数値として読めない座標を 0 に置き換えない (その行を捨てる)
+    const lat = parseFloat(rawCols[colLat]);
+    const lon = parseFloat(rawCols[colLon]);
     const alt = colAlt !== -1 ? parseFloat(rawCols[colAlt]) || 0 : 0;
     let speed = colSpeed !== -1 ? parseFloat(rawCols[colSpeed]) || 0 : 0;
     // もし m/s や mph の可能性がある場合 (km/h に補正)
@@ -92,7 +100,9 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
     const combG = colCombG !== -1 ? parseFloat(rawCols[colCombG]) || 0 : 0;
     const radius = colRadius !== -1 ? parseFloat(rawCols[colRadius]) || 9999 : 9999;
 
-    if (!isNaN(time) && !isNaN(lat) && !isNaN(lon)) {
+    const validPosition = Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(lat === 0 && lon === 0);
+    const inOrder = points.length === 0 || time > points[points.length - 1].time;
+    if (Number.isFinite(time) && validPosition && inOrder) {
       points.push({
         index: points.length,
         time: Number(time.toFixed(3)),

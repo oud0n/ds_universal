@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { OctagonAlert } from 'lucide-react';
 import { Lap, SelectedCarSlot } from '../types/telemetry';
 import { useLapGeometries } from '../hooks/useLapGeometries';
-import { detectBrakingZones, matchBrakingZones, matchIndex } from '../services/drivingAnalysis';
+import { detectBrakingZones, indexAtDistance, matchBrakingZones, matchIndex } from '../services/drivingAnalysis';
 
 interface BrakingAnalysisWindowProps {
   cars: { slot: SelectedCarSlot; lap: Lap }[];
@@ -19,6 +19,7 @@ export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ ca
   const base = analysed[0];
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
+  const [resizeTick, setResizeTick] = useState(0);
 
   const result = useMemo(() => {
     if (!base) return null;
@@ -30,8 +31,19 @@ export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ ca
     return { baseZones, perCar };
   }, [analysed, base]);
 
+  // 表示領域の大きさが変わったら描き直す (グラフは制動区間があるときだけ表示される)
+  const hasChart = !!result && result.baseZones.length > 0;
+  useEffect(() => {
+    const parent = canvasRef.current?.parentElement;
+    if (!parent || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => setResizeTick(t => t + 1));
+    observer.observe(parent);
+    return () => observer.disconnect();
+  }, [hasChart]);
+
   // 未選択のときは、現在位置を含む (または次に来る) 制動区間を表示する
-  const currentM = currentDistance * 1000;
+  // ログの距離欄ではなく、解析用に積算し直した距離で比べる
+  const currentM = base ? base.geo.s[indexAtDistance(base.lap.points, currentDistance)] ?? 0 : 0;
   const autoIndex = result
     ? Math.max(0, result.baseZones.findIndex(z => currentM <= base!.geo.s[z.endIndex]))
     : 0;
@@ -120,7 +132,7 @@ export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ ca
       ctx.lineTo(xOf(currentM), height - pad.b);
       ctx.stroke();
     }
-  }, [result, base, zoneIndex, currentM]);
+  }, [result, base, zoneIndex, currentM, resizeTick]);
 
   if (!base || !result) {
     return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-[#141722]">走行データを読み込むとブレーキングの診断を表示します</div>;

@@ -4,6 +4,28 @@ import { calculatePhysics } from './physics';
 /**
  * デジスパイス3 / 4 の生ログファイル (.bnx4, .bon4, .binx, .bon) を解析
  */
+// 設定タグ (16 バイト): 先頭 7 バイトが 0xAA、末尾 4 バイトが 0xBB
+function isTag(bytes: Uint8Array, pos: number): boolean {
+  if (pos + 16 > bytes.length) return false;
+  for (let i = 0; i < 7; i++) if (bytes[pos + i] !== 0xaa) return false;
+  for (let i = 12; i < 16; i++) if (bytes[pos + i] !== 0xbb) return false;
+  return true;
+}
+
+// 未記録領域: 先頭 6 バイトが 0xFF
+function isBlank(bytes: Uint8Array, pos: number): boolean {
+  for (let i = 0; i < 6; i++) if (bytes[pos + i] !== 0xff) return false;
+  return true;
+}
+
+// レコード末尾のチェックサム ('*' + 先頭 34 バイトの XOR) が正しいか
+function hasValidChecksum(bytes: Uint8Array, pos: number): boolean {
+  if (bytes[pos + 34] !== 0x2a) return false;
+  let x = 0;
+  for (let i = 0; i < 34; i++) x ^= bytes[pos + i];
+  return x === bytes[pos + 35];
+}
+
 export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): {
   points: TelemetryPoint[];
   samplingRate: number;
@@ -24,6 +46,8 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
   }
 
   const rawPoints: RawPoint[] = [];
+  // チェックサムの検証に通らないまま仮採用したレコード
+  const unverified = new Set<RawPoint>();
 
   // ==========================================
   // 1. .bon / .bon4 フォーマット (26バイトレコード, offset 8開始)
@@ -72,8 +96,22 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
   } else {
     // ==========================================
     // 2. DigSpice IV セクター型 (.bnx4 / .binx, 4096バイトセクター, 0x200開始, 36バイト)
+    //
+    //    36 バイトレコードの構成 (実走ログで確認):
+    //      +0  uint32  UTC 時刻 (秒)        +22 float32 高度 (m)
+    //      +4  uint16  測位状態 (3 = 3D)    +26 float32 車速 (km/h)
+    //      +6  float64 緯度                 +30 uint8 x2 衛星数
+    //      +14 float64 経度                 +32 uint16  ミリ秒
+    //                                       +34 '*' (0x2A), +35 先頭 34 バイトの XOR
+    //    進行方位は記録されていないため、位置の変化から求める (physics.ts)
     // ==========================================
-    const numSectors = Math.floor(bytes.length / 0x1000);
+    // デジスパイスIV (.bnx4) のレコードは必ずチェックサムを持つ。それ以外 (.binx 等) は形式が未確認のため検証しない
+    const requireChecksum = ext === 'bnx4';
+    // チェックサム付きのレコードを 1 件でも見つけたら、このファイルはセクター型と確定する
+    let isSectorFormat = false;
+    let hasMilliseconds = false;
+    // 末尾が途中で切れたファイルでも、最後のセクター内の完全なレコードは読む
+    const numSectors = Math.ceil(bytes.length / 0x1000);
     if (numSectors > 0) {
       for (let s = 0; s < numSectors; s++) {
         const secOffset = s * 0x1000;
@@ -83,14 +121,14 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
           const pos = secOffset + esi;
           if (pos + 36 > bytes.length) break;
 
-          // プリアンブルタグのスキップ (0xAA*7 ... 0xBB*4)
-          if (bytes[pos] === 0xaa && bytes[pos + 1] === 0xaa) {
+          // 設定タグのスキップ (16 バイト: 0xAA x7, 種別, 値 x4, 0xBB x4)
+          if (isTag(bytes, pos)) {
             esi += 0x10;
             continue;
           }
 
-          // 0xFF 未記録レコード領域のスキップ
-          if (bytes[pos] === 0xff && bytes[pos + 1] === 0xff) {
+          // 未記録領域 (0xFF が続く) のスキップ
+          if (isBlank(bytes, pos)) {
             esi += 36;
             continue;
           }
@@ -102,28 +140,35 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
             const lon = view.getFloat64(pos + 14, true);
             const alt = view.getFloat32(pos + 22, true);
             const spd = view.getFloat32(pos + 26, true);
-            const hdg = view.getFloat32(pos + 30, true);
+            const ms = view.getUint16(pos + 32, true);
 
-            // 妥当性判定: 3D/2D Fix, 有効な緯度経度, 2000年〜2050年頃のタイムスタンプ
+            const checksumOk = hasValidChecksum(bytes, pos);
+            if (checksumOk) isSectorFormat = true;
+
+            // 妥当性判定: チェックサム, 3D/2D Fix, 有効な緯度経度, 2000年〜2050年頃のタイムスタンプ
             if (
+              (checksumOk || !requireChecksum) &&
               (fix === 2 || fix === 3) &&
               lat >= -90 && lat <= 90 && lat !== 0 &&
               lon >= -180 && lon <= 180 && lon !== 0 &&
               ts > 946684800 && ts < 2524608000
             ) {
               const cleanSpeed = !isNaN(spd) && spd >= 0 && spd < 500 ? spd : 0;
-              const cleanHeading = !isNaN(hdg) && hdg >= 0 && hdg <= 360 ? hdg : 0;
               const cleanAltitude = !isNaN(alt) && alt >= -500 && alt < 10000 ? alt : 0;
+              // ミリ秒が記録されていればそれを使う (範囲外なら 0 とし、後段で補間する)
+              const timeSec = ts + (ms < 1000 ? ms / 1000 : 0);
+              if (ms > 0 && ms < 1000) hasMilliseconds = true;
 
-              rawPoints.push({
+              const point: RawPoint = {
                 lat,
                 lon,
                 speedKmh: cleanSpeed,
-                timeSec: ts, // 後で同一秒グループごとにサブ秒補間
-                timestamp: new Date(ts * 1000),
-                heading: cleanHeading,
+                timeSec,
+                timestamp: new Date(timeSec * 1000),
                 altitude: cleanAltitude
-              });
+              };
+              if (!checksumOk) unverified.add(point);
+              rawPoints.push(point);
             }
           } catch {
             // パース例外時はスキップ
@@ -133,8 +178,17 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
         }
       }
 
-      // 同一秒（同じts）内のサブ秒補間 (20Hz / 10Hz)
-      if (rawPoints.length > 0) {
+      // チェックサム付きのレコードが 1 件でもあれば、そのファイルはチェックサム付きの形式。
+      // 拡張子が .bnx4 以外でも、検証に通らなかったレコード (破損) は採用しない
+      if (isSectorFormat && unverified.size > 0) {
+        const verified = rawPoints.filter(p => !unverified.has(p));
+        rawPoints.length = 0;
+        rawPoints.push(...verified);
+      }
+
+      // ミリ秒が記録されていないログに限り、同じ時刻のレコードが続く部分をその 1 秒の中で等分して割り振る。
+      // ミリ秒付きのログでは記録された時刻をそのまま使う (重複があっても作り替えない)
+      if (rawPoints.length > 0 && !hasMilliseconds) {
         let i = 0;
         while (i < rawPoints.length) {
           const curTs = rawPoints[i].timeSec;
@@ -142,7 +196,7 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
           while (i + count < rawPoints.length && rawPoints[i + count].timeSec === curTs) {
             count++;
           }
-          for (let k = 0; k < count; k++) {
+          for (let k = 0; count > 1 && Number.isInteger(curTs) && k < count; k++) {
             const frac = count > 1 ? k / count : 0;
             const preciseTime = curTs + frac;
             rawPoints[i + k].timeSec = preciseTime;
@@ -156,7 +210,8 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
     // ==========================================
     // 3. レガシー・フラットバイナリ用フォールバック
     // ==========================================
-    if (rawPoints.length === 0) {
+    // .bnx4 と、セクター型と確定したファイル (チェックサム付きレコードあり) は、壊れていても別形式として読み直さない
+    if (rawPoints.length === 0 && !isSectorFormat && !requireChecksum) {
       interface Layout {
         name: string;
         recordSize: number;
@@ -182,8 +237,9 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
               const lon = v.getFloat64(z + 14, true);
               const alt = v.getFloat32(z + 22, true);
               const speedKmh = v.getFloat32(z + 26, true);
-              const heading = v.getFloat32(z + 30, true);
-              return { lat, lon, speedKmh, heading, ms: 0, u_t, alt };
+              // +30 以降は衛星数・ミリ秒・チェックサム (進行方位は記録されていない)
+              const ms = v.getUint16(z + 32, true);
+              return { lat, lon, speedKmh, heading: NaN, ms, u_t, alt };
             } catch {
               return null;
             }
@@ -294,12 +350,18 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
   // 物理計算 (Gフォース、旋回半径、累積距離、方位角)
   const enriched = calculatePhysics(points);
 
-  // サンプリング周波数判定 (10Hz / 20Hz 等)
+  // 記録レートは時刻の刻みの中央値から求める (ピットでの停止など記録の空白に影響されないように)
   let samplingRate = 20;
   if (points.length > 20) {
-    const totalDuration = points[points.length - 1].time - points[0].time;
-    if (totalDuration > 0) {
-      const hz = Math.round(points.length / totalDuration);
+    const steps: number[] = [];
+    for (let i = 1; i < points.length; i++) {
+      const dt = points[i].time - points[i - 1].time;
+      if (dt > 0) steps.push(dt);
+    }
+    steps.sort((x, y) => x - y);
+    const median = steps[steps.length >> 1];
+    if (median > 0) {
+      const hz = Math.round(1 / median);
       if (hz >= 1 && hz <= 100) samplingRate = hz;
     }
   }

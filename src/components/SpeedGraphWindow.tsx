@@ -182,8 +182,13 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     if (showAltitude && baseCar) {
       const pts = baseCar.lap.points;
       if (pts.length > 0) {
-        const maxAlt = Math.max(...pts.map(p => p.altitude), 10);
-        const minAlt = Math.min(...pts.map(p => p.altitude), 0);
+        // 点数が多いログでも引数の上限に当たらないよう、ループで求める
+        let maxAlt = 10;
+        let minAlt = 0;
+        for (const p of pts) {
+          if (p.altitude > maxAlt) maxAlt = p.altitude;
+          if (p.altitude < minAlt) minAlt = p.altitude;
+        }
         const altRange = Math.max(1, maxAlt - minAlt);
 
         ctx.strokeStyle = '#64748b';
