@@ -239,6 +239,11 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
             <p className="text-xs text-slate-400 mt-1">
               デジスパイスIV（VID: 0x2DCF / PID: 0x6002）USBシリアル直接通信 & 公式完全準拠ダウンロード
             </p>
+            {!('serial' in navigator) && !(import.meta.env.DEV && isSimulatorRequested()) && (
+              <p className="text-xs text-amber-400 mt-1" data-testid="logger-unsupported">
+                このブラウザはロガーとの USB 通信に対応していません。パソコンの Chrome または Edge で開いてください。
+              </p>
+            )}
           </div>
         </div>
 

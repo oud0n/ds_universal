@@ -130,7 +130,11 @@ export class DigSpiceDevice {
     } else {
       const nav = navigator as any;
       if (!nav.serial) {
-        throw new Error('お使いのブラウザ・環境では Web Serial API がサポートされていません。');
+        throw new Error(
+          'このブラウザはロガーとの USB 通信（Web Serial API）に対応していません。\n' +
+          'パソコンの Chrome または Edge で開いてください。\n' +
+          'Safari / Firefox、iPhone・iPad・Android のブラウザでは接続できません（ログの読み込み・解析・変換は使えます）。'
+        );
       }
 
       this.log('sys', 'デジスパイスIV（VID: 0x2DCF, PID: 0x6002）を検出中...');

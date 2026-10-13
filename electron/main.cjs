@@ -18,8 +18,11 @@ const approvedReadPaths = new Set();
 // 1 ファイルとして読み込む大きさの上限
 const MAX_READ_BYTES = 512 * 1024 * 1024;
 
+// ポート選択イベントは vendorId / productId (文字列)、デバイス権限の問い合わせは vendor_id / product_id (数値) で渡される
 function isLoggerPort(port) {
-  return Number(port.vendorId) === LOGGER_VENDOR_ID && Number(port.productId) === LOGGER_PRODUCT_ID;
+  const vendorId = Number(port.vendorId ?? port.vendor_id);
+  const productId = Number(port.productId ?? port.product_id);
+  return vendorId === LOGGER_VENDOR_ID && productId === LOGGER_PRODUCT_ID;
 }
 
 function createWindow() {
