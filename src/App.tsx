@@ -7,6 +7,7 @@ import { parseNmea } from './services/nmeaParser';
 import { MOTEC_CSV_ENABLED, isMotecCsv, isRaceChronoCsv, parseMotecCsv, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
 import { parsePth, parseCln } from './services/pthParser';
 import { extractLaps } from './services/lapCalculator';
+import { ConvertTab } from './components/ConvertTab';
 import { CIRCUIT_PRESETS, ALL_CIRCUITS, findMatchingCircuit, resolveCircuitPolylines } from './services/circuitDatabase';
 import { userCircuitStorage } from './services/userCircuitStorage';
 
@@ -30,7 +31,13 @@ import { findClosestPointByDistance, findClosestPointByTime } from './utils/tele
 
 export const App: React.FC = () => {
   // タブ
-  const [currentTab, setCurrentTab] = useState<'graph' | 'data' | 'logger' | 'video'>('graph');
+  // 公開ページでは URL の末尾 (#convert など) で最初に開くタブを指定できる
+  const [currentTab, setCurrentTab] = useState<'graph' | 'data' | 'logger' | 'video' | 'convert'>(() => {
+    const h = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : '';
+    return h === 'convert' || h === 'data' || h === 'logger' || h === 'video' ? h : 'graph';
+  });
+  const currentTabRef = useRef(currentTab);
+  currentTabRef.current = currentTab;
 
   // グラフ画面・左下モード ('replay' | 'video')
   const [leftBottomMode, setLeftBottomMode] = useState<'replay' | 'video'>('replay');
@@ -377,7 +384,8 @@ export const App: React.FC = () => {
       return prev;
     });
 
-    setCurrentTab('graph');
+    // 変換ページから読み込んだときは、そのまま変換ページに留まる
+    if (currentTabRef.current !== 'convert') setCurrentTab('graph');
   };
 
   const loadFileDataRef = useRef(loadFileData);
@@ -801,6 +809,23 @@ export const App: React.FC = () => {
             onLoadCircuitFolder={() => folderInputRef.current?.click()}
           />
         </div>
+
+        {/* ログ変換タブ */}
+        {currentTab === 'convert' && (
+          <ConvertTab
+            sessions={sessions}
+            onOpenFile={() => fileInputRef.current?.click()}
+            onDropFiles={async files => {
+              for (let i = 0; i < files.length; i++) {
+                try {
+                  await loadFileData(files[i].name, await files[i].arrayBuffer());
+                } catch (err: any) {
+                  alert(`ファイル ${files[i].name} の読み込みに失敗しました: ${err.message}`);
+                }
+              }
+            }}
+          />
+        )}
 
         {/* ロガー設定タブ (マウント状態を維持し、USBシリアル切断を防止) */}
         <div className={`h-full w-full overflow-hidden ${currentTab === 'logger' ? 'block' : 'hidden'}`}>

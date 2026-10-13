@@ -1,10 +1,10 @@
 import React from 'react';
-import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, BarChart2, List, ShieldCheck, Video, Download, Coffee } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, Repeat, BarChart2, List, ShieldCheck, Video, Download, Coffee } from 'lucide-react';
 import { SelectedCarSlot, Session } from '../types/telemetry';
 
 interface HeaderProps {
-  currentTab: 'graph' | 'data' | 'logger' | 'video';
-  setCurrentTab: (tab: 'graph' | 'data' | 'logger' | 'video') => void;
+  currentTab: 'graph' | 'data' | 'logger' | 'video' | 'convert';
+  setCurrentTab: (tab: 'graph' | 'data' | 'logger' | 'video' | 'convert') => void;
   sessions: Session[];
   selectedCars: SelectedCarSlot[];
   isPlaying: boolean;
@@ -90,6 +90,17 @@ export const Header: React.FC<HeaderProps> = ({
               {sessions.length}
             </span>
           )}
+        </button>
+        <button
+          onClick={() => setCurrentTab('convert')}
+          className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+            currentTab === 'convert'
+              ? 'bg-red-600 text-white'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-[#202738]'
+          }`}
+        >
+          <Repeat size={14} />
+          ログ変換
         </button>
         <button
           onClick={() => setCurrentTab('logger')}

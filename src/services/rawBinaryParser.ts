@@ -43,6 +43,7 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
     timestamp?: Date;
     heading?: number;
     altitude?: number;
+    satellites?: number;
   }
 
   const rawPoints: RawPoint[] = [];
@@ -165,7 +166,9 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
                 speedKmh: cleanSpeed,
                 timeSec,
                 timestamp: new Date(timeSec * 1000),
-                altitude: cleanAltitude
+                altitude: cleanAltitude,
+                // +30 / +31 の 2 つのうち、公式ソフトの周回ファイルに入る値と一致するのは +31
+                satellites: bytes[pos + 31]
               };
               if (!checksumOk) unverified.add(point);
               rawPoints.push(point);
@@ -337,6 +340,7 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
     latitude: Number(r.lat.toFixed(7)),
     longitude: Number(r.lon.toFixed(7)),
     altitude: Number((r.altitude ?? 0).toFixed(1)),
+    ...(r.satellites !== undefined ? { satellites: r.satellites } : {}),
     speed: Number(r.speedKmh.toFixed(2)),
     heading: r.heading ?? 0,
     distance: 0,

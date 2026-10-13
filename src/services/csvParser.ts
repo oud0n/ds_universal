@@ -7,7 +7,7 @@ import { calculatePhysics } from './physics';
  * - MoTeC i2 CSV
  * - 汎用 GPS ロガー CSV
  */
-export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingRate: number } {
+export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingRate: number; startDate?: Date } {
   const lines = csvText.split(/\r?\n/).filter(line => line.trim().length > 0);
   if (lines.length < 2) {
     throw new Error('CSVデータが空または行数が不足しています');
@@ -44,6 +44,7 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
 
   // カラムのインデックスを特定
   let colTime = -1;
+  let colClock = -1;
   let colLat = -1;
   let colLon = -1;
   let colAlt = -1;
@@ -58,7 +59,9 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
     const hl = h.toLowerCase();
     // 「Time (s)」のように単位が付いた見出しも時刻列として扱う
     const base = hl.replace(/\s*[(\[].*$/, '').trim();
-    if (colTime === -1 && (base === '秒' || base === 'time' || base === 'sec' || base === 'seconds' || base === 'elapsed time')) colTime = idx;
+    if (colTime === -1 && (base === '秒' || base === 'time' || base === 'sec' || base === 'seconds' || base === 'elapsed time' || base === 'elapsed_s')) colTime = idx;
+    // 記録日時 (ISO 8601)。このアプリの変換ページが書き出す CSV の列
+    if (colClock === -1 && base === 'time_utc') colClock = idx;
     if (colLat === -1 && (hl.includes('緯度') || hl.includes('lat'))) colLat = idx;
     if (colLon === -1 && (hl.includes('経度') || hl.includes('lon') || hl.includes('lng'))) colLon = idx;
     if (colAlt === -1 && (hl.includes('標高') || hl.includes('alt'))) colAlt = idx;
@@ -100,6 +103,8 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
     const combG = colCombG !== -1 ? parseFloat(rawCols[colCombG]) || 0 : 0;
     const radius = colRadius !== -1 ? parseFloat(rawCols[colRadius]) || 9999 : 9999;
 
+    const clockMs = colClock !== -1 ? Date.parse(rawCols[colClock]) : NaN;
+
     const validPosition = Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(lat === 0 && lon === 0);
     const inOrder = points.length === 0 || time > points[points.length - 1].time;
     if (Number.isFinite(time) && validPosition && inOrder) {
@@ -116,7 +121,8 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
         corneringG: Number(cornerG.toFixed(3)),
         combinedG: Number(combG.toFixed(3)),
         turningRadius: Number(radius.toFixed(1)),
-        driftAngle: 0
+        driftAngle: 0,
+        ...(Number.isFinite(clockMs) ? { timestamp: new Date(clockMs).toISOString() } : {})
       });
     }
   }
@@ -134,7 +140,8 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
   }
   const samplingRate = Math.round(1 / avgDt) || 10;
 
-  return { points: enriched, samplingRate };
+  const firstClock = enriched[0]?.timestamp;
+  return { points: enriched, samplingRate, ...(firstClock ? { startDate: new Date(firstClock) } : {}) };
 }
 
 /**
