@@ -153,7 +153,8 @@ export const App: React.FC = () => {
     lastTimeRef.current = performance.now();
 
     const loop = (now: number) => {
-      const dtSec = ((now - lastTimeRef.current) / 1000) * playbackSpeed;
+      // requestAnimationFrame の時刻はフレームの開始時刻なので、再生開始時に記録した時刻より前のことがある (負にしない)
+      const dtSec = Math.max(0, ((now - lastTimeRef.current) / 1000) * playbackSpeed);
       lastTimeRef.current = now;
 
       setCurrentTimeSec(prevTime => {
