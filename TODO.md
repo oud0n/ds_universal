@@ -151,7 +151,7 @@ USB シリアル通信をさらに拡張し、公式アプリを使わずにロ�
 シェルを Electron から Tauri に置き換え、配布サイズとメモリ使用量を削減する。USB シリアル通信（Web Serial API 依存）の作り直しが必要になるため優先度は低く、機能追加（P1〜P3）の後に着手する。
 
 - [ ] **4.1 事前調査・技術検証**
-  - [ ] **USB シリアル通信**: 現状は Web Serial API（`src/services/digspiceDevice.ts`）に依存。macOS の WKWebView は Web Serial 非対応のため、Rust 側（`tauri-plugin-serialplugin` / `serialport` crate 等）への置き換え方式を検証
+  - [ ] **USB シリアル通信**: 現状は Web Serial API（`src/services/digspiceDevice.ts`）に依存。macOS の WKWebView は Web Serial 非対応のため、Rust 側（`tauri-plugin-serialplugin` / `serialport` crate 等）への置き換え方式を検証。先に iPhone アプリ版の「通信の層の分離」を済ませておくと、送受信の層だけを書けばよい
   - [ ] **HEVC (H.265) 動画再生**: Electron の `PlatformHEVCDecoderSupport` 相当が WebView2 (Windows) / WKWebView (macOS) で成立するか、GoPro 動画の実ファイルで確認
   - [ ] Canvas オーバーレイ描画・動画シーク同期の性能が OS 標準 WebView で維持できるか確認
   - [ ] 検証結果をもとに移行可否を判断
@@ -198,6 +198,20 @@ USB シリアル通信をさらに拡張し、公式アプリを使わずにロ�
   - [ ] 公式アプリで設定変更・ログ吸い出しを行ったときのログ（書き込み特性の用途の解明）
   - [ ] Device Information（シリアル番号・ファームウェア版数）の読み出し
 - [ ] アプリの技術選定（Swift / SwiftUI + CoreBluetooth など）
+  - 既存の Web の画面を包む方式（Capacitor など + BLE プラグイン）なら、画面と解析処理（TypeScript）を共有できる。Swift で作るなら移植になる
+- [ ] **通信の層の分離**（2026-10-16 追加。iPhone アプリ版と P4 の Tauri 化の前提）
+  - 環境ごとにロガーとのつなぎ方が変わる
+
+    | 環境 | つなぎ方 | 状態 |
+    |---|---|---|
+    | ブラウザ版（パソコンの Chrome / Edge） | USB + Web Serial | 実装済み |
+    | デスクトップ版（Electron） | USB + Web Serial（ブラウザ版と同じコード） | 実装済み |
+    | デスクトップ版（Tauri にした場合） | USB + Rust 側のシリアル通信（`serialport` crate など） | 未着手。macOS の WKWebView は Web Serial 非対応。Windows の WebView2 も Chrome と同じには使えない見込み（未確認） |
+    | iPhone アプリ版 | Bluetooth（BLE） | プロトコル解析済み |
+    | スマホのブラウザ | 基本は使えない（iPhone の Safari は USB も BLE も不可。Android の Chrome は Web Bluetooth があるので BLE は届く可能性あり、未確認） | ロガー設定タブは無効化する予定 |
+
+  - [ ] `src/services/digspiceDevice.ts` を、共通のプロトコル層（コマンドの組み立て・応答の解析・ログ吸い出しの手順）と、環境ごとに差し替える送受信の層（つなぐ・切る・送る・受け取る）に分ける
+  - 注意: 共有できるのは USB シリアルどうし（Web Serial と Rust）の中身。BLE は、位置などが標準の Location and Navigation Service の通知で届く別の仕組みで、設定変更・ログ吸い出しのコマンドが BLE で通るかは未解明（上の「追加キャプチャ」）。BLE 側は当面、リアルタイム受信の別実装になる見込み
 - [ ] **Bluetooth ペアリング（機器登録）機能**: 公式アプリ「DigSpice Circuit Timer Pro」と同等の接続操作
   - [ ] 周辺のデジスパイス（識別名が `DS3` / `DS4` で始まる機器）をスキャンして一覧表示
     - 公式アプリと同じく、一覧にはシリアル番号を表示して選ばせる。シリアル番号はアドバタイズされるデバイス名の番号部分から取得できる（実機で照合済み）ため、接続前に表示できる
