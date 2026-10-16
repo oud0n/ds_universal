@@ -29,19 +29,24 @@ type Gate = { latA: number; lonA: number; latB: number; lonB: number };
  * (逆向きの通過は、ピットロード・隣のストレート・スピンなどで線をかすめたもの)。通過がなければ 0
  */
 export function gateDirection(points: TelemetryPoint[], gate: Gate): number {
-  let sum = 0;
-  let first = 0;
+  // 向きごとに、通過したときの車速を足し合わせる。逆向きの通過 (ピットロードの出入り・スピンなど) は遅いので、
+  // 通過の回数が同じでも、速く通過した向き (周回中の通過) が勝つ
+  let score = 0;
+  let lastSide = 0;
+  let lastTime = -Infinity;
   for (let i = 0; i < points.length - 1; i++) {
-    const r = lineSegmentIntersection(
-      points[i].longitude, points[i].latitude, points[i + 1].longitude, points[i + 1].latitude,
-      gate.lonA, gate.latA, gate.lonB, gate.latB
-    );
-    if (r.intersects) {
-      sum += r.side;
-      if (!first) first = r.side;
-    }
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const r = lineSegmentIntersection(p1.longitude, p1.latitude, p2.longitude, p2.latitude, gate.lonA, gate.latA, gate.lonB, gate.latB);
+    if (!r.intersects) continue;
+    const t = p1.time + r.t * (p2.time - p1.time);
+    // 点がちょうど線上にあると前後の 2 区間で同じ通過を数えるので、同じ向きの 1 秒以内の通過は 1 回とする
+    if (r.side === lastSide && t - lastTime < 1) continue;
+    lastSide = r.side;
+    lastTime = t;
+    score += r.side * Math.max(1, p1.speed + r.t * (p2.speed - p1.speed));
   }
-  return sum !== 0 ? Math.sign(sum) : first;
+  return Math.sign(score);
 }
 
 /**
@@ -111,6 +116,22 @@ function findGateCrossings(
   return crossings;
 }
 
+// 最後のセクター線をフィニッシュと同じ線とみなす、ラップの末尾 (計測線上) からの距離 (m)
+const FINISH_GATE_TOLERANCE_M = 30;
+
+/** 点からゲート (線分) までの距離 (m)。緯度経度を局所的な平面とみなして求める */
+function distanceToGateMeters(p: TelemetryPoint, gate: Gate): number {
+  const cosLat = Math.cos((p.latitude * Math.PI) / 180);
+  const toXY = (lat: number, lon: number) => [(lon - p.longitude) * cosLat * 111320, (lat - p.latitude) * 111320];
+  const [ax, ay] = toXY(gate.latA, gate.lonA);
+  const [bx, by] = toXY(gate.latB, gate.lonB);
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+  return Math.hypot(ax + dx * t, ay + dy * t);
+}
+
 /**
  * セクタータイムの計算
  */
@@ -126,6 +147,51 @@ function calculateLapSectors(
 ): LapSectorResult[] {
   if (sectors.length === 0) return [];
 
+  const first = lapPoints[0];
+  const last = lapPoints[lapPoints.length - 1];
+  const lapTotalTime = last.time - lapStartTime;
+  const lapTotalDist = last.distance - first.distance;
+
+  // 1. 実測の通過を探す。探し始めは直前の「実測の」通過より後にする
+  //    (推定値から探すと、推定が実際の次の通過より後ろになったときに、実測の通過を取りこぼすため)
+  const splits: Array<{ time: number; dist: number; measured: boolean } | null> = [];
+  let lastMeasuredTime = 0;
+  sectors.forEach((sec, sIdx) => {
+    // ラップの先頭はコントロールライン上にあるため、フィニッシュ線を兼ねるセクターが 0 秒で検出されるのを防ぐ
+    const crossing = findGateCrossings(lapPoints, sec, 2, sectorDirections?.[sIdx]).find(c => c.time - lapStartTime > lastMeasuredTime + 0.5);
+    if (crossing) {
+      splits.push({ time: crossing.time - lapStartTime, dist: crossing.distance - first.distance, measured: true });
+      lastMeasuredTime = crossing.time - lapStartTime;
+    } else if (sIdx === sectors.length - 1 && endsAtLine && distanceToGateMeters(last, sec) <= FINISH_GATE_TOLERANCE_M) {
+      // 最後のセクター線がフィニッシュ (計測線) と同じ所にあり、ラップの末尾がちょうど線上なので交差として検出できないとき。
+      // 最後のセクター線が途中にあって通らなかった (ショートカットなど) ときは、ここに入らず推定になる
+      splits.push({ time: lapTotalTime, dist: lapTotalDist, measured: true });
+    } else {
+      splits.push(null);
+    }
+  });
+
+  // 2. 通過を検出できなかったセクター線は、前後の実測の通過 (なければラップの先頭・末尾) の間を等分して推定する。
+  //    前後の通過の間に収まるので、区間の時間が負になったり重なったりしない
+  for (let i = 0; i < splits.length; i++) {
+    if (splits[i]) continue;
+    let j = i;
+    while (j < splits.length && !splits[j]) j++;
+    const before = i > 0 ? splits[i - 1]! : { time: 0, dist: 0 };
+    const after = j < splits.length ? splits[j]! : { time: lapTotalTime, dist: lapTotalDist };
+    // 後ろに実測の通過がない (末尾まで見つからない) ときは、最後のセクター線をラップの末尾に置く
+    const gaps = j < splits.length ? j - i + 1 : j - i;
+    for (let k = i; k < j; k++) {
+      const f = (k - i + 1) / gaps;
+      splits[k] = {
+        time: before.time + (after.time - before.time) * f,
+        dist: before.dist + (after.dist - before.dist) * f,
+        measured: false
+      };
+    }
+    i = j - 1;
+  }
+
   const results: LapSectorResult[] = [];
   let prevSplitTime = 0;
   let prevSplitDist = 0;
@@ -133,31 +199,10 @@ function calculateLapSectors(
   let prevEstimated = !startsAtLine;
 
   sectors.forEach((sec, sIdx) => {
-    // セクターラインとの交差を探す。前のセクター通過より後のものだけを対象にする
-    // (ラップの先頭はコントロールライン上にあるため、フィニッシュ線を兼ねるセクターが 0 秒で検出されるのを防ぐ)
-    const crossing = findGateCrossings(lapPoints, sec, 2, sectorDirections?.[sIdx]).find(c => c.time - lapStartTime > prevSplitTime + 0.5);
-    let splitTime = 0;
-    let splitDist = 0;
-    let measured = true;
-
-    if (crossing) {
-      splitTime = crossing.time - lapStartTime;
-      splitDist = crossing.distance - lapPoints[0].distance;
-    } else if (sIdx === sectors.length - 1) {
-      // 最後のセクターで交差が見つからない場合は、ラップの終わり (フィニッシュ通過) までとする
-      splitTime = lapPoints[lapPoints.length - 1].time - lapStartTime;
-      splitDist = lapPoints[lapPoints.length - 1].distance - lapPoints[0].distance;
-      // 末尾が計測線でない (途中までの周など) ときは、フィニッシュまで走っていないので推定扱い
-      measured = endsAtLine;
-    } else {
-      measured = false;
-      // ゲート通過が検出できない場合は距離または時間の等分推計
-      const fraction = (sIdx + 1) / (sectors.length + 1);
-      const totalLapTime = lapPoints[lapPoints.length - 1].time - lapStartTime;
-      const totalLapDist = lapPoints[lapPoints.length - 1].distance - lapPoints[0].distance;
-      splitTime = totalLapTime * fraction;
-      splitDist = totalLapDist * fraction;
-    }
+    const split = splits[sIdx]!;
+    const splitTime = split.time;
+    const splitDist = split.dist;
+    const measured = split.measured;
 
     const sectorDuration = Math.max(0.01, splitTime - prevSplitTime);
     const sectorDist = Math.max(0.001, splitDist - prevSplitDist);
