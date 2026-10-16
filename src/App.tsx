@@ -27,7 +27,7 @@ import { DonateModal } from './components/DonateModal';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { SplitResizer } from './components/SplitResizer';
 import { exportSessionToNmea, triggerFileDownload } from './services/nmeaExporter';
-import { findClosestPointByDistance, findClosestPointByTime } from './utils/telemetrySearch';
+import { interpolatePoint } from './utils/telemetrySearch';
 
 export const App: React.FC = () => {
   // タブ
@@ -152,7 +152,7 @@ export const App: React.FC = () => {
 
         // タイムに対応する距離を計算 (O(log N) 二分探索)
         const pts = baseLap.points;
-        const curPt = findClosestPointByTime(pts, nextTime);
+        const curPt = interpolatePoint(pts, 'time', nextTime);
 
         if (curPt) {
           setCurrentDistanceKm(curPt.distance);
@@ -239,7 +239,7 @@ export const App: React.FC = () => {
       const next = Math.max(0, Math.min(maxLimit, prev + stepSec));
       const pts = (currentTab === 'video' ? baseSession?.points : baseLap?.points) || baseSession?.points;
       if (pts && pts.length > 0) {
-        const curPt = findClosestPointByTime(pts, next);
+        const curPt = interpolatePoint(pts, 'time', next);
         if (curPt) setCurrentDistanceKm(curPt.distance);
       }
       return next;
@@ -251,7 +251,7 @@ export const App: React.FC = () => {
     setCurrentTimeSec(timeSec);
     const pts = (currentTab === 'video' ? baseSession?.points : baseLap?.points) || baseSession?.points;
     if (pts && pts.length > 0) {
-      const curPt = findClosestPointByTime(pts, timeSec);
+      const curPt = interpolatePoint(pts, 'time', timeSec);
       if (curPt) setCurrentDistanceKm(curPt.distance);
     }
   };
@@ -260,7 +260,7 @@ export const App: React.FC = () => {
     if (!baseLap) return;
     setCurrentDistanceKm(distKm);
     const pts = baseLap.points;
-    const curPt = findClosestPointByDistance(pts, distKm);
+    const curPt = interpolatePoint(pts, 'distance', distKm);
     if (curPt) setCurrentTimeSec(curPt.time);
   };
 

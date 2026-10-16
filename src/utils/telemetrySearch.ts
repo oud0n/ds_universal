@@ -71,8 +71,53 @@ export function findClosestPointByTime(
 }
 
 /**
- * 比べる基準に合わせて、各車両の現在の点を取る。
- * 距離基準では基準車と同じ距離の点、時間基準では周の開始からの経過時間が同じ点
+ * 時間または距離の値で、前後の点の間を線形補間した点を返す (二分探索 O(log N))。
+ * 記録点に吸い付かせると、記録レートより細かいコマで再生したときに位置がカクつき、
+ * 車両ごとに進むコマがずれて前後にぶれて見えるため、表示用の位置はこちらで求める
+ */
+export function interpolatePoint(
+  points: TelemetryPoint[],
+  key: 'time' | 'distance',
+  value: number
+): TelemetryPoint | undefined {
+  if (!points || points.length === 0) return undefined;
+  const n = points.length;
+  if (n === 1 || value <= points[0][key]) return points[0];
+  if (value >= points[n - 1][key]) return points[n - 1];
+
+  // points[lo][key] <= value < points[lo + 1][key] となる lo を探す
+  let lo = 0;
+  let hi = n - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid][key] <= value) lo = mid;
+    else hi = mid;
+  }
+  const a = points[lo];
+  const b = points[hi];
+  const span = b[key] - a[key];
+  if (span <= 0) return a;
+  const r = (value - a[key]) / span;
+  const lerp = (x: number, y: number) => x + (y - x) * r;
+  // 進行方向は 0/360 度をまたぐので、近い向きに回して補間する
+  let dh = b.heading - a.heading;
+  if (dh > 180) dh -= 360;
+  else if (dh < -180) dh += 360;
+  return {
+    ...a,
+    time: lerp(a.time, b.time),
+    distance: lerp(a.distance, b.distance),
+    latitude: lerp(a.latitude, b.latitude),
+    longitude: lerp(a.longitude, b.longitude),
+    altitude: lerp(a.altitude, b.altitude),
+    speed: lerp(a.speed, b.speed),
+    heading: (a.heading + dh * r + 360) % 360
+  };
+}
+
+/**
+ * 比べる基準に合わせて、各車両の現在の位置を取る (前後の点の間を補間)。
+ * 距離基準では基準車と同じ距離の位置、時間基準では周の開始からの経過時間が同じ位置
  */
 export function findCarPoint(
   points: TelemetryPoint[],
@@ -80,5 +125,5 @@ export function findCarPoint(
   distanceKm: number,
   timeSec: number
 ): TelemetryPoint | undefined {
-  return axis === 'time' ? findClosestPointByTime(points, timeSec) : findClosestPointByDistance(points, distanceKm);
+  return interpolatePoint(points, axis, axis === 'time' ? timeSec : distanceKm);
 }
