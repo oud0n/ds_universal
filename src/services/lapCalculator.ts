@@ -185,6 +185,9 @@ function interpolateClock(p1: TelemetryPoint, p2: TelemetryPoint, t: number): Pa
   return out;
 }
 
+// 計測線の通過が 1 回のログで、通過点より後ろをラップとして扱う最短の長さ (秒)
+const PARTIAL_LAP_MIN_SEC = 15;
+
 export function extractLaps(
   points: TelemetryPoint[],
   controlLine?: ControlLine,
@@ -203,6 +206,7 @@ export function extractLaps(
     startPoint?: TelemetryPoint;
     endPoint?: TelemetryPoint;
   }> = [];
+  let isPartialLap = false;
 
   // コントロールラインがある場合は交差検出でラップ分割
   if (controlLine) {
@@ -219,6 +223,22 @@ export function extractLaps(
           startPoint: c1.interpolatedPoint,
           endPoint: c2.interpolatedPoint
         });
+      }
+    } else if (crossings.length === 1) {
+      // 通過が 1 回だけのログ (1 周ぶんの書き出しで、計測線の少し手前から始まり次の通過の前で終わるものなど) は、
+      // 通過点から末尾までを、終わりが不完全な 1 周として扱う。先頭を計測線にそろえることで、他のラップと重ねてもずれない
+      // 通過点より後ろが短い (末尾近くで通過した) ときは、これまでどおりログ全体を 1 周とする
+      const c = crossings[0];
+      const last = points[points.length - 1];
+      if (last.time - c.time >= PARTIAL_LAP_MIN_SEC && c.index < points.length) {
+        lapRanges.push({
+          startIndex: c.index,
+          endIndex: points.length - 1,
+          startTime: c.time,
+          endTime: last.time,
+          startPoint: c.interpolatedPoint
+        });
+        isPartialLap = true;
       }
     }
   }
@@ -241,7 +261,9 @@ export function extractLaps(
     // こうすると先頭が 0 秒・0 km、末尾がちょうどラップタイム・1 周の距離になる
     const rawPoints = r.startPoint && r.endPoint
       ? [r.startPoint, ...points.slice(r.startIndex, r.endIndex), r.endPoint]
-      : points.slice(r.startIndex, r.endIndex + 1);
+      : r.startPoint
+        ? [r.startPoint, ...points.slice(r.startIndex, r.endIndex + 1)]
+        : points.slice(r.startIndex, r.endIndex + 1);
     if (rawPoints.length < 2) return;
 
     // 各ラップ内のタイムと距離を t=0, dist=0 からに正規化
@@ -283,7 +305,8 @@ export function extractLaps(
       avgSpeed: Number(avgSpeed.toFixed(1)),
       sectors: sectorResults,
       points: lapPoints,
-      ...(isWholeSession ? { isWholeSession: true } : {})
+      ...(isWholeSession ? { isWholeSession: true } : {}),
+      ...(isPartialLap ? { isPartialLap: true } : {})
     });
   });
 

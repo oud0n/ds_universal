@@ -64,6 +64,8 @@ export interface Lap {
   isBestLap?: boolean;
   // 計測線で区切れず、ログ全体を 1 周として扱ったもの
   isWholeSession?: boolean;
+  // 計測線の通過が 1 回で、通過点から末尾までを 1 周として扱ったもの (終わりが次の通過に届いていない)
+  isPartialLap?: boolean;
   sectors: LapSectorResult[];
   points: TelemetryPoint[];
 }

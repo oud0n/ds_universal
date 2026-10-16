@@ -319,6 +319,12 @@ export const DataTab: React.FC<DataTabProps> = ({
               </div>
             )}
 
+            {session.laps.some(l => l.isPartialLap) && (
+              <div className="px-4 py-2 text-xs text-amber-300 bg-amber-500/10 border-b border-amber-500/30">
+                計測線の通過が 1 回のため、通過した点から末尾までを 1 周（途中まで）として扱っています。計測線より前の部分は使っていません。
+              </div>
+            )}
+
             {/* ラップ一覧テーブル */}
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-left">
@@ -361,6 +367,11 @@ export const DataTab: React.FC<DataTabProps> = ({
                           }`}
                         >
                           {formatTime(lap.lapTime)}
+                          {lap.isPartialLap && (
+                            <span className="ml-1.5 text-[10px] text-amber-300" title="次の計測線の通過までログがないため、実際のラップタイムではありません">
+                              (途中まで)
+                            </span>
+                          )}
                         </td>
                         <td className="py-2.5 px-3 text-slate-200">{lap.topSpeed.toFixed(1)} km/h</td>
                         <td className="py-2.5 px-3 text-slate-200">{lap.bottomSpeed.toFixed(1)} km/h</td>
