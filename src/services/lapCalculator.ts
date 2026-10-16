@@ -91,13 +91,18 @@ function findGateCrossings(
 function calculateLapSectors(
   lapPoints: TelemetryPoint[],
   lapStartTime: number,
-  sectors: Sector[]
+  sectors: Sector[],
+  // ラップの先頭 / 末尾が計測線上か (ログ全体を 1 周としたときはどちらも違う、途中までの周は末尾が違う)
+  startsAtLine = true,
+  endsAtLine = true
 ): LapSectorResult[] {
   if (sectors.length === 0) return [];
 
   const results: LapSectorResult[] = [];
   let prevSplitTime = 0;
   let prevSplitDist = 0;
+  // 区間の始まり (1 つ前のセクター線) が推定かどうか。先頭が計測線でなければ最初から推定
+  let prevEstimated = !startsAtLine;
 
   sectors.forEach((sec, sIdx) => {
     // セクターラインとの交差を探す。前のセクター通過より後のものだけを対象にする
@@ -105,6 +110,7 @@ function calculateLapSectors(
     const crossing = findGateCrossings(lapPoints, sec, 2).find(c => c.time - lapStartTime > prevSplitTime + 0.5);
     let splitTime = 0;
     let splitDist = 0;
+    let measured = true;
 
     if (crossing) {
       splitTime = crossing.time - lapStartTime;
@@ -113,7 +119,10 @@ function calculateLapSectors(
       // 最後のセクターで交差が見つからない場合は、ラップの終わり (フィニッシュ通過) までとする
       splitTime = lapPoints[lapPoints.length - 1].time - lapStartTime;
       splitDist = lapPoints[lapPoints.length - 1].distance - lapPoints[0].distance;
+      // 末尾が計測線でない (途中までの周など) ときは、フィニッシュまで走っていないので推定扱い
+      measured = endsAtLine;
     } else {
+      measured = false;
       // ゲート通過が検出できない場合は距離または時間の等分推計
       const fraction = (sIdx + 1) / (sectors.length + 1);
       const totalLapTime = lapPoints[lapPoints.length - 1].time - lapStartTime;
@@ -153,11 +162,13 @@ function calculateLapSectors(
       splitDistance: Number(splitDist.toFixed(3)),
       maxSpeed: Number(maxSpd.toFixed(1)),
       minSpeed: Number((minSpd === 999 ? 0 : minSpd).toFixed(1)),
-      avgSpeed: secPoints.length > 0 ? Number((sumSpd / secPoints.length).toFixed(1)) : 0
+      avgSpeed: secPoints.length > 0 ? Number((sumSpd / secPoints.length).toFixed(1)) : 0,
+      ...(prevEstimated || !measured ? { isEstimated: true } : {})
     });
 
     prevSplitTime = splitTime;
     prevSplitDist = splitDist;
+    prevEstimated = !measured;
   });
 
   return results;
@@ -335,7 +346,7 @@ export function extractLaps(
     }
 
     const avgSpeed = lapPoints.length > 0 ? sumSpeed / lapPoints.length : 0;
-    const sectorResults = calculateLapSectors(lapPoints, 0, sectors);
+    const sectorResults = calculateLapSectors(lapPoints, 0, sectors, !isWholeSession, !isWholeSession && !isPartialLap);
 
     laps.push({
       lapNumber: idx + 1,
@@ -355,10 +366,12 @@ export function extractLaps(
     });
   });
 
-  // ベストラップの特定
+  // ベストラップの特定。計測線から計測線までの周があれば、途中までの周・ログ全体の周は候補にしない
+  const hasFullLap = laps.some(l => !l.isPartialLap && !l.isWholeSession);
   let bestLapIndex = 0;
   let minLapTime = Infinity;
   laps.forEach((l, idx) => {
+    if (hasFullLap && (l.isPartialLap || l.isWholeSession)) return;
     if (l.lapTime > 5 && l.lapTime < minLapTime) {
       minLapTime = l.lapTime;
       bestLapIndex = idx;
@@ -378,7 +391,8 @@ export function extractLaps(
 
       laps.forEach((l, lIdx) => {
         const secRes = l.sectors[sIdx];
-        if (secRes && secRes.time > 0.5 && secRes.time < minSectorTime) {
+        // 推定値 (セクター線を通らなかった区間) はセクターベストにしない
+        if (secRes && !secRes.isEstimated && secRes.time > 0.5 && secRes.time < minSectorTime) {
           minSectorTime = secRes.time;
           bestLapForSector = lIdx;
         }
@@ -387,8 +401,12 @@ export function extractLaps(
       if (bestLapForSector !== -1 && laps[bestLapForSector].sectors[sIdx]) {
         laps[bestLapForSector].sectors[sIdx].isBest = true;
         theoreticalBestTime += minSectorTime;
+      } else {
+        // 実測のないセクターがあると理論ベストは出せない
+        theoreticalBestTime = NaN;
       }
     });
+    if (!Number.isFinite(theoreticalBestTime)) theoreticalBestTime = 0;
   } else if (laps[bestLapIndex]) {
     theoreticalBestTime = laps[bestLapIndex].lapTime;
   }

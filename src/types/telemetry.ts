@@ -49,6 +49,8 @@ export interface LapSectorResult {
   minSpeed: number;      // セクター最低速 (km/h)
   avgSpeed: number;      // セクター平均速度 (km/h)
   isBest?: boolean;      // セクターベスト判定
+  // セクター線の通過を検出できず、等分などで推定した値 (この区間の始まりか終わりが推定)。セクターベスト・理論ベストには使わない
+  isEstimated?: boolean;
 }
 
 export interface Lap {

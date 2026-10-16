@@ -428,10 +428,11 @@ export const DataTab: React.FC<DataTabProps> = ({
                           <td
                             key={sIdx}
                             className={`py-2.5 px-3 ${
-                              secRes.isBest ? 'text-amber-400 font-bold' : 'text-slate-300'
+                              secRes.isBest ? 'text-amber-400 font-bold' : secRes.isEstimated ? 'text-slate-500' : 'text-slate-300'
                             }`}
+                            title={secRes.isEstimated ? 'セクター線の通過を検出できなかったため推定値です（セクターベスト・理論ベストには使いません）' : undefined}
                           >
-                            {secRes.time.toFixed(3)}s
+                            {secRes.isEstimated ? '~' : ''}{secRes.time.toFixed(3)}s
                           </td>
                         ))}
 
@@ -483,12 +484,11 @@ export const DataTab: React.FC<DataTabProps> = ({
                         (各セクターのベストタイム合算値)
                       </td>
                       {session.sectors.map((sec, sIdx) => {
-                        const bestSecTime = Math.min(
-                          ...session.laps.map(l => l.sectors[sIdx]?.time || 9999).filter(t => t < 9000)
-                        );
+                        // セクターベストの印 (isBest) が付いた実測値だけを出す
+                        const best = session.laps.map(l => l.sectors[sIdx]).find(r => r?.isBest);
                         return (
                           <td key={sec.id} className="py-2 px-3 text-amber-400">
-                            {bestSecTime.toFixed(3)}s
+                            {best ? `${best.time.toFixed(3)}s` : '--'}
                           </td>
                         );
                       })}
