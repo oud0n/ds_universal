@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { Lap, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
-import { Map, ZoomIn, ZoomOut, RotateCcw, Eye, Palette, Move } from 'lucide-react';
+import { Map, ZoomIn, ZoomOut, RotateCcw, Eye, Palette, Move, LocateFixed } from 'lucide-react';
 import { getTileImage, MapBackground, TILE_ATTRIBUTION, TILE_SOURCES, tilesForView } from '../services/mapTiles';
 import { useLapGeometries } from '../hooks/useLapGeometries';
 import { computeCorrectedLineDelta, computeLineDelta, detectCorners } from '../services/drivingAnalysis';
@@ -62,6 +62,10 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   const [zoom, setZoom] = useState(1.0);
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
+  // 車両追従。ON の間は基準車が常に画面の中央に来るように表示を動かす
+  const [isFollowing, setIsFollowing] = useState(false);
+  // 実際に描画に使った平行移動量。追従を外したとき、その位置から手動の移動を続けるために覚えておく
+  const drawnPanRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // 背景地図 (既定はなし = オフライン動作)
@@ -199,9 +203,20 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     const scaleY = (height * 0.85) / geoHeight;
     const baseScale = Math.min(scaleX, scaleY) * zoom;
 
+    // 追従中は、基準車の現在位置が画面の中央に来るように平行移動量を決める
+    let pan = panOffset;
+    const basePts = cars[0]?.lap.points;
+    if (isFollowing && basePts && basePts.length > 0) {
+      const p = basePts.reduce((prev, curr) =>
+        Math.abs(curr.distance - currentDistance) < Math.abs(prev.distance - currentDistance) ? curr : prev
+      , basePts[0]);
+      pan = { x: -(p.longitude - lonMid) * cosLat * baseScale, y: (p.latitude - latMid) * baseScale };
+    }
+    drawnPanRef.current = pan;
+
     const toScreen = (lat: number, lon: number) => {
-      const x = width / 2 + (lon - lonMid) * cosLat * baseScale + panOffset.x;
-      const y = height / 2 - (lat - latMid) * baseScale + panOffset.y;
+      const x = width / 2 + (lon - lonMid) * cosLat * baseScale + pan.x;
+      const y = height / 2 - (lat - latMid) * baseScale + pan.y;
       return { x, y };
     };
 
@@ -213,8 +228,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       const dLat = mapOffset.northM / METERS_PER_DEG_LAT;
       const dLon = mapOffset.eastM / (METERS_PER_DEG_LAT * cosLat);
       const toGeo = (x: number, y: number) => ({
-        lat: latMid - (y - height / 2 - panOffset.y) / baseScale - dLat,
-        lon: lonMid + (x - width / 2 - panOffset.x) / (cosLat * baseScale) - dLon
+        lat: latMid - (y - height / 2 - pan.y) / baseScale - dLat,
+        lon: lonMid + (x - width / 2 - pan.x) / (cosLat * baseScale) - dLon
       });
       const topLeft = toGeo(0, 0);
       const bottomRight = toGeo(width, height);
@@ -495,13 +510,23 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 
       ctx.restore();
     });
-  }, [cars, controlLine, sectors, pathPolylines, currentDistance, bounds, zoom, panOffset, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick]);
+  }, [cars, controlLine, sectors, pathPolylines, currentDistance, bounds, zoom, panOffset, isFollowing, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick]);
 
   // パン操作 (ドラッグ)
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     setIsPanning(true);
     // 位置調整モードでは、前回のマウス位置からの移動量で地図を動かす
-    setPanStart(isAdjustingMap ? { x: e.clientX, y: e.clientY } : { x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
+    if (isAdjustingMap) {
+      setPanStart({ x: e.clientX, y: e.clientY });
+      return;
+    }
+    // 追従中にドラッグしたら追従を外し、今見えている位置から手動で動かす
+    const current = isFollowing ? drawnPanRef.current : panOffset;
+    if (isFollowing) {
+      setIsFollowing(false);
+      setPanOffset(current);
+    }
+    setPanStart({ x: e.clientX - current.x, y: e.clientY - current.y });
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -544,6 +569,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   };
 
   const handleReset = () => {
+    setIsFollowing(false);
     setZoom(1.0);
     setPanOffset({ x: 0, y: 0 });
   };
@@ -632,6 +658,17 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         {/* コントロール */}
         <div className="flex items-center gap-1">
           <button
+            onClick={() => setIsFollowing(f => !f)}
+            title="車両追従 (基準車を常に中央に表示)"
+            aria-pressed={isFollowing}
+            className={`flex items-center gap-1 px-1.5 py-0.5 mr-1 rounded border text-[11px] transition-colors ${
+              isFollowing ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-[#2e374c] text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <LocateFixed size={13} />
+            追従
+          </button>
+          <button
             onClick={() => setZoom(z => Math.min(10, z * 1.25))}
             title="拡大"
             className="p-1 hover:bg-[#283247] rounded text-slate-300 transition-colors"
@@ -647,7 +684,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
           </button>
           <button
             onClick={handleReset}
-            title="初期位置に戻す"
+            title="コース全体を表示"
             className="p-1 hover:bg-[#283247] rounded text-slate-300 transition-colors"
           >
             <RotateCcw size={13} />
