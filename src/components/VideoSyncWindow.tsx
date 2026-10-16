@@ -301,8 +301,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   }, [baseSession?.id, tracks]);
 
   // 速度ウィンドウで選択されたセッションに合わせて動画のオフセットを自動追従・再同期
+  // 手でオフセットや同期ピンを合わせた動画は、トラックやセッションを切り替えても自動の値で上書きしない
   useEffect(() => {
-    if (!activeTrack || !baseSession) return;
+    if (!activeTrack || !baseSession || activeTrack.isManuallyAdjusted) return;
     if (activeTrack.matchedSessionId !== baseSession.id) {
       videoSyncManager.resyncTrack(
         activeTrack.id,

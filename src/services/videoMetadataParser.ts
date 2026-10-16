@@ -16,51 +16,34 @@ export interface VideoMetadata {
 const MAC_EPOCH_OFFSET_SECONDS = 2082844800;
 
 /**
- * ArrayBuffer または File から動画メタデータを抽出
+ * File から動画メタデータを抽出
+ * ボックス (size + type) の並びを先頭から辿って moov → mvhd を探す。
+ * 生のバイト列から 'mvhd' の 4 文字を探すと、mdat (映像データ) の中に同じ並びがあったときに誤って拾うため使わない
  */
 export async function parseVideoMetadata(file: File): Promise<VideoMetadata> {
-  // mvhd ボックスは通常ファイルの先頭付近 (FastStart) または末尾 (GoPro等) に存在
-  // 先頭 2MB をスキャン
-  const headerSliceSize = Math.min(file.size, 2 * 1024 * 1024);
-  const buffer = await file.slice(0, headerSliceSize).arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  const view = new DataView(buffer);
-
   let creationTime: Date | null = null;
   let durationSec = 0;
   let timescale = 1000;
 
-  // 'mvhd' FourCC ('m', 'v', 'h', 'd' = 0x6D, 0x76, 0x68, 0x64) を検索
-  let mvhdOffset = findFourCC(bytes, 0x6d, 0x76, 0x68, 0x64);
-
-  // 先頭で見つからず、moov が末尾にある動画（GoPro HERO 等）の場合、末尾最大 16MB をスキャン
-  if (mvhdOffset === -1 && file.size > headerSliceSize) {
-    const tailSliceSize = Math.min(file.size, 16 * 1024 * 1024);
-    const tailStart = file.size - tailSliceSize;
-    const tailBuffer = await file.slice(tailStart, file.size).arrayBuffer();
-    const tailBytes = new Uint8Array(tailBuffer);
-    const tailMvhdOffset = findFourCC(tailBytes, 0x6d, 0x76, 0x68, 0x64);
-
-    if (tailMvhdOffset >= 0) {
-      const tailView = new DataView(tailBuffer);
-      const res = parseMvhdBox(tailView, tailMvhdOffset);
+  try {
+    const moov = await findBox(file, 0, file.size, 'moov');
+    const mvhd = moov ? await findBox(file, moov.bodyStart, moov.end, 'mvhd') : null;
+    if (mvhd) {
+      const buffer = await file.slice(mvhd.start, Math.min(mvhd.end, mvhd.start + 256)).arrayBuffer();
+      const res = parseMvhdBox(new DataView(buffer), 0);
       if (res) {
         creationTime = res.creationTime;
         durationSec = res.durationSec;
         timescale = res.timescale;
       }
     }
-  } else if (mvhdOffset >= 0) {
-    const res = parseMvhdBox(view, mvhdOffset);
-    if (res) {
-      creationTime = res.creationTime;
-      durationSec = res.durationSec;
-      timescale = res.timescale;
-    }
+  } catch (err) {
+    console.warn('動画メタデータの解析に失敗しました:', err);
   }
 
-  // ファイルの最終更新日時によるフォールバック
+  // ファイルの最終更新日時によるフォールバック (コピーした日時のことがある。照合は 4 時間以内に収まらなければ失敗として扱われる)
   if (!creationTime && file.lastModified) {
+    console.warn(`[VideoMeta] ${file.name}: 撮影日時を読み取れなかったため、ファイルの更新日時を使います`);
     creationTime = new Date(file.lastModified);
   }
 
@@ -73,20 +56,35 @@ export async function parseVideoMetadata(file: File): Promise<VideoMetadata> {
   };
 }
 
-// FourCC 検索ヘルパー
-function findFourCC(bytes: Uint8Array, b0: number, b1: number, b2: number, b3: number): number {
-  const limit = bytes.length - 8;
-  for (let i = 0; i < limit; i++) {
-    if (
-      bytes[i] === b0 &&
-      bytes[i + 1] === b1 &&
-      bytes[i + 2] === b2 &&
-      bytes[i + 3] === b3
-    ) {
-      return i - 4; // ボックスサイズヘッダーを含むオフセット
+/** [from, to) の範囲にあるボックスを順に辿り、type が一致する最初のボックスを返す */
+async function findBox(
+  file: File,
+  from: number,
+  to: number,
+  type: string
+): Promise<{ start: number; bodyStart: number; end: number } | null> {
+  let offset = from;
+  // 壊れたファイルで無限に辿らないよう、ボックス数に上限を設ける
+  for (let n = 0; n < 10000 && offset + 8 <= to; n++) {
+    const head = new DataView(await file.slice(offset, Math.min(to, offset + 16)).arrayBuffer());
+    if (head.byteLength < 8) return null;
+    let size = head.getUint32(0);
+    const boxType = String.fromCharCode(head.getUint8(4), head.getUint8(5), head.getUint8(6), head.getUint8(7));
+    let headerSize = 8;
+    if (size === 1) {
+      // 64 bit の大きさ (4GB を超える mdat など)
+      if (head.byteLength < 16) return null;
+      size = Number(head.getBigUint64(8));
+      headerSize = 16;
+    } else if (size === 0) {
+      // ファイル (親ボックス) の末尾まで
+      size = to - offset;
     }
+    if (size < headerSize || offset + size > to) return null;
+    if (boxType === type) return { start: offset, bodyStart: offset + headerSize, end: offset + size };
+    offset += size;
   }
-  return -1;
+  return null;
 }
 
 function parseMvhdBox(view: DataView, offset: number): {
@@ -97,6 +95,8 @@ function parseMvhdBox(view: DataView, offset: number): {
   try {
     const boxSize = view.getUint32(offset);
     if (boxSize < 32 || offset + 32 > view.byteLength) return null;
+    // version 1 (64 bit の時刻) は duration の終わりまで 40 バイト要る
+    if (view.getUint8(offset + 8) === 1 && (boxSize < 40 || offset + 40 > view.byteLength)) return null;
 
     // mvhd の構造:
     // +0: 4バイト size

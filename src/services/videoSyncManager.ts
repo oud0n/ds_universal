@@ -63,6 +63,8 @@ export interface VideoTrack {
   matchedSessionId: string | null;
   syncOffsetSec: number;      // GPSセッション t=0 に対する動画開始位置のオフセット (秒)
   isAutoMatched: boolean;
+  // 利用者がオフセットを手で合わせた (または同期プロジェクトから復元した) もの。自動の再同期では上書きしない
+  isManuallyAdjusted?: boolean;
   notes?: string;
 }
 
@@ -130,8 +132,8 @@ class VideoSyncManager {
 
     this.videos = [...this.videos, ...newTracks];
 
-    // GPSセッションとの自動照合
-    this.autoMatchTracks(sessions);
+    // GPSセッションとの自動照合。追加した動画だけを照合し、手で合わせた既存の動画の同期は変えない
+    this.autoMatchTracks(sessions, newTracks);
 
     if (this.onTracksUpdated) {
       this.onTracksUpdated(this.videos);
@@ -200,6 +202,8 @@ class VideoSyncManager {
       track.matchedSessionId = targetSession.id;
       track.syncOffsetSec = offset;
       track.isAutoMatched = true;
+      // 利用者が再同期を指示した (または時差の設定を変えた) ので、手で合わせた状態は解除する
+      track.isManuallyAdjusted = false;
       console.log(`[VideoSync] 再同期完了: ${track.fileName} -> ${targetSession.sessionName} (オフセット: ${offset}s)`);
 
       const group = this.getChapterGroupForTrack(trackId);
@@ -218,11 +222,11 @@ class VideoSyncManager {
   }
 
   // タイムスタンプによる全動画トラックのGPSセッション自動照合 (TZ完全自動判定 & 時差スキャン対応)
-  public autoMatchTracks(sessions: Session[]): void {
-    if (sessions.length === 0 || this.videos.length === 0) return;
+  public autoMatchTracks(sessions: Session[], targets: VideoTrack[] = this.videos): void {
+    if (sessions.length === 0 || targets.length === 0) return;
 
-    for (const track of this.videos) {
-      if (!track.rawRecordedAt) continue;
+    for (const track of targets) {
+      if (!track.rawRecordedAt || track.isManuallyAdjusted) continue;
 
       let bestSession: Session | null = null;
       let minDiffSec = Infinity;
@@ -241,6 +245,8 @@ class VideoSyncManager {
 
         // 2. 時差スキャン (0h, ±9h, ±8h 等のズレを自動検出)
         const scan = scanBestTimezoneOffset(track.rawRecordedAt, p0Date, circuitTz);
+        // どの時差でも近い時刻にならなかったセッションは候補にしない (照合の失敗を「差 0 秒で一致」と扱わない)
+        if (!scan.found) continue;
         const absDiff = Math.abs(scan.bestOffsetSec);
 
         if (absDiff < minDiffSec) {
@@ -305,6 +311,7 @@ class VideoSyncManager {
     if (track) {
       track.syncOffsetSec = Number((track.syncOffsetSec + deltaHours * 3600).toFixed(3));
       track.isAutoMatched = false;
+      track.isManuallyAdjusted = true;
 
       // チャプターグループ内の場合、連動して他のチャプターもシフト
       const group = this.getChapterGroupForTrack(trackId);
@@ -328,6 +335,7 @@ class VideoSyncManager {
     if (track) {
       track.syncOffsetSec = Number(offsetSec.toFixed(3));
       track.isAutoMatched = false;
+      track.isManuallyAdjusted = true;
 
       // チャプターグループ内の場合、連動して他のチャプターもシフト
       const group = this.getChapterGroupForTrack(trackId);
@@ -395,8 +403,20 @@ class VideoSyncManager {
   // 同期プロジェクト JSON インポート & 復元
   public importProjectJson(jsonText: string): SyncProjectData {
     const data: SyncProjectData = JSON.parse(jsonText);
-    if (data.version !== '1.0' || !Array.isArray(data.videos)) {
+    if (!data || data.version !== '1.0' || !Array.isArray(data.videos)) {
       throw new Error('無効な同期プロジェクト JSON 形式です');
+    }
+    // 数値・文字列を検証する。NaN や極端な値のまま取り込むと、再生位置の計算が壊れて画面が固まる
+    const MAX_OFFSET_SEC = 7 * 24 * 3600;
+    for (const v of data.videos) {
+      const ok = v && typeof v.fileName === 'string' &&
+        Number.isFinite(v.syncOffsetSec) && Math.abs(v.syncOffsetSec) <= MAX_OFFSET_SEC &&
+        Number.isFinite(v.durationSec) && v.durationSec >= 0 && v.durationSec <= MAX_OFFSET_SEC &&
+        Number.isFinite(v.fileSize) && v.fileSize >= 0 &&
+        (v.matchedSessionId === null || typeof v.matchedSessionId === 'string');
+      if (!ok) throw new Error(`同期プロジェクト JSON の動画 ${v?.fileName ?? ''} の値が不正です`);
+      const raw = v.rawRecordedAt || v.recordedAtJst;
+      if (raw && Number.isNaN(new Date(raw).getTime())) throw new Error(`同期プロジェクト JSON の動画 ${v.fileName} の記録日時が不正です`);
     }
 
     // 既存動画トラックのオフセットを上書き・復元
@@ -408,6 +428,7 @@ class VideoSyncManager {
         if (vData.videoTimezone) existing.videoTimezone = vData.videoTimezone;
         if (vData.gpsTimezone) existing.gpsTimezone = vData.gpsTimezone;
         existing.isAutoMatched = false;
+        existing.isManuallyAdjusted = true;
       } else {
         // ファイル未ロードのプレースホルダーとして登録
         const rawDate = vData.rawRecordedAt || vData.recordedAtJst;
@@ -423,6 +444,7 @@ class VideoSyncManager {
           matchedSessionId: vData.matchedSessionId,
           syncOffsetSec: vData.syncOffsetSec,
           isAutoMatched: false,
+          isManuallyAdjusted: true,
           notes: '※ 動画ファイルを再選択してリンクしてください'
         });
       }

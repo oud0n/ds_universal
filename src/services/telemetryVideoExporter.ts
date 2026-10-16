@@ -119,7 +119,9 @@ export function exportBurnedInVideo(options: VideoExportOptions): VideoExportCon
       }
 
       if (outputFileName) {
-        downloadBlob(blob, outputFileName);
+        // MediaRecorder が MP4 に対応せず WebM で記録した環境では、拡張子も .webm にする (中身と拡張子が違うと開けないプレーヤーがある)
+        const ext = finalType === 'video/mp4' ? '.mp4' : '.webm';
+        downloadBlob(blob, outputFileName.replace(/\.(mp4|webm|mov)$/i, '') + ext);
       }
 
       resolve(blob);

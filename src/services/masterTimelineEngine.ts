@@ -53,7 +53,7 @@ export function scanBestTimezoneOffset(
   videoRecordedAt: Date,
   sessionStartDate: Date,
   circuitTz: string = 'JST'
-): { bestOffsetSec: number; detectedShiftHours: number; confidence: 'high' | 'medium' | 'low' } {
+): { bestOffsetSec: number; detectedShiftHours: number; confidence: 'high' | 'medium' | 'low'; found: boolean } {
   // 候補となる時差シフト (時間単位)
   const candidateHours = [0, 9, -9, 8, -8, 1, -1, 5, -5];
 
@@ -89,6 +89,8 @@ export function scanBestTimezoneOffset(
   return {
     bestOffsetSec: Number(bestOffsetSec.toFixed(3)),
     detectedShiftHours: bestShift,
+    // どの時差の候補でも 4 時間以内に収まらなかったとき (別の日の動画など) は false。bestOffsetSec の 0 は一致ではない
+    found: Number.isFinite(minDiffSec),
     confidence
   };
 }
