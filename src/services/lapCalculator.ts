@@ -357,7 +357,7 @@ export function extractLaps(
     const lapPoints: TelemetryPoint[] = rawPoints.map((p, pIdx) => ({
       ...p,
       index: pIdx,
-      time: Number((p.time - t0).toFixed(4)),
+      time: Number((p.time - t0).toFixed(4)) || 0, // -0 を 0 にする (表示が -0.00 になるため)
       distance: Number((p.distance - d0).toFixed(4))
     }));
 
