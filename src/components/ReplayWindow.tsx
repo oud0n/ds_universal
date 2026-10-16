@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Lap, SelectedCarSlot, Sector } from '../types/telemetry';
+import { Lap, SelectedCarSlot, Sector, CompareAxis } from '../types/telemetry';
 import { Play, Pause, SkipBack, SkipForward, PlaySquare, Compass, Eye } from 'lucide-react';
-import { findClosestPointByDistance } from '../utils/telemetrySearch';
+import { findCarPoint } from '../utils/telemetrySearch';
 
 interface ReplayWindowProps {
   cars: {
@@ -11,6 +11,7 @@ interface ReplayWindowProps {
   sectors: Sector[];
   currentTime: number;
   currentDistance: number;
+  compareAxis: CompareAxis;
   isPlaying: boolean;
   onTogglePlay: () => void;
   onStepForward: () => void;
@@ -24,6 +25,7 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
   sectors,
   currentTime,
   currentDistance,
+  compareAxis,
   isPlaying,
   onTogglePlay,
   onStepForward,
@@ -68,7 +70,7 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
 
     // 基準車の現在位置と向き (O(log N) 二分探索)
     const basePts = baseCar.lap.points;
-    const curBasePt = findClosestPointByDistance(basePts, currentDistance) || basePts[0];
+    const curBasePt = findCarPoint(basePts, compareAxis, currentDistance, currentTime) || basePts[0];
 
     const centerLat = curBasePt.latitude;
     const centerLon = curBasePt.longitude;
@@ -138,7 +140,8 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
       const pts = car.lap.points;
       if (pts.length === 0) return;
 
-      const pt = findClosestPointByDistance(pts, currentDistance) || pts[0];
+      // 距離基準: 基準車と同じ距離 / 時間基準: 同じ経過時間
+      const pt = findCarPoint(pts, compareAxis, currentDistance, currentTime) || pts[0];
 
       const pos = toScreen(pt.latitude, pt.longitude);
       const headingRad = ((pt.heading - 90) * Math.PI) / 180;
@@ -194,7 +197,7 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
     ctx.textAlign = 'left';
     ctx.fillText(`Dist: ${currentDistance.toFixed(3)} km`, 10, height - 12);
     ctx.fillText(`Time: ${currentTime.toFixed(2)} s`, 10, height - 24);
-  }, [cars, baseCar, currentDistance, currentTime, zoomLevel, followCar]);
+  }, [cars, baseCar, currentDistance, currentTime, compareAxis, zoomLevel, followCar]);
 
   return (
     <div className="flex flex-col h-full bg-[#161922] rounded-lg border border-[#262c3d] overflow-hidden select-none shadow-lg">

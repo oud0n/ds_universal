@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Lap, Session, SelectedCarSlot, ControlLine, Sector, CircuitPreset } from './types/telemetry';
+import { CompareAxis, Lap, Session, SelectedCarSlot, ControlLine, Sector, CircuitPreset } from './types/telemetry';
 import { parseDtb } from './services/dtbParser';
 import { parseDigispiceRawBinary } from './services/rawBinaryParser';
 import { parseCsv } from './services/csvParser';
@@ -92,6 +92,9 @@ export const App: React.FC = () => {
   const baseSelected = selectedCars.find(c => c.slot === 0);
   const baseSession = sessions.find(s => s.id === baseSelected?.sessionId);
   const baseLap = baseSession?.laps.find(l => l.lapNumber === baseSelected?.lapNumber);
+
+  // 車両どうしを比べる基準 (速度ウインドウの横軸)。全コースウインドウ・アニメーション・摩擦円の車両位置もこれに合わせる
+  const [compareAxis, setCompareAxis] = useState<CompareAxis>('distance');
 
   // 1 周の長さを基準車にそろえる (ロガーごとの距離の測り方の差を吸収する)
   const [alignLapLength, setAlignLapLength] = useState(false);
@@ -627,6 +630,8 @@ export const App: React.FC = () => {
                 currentDistance={currentDistanceKm}
                 onSeekTime={handleSeekTime}
                 onSeekDistance={handleSeekDistance}
+                xAxisMode={compareAxis}
+                onChangeXAxisMode={setCompareAxis}
               />
             </div>
 
@@ -673,6 +678,7 @@ export const App: React.FC = () => {
                     sectors={currentSectors}
                     currentTime={currentTimeSec}
                     currentDistance={currentDistanceKm}
+                    compareAxis={compareAxis}
                     isPlaying={isPlaying}
                     onTogglePlay={() => setIsPlaying(!isPlaying)}
                     onStepForward={() => handleStep(0.1)}
@@ -723,6 +729,8 @@ export const App: React.FC = () => {
                 sectors={currentSectors}
                 pathPolylines={currentPthPolylines}
                 currentDistance={currentDistanceKm}
+                currentTime={currentTimeSec}
+                compareAxis={compareAxis}
                 onSeekDistance={handleSeekDistance}
               />
             </div>
@@ -794,7 +802,7 @@ export const App: React.FC = () => {
 
               <div className="flex-1 min-h-0 overflow-hidden">
                 {subWindowMode === 'all' && (
-                  <FrictionCircleWindow cars={activeCars} currentDistance={currentDistanceKm} />
+                  <FrictionCircleWindow cars={activeCars} currentDistance={currentDistanceKm} currentTime={currentTimeSec} compareAxis={compareAxis} />
                 )}
                 {subWindowMode === 'track_friction' && (
                   <DriftWindow cars={activeCars} currentDistance={currentDistanceKm} />

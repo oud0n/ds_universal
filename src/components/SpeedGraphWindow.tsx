@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
-import { Lap, SelectedCarSlot, Sector } from '../types/telemetry';
+import { CompareAxis, Lap, SelectedCarSlot, Sector } from '../types/telemetry';
 import { calculateDeltaTimes } from '../services/lapCalculator';
 import { ZoomIn, ZoomOut, RotateCcw, Activity, TrendingUp, Layers } from 'lucide-react';
 
@@ -13,6 +13,9 @@ interface SpeedGraphWindowProps {
   currentDistance: number;      // 基準車の現在距離 (km)
   onSeekTime: (timeSec: number) => void;
   onSeekDistance: (distKm: number) => void;
+  // 横軸 (距離 / 時間)。全コースウインドウなど他のウインドウの車両位置もこの基準に合わせるため、App 側で持つ
+  xAxisMode: CompareAxis;
+  onChangeXAxisMode: (mode: CompareAxis) => void;
 }
 
 export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
@@ -21,12 +24,13 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
   currentTime,
   currentDistance,
   onSeekTime,
-  onSeekDistance
+  onSeekDistance,
+  xAxisMode,
+  onChangeXAxisMode: setXAxisMode
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // 表示モード設定
-  const [xAxisMode, setXAxisMode] = useState<'distance' | 'time'>('distance');
   const [showDeltaTime, setShowDeltaTime] = useState(true);
   const [showGOverlay, setShowGOverlay] = useState<'none' | 'accel' | 'corner' | 'combined'>('none');
   const [showAltitude, setShowAltitude] = useState(false);

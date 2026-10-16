@@ -69,3 +69,16 @@ export function findClosestPointByTime(
   const p2 = points[Math.min(points.length - 1, low)];
   return Math.abs(p1.time - targetTimeSec) <= Math.abs(p2.time - targetTimeSec) ? p1 : p2;
 }
+
+/**
+ * 比べる基準に合わせて、各車両の現在の点を取る。
+ * 距離基準では基準車と同じ距離の点、時間基準では周の開始からの経過時間が同じ点
+ */
+export function findCarPoint(
+  points: TelemetryPoint[],
+  axis: 'distance' | 'time',
+  distanceKm: number,
+  timeSec: number
+): TelemetryPoint | undefined {
+  return axis === 'time' ? findClosestPointByTime(points, timeSec) : findClosestPointByDistance(points, distanceKm);
+}

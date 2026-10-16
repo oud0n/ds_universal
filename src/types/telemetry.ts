@@ -90,6 +90,9 @@ export interface Session {
 
 export type CarSlotColor = 'red' | 'blue' | 'green' | 'orange';
 
+// 車両どうしを比べる基準。distance: 同じ距離の地点 / time: 周の開始からの経過時間が同じ時点
+export type CompareAxis = 'distance' | 'time';
+
 export interface SelectedCarSlot {
   slot: number;          // 0: Red, 1: Blue, 2: Green, 3: Orange
   sessionId: string;

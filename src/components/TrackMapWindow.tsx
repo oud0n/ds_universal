@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
-import { Lap, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
+import { CompareAxis, Lap, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
+import { findCarPoint } from '../utils/telemetrySearch';
 import { Map, ZoomIn, ZoomOut, RotateCcw, Eye, Palette, Move, LocateFixed } from 'lucide-react';
 import { getTileImage, MapBackground, TILE_ATTRIBUTION, TILE_SOURCES, tilesForView } from '../services/mapTiles';
 import { useLapGeometries } from '../hooks/useLapGeometries';
@@ -42,6 +43,8 @@ interface TrackMapWindowProps {
   sectors: Sector[];
   pathPolylines?: Array<Array<[number, number]>>;
   currentDistance: number;
+  currentTime: number;
+  compareAxis: CompareAxis;
   onSeekDistance: (distKm: number) => void;
 }
 
@@ -51,6 +54,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   sectors,
   pathPolylines,
   currentDistance,
+  currentTime,
+  compareAxis,
   onSeekDistance
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -207,9 +212,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     let pan = panOffset;
     const basePts = cars[0]?.lap.points;
     if (isFollowing && basePts && basePts.length > 0) {
-      const p = basePts.reduce((prev, curr) =>
-        Math.abs(curr.distance - currentDistance) < Math.abs(prev.distance - currentDistance) ? curr : prev
-      , basePts[0]);
+      const p = findCarPoint(basePts, compareAxis, currentDistance, currentTime) || basePts[0];
       pan = { x: -(p.longitude - lonMid) * cosLat * baseScale, y: (p.latitude - latMid) * baseScale };
     }
     drawnPanRef.current = pan;
@@ -452,12 +455,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       const pts = car.lap.points;
       if (pts.length === 0) return;
 
-      // 現在距離に最も近いポイントを探す
-      const curPt = pts.reduce((prev, curr) => {
-        return Math.abs(curr.distance - currentDistance) < Math.abs(prev.distance - currentDistance)
-          ? curr
-          : prev;
-      }, pts[0]);
+      // 現在の点 (距離基準: 基準車と同じ距離 / 時間基準: 同じ経過時間)
+      const curPt = findCarPoint(pts, compareAxis, currentDistance, currentTime) || pts[0];
 
       const pos = toScreen(curPt.latitude, curPt.longitude);
 
@@ -510,7 +509,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 
       ctx.restore();
     });
-  }, [cars, controlLine, sectors, pathPolylines, currentDistance, bounds, zoom, panOffset, isFollowing, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick]);
+  }, [cars, controlLine, sectors, pathPolylines, currentDistance, currentTime, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick]);
 
   // パン操作 (ドラッグ)
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
