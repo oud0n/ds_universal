@@ -269,24 +269,33 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
+// 接続は操作ごとに開いて閉じる (開いたままにすると、データベースの削除・作り直しを妨げる)
 async function dbGet<T>(key: string): Promise<T | undefined> {
   const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const req = db.transaction(DB_STORE, 'readonly').objectStore(DB_STORE).get(key);
-    req.onsuccess = () => resolve(req.result as T | undefined);
-    req.onerror = () => reject(req.error);
-  });
+  try {
+    return await new Promise((resolve, reject) => {
+      const req = db.transaction(DB_STORE, 'readonly').objectStore(DB_STORE).get(key);
+      req.onsuccess = () => resolve(req.result as T | undefined);
+      req.onerror = () => reject(req.error);
+    });
+  } finally {
+    db.close();
+  }
 }
 
 async function dbPut(key: string, value: unknown): Promise<void> {
   const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(DB_STORE, 'readwrite');
-    tx.objectStore(DB_STORE).put(value, key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(DB_STORE, 'readwrite');
+      tx.objectStore(DB_STORE).put(value, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
 }
 
 interface StoredData {
@@ -330,8 +339,10 @@ class UserCircuitStorage {
           if (item.pthText) files.push({ path: `${id}.pth`, text: item.pthText });
           if (item.sciText) files.push({ path: `${id}.sci`, text: item.sciText });
         }
-        if (files.length > 0) await this.importCourseFiles(files);
-        localStorage.removeItem(LEGACY_LOCALSTORAGE_KEY);
+        // ready (この読み込み自身) を待つ importCourseFiles ではなく、内部の処理を直接呼ぶ (自分自身を待って止まらないように)
+        const r = files.length > 0 ? await this.addCourseFiles(files) : undefined;
+        // 新しい保存先に保存できたときだけ、以前の保存分を消す (保存できなければ次回もう一度移し替える)
+        if (!r || r.saved) localStorage.removeItem(LEGACY_LOCALSTORAGE_KEY);
       }
     } catch (e) {
       console.warn('[UserCircuit] 以前の保存データの移し替えに失敗:', e);
@@ -353,7 +364,12 @@ class UserCircuitStorage {
   }
 
   public async importCourseFiles(files: CourseFile[]): Promise<ImportResult> {
+    // 保存済みのデータの読み込みが終わってから追加する (後から読み込みが終わって、追加分を上書きしないように)
     await this.ready.catch(() => undefined);
+    return this.addCourseFiles(files);
+  }
+
+  private async addCourseFiles(files: CourseFile[]): Promise<ImportResult> {
     // 内蔵のコース名を表示名に使う (循環参照を避けて、ここで読み込む)
     const { CIRCUIT_PRESETS } = await import('./circuitDatabase');
     const r = pairCourseFiles(files, CIRCUIT_PRESETS);
