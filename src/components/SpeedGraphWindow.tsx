@@ -172,7 +172,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
       ctx.font = 'bold 10px sans-serif';
 
       baseCar.lap.sectors.forEach(secRes => {
-        const secVal = xAxisMode === 'distance' ? secRes.distance : secRes.splitTime;
+        // セクター線の位置は計測線からの累積 (distance は区間の長さなので使わない)
+        const secVal = xAxisMode === 'distance' ? secRes.splitDistance : secRes.splitTime;
         if (secVal >= activeDomainStart && secVal <= activeDomainEnd) {
           const sx = getX(secVal);
           ctx.beginPath();

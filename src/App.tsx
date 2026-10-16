@@ -269,7 +269,8 @@ export const App: React.FC = () => {
     if (!baseLap) return;
     const sec = baseLap.sectors[sectorIndex];
     if (sec) {
-      handleSeekDistance(sec.distance);
+      // そのセクター線の位置 (計測線からの累積距離) から一斉スタートする
+      handleSeekDistance(sec.splitDistance);
       setIsPlaying(true);
     }
   };

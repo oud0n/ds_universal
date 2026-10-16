@@ -43,7 +43,8 @@ export interface LapSectorResult {
   sectorName: string;
   time: number;          // セクター所要時間 (秒)
   splitTime: number;     // 通過タイム (秒)
-  distance: number;      // セクター区間距離 (km)
+  distance: number;      // セクター区間距離 (km)。1 つ前のセクター線 (S1 は計測線) からの長さ
+  splitDistance: number; // 計測線からこのセクター線までの距離 (km)。splitTime と同じく累積
   maxSpeed: number;      // セクター最高速 (km/h)
   minSpeed: number;      // セクター最低速 (km/h)
   avgSpeed: number;      // セクター平均速度 (km/h)

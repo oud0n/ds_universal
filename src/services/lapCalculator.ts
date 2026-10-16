@@ -150,6 +150,7 @@ function calculateLapSectors(
       time: Number(sectorDuration.toFixed(3)),
       splitTime: Number(splitTime.toFixed(3)),
       distance: Number(sectorDist.toFixed(3)),
+      splitDistance: Number(splitDist.toFixed(3)),
       maxSpeed: Number(maxSpd.toFixed(1)),
       minSpeed: Number((minSpd === 999 ? 0 : minSpd).toFixed(1)),
       avgSpeed: secPoints.length > 0 ? Number((sumSpd / secPoints.length).toFixed(1)) : 0
