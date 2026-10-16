@@ -141,21 +141,23 @@ export const App: React.FC = () => {
     };
   }, [isPlaying, playbackSpeed, baseLap, currentTab, subWindowMode, leftBottomMode]);
 
-  // キーボードショートカット (Space: 再生/停止, F: コマ送り, B: コマ戻し)
+  // キーボードショートカット (Space: 再生/停止, F / →: コマ送り, B / ←: コマ戻し, Shift で 1 秒単位)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // 入力フォーム操作中は無視
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
 
+      const step = e.shiftKey ? 1 : 0.1;
       if (e.code === 'Space') {
         e.preventDefault();
         setIsPlaying(p => !p);
-      } else if (e.code === 'KeyF') {
+      } else if (e.code === 'KeyF' || e.code === 'ArrowRight') {
         e.preventDefault();
-        handleStep(0.1);
-      } else if (e.code === 'KeyB') {
+        handleStep(step);
+      } else if (e.code === 'KeyB' || e.code === 'ArrowLeft') {
         e.preventDefault();
-        handleStep(-0.1);
+        handleStep(-step);
       }
     };
 

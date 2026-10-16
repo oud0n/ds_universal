@@ -120,7 +120,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="hidden lg:flex items-center gap-2 bg-[#181d2a] px-2.5 py-1 rounded border border-[#262e40]">
           <button
             onClick={onStepBack}
-            title="コマ戻し (Bキー)"
+            title="コマ戻し (B / ←キー、Shift で 1 秒)"
             className="p-1 hover:bg-[#242b3b] rounded text-slate-300 hover:text-white transition-colors cursor-pointer"
           >
             <SkipBack size={14} />
@@ -136,7 +136,7 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
           <button
             onClick={onStepForward}
-            title="コマ送り (Fキー)"
+            title="コマ送り (F / →キー、Shift で 1 秒)"
             className="p-1 hover:bg-[#242b3b] rounded text-slate-300 hover:text-white transition-colors cursor-pointer"
           >
             <SkipForward size={14} />
