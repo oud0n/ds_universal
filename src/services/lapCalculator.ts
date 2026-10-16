@@ -8,17 +8,40 @@ function lineSegmentIntersection(
   p2x: number, p2y: number,
   p3x: number, p3y: number,
   p4x: number, p4y: number
-): { intersects: boolean; t: number; u: number } {
+): { intersects: boolean; t: number; u: number; side: number } {
   const d = (p4y - p3y) * (p2x - p1x) - (p4x - p3x) * (p2y - p1y);
   if (Math.abs(d) < 1e-12) {
-    return { intersects: false, t: 0, u: 0 };
+    return { intersects: false, t: 0, u: 0, side: 0 };
   }
 
   const t = ((p4x - p3x) * (p1y - p3y) - (p4y - p3y) * (p1x - p3x)) / d;
   const u = ((p2x - p1x) * (p1y - p3y) - (p2y - p1y) * (p1x - p3x)) / d;
 
   const intersects = t >= 0 && t <= 1 && u >= 0 && u <= 1;
-  return { intersects, t, u };
+  // 通過の向き (ゲートのどちら側からどちら側へ横切ったか)。+1 / -1
+  return { intersects, t, u, side: Math.sign(d) };
+}
+
+type Gate = { latA: number; lonA: number; latB: number; lonB: number };
+
+/**
+ * ゲートを通過する向きを決める。コースデータの線には向きがないので、ログの中で多い方の向きをコースの進行方向とみなす
+ * (逆向きの通過は、ピットロード・隣のストレート・スピンなどで線をかすめたもの)。通過がなければ 0
+ */
+export function gateDirection(points: TelemetryPoint[], gate: Gate): number {
+  let sum = 0;
+  let first = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    const r = lineSegmentIntersection(
+      points[i].longitude, points[i].latitude, points[i + 1].longitude, points[i + 1].latitude,
+      gate.lonA, gate.latA, gate.lonB, gate.latB
+    );
+    if (r.intersects) {
+      sum += r.side;
+      if (!first) first = r.side;
+    }
+  }
+  return sum !== 0 ? Math.sign(sum) : first;
 }
 
 /**
@@ -36,8 +59,10 @@ interface CrossingEvent {
  */
 function findGateCrossings(
   points: TelemetryPoint[],
-  gate: { latA: number; lonA: number; latB: number; lonB: number },
-  minIntervalSec = 10 // 短時間での重複通過を防止
+  gate: Gate,
+  minIntervalSec = 10, // 短時間での重複通過を防止
+  // 数える通過の向き (gateDirection の値)。省略するとこの点列の中で多い方の向き
+  direction = gateDirection(points, gate)
 ): CrossingEvent[] {
   const crossings: CrossingEvent[] = [];
   let lastCrossingTime = -9999;
@@ -53,7 +78,8 @@ function findGateCrossings(
       gate.lonB, gate.latB
     );
 
-    if (result.intersects) {
+    // 逆向きの通過は数えない (重複通過の間隔の判定にも使わない)
+    if (result.intersects && (direction === 0 || result.side === direction)) {
       const interpTime = p1.time + result.t * (p2.time - p1.time);
       if (interpTime - lastCrossingTime >= minIntervalSec) {
         const interpDist = p1.distance + result.t * (p2.distance - p1.distance);
@@ -94,7 +120,9 @@ function calculateLapSectors(
   sectors: Sector[],
   // ラップの先頭 / 末尾が計測線上か (ログ全体を 1 周としたときはどちらも違う、途中までの周は末尾が違う)
   startsAtLine = true,
-  endsAtLine = true
+  endsAtLine = true,
+  // 各セクター線を通過する向き (セッション全体で決めたもの)。1 周の中だけで決めると、逆向きにかすめた周で向きを取り違える
+  sectorDirections?: number[]
 ): LapSectorResult[] {
   if (sectors.length === 0) return [];
 
@@ -107,7 +135,7 @@ function calculateLapSectors(
   sectors.forEach((sec, sIdx) => {
     // セクターラインとの交差を探す。前のセクター通過より後のものだけを対象にする
     // (ラップの先頭はコントロールライン上にあるため、フィニッシュ線を兼ねるセクターが 0 秒で検出されるのを防ぐ)
-    const crossing = findGateCrossings(lapPoints, sec, 2).find(c => c.time - lapStartTime > prevSplitTime + 0.5);
+    const crossing = findGateCrossings(lapPoints, sec, 2, sectorDirections?.[sIdx]).find(c => c.time - lapStartTime > prevSplitTime + 0.5);
     let splitTime = 0;
     let splitDist = 0;
     let measured = true;
@@ -311,6 +339,7 @@ export function extractLaps(
   }
 
   const laps: Lap[] = [];
+  const sectorDirections = sectors.map(s => gateDirection(points, s));
 
   lapRanges.forEach((r, idx) => {
     // コントロールラインで区切ったラップは、通過点 (補間) を先頭と末尾に置き、その間の実測点を挟む。
@@ -346,7 +375,7 @@ export function extractLaps(
     }
 
     const avgSpeed = lapPoints.length > 0 ? sumSpeed / lapPoints.length : 0;
-    const sectorResults = calculateLapSectors(lapPoints, 0, sectors, !isWholeSession, !isWholeSession && !isPartialLap);
+    const sectorResults = calculateLapSectors(lapPoints, 0, sectors, !isWholeSession, !isWholeSession && !isPartialLap, sectorDirections);
 
     laps.push({
       lapNumber: idx + 1,
