@@ -246,7 +246,9 @@ class VideoSyncManager {
         // 2. 時差スキャン (0h, ±9h, ±8h 等のズレを自動検出)
         const scan = scanBestTimezoneOffset(track.rawRecordedAt, p0Date, circuitTz);
         // どの時差でも近い時刻にならなかったセッションは候補にしない (照合の失敗を「差 0 秒で一致」と扱わない)
-        if (!scan.found) continue;
+        // 時差をずらして初めて 30 分より近くなる程度の一致も使わない。切り出して書き出した動画は、撮影日時の欄に書き出した時刻が入っており、
+        // 時差の候補のどれかで偶然 4 時間以内に収まってしまうため
+        if (!scan.found || (scan.confidence === 'low' && scan.detectedShiftHours !== 0)) continue;
         const absDiff = Math.abs(scan.bestOffsetSec);
 
         if (absDiff < minDiffSec) {

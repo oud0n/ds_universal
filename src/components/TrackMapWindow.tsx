@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { CompareAxis, Lap, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { findCarPoint } from '../utils/telemetrySearch';
+import { passesNearPoint } from '../services/lapCalculator';
 import { Map, ZoomIn, ZoomOut, RotateCcw, Eye, Palette, Move, LocateFixed } from 'lucide-react';
 import { getTileImage, MapBackground, TILE_ATTRIBUTION, TILE_SOURCES, tilesForView } from '../services/mapTiles';
 import { useLapGeometries } from '../hooks/useLapGeometries';
@@ -8,6 +9,8 @@ import { computeCorrectedLineDelta, computeLineDelta, detectCorners } from '../s
 
 const BACKGROUND_STORAGE_KEY = 'ds_map_background';
 const METERS_PER_DEG_LAT = 111320;
+// 基準車と同じコースのログとみなす、基準車の走り始めからの範囲 (m)
+const NEAR_BASE_RADIUS_M = 5000;
 
 // 背景地図の位置補正 (m) の保存キー。場所ごと (約 1km 四方) に覚える
 function offsetStorageKey(lat: number, lon: number): string {
@@ -132,8 +135,10 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       }
     }
 
-    // 車両ポイント
+    // 車両ポイント。基準車から遠く離れた場所 (別のコース) のログは表示範囲に入れない (基準車のコースが小さく潰れるため)
+    const origin = cars[0]?.lap.points[0];
     for (const car of cars) {
+      if (origin && car !== cars[0] && !passesNearPoint(car.lap.points, origin.latitude, origin.longitude, NEAR_BASE_RADIUS_M)) continue;
       for (const p of car.lap.points) {
         includePoint(p.latitude, p.longitude);
       }

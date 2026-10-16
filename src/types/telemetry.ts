@@ -89,6 +89,8 @@ export interface Session {
   theoreticalBestTime: number; // 各セクターベストの合計
   controlLine?: ControlLine;
   sectors: Sector[];
+  // コース図 (.pth や OpenStreetMap から取得した線)。セッションごとに持ち、表示は基準車のセッションのものを使う
+  pathPolylines?: Array<Array<[number, number]>>;
 }
 
 export type CarSlotColor = 'red' | 'blue' | 'green' | 'orange';
