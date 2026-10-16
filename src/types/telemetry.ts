@@ -96,6 +96,8 @@ export interface SelectedCarSlot {
   lapNumber: number;
   colorHex: string;
   label: string;
+  // 重ね合わせの距離の手動補正 (m)。正なら基準車に対して前 (グラフの右) にずらす
+  distanceOffsetM?: number;
 }
 
 export interface CircuitPreset {

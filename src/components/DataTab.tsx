@@ -25,6 +25,9 @@ interface DataTabProps {
   sessions: Session[];
   selectedCars: SelectedCarSlot[];
   onSelectCarSlot: (slotIndex: number, sessionId: string, lapNumber: number) => void;
+  onSetDistanceOffset: (slotIndex: number, offsetM: number) => void;
+  alignLapLength: boolean;
+  onSetAlignLapLength: (value: boolean) => void;
   onRemoveSession: (sessionId: string) => void;
   onEditSessionName: (sessionId: string, newName: string) => void;
   onSelectCircuitPreset: (presetId: string) => void;
@@ -38,6 +41,9 @@ export const DataTab: React.FC<DataTabProps> = ({
   sessions,
   selectedCars,
   onSelectCarSlot,
+  onSetDistanceOffset,
+  alignLapLength,
+  onSetAlignLapLength,
   onRemoveSession,
   onEditSessionName,
   onSelectCircuitPreset,
@@ -206,12 +212,51 @@ export const DataTab: React.FC<DataTabProps> = ({
                     <div className="text-[11px] text-slate-400 font-mono">
                       {assigned ? assigned.label : '未割り当て'}
                     </div>
+                    {/* 比較車両の距離の手動補正 (基準車は補正しない) */}
+                    {assigned && slot.slot !== 0 && (
+                      <div
+                        className="mt-1 flex items-center gap-1 text-[11px] text-slate-400"
+                        title="重ねたときの前後のずれを補正します。+ で基準車より前（グラフの右）へずらします。Shift を押しながらクリックで 10 m 単位"
+                      >
+                        <span>距離補正</span>
+                        <button
+                          onClick={e => onSetDistanceOffset(slot.slot, (assigned.distanceOffsetM || 0) - (e.shiftKey ? 10 : 1))}
+                          className="px-1.5 rounded border border-[#2e374c] hover:text-slate-200"
+                        >
+                          −
+                        </button>
+                        <input
+                          type="number"
+                          step={1}
+                          value={assigned.distanceOffsetM || 0}
+                          onChange={e => {
+                            const v = parseFloat(e.target.value);
+                            onSetDistanceOffset(slot.slot, Number.isFinite(v) ? v : 0);
+                          }}
+                          className="w-14 bg-[#0f121a] border border-[#2e374c] rounded px-1 text-right font-mono text-slate-200"
+                        />
+                        <span>m</span>
+                        <button
+                          onClick={e => onSetDistanceOffset(slot.slot, (assigned.distanceOffsetM || 0) + (e.shiftKey ? 10 : 1))}
+                          className="px-1.5 rounded border border-[#2e374c] hover:text-slate-200"
+                        >
+                          ＋
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
             );
           })}
         </div>
+        <label
+          className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer w-fit"
+          title="ロガーごとの 1 周の距離の差（1〜2% 程度）を、比較車両のラップを伸縮して基準車の 1 周の長さに合わせて吸収します。計測線から計測線までの 1 周どうしのときだけ効きます"
+        >
+          <input type="checkbox" checked={alignLapLength} onChange={e => onSetAlignLapLength(e.target.checked)} />
+          1 周の長さを基準車にそろえる
+        </label>
       </div>
 
       {/* セッション & ラップ一覧 */}

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Session, SelectedCarSlot, ControlLine, Sector, CircuitPreset } from './types/telemetry';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Lap, Session, SelectedCarSlot, ControlLine, Sector, CircuitPreset } from './types/telemetry';
 import { parseDtb } from './services/dtbParser';
 import { parseDigispiceRawBinary } from './services/rawBinaryParser';
 import { parseCsv } from './services/csvParser';
@@ -87,14 +87,35 @@ export const App: React.FC = () => {
   const baseSession = sessions.find(s => s.id === baseSelected?.sessionId);
   const baseLap = baseSession?.laps.find(l => l.lapNumber === baseSelected?.lapNumber);
 
-  // 有効な選択中車両一覧
-  const activeCars = selectedCars
+  // 1 周の長さを基準車にそろえる (ロガーごとの距離の測り方の差を吸収する)
+  const [alignLapLength, setAlignLapLength] = useState(false);
+
+  // 有効な選択中車両一覧。比較車両には、距離の手動補正と 1 周の長さの伸縮をここで適用する
+  const activeCars = useMemo(() => selectedCars
     .map(slot => {
       const session = sessions.find(s => s.id === slot.sessionId);
       const lap = session?.laps.find(l => l.lapNumber === slot.lapNumber);
-      return lap ? { slot, lap } : null;
+      if (!lap) return null;
+      if (slot.slot === 0) return { slot, lap };
+      // 伸縮は、基準車と比較車両がどちらも計測線から計測線までの 1 周のときだけ行う
+      const isFullLap = (l: Lap) => !l.isWholeSession && !l.isPartialLap && l.distance > 0;
+      const scale = alignLapLength && baseLap && isFullLap(baseLap) && isFullLap(lap) ? baseLap.distance / lap.distance : 1;
+      const offsetKm = (slot.distanceOffsetM || 0) / 1000;
+      if (scale === 1 && offsetKm === 0) return { slot, lap };
+      return {
+        slot,
+        lap: {
+          ...lap,
+          distance: lap.distance * scale,
+          points: lap.points.map(p => ({ ...p, distance: p.distance * scale + offsetKm }))
+        }
+      };
     })
-    .filter(Boolean) as { slot: SelectedCarSlot; lap: any }[];
+    .filter(Boolean) as { slot: SelectedCarSlot; lap: Lap }[], [selectedCars, sessions, baseLap, alignLapLength]);
+
+  const handleSetDistanceOffset = (slotIndex: number, offsetM: number) => {
+    setSelectedCars(prev => prev.map(c => (c.slot === slotIndex ? { ...c, distanceOffsetM: offsetM } : c)));
+  };
 
   // アニメーションループ (requestAnimationFrame)
   const animRef = useRef<number | null>(null);
@@ -802,6 +823,9 @@ export const App: React.FC = () => {
             sessions={sessions}
             selectedCars={selectedCars}
             onSelectCarSlot={handleSelectCarSlot}
+            onSetDistanceOffset={handleSetDistanceOffset}
+            alignLapLength={alignLapLength}
+            onSetAlignLapLength={setAlignLapLength}
             onRemoveSession={id => {
               setSessions(prev => prev.filter(s => s.id !== id));
               setSelectedCars(prev => prev.filter(c => c.sessionId !== id));
