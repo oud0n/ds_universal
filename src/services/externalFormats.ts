@@ -270,21 +270,22 @@ export function parseGpx(text: string): ImportedLog {
   if (!raw.some(p => Number.isFinite(p.t))) throw new Error('GPX ファイルに時刻 (time) がないため読み込めません');
 
   // 時刻が秒単位までしかない GPX では同じ時刻の点が続く。次の時刻までを等間隔に割り振って間引かれないようにする
+  // 末尾の時刻の点は次の時刻がないので、1 秒の中に割り振る
   for (let i = 0; i < raw.length; ) {
     let j = i + 1;
     while (j < raw.length && raw[j].t === raw[i].t) j++;
-    if (j - i > 1 && j < raw.length && raw[j].t > raw[i].t) {
-      const step = (raw[j].t - raw[i].t) / (j - i);
+    if (j - i > 1 && Number.isFinite(raw[i].t)) {
+      const next = j < raw.length && raw[j].t > raw[i].t ? raw[j].t : raw[i].t + 1;
+      const step = (next - raw[i].t) / (j - i);
       for (let k = i + 1; k < j; k++) raw[k].t = raw[i].t + (k - i) * step;
     }
     i = j;
   }
 
   // 速度がない点は、前後の点の移動距離と時刻差から求める
-  const hasSpeed = raw.some(p => Number.isFinite(p.speedMs));
   const samples: RawSample[] = raw.map((p, i) => {
     let speedKmh = Number.isFinite(p.speedMs) ? p.speedMs * 3.6 : NaN;
-    if (!hasSpeed) {
+    if (!Number.isFinite(speedKmh)) {
       const a = raw[Math.max(0, i - 1)];
       const b = raw[Math.min(raw.length - 1, i + 1)];
       const dt = b.t - a.t;

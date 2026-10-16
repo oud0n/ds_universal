@@ -164,7 +164,7 @@ function createWindow() {
               filters: [
                 { name: 'デジスパイス生ログファイル', extensions: ['bnx4', 'bon4', 'binx', 'bon'] },
                 { name: 'デジスパイス独自バイナリ (.dtb)', extensions: ['dtb'] },
-                { name: 'CSV / NMEA / VBO ログ', extensions: ['csv', 'txt', 'nmea', 'log', 'vbo'] },
+                { name: 'CSV / NMEA / VBO / GPX ログ', extensions: ['csv', 'txt', 'nmea', 'log', 'vbo', 'gpx'] },
                 { name: 'すべてのファイル', extensions: ['*'] }
               ]
             });
