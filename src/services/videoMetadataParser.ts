@@ -29,8 +29,9 @@ export async function parseVideoMetadata(file: File): Promise<VideoMetadata> {
     const moov = await findBox(file, 0, file.size, 'moov');
     const mvhd = moov ? await findBox(file, moov.bodyStart, moov.end, 'mvhd') : null;
     if (mvhd) {
-      const buffer = await file.slice(mvhd.start, Math.min(mvhd.end, mvhd.start + 256)).arrayBuffer();
-      const res = parseMvhdBox(new DataView(buffer), 0);
+      // ボックスの大きさの欄は 0 (親の末尾まで) や 1 (64 bit) のこともあるので、中身 (version から) を読む
+      const buffer = await file.slice(mvhd.bodyStart, Math.min(mvhd.end, mvhd.bodyStart + 256)).arrayBuffer();
+      const res = parseMvhdBody(new DataView(buffer));
       if (res) {
         creationTime = res.creationTime;
         durationSec = res.durationSec;
@@ -87,38 +88,32 @@ async function findBox(
   return null;
 }
 
-function parseMvhdBox(view: DataView, offset: number): {
+/** mvhd の中身 (ヘッダーの直後、version から) を読む */
+function parseMvhdBody(view: DataView): {
   creationTime: Date | null;
   durationSec: number;
   timescale: number;
 } | null {
   try {
-    const boxSize = view.getUint32(offset);
-    if (boxSize < 32 || offset + 32 > view.byteLength) return null;
-    // version 1 (64 bit の時刻) は duration の終わりまで 40 バイト要る
-    if (view.getUint8(offset + 8) === 1 && (boxSize < 40 || offset + 40 > view.byteLength)) return null;
-
-    // mvhd の構造:
-    // +0: 4バイト size
-    // +4: 4バイト type ('mvhd')
-    // +8: 1バイト version (0 または 1)
-    // +9: 3バイト flags
-    const version = view.getUint8(offset + 8);
+    // +0: version (1 バイト) / +1: flags (3 バイト)
+    if (view.byteLength < 24) return null;
+    const version = view.getUint8(0);
 
     let rawCreationTime = 0;
     let timescale = 1000;
     let rawDuration = 0;
 
     if (version === 1) {
-      // 64-bit timestamps
-      rawCreationTime = Number(view.getBigUint64(offset + 12));
-      timescale = view.getUint32(offset + 28);
-      rawDuration = Number(view.getBigUint64(offset + 32));
+      // 64 bit の時刻: creation(8) modification(8) timescale(4) duration(8)
+      if (view.byteLength < 32) return null;
+      rawCreationTime = Number(view.getBigUint64(4));
+      timescale = view.getUint32(20);
+      rawDuration = Number(view.getBigUint64(24));
     } else {
-      // 32-bit timestamps (標準)
-      rawCreationTime = view.getUint32(offset + 12);
-      timescale = view.getUint32(offset + 20);
-      rawDuration = view.getUint32(offset + 24);
+      // 32 bit の時刻 (標準): creation(4) modification(4) timescale(4) duration(4)
+      rawCreationTime = view.getUint32(4);
+      timescale = view.getUint32(12);
+      rawDuration = view.getUint32(16);
     }
 
     let creationTime: Date | null = null;

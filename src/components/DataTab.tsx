@@ -28,6 +28,8 @@ interface DataTabProps {
   onSetDistanceOffset: (slotIndex: number, offsetM: number) => void;
   alignLapLength: boolean;
   onSetAlignLapLength: (value: boolean) => void;
+  // 基準車のスロット (Car 1 が空のときは割り当てのある一番若いスロット)。基準車には距離補正を出さない
+  baseSlot?: number;
   onRemoveSession: (sessionId: string) => void;
   onEditSessionName: (sessionId: string, newName: string) => void;
   onSelectCircuitPreset: (presetId: string) => void;
@@ -44,6 +46,7 @@ export const DataTab: React.FC<DataTabProps> = ({
   onSetDistanceOffset,
   alignLapLength,
   onSetAlignLapLength,
+  baseSlot,
   onRemoveSession,
   onEditSessionName,
   onSelectCircuitPreset,
@@ -213,7 +216,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                       {assigned ? assigned.label : '未割り当て'}
                     </div>
                     {/* 比較車両の距離の手動補正 (基準車は補正しない) */}
-                    {assigned && slot.slot !== 0 && (
+                    {assigned && slot.slot !== baseSlot && (
                       <div
                         className="mt-1 flex items-center gap-1 text-[11px] text-slate-400"
                         title="重ねたときの前後のずれを補正します。+ で基準車より前（グラフの右）へずらします。Shift を押しながらクリックで 10 m 単位"

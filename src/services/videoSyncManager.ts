@@ -203,7 +203,7 @@ class VideoSyncManager {
       track.syncOffsetSec = offset;
       track.isAutoMatched = true;
       // 利用者が再同期を指示した (または時差の設定を変えた) ので、手で合わせた状態は解除する
-      track.isManuallyAdjusted = false;
+      this.setManuallyAdjusted(trackId, false);
       console.log(`[VideoSync] 再同期完了: ${track.fileName} -> ${targetSession.sessionName} (オフセット: ${offset}s)`);
 
       const group = this.getChapterGroupForTrack(trackId);
@@ -284,14 +284,24 @@ class VideoSyncManager {
     const { groups } = groupVideoTracksByChapter(this.videos);
     for (const group of groups) {
       if (group.tracks.length > 0) {
-        // 先頭チャプターの offset / matchedSessionId をグループ全体に波及
-        const firstTrack = group.tracks[0].track;
-        if (firstTrack.matchedSessionId) {
-          group.matchedSessionId = firstTrack.matchedSessionId;
+        // 手で合わせたチャプターがあればそれを、なければ先頭チャプターを基準に、offset / matchedSessionId をグループ全体に波及
+        // (後から先頭チャプターを追加しても、手で合わせた値を自動照合の値で上書きしない)
+        const ref = group.tracks.find(ct => ct.track.isManuallyAdjusted) ?? group.tracks[0];
+        if (ref.track.matchedSessionId) {
+          group.matchedSessionId = ref.track.matchedSessionId;
         }
-        syncGroupOffsets(group, firstTrack.syncOffsetSec);
+        syncGroupOffsets(group, ref.track.syncOffsetSec - ref.groupOffsetSec);
+        if (ref.track.isManuallyAdjusted) group.tracks.forEach(ct => { ct.track.isManuallyAdjusted = true; });
       }
     }
+  }
+
+  /** 手で合わせたかどうかを、同じチャプターグループの動画すべてにそろえる (オフセットはグループで連動するため) */
+  private setManuallyAdjusted(trackId: string, value: boolean): void {
+    const track = this.videos.find(v => v.id === trackId);
+    if (track) track.isManuallyAdjusted = value;
+    const group = this.getChapterGroupForTrack(trackId);
+    group?.tracks.forEach(ct => { ct.track.isManuallyAdjusted = value; });
   }
 
   // 全チャプターグループを取得
@@ -311,7 +321,7 @@ class VideoSyncManager {
     if (track) {
       track.syncOffsetSec = Number((track.syncOffsetSec + deltaHours * 3600).toFixed(3));
       track.isAutoMatched = false;
-      track.isManuallyAdjusted = true;
+      this.setManuallyAdjusted(trackId, true);
 
       // チャプターグループ内の場合、連動して他のチャプターもシフト
       const group = this.getChapterGroupForTrack(trackId);
@@ -335,7 +345,7 @@ class VideoSyncManager {
     if (track) {
       track.syncOffsetSec = Number(offsetSec.toFixed(3));
       track.isAutoMatched = false;
-      track.isManuallyAdjusted = true;
+      this.setManuallyAdjusted(trackId, true);
 
       // チャプターグループ内の場合、連動して他のチャプターもシフト
       const group = this.getChapterGroupForTrack(trackId);
@@ -407,11 +417,12 @@ class VideoSyncManager {
       throw new Error('無効な同期プロジェクト JSON 形式です');
     }
     // 数値・文字列を検証する。NaN や極端な値のまま取り込むと、再生位置の計算が壊れて画面が固まる
-    const MAX_OFFSET_SEC = 7 * 24 * 3600;
+    // 手で別の日のセッションに合わせた動画もあり得るので、オフセットの上限は 1 年とする (NaN・極端な値だけを断る)
+    const MAX_OFFSET_SEC = 366 * 24 * 3600;
     for (const v of data.videos) {
       const ok = v && typeof v.fileName === 'string' &&
         Number.isFinite(v.syncOffsetSec) && Math.abs(v.syncOffsetSec) <= MAX_OFFSET_SEC &&
-        Number.isFinite(v.durationSec) && v.durationSec >= 0 && v.durationSec <= MAX_OFFSET_SEC &&
+        Number.isFinite(v.durationSec) && v.durationSec >= 0 && v.durationSec <= 7 * 24 * 3600 &&
         Number.isFinite(v.fileSize) && v.fileSize >= 0 &&
         (v.matchedSessionId === null || typeof v.matchedSessionId === 'string');
       if (!ok) throw new Error(`同期プロジェクト JSON の動画 ${v?.fileName ?? ''} の値が不正です`);

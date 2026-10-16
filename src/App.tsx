@@ -872,6 +872,7 @@ export const App: React.FC = () => {
             onSetDistanceOffset={handleSetDistanceOffset}
             alignLapLength={alignLapLength}
             onSetAlignLapLength={setAlignLapLength}
+            baseSlot={baseSelected?.slot}
             onRemoveSession={id => {
               setSessions(prev => prev.filter(s => s.id !== id));
               setSelectedCars(prev => prev.filter(c => c.sessionId !== id));
