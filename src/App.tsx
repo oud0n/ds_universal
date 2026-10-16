@@ -6,7 +6,7 @@ import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
 import { MOTEC_CSV_ENABLED, isMotecCsv, isRaceChronoCsv, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
 import { parsePth, parseCln } from './services/pthParser';
-import { createVirtualControlLine, extractLaps } from './services/lapCalculator';
+import { createVirtualControlLine, extractLaps, passesNearControlLine } from './services/lapCalculator';
 import { ConvertTab } from './components/ConvertTab';
 import { CIRCUIT_PRESETS, ALL_CIRCUITS, findMatchingCircuit, resolveCircuitPolylines } from './services/circuitDatabase';
 import { userCircuitStorage } from './services/userCircuitStorage';
@@ -367,11 +367,20 @@ export const App: React.FC = () => {
       }).catch(console.warn);
     }
 
+    // コースを判定できず、前のログの計測線から遠く離れた場所のログなら、その計測線・セクター・コース名は使わない
+    if (!matchedCircuit && cl && !passesNearControlLine(rawPoints, cl)) {
+      cl = undefined;
+      sec = [];
+      circName = '';
+      setCurrentSectors(sec);
+      setCurrentCircuitName(circName);
+    }
+
     // コースが分からず計測線もないときは、このログの走り始めに仮の計測線を置く。
     // 後から読み込むログもこの線の通過点を 0 m にそろえるので、開始位置の違うログを重ねてもずれない
     if (!cl) {
       cl = createVirtualControlLine(rawPoints);
-      if (cl) setCurrentControlLine(cl);
+      setCurrentControlLine(cl);
     }
     controlLineRef.current = cl;
 

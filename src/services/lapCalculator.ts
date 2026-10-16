@@ -217,6 +217,15 @@ export function createVirtualControlLine(points: TelemetryPoint[]): ControlLine 
   };
 }
 
+/** ログのどこかが計測線の中点から maxMeters 以内を通るか (同じコースのログかどうかの目安) */
+export function passesNearControlLine(points: TelemetryPoint[], line: ControlLine, maxMeters = 1000): boolean {
+  const lat = (line.latA + line.latB) / 2;
+  const lon = (line.lonA + line.lonB) / 2;
+  const cosLat = Math.cos((lat * Math.PI) / 180);
+  const maxDeg2 = (maxMeters / 111320) ** 2;
+  return points.some(p => (p.latitude - lat) ** 2 + ((p.longitude - lon) * cosLat) ** 2 <= maxDeg2);
+}
+
 // 計測線の通過が 1 回のログで、通過点より後ろをラップとして扱う最短の長さ (秒)
 const PARTIAL_LAP_MIN_SEC = 15;
 

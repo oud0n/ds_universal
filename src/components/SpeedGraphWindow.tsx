@@ -49,7 +49,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
   const maxDomain = useMemo(() => {
     if (cars.length === 0) return 1;
     if (xAxisMode === 'distance') {
-      return Math.max(...cars.map(c => c.lap.distance), 1);
+      // 距離補正で後ろへずらした車両は、末尾が 1 周の距離より先に出るので、最後の点の距離も見る
+      return Math.max(...cars.map(c => Math.max(c.lap.distance, c.lap.points[c.lap.points.length - 1]?.distance ?? 0)), 1);
     } else {
       return Math.max(...cars.map(c => c.lap.lapTime), 1);
     }
