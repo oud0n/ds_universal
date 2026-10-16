@@ -1,5 +1,5 @@
 import { CircuitPreset, TelemetryPoint } from '../types/telemetry';
-import { extractLaps } from './lapCalculator';
+import { countGateCrossings } from './lapCalculator';
 import { userCircuitStorage } from './userCircuitStorage';
 import { fetchOsmCircuitPolylines } from './osmCircuitService';
 
@@ -252,8 +252,8 @@ export function findMatchingCircuit(lat: number, lon: number, points?: Telemetry
     let best: CircuitPreset | undefined;
     for (const circuit of nearby) {
       if (!circuit.controlLine) continue;
-      const laps = extractLaps(points, circuit.controlLine, []).laps;
-      const count = laps.some(l => l.isWholeSession) ? 0 : laps.length;
+      // 周回の数ではなく計測線を通過した回数で比べる (通過が 1 回のログでも区別できるように)
+      const count = countGateCrossings(points, circuit.controlLine);
       // 同数なら先頭位置に近い方 (closest) を残す
       if (count > bestLaps || (count === bestLaps && count > 0 && circuit === closest)) {
         bestLaps = count;

@@ -74,6 +74,11 @@ export const App: React.FC = () => {
     courseRef.current = c;
     setIdleCourse(c);
   };
+  // 登録済みのユーザーコースの数 (データ管理タブの表示用)。保存済みのデータは起動後に非同期で読み込むので、読み込み後に更新する
+  const [userCircuitCount, setUserCircuitCount] = useState(0);
+  useEffect(() => {
+    userCircuitStorage.ready.then(() => setUserCircuitCount(userCircuitStorage.getCircuitCount()));
+  }, []);
   // コース図の取得の受付番号 (セッションごと)。後から別のコース図を設定したセッションに、古い取得結果を上書きしない
   const polylineRequestRef = useRef(new Map<string, number>());
 
@@ -657,7 +662,6 @@ export const App: React.FC = () => {
             if (!r.saved && r.saveError) lines.push(`保存できなかった理由: ${r.saveError}`);
             alert(lines.join('\n'));
             // 読み込み済みのログにも反映する: 各ログの位置で改めてコースを引き当て、周回を計算し直す
-            const before = new Map(latestRef.current.sessions.map(s => [s.id, s.circuitName]));
             const matches = new Map(latestRef.current.sessions.map(s => [
               s.id,
               s.points[0] ? findMatchingCircuit(s.points[0].latitude, s.points[0].longitude, s.points) : undefined
@@ -666,12 +670,14 @@ export const App: React.FC = () => {
               const m = matches.get(s.id);
               return m ? { cl: m.controlLine ?? s.controlLine, sec: m.sectors, name: m.name } : null;
             });
-            // 引き当てたコースのコース図も、そのセッションごとに読み込み直す。コースが変わったセッションは、前のコースのコース図を先に消す
+            // 引き当てたコースのコース図も、そのセッションごとに読み込み直す。前のコース図は先に消す
+            // (同じ名前のコースでも、読み込み直したデータにコース図がなくなっていることがあるため)
             for (const [id, m] of matches) {
               if (!m) continue;
-              if (before.get(id) !== m.name) setSessionPolylines([id], undefined);
+              setSessionPolylines([id], undefined);
               requestPolylines([id], m);
             }
+            setUserCircuitCount(userCircuitStorage.getCircuitCount());
           }
           e.target.value = '';
         }}
@@ -955,6 +961,7 @@ export const App: React.FC = () => {
             alignLapLength={alignLapLength}
             onSetAlignLapLength={setAlignLapLength}
             baseSlot={baseSelected?.slot}
+            userCircuitCount={userCircuitCount}
             onRemoveSession={id => {
               polylineRequestRef.current.delete(id);
               setSessions(prev => prev.filter(s => s.id !== id));

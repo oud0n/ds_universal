@@ -8,7 +8,7 @@
  */
 import { ControlLine, Sector, TelemetryPoint } from '../types/telemetry';
 import { parsePth, parseCln } from './pthParser';
-import { extractLaps } from './lapCalculator';
+import { countGateCrossings } from './lapCalculator';
 
 export interface UserCircuitItem {
   id: string;            // 組み合わせの元になった .cln のパス (フォルダ込み) を小文字にしたもの
@@ -51,7 +51,7 @@ const PRESET_NAME_MAX_M = 3000;
 
 const DB_NAME = 'ds_universal';
 const DB_STORE = 'kv';
-const DB_KEY = 'userCircuits_v2';
+const DB_KEY = 'userCircuits_v3';
 const LEGACY_LOCALSTORAGE_KEY = 'ds_user_circuits';
 
 // ---------------------------------------------------------------------------
@@ -299,6 +299,10 @@ async function dbPut(key: string, value: unknown): Promise<void> {
 }
 
 interface StoredData {
+  // 読み込んだ元のファイル。読み込むたびに、それまでの分と合わせて組み合わせ直す
+  // (フォルダを分けて読み込んでも、前に読み込んだコース図・セクターと組み合わさるように)
+  files: CourseFile[];
+  // 組み合わせた結果 (起動のたびに組み合わせ直さないよう、一緒に保存する)
   circuits: UserCircuitItem[];
   loose: LoosePolyline[];
 }
@@ -308,6 +312,7 @@ interface StoredData {
 // ---------------------------------------------------------------------------
 
 class UserCircuitStorage {
+  private files: CourseFile[] = [];
   private circuits: UserCircuitItem[] = [];
   private loose: LoosePolyline[] = [];
   /** 保存済みのデータの読み込みが終わると解決する。コースの判定の前に待つ */
@@ -325,6 +330,7 @@ class UserCircuitStorage {
       console.warn('[UserCircuit] IndexedDB を開けません:', e);
     }
     if (data) {
+      this.files = data.files || [];
       this.circuits = data.circuits || [];
       this.loose = data.loose || [];
     }
@@ -372,31 +378,36 @@ class UserCircuitStorage {
   private async addCourseFiles(files: CourseFile[]): Promise<ImportResult> {
     // 内蔵のコース名を表示名に使う (循環参照を避けて、ここで読み込む)
     const { CIRCUIT_PRESETS } = await import('./circuitDatabase');
-    const r = pairCourseFiles(files, CIRCUIT_PRESETS);
-
-    // 同じ .cln (パス) を読み込み直したら置き換える
-    const ids = new Set(r.circuits.map(c => c.id));
-    this.circuits = [...this.circuits.filter(c => !ids.has(c.id)), ...r.circuits];
-    const loosePaths = new Set(r.loose.map(l => l.path));
-    this.loose = [...this.loose.filter(l => !loosePaths.has(l.path)), ...r.loose];
+    // それまでに読み込んだファイルと合わせて組み合わせ直す。同じパスのファイルは新しいもので置き換える
+    // 選んだフォルダによってパスの先頭が変わる (digspice/ControlLine/… と ControlLine/…) ので、ファイル名と中身が同じものも同じファイルとみなす
+    const newPaths = new Set(files.map(f => f.path));
+    const sameFile = (a: CourseFile, b: CourseFile) => (a.path.split(/[\\/]/).pop() || '').toLowerCase() === (b.path.split(/[\\/]/).pop() || '').toLowerCase() && a.text === b.text;
+    const all = [...this.files.filter(f => !newPaths.has(f.path) && !files.some(n => sameFile(f, n))), ...files];
+    const r = pairCourseFiles(all, CIRCUIT_PRESETS);
+    // 読み込めなかったファイルは残さない (次の読み込みのたびに失敗として出さないように)
+    const failedPaths = new Set(r.failed.map(f => f.path));
+    this.files = all.filter(f => !failedPaths.has(f.path));
+    this.circuits = r.circuits;
+    this.loose = r.loose;
 
     let saved = true;
     let saveError: string | undefined;
     try {
-      await dbPut(DB_KEY, { circuits: this.circuits, loose: this.loose } satisfies StoredData);
+      await dbPut(DB_KEY, { files: this.files, circuits: this.circuits, loose: this.loose } satisfies StoredData);
     } catch (e) {
       saved = false;
       saveError = e instanceof Error ? e.message : String(e);
       console.warn('[UserCircuit] 保存に失敗:', e);
     }
 
+    // 件数は登録済みのもの全体 (今回の分と、それまでの分を合わせて組み合わせた結果)。読み込めなかったファイルは今回の分だけ
     return {
       circuits: r.circuits.length,
       withPolylines: r.circuits.filter(c => c.polylines).length,
       withSectors: r.circuits.filter(c => c.sectors.length > 0).length,
       loosePolylines: r.loose.length,
       unusedSectors: r.unusedSectors,
-      failed: r.failed,
+      failed: r.failed.filter(f => newPaths.has(f.path)),
       saved,
       saveError
     };
@@ -414,13 +425,13 @@ class UserCircuitStorage {
       .sort((a, b) => a.d - b.d);
     if (near.length === 0) return null;
     if (!points || near.length === 1) return near[0].c;
+    // 周回の数ではなく計測線を通過した回数で比べる (通過が 1 回で、通過より前の方が長いログは周回が「ログ全体」になり、0 周と区別できないため)
     let best = near[0].c;
-    let bestLaps = 0;
+    let bestCount = 0;
     for (const { c } of near) {
-      const laps = extractLaps(points, c.controlLine, []).laps;
-      const count = laps.some(l => l.isWholeSession) ? 0 : laps.length;
-      if (count > bestLaps) {
-        bestLaps = count;
+      const count = countGateCrossings(points, c.controlLine);
+      if (count > bestCount) {
+        bestCount = count;
         best = c;
       }
     }
@@ -451,10 +462,11 @@ class UserCircuitStorage {
   }
 
   public async clear(): Promise<void> {
+    this.files = [];
     this.circuits = [];
     this.loose = [];
     try {
-      await dbPut(DB_KEY, { circuits: [], loose: [] } satisfies StoredData);
+      await dbPut(DB_KEY, { files: [], circuits: [], loose: [] } satisfies StoredData);
     } catch (e) {
       console.warn('[UserCircuit] 削除に失敗:', e);
     }
