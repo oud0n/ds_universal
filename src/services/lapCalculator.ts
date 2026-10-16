@@ -185,6 +185,38 @@ function interpolateClock(p1: TelemetryPoint, p2: TelemetryPoint, t: number): Pa
   return out;
 }
 
+export const VIRTUAL_CONTROL_LINE_NAME = '仮の計測線';
+
+/**
+ * コースの計測線が分からないときに、ログの走り始め (初めて 10 km/h を超えた所) に、進行方向と直角な仮の計測線を置く。
+ * 他のログはこの線の通過点を 0 m として重ねられる。線の長さは 40 m (コース幅に余裕を持たせる)
+ */
+export function createVirtualControlLine(points: TelemetryPoint[]): ControlLine | undefined {
+  const i = points.findIndex((p, k) => k > 0 && p.speed > 10);
+  if (i < 1 || i >= points.length - 1) return undefined;
+  const a = points[i];
+  const b = points[i + 1];
+  // 2 点の中間に置く (点の真上に置くと、交差の判定が端にかかる)
+  const lat = (a.latitude + b.latitude) / 2;
+  const lon = (a.longitude + b.longitude) / 2;
+  const cosLat = Math.cos((lat * Math.PI) / 180);
+  const dx = (b.longitude - a.longitude) * cosLat;
+  const dy = b.latitude - a.latitude;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return undefined;
+  const halfDeg = 20 / 111320;
+  // 進行方向 (dx, dy) に直角な向き (-dy, dx)
+  const nx = (-dy / len) * halfDeg;
+  const ny = (dx / len) * halfDeg;
+  return {
+    name: VIRTUAL_CONTROL_LINE_NAME,
+    latA: lat + ny,
+    lonA: lon + nx / cosLat,
+    latB: lat - ny,
+    lonB: lon - nx / cosLat
+  };
+}
+
 // 計測線の通過が 1 回のログで、通過点より後ろをラップとして扱う最短の長さ (秒)
 const PARTIAL_LAP_MIN_SEC = 15;
 

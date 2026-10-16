@@ -6,7 +6,7 @@ import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
 import { MOTEC_CSV_ENABLED, isMotecCsv, isRaceChronoCsv, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
 import { parsePth, parseCln } from './services/pthParser';
-import { extractLaps } from './services/lapCalculator';
+import { createVirtualControlLine, extractLaps } from './services/lapCalculator';
 import { ConvertTab } from './components/ConvertTab';
 import { CIRCUIT_PRESETS, ALL_CIRCUITS, findMatchingCircuit, resolveCircuitPolylines } from './services/circuitDatabase';
 import { userCircuitStorage } from './services/userCircuitStorage';
@@ -59,6 +59,11 @@ export const App: React.FC = () => {
   // コース・コントロールライン・セクター
   // ログを読み込むかコースを選ぶまでは未設定
   const [currentControlLine, setCurrentControlLine] = useState<ControlLine | undefined>(undefined);
+  // 複数のファイルを続けて読み込むとき、直前のファイルで決まった計測線を次のファイルにも使うための写し
+  const controlLineRef = useRef<ControlLine | undefined>(undefined);
+  useEffect(() => {
+    controlLineRef.current = currentControlLine;
+  }, [currentControlLine]);
   const [currentSectors, setCurrentSectors] = useState<Sector[]>([]);
   const [currentCircuitName, setCurrentCircuitName] = useState<string>('');
   const [currentPthPolylines, setCurrentPthPolylines] = useState<Array<Array<[number, number]>>>([]);
@@ -339,7 +344,7 @@ export const App: React.FC = () => {
 
     // サーキット自動判定
     let matchedCircuit = findMatchingCircuit(rawPoints[0].latitude, rawPoints[0].longitude, rawPoints);
-    let cl = currentControlLine;
+    let cl = controlLineRef.current;
     let sec = currentSectors;
     let circName = currentCircuitName;
 
@@ -361,6 +366,14 @@ export const App: React.FC = () => {
         }
       }).catch(console.warn);
     }
+
+    // コースが分からず計測線もないときは、このログの走り始めに仮の計測線を置く。
+    // 後から読み込むログもこの線の通過点を 0 m にそろえるので、開始位置の違うログを重ねてもずれない
+    if (!cl) {
+      cl = createVirtualControlLine(rawPoints);
+      if (cl) setCurrentControlLine(cl);
+    }
+    controlLineRef.current = cl;
 
     // ラップ分割とセクタータイム計算
     const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(rawPoints, cl, sec);
