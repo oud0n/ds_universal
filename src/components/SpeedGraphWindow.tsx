@@ -411,13 +411,14 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     return [newMin, newMin + span];
   };
 
-  // ズームイン / ズームアウト (現在位置のカーソルを中心にする)
+  // ズームイン / ズームアウト。カーソルが表示範囲にあればカーソルを、ルーラーで別の所を見ているときはその中央を中心にする
   const handleZoom = (direction: 'in' | 'out') => {
     setViewRange(([min, max]) => {
       const span = max - min;
       const factor = direction === 'in' ? 0.65 : 1.5;
       const newSpan = Math.max(0.05, Math.min(1.0, span * factor));
-      return clampRange(cursorRatio - newSpan / 2, newSpan);
+      const center = cursorRatio >= min && cursorRatio <= max ? cursorRatio : (min + max) / 2;
+      return clampRange(center - newSpan / 2, newSpan);
     });
   };
 
@@ -562,7 +563,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
       </div>
 
       {/* メインCanvas */}
-      <div className="relative flex-1 w-full h-full min-h-[220px]">
+      {/* 下のルーラーが見切れないよう、ウインドウを縮めたときはグラフの方を縮める */}
+      <div className="relative flex-1 w-full h-full min-h-0">
         <canvas
           ref={canvasRef}
           onMouseDown={handleMouseDown}

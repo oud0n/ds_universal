@@ -658,7 +658,11 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         {/* コントロール */}
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setIsFollowing(f => !f)}
+            onClick={() => {
+              // 追従を外すときは、今見えている位置のままにする
+              if (isFollowing) setPanOffset(drawnPanRef.current);
+              setIsFollowing(!isFollowing);
+            }}
             title="車両追従 (基準車を常に中央に表示)"
             aria-pressed={isFollowing}
             className={`flex items-center gap-1 px-1.5 py-0.5 mr-1 rounded border text-[11px] transition-colors ${
