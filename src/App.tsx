@@ -6,7 +6,7 @@ import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
 import { MOTEC_CSV_ENABLED, isMotecCsv, isRaceChronoCsv, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
 import { parsePth, parseCln } from './services/pthParser';
-import { createVirtualControlLine, extractLaps, passesNearControlLine } from './services/lapCalculator';
+import { createVirtualControlLine, extractLaps, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
 import { ConvertTab } from './components/ConvertTab';
 import { CIRCUIT_PRESETS, ALL_CIRCUITS, findMatchingCircuit, resolveCircuitPolylines } from './services/circuitDatabase';
 import { userCircuitStorage } from './services/userCircuitStorage';
@@ -28,6 +28,12 @@ import { useResizableSplit } from './hooks/useResizableSplit';
 import { SplitResizer } from './components/SplitResizer';
 import { exportSessionToNmea, triggerFileDownload } from './services/nmeaExporter';
 import { interpolatePoint } from './utils/telemetrySearch';
+
+// コースのプリセットを、近くのログだけに反映するときの範囲 (自動判定と同じ 15 km)
+const COURSE_MATCH_RADIUS_M = 15000;
+// 空の値は毎回同じものを渡す (描画の再計算を減らすため)
+const NO_SECTORS: Sector[] = [];
+const NO_POLYLINES: Array<Array<[number, number]>> = [];
 
 export const App: React.FC = () => {
   // タブ
@@ -58,16 +64,11 @@ export const App: React.FC = () => {
 
   // コース・コントロールライン・セクター
   // ログを読み込むかコースを選ぶまでは未設定
-  const [currentControlLine, setCurrentControlLine] = useState<ControlLine | undefined>(undefined);
-  const [currentSectors, setCurrentSectors] = useState<Sector[]>([]);
-  const [currentCircuitName, setCurrentCircuitName] = useState<string>('');
-  // 複数のファイルを続けて読み込むとき、直前のファイルで決まったコースの設定 (計測線・セクター・コース名) を
-  // 次のファイルにも使うための写し。state は同じ読み込みの間は古い値のままなので、こちらを参照する
+  // 直前に決まったコースの設定 (計測線・セクター・コース名)。次に読み込むログのコース判定の手がかりにする。
+  // コースの設定はセッションごとに持ち、画面には基準車のセッションのものを表示する (アプリ全体で 1 つにはしない)
   const courseRef = useRef<{ cl?: ControlLine; sec: Sector[]; name: string }>({ sec: [], name: '' });
-  const [currentPthPolylines, setCurrentPthPolylines] = useState<Array<Array<[number, number]>>>([]);
-  useEffect(() => {
-    courseRef.current = { cl: currentControlLine, sec: currentSectors, name: currentCircuitName };
-  }, [currentControlLine, currentSectors, currentCircuitName]);
+  // コース図の取得の受付番号 (セッションごと)。後から別のコース図を設定したセッションに、古い取得結果を上書きしない
+  const polylineRequestRef = useRef(new Map<string, number>());
 
   // 再生アニメーション状態
   const [isPlaying, setIsPlaying] = useState(false);
@@ -80,7 +81,6 @@ export const App: React.FC = () => {
   const [isDonateModalOpen, setIsDonateModalOpen] = useState(false);
 
   // コース図の問い合わせの通し番号 (最後に出した問い合わせの応答だけを反映するため)
-  const circuitRequestRef = useRef(0);
 
   // 非表示ファイルインプット参照
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -95,6 +95,13 @@ export const App: React.FC = () => {
   const baseSelected = [...selectedCars].sort((a, b) => a.slot - b.slot).find(c => findLap(c));
   const baseSession = sessions.find(s => s.id === baseSelected?.sessionId);
   const baseLap = baseSelected ? findLap(baseSelected) : undefined;
+
+  // 画面に出すコース (計測線・セクター・コース名・コース図) は、基準車のセッション (なければ最初のセッション) のもの
+  const courseSession = baseSession ?? sessions[0];
+  const currentControlLine = courseSession?.controlLine;
+  const currentSectors = courseSession?.sectors ?? NO_SECTORS;
+  const currentCircuitName = courseSession?.circuitName ?? '';
+  const currentPthPolylines = courseSession?.pathPolylines ?? NO_POLYLINES;
 
   // 車両どうしを比べる基準 (速度ウインドウの横軸)。全コースウインドウ・アニメーション・摩擦円の車両位置もこれに合わせる
   const [compareAxis, setCompareAxis] = useState<CompareAxis>('distance');
@@ -364,36 +371,18 @@ export const App: React.FC = () => {
       cl = matchedCircuit.controlLine ?? (prev.cl && passesNearControlLine(rawPoints, prev.cl) ? prev.cl : undefined);
       sec = matchedCircuit.sectors;
       circName = matchedCircuit.name;
-      setCurrentSectors(sec);
-      setCurrentCircuitName(circName);
-
-      // コース図ポリラインの自動読込 (ユーザー設置 -> OpenStreetMap 自動解決)
-      // 応答が遅れている間に別のコースを読み込んだ場合は、古い応答でコース図を上書きしない
-      const requestId = ++circuitRequestRef.current;
-      resolveCircuitPolylines(matchedCircuit).then(polylines => {
-        if (requestId !== circuitRequestRef.current) return;
-        if (polylines && polylines.length > 0) {
-          setCurrentPthPolylines(polylines);
-        }
-      }).catch(console.warn);
     }
 
-    // コースを判定できず、前のログの計測線から遠く離れた場所のログなら、その計測線・セクター・コース名・コース図は使わない
+    // コースを判定できず、前のログの計測線から遠く離れた場所のログなら、その計測線・セクター・コース名は使わない
     if (!matchedCircuit && cl && !passesNearControlLine(rawPoints, cl)) {
       cl = undefined;
       sec = [];
       circName = '';
-      setCurrentSectors(sec);
-      setCurrentCircuitName(circName);
-      // 読み込み中の前のコースのコース図が後から届いても上書きしない
-      circuitRequestRef.current++;
-      setCurrentPthPolylines([]);
     }
 
     // コースが分からず計測線もないときは、このログの走り始めに仮の計測線を置く。
     // 後から読み込むログもこの線の通過点を 0 m にそろえるので、開始位置の違うログを重ねてもずれない
     if (!cl) cl = createVirtualControlLine(rawPoints);
-    setCurrentControlLine(cl);
     courseRef.current = { cl, sec, name: circName };
 
     // ラップ分割とセクタータイム計算
@@ -416,6 +405,8 @@ export const App: React.FC = () => {
     };
 
     setSessions(prev => [...prev, newSession]);
+    // コース図の自動読込 (ユーザー設置 → OpenStreetMap)。このセッションにだけ設定する
+    if (matchedCircuit) requestPolylines([newSession.id], matchedCircuit);
 
     // 最初のセッションであれば Car 1 (基準車: 赤) に自動割り当て
     setSelectedCars(prev => {
@@ -455,18 +446,26 @@ export const App: React.FC = () => {
 
   // 計測線・セクターを差し替えて、読み込み済みの全セッションの周回を計算し直す。
   // 周回数が変わって選択中の周が無くなった車両は、そのセッションのベストラップへ移す (画面から消えないように)
+  // resolve が null を返したセッションは変えない (同じ場所のログだけにコースの変更を反映するため)
   const recalcSessions = (
-    resolve: (s: Session) => { cl?: ControlLine; sec: Sector[]; name?: string }
+    resolve: (s: Session) => { cl?: ControlLine; sec: Sector[]; name?: string } | null
   ) => {
     const updated = sessions.map(s => {
-      const { cl, sec, name } = resolve(s);
+      const r = resolve(s);
+      if (!r) return s;
+      const { cl, sec, name } = r;
       const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(s.points, cl, sec);
       return {
         ...s, laps, bestLapIndex, theoreticalBestTime, controlLine: cl, sectors: sec,
-        ...(name ? { circuitName: name } : {})
+        ...(name !== undefined ? { circuitName: name } : {})
       };
     });
-    setSessions(updated);
+    const byId = new Map(updated.map(s => [s.id, s]));
+    // コース図は非同期に届くので、その間に設定されたものを消さないよう、今の値を引き継ぐ
+    setSessions(prev => prev.map(p => {
+      const u = byId.get(p.id);
+      return u ? { ...u, pathPolylines: p.pathPolylines } : p;
+    }));
     setSelectedCars(prev =>
       prev.map(c => {
         const s = updated.find(x => x.id === c.sessionId);
@@ -481,20 +480,43 @@ export const App: React.FC = () => {
   const handleSelectCircuitPreset = (presetId: string) => {
     const p = CIRCUIT_PRESETS.find(c => c.id === presetId);
     if (!p) return;
-    setCurrentControlLine(p.controlLine);
-    setCurrentSectors(p.sectors);
-    setCurrentCircuitName(p.name);
+    // そのコースの近く (15 km 以内) のログだけに反映する。近くのログがなければ、基準車のセッションに反映する (利用者の指定を優先)
+    const ids = targetSessionIds(s => passesNearPoint(s.points, p.centerLat, p.centerLon, COURSE_MATCH_RADIUS_M));
+    courseRef.current = { cl: p.controlLine, sec: p.sectors, name: p.name };
+    recalcSessions(s => (ids.includes(s.id) ? { cl: p.controlLine, sec: p.sectors, name: p.name } : null));
+    // 前のコースのコース図を消し、選んだコースのコース図を読み込む
+    setSessionPolylines(ids, undefined);
+    requestPolylines(ids, p);
+  };
 
-    // 前のコースのコース図を消し、選んだコースのコース図を読み込む (遅れて届いた前のコースの応答では上書きしない)
-    setCurrentPthPolylines([]);
-    const requestId = ++circuitRequestRef.current;
-    resolveCircuitPolylines(p).then(polylines => {
-      if (requestId !== circuitRequestRef.current) return;
-      if (polylines && polylines.length > 0) setCurrentPthPolylines(polylines);
+  // ---- コースの設定をセッションごとに反映するための補助 ----
+
+  // 条件に合うセッションの id。1 つもなければ基準車のセッション (なければ最初のセッション)
+  const targetSessionIds = (pred: (s: Session) => boolean): string[] => {
+    const ids = sessions.filter(pred).map(s => s.id);
+    if (ids.length > 0) return ids;
+    return courseSession ? [courseSession.id] : [];
+  };
+
+  // セッションのコース図を設定する。受付番号を進めるので、取得中の古いコース図は後から届いても使わない
+  const setSessionPolylines = (ids: string[], polylines: Array<Array<[number, number]>> | undefined) => {
+    for (const id of ids) polylineRequestRef.current.set(id, (polylineRequestRef.current.get(id) ?? 0) + 1);
+    setSessions(prev => prev.map(s => (ids.includes(s.id) ? { ...s, pathPolylines: polylines } : s)));
+  };
+
+  // コースのコース図を取得して、指定のセッションに設定する (取得の間に別のコース図を設定したセッションには使わない)
+  const requestPolylines = (ids: string[], circuit: CircuitPreset) => {
+    const tokens = new Map(ids.map(id => {
+      const t = (polylineRequestRef.current.get(id) ?? 0) + 1;
+      polylineRequestRef.current.set(id, t);
+      return [id, t] as const;
+    }));
+    resolveCircuitPolylines(circuit).then(polylines => {
+      if (!polylines || polylines.length === 0) return;
+      setSessions(prev => prev.map(s =>
+        tokens.has(s.id) && polylineRequestRef.current.get(s.id) === tokens.get(s.id) ? { ...s, pathPolylines: polylines } : s
+      ));
     }).catch(console.warn);
-
-    // 全セッションのラップを再計算
-    recalcSessions(() => ({ cl: p.controlLine, sec: p.sectors }));
   };
 
   // スロット選択
@@ -542,9 +564,13 @@ export const App: React.FC = () => {
           const f = e.target.files?.[0];
           if (f) {
             const txt = await f.text();
+            const polylines = parsePth(txt);
+            // コース図の近く (2 km 以内) を走ったログに設定する。なければ基準車のセッションに設定する
+            // コース図の点は [経度, 緯度] の順
+            const p0 = polylines.find(l => l.length > 0)?.[0];
+            const ids = targetSessionIds(s => !!p0 && passesNearPoint(s.points, p0[1], p0[0], 2000));
             // 手動で読み込んだコース図を、遅れて届いた自動取得の結果で上書きしない
-            circuitRequestRef.current++;
-            setCurrentPthPolylines(parsePth(txt));
+            setSessionPolylines(ids, polylines);
           }
           e.target.value = '';
         }}
@@ -559,9 +585,10 @@ export const App: React.FC = () => {
           if (f) {
             const txt = await f.text();
             const cl = parseCln(txt, f.name);
-            setCurrentControlLine(cl);
-            // 読み込み済みのログにも反映する (セクターは各セッションのものを保つ)
-            recalcSessions(s => ({ cl, sec: s.sectors || [] }));
+            // 計測線の近く (1 km 以内) を走ったログに反映する (セクターは各セッションのものを保つ)。なければ基準車のセッションに反映する
+            const ids = targetSessionIds(s => passesNearControlLine(s.points, cl));
+            courseRef.current = { ...courseRef.current, cl };
+            recalcSessions(s => (ids.includes(s.id) ? { cl, sec: s.sectors || [] } : null));
           }
           e.target.value = '';
         }}
@@ -577,19 +604,16 @@ export const App: React.FC = () => {
             const { pthCount, clnCount, sciCount } = await userCircuitStorage.importFiles(files);
             alert(`ユーザーコースデータを登録しました:\nコース図 (.pth): ${pthCount} 件\nコントロールライン (.cln): ${clnCount} 件\nセクター (.sci): ${sciCount} 件`);
             // 読み込み済みのログにも反映する: 各ログの位置で改めてコースを引き当て、周回を計算し直す
+            const matches = new Map(sessions.map(s => [
+              s.id,
+              s.points[0] ? findMatchingCircuit(s.points[0].latitude, s.points[0].longitude, s.points) : undefined
+            ]));
             recalcSessions(s => {
-              const m = s.points[0] && findMatchingCircuit(s.points[0].latitude, s.points[0].longitude, s.points);
-              return m
-                ? { cl: m.controlLine, sec: m.sectors, name: m.name }
-                : { cl: s.controlLine, sec: s.sectors || [] };
+              const m = matches.get(s.id);
+              return m ? { cl: m.controlLine ?? s.controlLine, sec: m.sectors, name: m.name } : null;
             });
-            const first = (baseSession ?? sessions[0])?.points[0];
-            const cur = first && findMatchingCircuit(first.latitude, first.longitude, (baseSession ?? sessions[0])?.points);
-            if (cur) {
-              setCurrentControlLine(cur.controlLine);
-              setCurrentSectors(cur.sectors);
-              setCurrentCircuitName(cur.name);
-            }
+            // 引き当てたコースのコース図も、そのセッションごとに読み込み直す
+            for (const [id, m] of matches) if (m) requestPolylines([id], m);
           }
           e.target.value = '';
         }}
@@ -931,10 +955,10 @@ export const App: React.FC = () => {
         }
         sectors={currentSectors}
         onSaveCircuit={(name, cl, sec) => {
-          setCurrentCircuitName(name);
-          setCurrentControlLine(cl);
-          setCurrentSectors(sec);
-          recalcSessions(() => ({ cl, sec }));
+          // 編集したコースは、その計測線の近くを走ったログに反映する。なければ基準車のセッションに反映する
+          const ids = targetSessionIds(s => !!cl && passesNearControlLine(s.points, cl));
+          courseRef.current = { cl, sec, name };
+          recalcSessions(s => (ids.includes(s.id) ? { cl, sec, name } : null));
         }}
       />
       )}
