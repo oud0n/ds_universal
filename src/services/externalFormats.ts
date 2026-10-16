@@ -2,11 +2,12 @@
  * 他社ロガー・解析ソフト形式の入出力
  *  - Racelogic VBO (.vbo) の読み込み
  *  - RaceChrono CSV (v2 / v3 エクスポート) の読み込み
+ *  - GPX (.gpx) の読み込み
  *  - MoTeC CSV (i2 の CSV エクスポート形式) の読み込み・書き出し
  */
 
 import { Session, TelemetryPoint } from '../types/telemetry';
-import { calculatePhysics } from './physics';
+import { calculatePhysics, calculateGeoDistanceAndHeading } from './physics';
 
 // MoTeC CSV の読み込み・書き出しは試験機能。実物の i2 エクスポートで確認できるまで、
 // 画面には出さず (書き出しボタンなし)、読み込み時の自動判別も行わない。有効にするには true にする
@@ -225,6 +226,81 @@ export function parseRaceChronoCsv(text: string): ImportedLog {
     });
   }
   return finalize(samples, 'RaceChrono CSV');
+}
+
+// ============================================================================
+// GPX
+// ============================================================================
+
+export function isGpx(text: string): boolean {
+  return /<gpx[\s>]/i.test(text.substring(0, 2000));
+}
+
+/** 要素の中身を取り出す。名前空間の接頭辞 (gpxtpx: など) は問わない */
+function gpxTag(body: string, name: string): string | undefined {
+  const m = new RegExp(`<(?:[\\w-]+:)?${name}\\b[^>]*>([^<]*)<`, 'i').exec(body);
+  return m ? m[1].trim() : undefined;
+}
+
+/**
+ * GPX (1.0 / 1.1) の航跡 (trk > trkseg > trkpt) を読む。複数の trk / trkseg は連結する
+ * 速度は <speed> (GPX 1.0) か拡張要素 (gpxtpx:speed など) の m/s を使い、なければ位置と時刻から求める
+ */
+export function parseGpx(text: string): ImportedLog {
+  const raw: { t: number; lat: number; lon: number; ele: number; speedMs: number; course: number }[] = [];
+  const re = /<trkpt\b([^>]*?)(?:\/>|>([\s\S]*?)<\/trkpt>)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const attrs = m[1];
+    const body = m[2] || '';
+    const lat = parseFloat(/\blat\s*=\s*["']([^"']+)["']/i.exec(attrs)?.[1] ?? '');
+    const lon = parseFloat(/\blon\s*=\s*["']([^"']+)["']/i.exec(attrs)?.[1] ?? '');
+    const time = gpxTag(body, 'time');
+    const t = time ? Date.parse(time) / 1000 : NaN;
+    raw.push({
+      t,
+      lat,
+      lon,
+      ele: parseFloat(gpxTag(body, 'ele') ?? ''),
+      speedMs: parseFloat(gpxTag(body, 'speed') ?? ''),
+      course: parseFloat(gpxTag(body, 'course') ?? '')
+    });
+  }
+  if (raw.length === 0) throw new Error('GPX ファイルに航跡 (trkpt) が見つかりません');
+  if (!raw.some(p => Number.isFinite(p.t))) throw new Error('GPX ファイルに時刻 (time) がないため読み込めません');
+
+  // 時刻が秒単位までしかない GPX では同じ時刻の点が続く。次の時刻までを等間隔に割り振って間引かれないようにする
+  for (let i = 0; i < raw.length; ) {
+    let j = i + 1;
+    while (j < raw.length && raw[j].t === raw[i].t) j++;
+    if (j - i > 1 && j < raw.length && raw[j].t > raw[i].t) {
+      const step = (raw[j].t - raw[i].t) / (j - i);
+      for (let k = i + 1; k < j; k++) raw[k].t = raw[i].t + (k - i) * step;
+    }
+    i = j;
+  }
+
+  // 速度がない点は、前後の点の移動距離と時刻差から求める
+  const hasSpeed = raw.some(p => Number.isFinite(p.speedMs));
+  const samples: RawSample[] = raw.map((p, i) => {
+    let speedKmh = Number.isFinite(p.speedMs) ? p.speedMs * 3.6 : NaN;
+    if (!hasSpeed) {
+      const a = raw[Math.max(0, i - 1)];
+      const b = raw[Math.min(raw.length - 1, i + 1)];
+      const dt = b.t - a.t;
+      if (dt > 0) speedKmh = (calculateGeoDistanceAndHeading(a.lat, a.lon, b.lat, b.lon).distanceMeters / dt) * 3.6;
+    }
+    return {
+      time: p.t,
+      latitude: p.lat,
+      longitude: p.lon,
+      speedKmh,
+      altitude: p.ele,
+      heading: p.course,
+      timestamp: Number.isFinite(p.t) ? new Date(p.t * 1000) : undefined
+    };
+  });
+  return finalize(samples, 'GPX ファイル');
 }
 
 // ============================================================================

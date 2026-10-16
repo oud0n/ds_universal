@@ -4,7 +4,7 @@ import { parseDtb } from './services/dtbParser';
 import { parseDigispiceRawBinary } from './services/rawBinaryParser';
 import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
-import { MOTEC_CSV_ENABLED, isMotecCsv, isRaceChronoCsv, parseMotecCsv, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
+import { MOTEC_CSV_ENABLED, isMotecCsv, isRaceChronoCsv, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
 import { parsePth, parseCln } from './services/pthParser';
 import { extractLaps } from './services/lapCalculator';
 import { ConvertTab } from './components/ConvertTab';
@@ -297,6 +297,11 @@ export const App: React.FC = () => {
       rawPoints = parsed.points;
       samplingRate = parsed.samplingRate;
       startDate = parsed.startDate;
+    } else if (ext === 'gpx') {
+      const parsed = parseGpx(new TextDecoder('utf-8').decode(buffer));
+      rawPoints = parsed.points;
+      samplingRate = parsed.samplingRate;
+      startDate = parsed.startDate;
     } else if (ext === 'nmea' || ext === 'log') {
       const text = new TextDecoder('utf-8').decode(buffer);
       const parsed = parseNmea(text);
@@ -465,7 +470,7 @@ export const App: React.FC = () => {
         ref={fileInputRef}
         onChange={handleFilesSelected}
         multiple
-        accept=".dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo"
+        accept=".dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx"
         className="hidden"
       />
       <input
