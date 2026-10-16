@@ -371,6 +371,8 @@ export const App: React.FC = () => {
     }
 
     // サーキット自動判定
+    // 保存済みのユーザーコースの読み込みが終わってから判定する (起動直後に開いたファイルでも使えるように)
+    await userCircuitStorage.ready;
     let matchedCircuit = findMatchingCircuit(rawPoints[0].latitude, rawPoints[0].longitude, rawPoints);
     // 同じ場所のコースの手がかり: 読み込み済みのセッションのうち、計測線がこのログの近くにあるもの (基準車を優先)。
     // なければ直前に決まったコース (一度に複数のファイルを読み込むときは、まだセッション一覧に入っていないため)
@@ -644,8 +646,16 @@ export const App: React.FC = () => {
         onChange={async e => {
           const files = e.target.files;
           if (files && files.length > 0) {
-            const { pthCount, clnCount, sciCount } = await userCircuitStorage.importFiles(files);
-            alert(`ユーザーコースデータを登録しました:\nコース図 (.pth): ${pthCount} 件\nコントロールライン (.cln): ${clnCount} 件\nセクター (.sci): ${sciCount} 件`);
+            const r = await userCircuitStorage.importFiles(files);
+            const lines = [
+              r.saved ? 'ユーザーコースデータを登録しました。' : '⚠ ユーザーコースデータを読み込みましたが、保存できませんでした（アプリを閉じると消えます）。',
+              `コース: ${r.circuits} 件（コース図あり ${r.withPolylines} 件 / セクターあり ${r.withSectors} 件）`
+            ];
+            if (r.loosePolylines > 0) lines.push(`コントロールラインと組み合わせられなかったコース図: ${r.loosePolylines} 件（近くの内蔵コースのコース図として使います）`);
+            if (r.unusedSectors.length > 0) lines.push(`どのコースとも組み合わせられなかったセクター: ${r.unusedSectors.length} 件（${r.unusedSectors.slice(0, 5).join(', ')}${r.unusedSectors.length > 5 ? ' ほか' : ''}）`);
+            if (r.failed.length > 0) lines.push(`読み込めなかったファイル: ${r.failed.length} 件（${r.failed.slice(0, 5).map(f => `${f.path}: ${f.reason}`).join(' / ')}${r.failed.length > 5 ? ' ほか' : ''}）`);
+            if (!r.saved && r.saveError) lines.push(`保存できなかった理由: ${r.saveError}`);
+            alert(lines.join('\n'));
             // 読み込み済みのログにも反映する: 各ログの位置で改めてコースを引き当て、周回を計算し直す
             const before = new Map(latestRef.current.sessions.map(s => [s.id, s.circuitName]));
             const matches = new Map(latestRef.current.sessions.map(s => [
