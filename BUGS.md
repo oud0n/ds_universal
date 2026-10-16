@@ -15,7 +15,7 @@
 |---|---|---|---|---|---|
 | 🔴 **高 (P1)** | BUG-01 | ラップ・セクター計算 | セクター距離の定義不整合によるグラフ描画・同時スタートの破綻 | `src/services/lapCalculator.ts`, `src/components/SpeedGraphWindow.tsx`, `src/App.tsx` | 修正済み（16f45c4、issue #5） |
 | 🔴 **高 (P1)** | BUG-02 | ラップ・セクター計算 | セクター未通過時の等分推計による仮想ベスト汚染・途中終了周のベスト誤判定 | `src/services/lapCalculator.ts` | 修正済み（bb047d2） |
-| 🔴 **高 (P1)** | BUG-03 | コース・複数セッション | 複数セッション読み込み時のコース設定・計測線・ポリラインの混線 | `src/App.tsx` | 一部修正（遠いログでの流用・複数同時読み込み・名阪は 05b9427 / 3a99299、プリセット切り替え時のコース図は 0f2644c。コース設定がアプリ全体で 1 つの件は設計変更が要るため未対応） |
+| 🔴 **高 (P1)** | BUG-03 | コース・複数セッション | 複数セッション読み込み時のコース設定・計測線・ポリラインの混線 | `src/App.tsx` | 修正済み（ブランチ fix/bug03-per-session-course を f45e432 で dev に統合） |
 | 🔴 **高 (P1)** | BUG-04 | 再生・状態管理 | 基準車スロット（Car 1）未割り当て・削除時に再生とシークが完全停止する | `src/App.tsx` | 修正済み（0f2644c） |
 | 🔴 **高 (P1)** | BUG-05 | 計測線・セクター判定 | ゲート交差判定に進行方向（通過向き）のチェックがない | `src/services/lapCalculator.ts` | 修正済み（c67967f。ログの中で多い方の向きを進行方向とする） |
 | 🔴 **高 (P1)** | BUG-06 | 車載動画同期・書き出し | 動画画面の競合・手動同期の自動上書き・MP4 メタデータ誤検出・書き出し拡張子不一致など（計9件） | `src/components/VideoSyncWindow.tsx`, `src/services/videoSyncManager.ts`, `src/services/videoMetadataParser.ts`, `src/services/telemetryVideoExporter.ts` | 一部修正（1071c3e で 2〜5・7・9 を修正。1 動画画面の競合・6 再選択時の引き継ぎ・8 書き出しのキャンセル / 巻き戻しは未対応） |
