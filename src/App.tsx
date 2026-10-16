@@ -88,10 +88,13 @@ export const App: React.FC = () => {
   const clnInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
 
-  // 基準車 (Car 1: 赤)
-  const baseSelected = selectedCars.find(c => c.slot === 0);
+  // 基準車。ふだんは Car 1 (赤) だが、Car 1 が空のとき (セッションを消した後など) は、割り当てのある一番若いスロットを基準にする。
+  // 各ウインドウは表示中の車両の先頭 (activeCars[0]) を基準車として描くので、それと必ず一致させる
+  const findLap = (c: SelectedCarSlot) =>
+    sessions.find(s => s.id === c.sessionId)?.laps.find(l => l.lapNumber === c.lapNumber);
+  const baseSelected = [...selectedCars].sort((a, b) => a.slot - b.slot).find(c => findLap(c));
   const baseSession = sessions.find(s => s.id === baseSelected?.sessionId);
-  const baseLap = baseSession?.laps.find(l => l.lapNumber === baseSelected?.lapNumber);
+  const baseLap = baseSelected ? findLap(baseSelected) : undefined;
 
   // 車両どうしを比べる基準 (速度ウインドウの横軸)。全コースウインドウ・アニメーション・摩擦円の車両位置もこれに合わせる
   const [compareAxis, setCompareAxis] = useState<CompareAxis>('distance');
@@ -100,12 +103,14 @@ export const App: React.FC = () => {
   const [alignLapLength, setAlignLapLength] = useState(false);
 
   // 有効な選択中車両一覧。比較車両には、距離の手動補正と 1 周の長さの伸縮をここで適用する
-  const activeCars = useMemo(() => selectedCars
+  const activeCars = useMemo(() => [...selectedCars]
+    .sort((a, b) => a.slot - b.slot)
     .map(slot => {
       const session = sessions.find(s => s.id === slot.sessionId);
       const lap = session?.laps.find(l => l.lapNumber === slot.lapNumber);
       if (!lap) return null;
-      if (slot.slot === 0) return { slot, lap };
+      // 基準車には補正をかけない
+      if (slot.slot === baseSelected?.slot) return { slot, lap };
       // 伸縮は、基準車と比較車両がどちらも計測線から計測線までの 1 周のときだけ行う
       const isFullLap = (l: Lap) => !l.isWholeSession && !l.isPartialLap && l.distance > 0;
       const scale = alignLapLength && baseLap && isFullLap(baseLap) && isFullLap(lap) ? baseLap.distance / lap.distance : 1;
@@ -120,7 +125,7 @@ export const App: React.FC = () => {
         }
       };
     })
-    .filter(Boolean) as { slot: SelectedCarSlot; lap: Lap }[], [selectedCars, sessions, baseLap, alignLapLength]);
+    .filter(Boolean) as { slot: SelectedCarSlot; lap: Lap }[], [selectedCars, sessions, baseSelected?.slot, baseLap, alignLapLength]);
 
   const handleSetDistanceOffset = (slotIndex: number, offsetM: number) => {
     setSelectedCars(prev => prev.map(c => (c.slot === slotIndex ? { ...c, distanceOffsetM: offsetM } : c)));
@@ -476,10 +481,17 @@ export const App: React.FC = () => {
   const handleSelectCircuitPreset = (presetId: string) => {
     const p = CIRCUIT_PRESETS.find(c => c.id === presetId);
     if (!p) return;
-    circuitRequestRef.current++;
     setCurrentControlLine(p.controlLine);
     setCurrentSectors(p.sectors);
     setCurrentCircuitName(p.name);
+
+    // 前のコースのコース図を消し、選んだコースのコース図を読み込む (遅れて届いた前のコースの応答では上書きしない)
+    setCurrentPthPolylines([]);
+    const requestId = ++circuitRequestRef.current;
+    resolveCircuitPolylines(p).then(polylines => {
+      if (requestId !== circuitRequestRef.current) return;
+      if (polylines && polylines.length > 0) setCurrentPthPolylines(polylines);
+    }).catch(console.warn);
 
     // 全セッションのラップを再計算
     recalcSessions(() => ({ cl: p.controlLine, sec: p.sectors }));
