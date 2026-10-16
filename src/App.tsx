@@ -102,6 +102,9 @@ export const App: React.FC = () => {
   const currentSectors = courseSession?.sectors ?? NO_SECTORS;
   const currentCircuitName = courseSession?.circuitName ?? '';
   const currentPthPolylines = courseSession?.pathPolylines ?? NO_POLYLINES;
+  // 最新のセッション一覧と基準のセッション。ファイルを読む await の後で使う処理が、その間に読み込まれたセッションを見落とさないように
+  const latestRef = useRef({ sessions, courseSessionId: courseSession?.id });
+  latestRef.current = { sessions, courseSessionId: courseSession?.id };
 
   // 車両どうしを比べる基準 (速度ウインドウの横軸)。全コースウインドウ・アニメーション・摩擦円の車両位置もこれに合わせる
   const [compareAxis, setCompareAxis] = useState<CompareAxis>('distance');
@@ -451,7 +454,7 @@ export const App: React.FC = () => {
   const recalcSessions = (
     resolve: (s: Session) => { cl?: ControlLine; sec: Sector[]; name?: string } | null
   ) => {
-    const updated = sessions.map(s => {
+    const updated = latestRef.current.sessions.map(s => {
       const r = resolve(s);
       if (!r) return s;
       const { cl, sec, name } = r;
@@ -494,9 +497,23 @@ export const App: React.FC = () => {
 
   // 条件に合うセッションの id。1 つもなければ基準車のセッション (なければ最初のセッション)
   const targetSessionIds = (pred: (s: Session) => boolean): string[] => {
-    const ids = sessions.filter(pred).map(s => s.id);
+    const { sessions: list, courseSessionId } = latestRef.current;
+    const ids = list.filter(pred).map(s => s.id);
     if (ids.length > 0) return ids;
-    return courseSession ? [courseSession.id] : [];
+    return courseSessionId ? [courseSessionId] : [];
+  };
+
+  // ログがコース図の近く (maxMeters 以内) を走ったか。コース図の頂点と軌跡を間引いて比べる (コース図の端の 1 点だけでは、長いコースで外れるため)
+  const passesNearPolylines = (s: Session, polylines: Array<Array<[number, number]>>, maxMeters: number): boolean => {
+    const vertices = polylines.flat();
+    const vStep = Math.max(1, Math.floor(vertices.length / 200));
+    const pStep = Math.max(1, Math.floor(s.points.length / 500));
+    const pts = s.points.filter((_, i) => i % pStep === 0);
+    for (let i = 0; i < vertices.length; i += vStep) {
+      const [lon, lat] = vertices[i]; // コース図の点は [経度, 緯度] の順
+      if (passesNearPoint(pts, lat, lon, maxMeters)) return true;
+    }
+    return false;
   };
 
   // セッションのコース図を設定する。受付番号を進めるので、取得中の古いコース図は後から届いても使わない
@@ -567,9 +584,7 @@ export const App: React.FC = () => {
             const txt = await f.text();
             const polylines = parsePth(txt);
             // コース図の近く (2 km 以内) を走ったログに設定する。なければ基準車のセッションに設定する
-            // コース図の点は [経度, 緯度] の順
-            const p0 = polylines.find(l => l.length > 0)?.[0];
-            const ids = targetSessionIds(s => !!p0 && passesNearPoint(s.points, p0[1], p0[0], 2000));
+            const ids = targetSessionIds(s => passesNearPolylines(s, polylines, 2000));
             // 手動で読み込んだコース図を、遅れて届いた自動取得の結果で上書きしない
             setSessionPolylines(ids, polylines);
           }
@@ -588,7 +603,9 @@ export const App: React.FC = () => {
             const cl = parseCln(txt, f.name);
             // 計測線の近く (1 km 以内) を走ったログに反映する (セクターは各セッションのものを保つ)。なければ基準車のセッションに反映する
             const ids = targetSessionIds(s => passesNearControlLine(s.points, cl));
-            courseRef.current = { ...courseRef.current, cl };
+            // 次に読むログの手がかりも、計測線を反映したセッションのコースにそろえる (別のコースのセクター・コース名と混ぜない)
+            const target = latestRef.current.sessions.find(s => s.id === ids[0]);
+            courseRef.current = { cl, sec: target?.sectors ?? [], name: target?.circuitName ?? '' };
             recalcSessions(s => (ids.includes(s.id) ? { cl, sec: s.sectors || [] } : null));
           }
           e.target.value = '';
@@ -605,7 +622,8 @@ export const App: React.FC = () => {
             const { pthCount, clnCount, sciCount } = await userCircuitStorage.importFiles(files);
             alert(`ユーザーコースデータを登録しました:\nコース図 (.pth): ${pthCount} 件\nコントロールライン (.cln): ${clnCount} 件\nセクター (.sci): ${sciCount} 件`);
             // 読み込み済みのログにも反映する: 各ログの位置で改めてコースを引き当て、周回を計算し直す
-            const matches = new Map(sessions.map(s => [
+            const before = new Map(latestRef.current.sessions.map(s => [s.id, s.circuitName]));
+            const matches = new Map(latestRef.current.sessions.map(s => [
               s.id,
               s.points[0] ? findMatchingCircuit(s.points[0].latitude, s.points[0].longitude, s.points) : undefined
             ]));
@@ -613,8 +631,12 @@ export const App: React.FC = () => {
               const m = matches.get(s.id);
               return m ? { cl: m.controlLine ?? s.controlLine, sec: m.sectors, name: m.name } : null;
             });
-            // 引き当てたコースのコース図も、そのセッションごとに読み込み直す
-            for (const [id, m] of matches) if (m) requestPolylines([id], m);
+            // 引き当てたコースのコース図も、そのセッションごとに読み込み直す。コースが変わったセッションは、前のコースのコース図を先に消す
+            for (const [id, m] of matches) {
+              if (!m) continue;
+              if (before.get(id) !== m.name) setSessionPolylines([id], undefined);
+              requestPolylines([id], m);
+            }
           }
           e.target.value = '';
         }}
@@ -899,6 +921,7 @@ export const App: React.FC = () => {
             onSetAlignLapLength={setAlignLapLength}
             baseSlot={baseSelected?.slot}
             onRemoveSession={id => {
+              polylineRequestRef.current.delete(id);
               setSessions(prev => prev.filter(s => s.id !== id));
               setSelectedCars(prev => prev.filter(c => c.sessionId !== id));
             }}
