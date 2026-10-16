@@ -265,9 +265,10 @@ export function matchIndex(ref: LapGeometry, refIndex: number, target: LapGeomet
   if (n === 0) return -1;
   const refTotal = ref.s[ref.s.length - 1] || 1;
   // 1 周どうしは全長の比で位置を合わせる。途中までの周 (計測線から始まり、次の通過の前で終わる) が混ざるときは、
-  // 全長が短いぶん比がずれるので、どちらも計測線から始まることを使って距離そのもので合わせる
+  // 全長が短いぶん比がずれるので、どちらも計測線から始まることを使って距離そのもので合わせる。
+  // 相手の末尾より先の位置は、末尾に寄せず探索範囲の外のままにする (走っていない区間を別の区間と照合しない)
   const hint = ref.lap.isPartialLap || target.lap.isPartialLap
-    ? Math.min(ref.s[refIndex], target.s[n - 1])
+    ? ref.s[refIndex]
     : (ref.s[refIndex] / refTotal) * target.s[n - 1];
 
   // 二分探索で hint 付近の添字を求め、その前後を調べる

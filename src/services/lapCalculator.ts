@@ -268,10 +268,13 @@ export function extractLaps(
     } else if (crossings.length === 1) {
       // 通過が 1 回だけのログ (1 周ぶんの書き出しで、計測線の少し手前から始まり次の通過の前で終わるものなど) は、
       // 通過点から末尾までを、終わりが不完全な 1 周として扱う。先頭を計測線にそろえることで、他のラップと重ねてもずれない
-      // 通過点より後ろが短い (末尾近くで通過した) ときは、これまでどおりログ全体を 1 周とする
+      // 通過点より後ろが短いとき、または通過点より前の方が長いとき (計測線の後ろから始まり、1 周して通過した後も記録が続いたログなど) は、
+      // 本編を捨てないよう、これまでどおりログ全体を 1 周とする
       const c = crossings[0];
       const last = points[points.length - 1];
-      if (last.time - c.time >= PARTIAL_LAP_MIN_SEC && c.index < points.length) {
+      const after = last.time - c.time;
+      const before = c.time - points[0].time;
+      if (after >= PARTIAL_LAP_MIN_SEC && after >= before && c.index < points.length) {
         lapRanges.push({
           startIndex: c.index,
           endIndex: points.length - 1,

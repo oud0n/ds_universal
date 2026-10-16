@@ -267,15 +267,19 @@ export function parseGpx(text: string): ImportedLog {
     });
   }
   if (raw.length === 0) throw new Error('GPX ファイルに航跡 (trkpt) が見つかりません');
-  if (!raw.some(p => Number.isFinite(p.t))) throw new Error('GPX ファイルに時刻 (time) がないため読み込めません');
+  // 時刻・位置のない点と未測位の点 (0, 0) は、時刻の割り振りと速度の計算より前に除く (前後の点の速度を壊さないため)
+  const valid = raw.filter(p => Number.isFinite(p.t) && Number.isFinite(p.lat) && Number.isFinite(p.lon) && !(p.lat === 0 && p.lon === 0));
+  if (valid.length === 0) throw new Error('GPX ファイルに時刻 (time) と位置のある点がないため読み込めません');
+  raw.length = 0;
+  raw.push(...valid);
 
   // 時刻が秒単位までしかない GPX では同じ時刻の点が続く。次の時刻までを等間隔に割り振って間引かれないようにする
-  // 末尾の時刻の点は次の時刻がないので、1 秒の中に割り振る
+  // 次の時刻が 1 秒より先 (測位の途切れ・区間の切れ目) や、末尾で次の時刻がないときは、1 秒の中に割り振る
   for (let i = 0; i < raw.length; ) {
     let j = i + 1;
     while (j < raw.length && raw[j].t === raw[i].t) j++;
-    if (j - i > 1 && Number.isFinite(raw[i].t)) {
-      const next = j < raw.length && raw[j].t > raw[i].t ? raw[j].t : raw[i].t + 1;
+    if (j - i > 1) {
+      const next = j < raw.length && raw[j].t > raw[i].t ? Math.min(raw[j].t, raw[i].t + 1) : raw[i].t + 1;
       const step = (next - raw[i].t) / (j - i);
       for (let k = i + 1; k < j; k++) raw[k].t = raw[i].t + (k - i) * step;
     }
@@ -298,7 +302,7 @@ export function parseGpx(text: string): ImportedLog {
       speedKmh,
       altitude: p.ele,
       heading: p.course,
-      timestamp: Number.isFinite(p.t) ? new Date(p.t * 1000) : undefined
+      timestamp: new Date(p.t * 1000)
     };
   });
   return finalize(samples, 'GPX ファイル');

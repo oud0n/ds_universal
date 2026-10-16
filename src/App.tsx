@@ -59,14 +59,15 @@ export const App: React.FC = () => {
   // コース・コントロールライン・セクター
   // ログを読み込むかコースを選ぶまでは未設定
   const [currentControlLine, setCurrentControlLine] = useState<ControlLine | undefined>(undefined);
-  // 複数のファイルを続けて読み込むとき、直前のファイルで決まった計測線を次のファイルにも使うための写し
-  const controlLineRef = useRef<ControlLine | undefined>(undefined);
-  useEffect(() => {
-    controlLineRef.current = currentControlLine;
-  }, [currentControlLine]);
   const [currentSectors, setCurrentSectors] = useState<Sector[]>([]);
   const [currentCircuitName, setCurrentCircuitName] = useState<string>('');
+  // 複数のファイルを続けて読み込むとき、直前のファイルで決まったコースの設定 (計測線・セクター・コース名) を
+  // 次のファイルにも使うための写し。state は同じ読み込みの間は古い値のままなので、こちらを参照する
+  const courseRef = useRef<{ cl?: ControlLine; sec: Sector[]; name: string }>({ sec: [], name: '' });
   const [currentPthPolylines, setCurrentPthPolylines] = useState<Array<Array<[number, number]>>>([]);
+  useEffect(() => {
+    courseRef.current = { cl: currentControlLine, sec: currentSectors, name: currentCircuitName };
+  }, [currentControlLine, currentSectors, currentCircuitName]);
 
   // 再生アニメーション状態
   const [isPlaying, setIsPlaying] = useState(false);
@@ -344,15 +345,16 @@ export const App: React.FC = () => {
 
     // サーキット自動判定
     let matchedCircuit = findMatchingCircuit(rawPoints[0].latitude, rawPoints[0].longitude, rawPoints);
-    let cl = controlLineRef.current;
-    let sec = currentSectors;
-    let circName = currentCircuitName;
+    const prev = courseRef.current;
+    let cl = prev.cl;
+    let sec = prev.sec;
+    let circName = prev.name;
 
     if (matchedCircuit) {
-      cl = matchedCircuit.controlLine;
+      // 計測線を持たないコース (名阪など) では、同じ場所で先に決めた計測線 (仮の計測線・コース編集で置いた線) を引き継ぐ
+      cl = matchedCircuit.controlLine ?? (prev.cl && passesNearControlLine(rawPoints, prev.cl) ? prev.cl : undefined);
       sec = matchedCircuit.sectors;
       circName = matchedCircuit.name;
-      setCurrentControlLine(cl);
       setCurrentSectors(sec);
       setCurrentCircuitName(circName);
 
@@ -367,22 +369,23 @@ export const App: React.FC = () => {
       }).catch(console.warn);
     }
 
-    // コースを判定できず、前のログの計測線から遠く離れた場所のログなら、その計測線・セクター・コース名は使わない
+    // コースを判定できず、前のログの計測線から遠く離れた場所のログなら、その計測線・セクター・コース名・コース図は使わない
     if (!matchedCircuit && cl && !passesNearControlLine(rawPoints, cl)) {
       cl = undefined;
       sec = [];
       circName = '';
       setCurrentSectors(sec);
       setCurrentCircuitName(circName);
+      // 読み込み中の前のコースのコース図が後から届いても上書きしない
+      circuitRequestRef.current++;
+      setCurrentPthPolylines([]);
     }
 
     // コースが分からず計測線もないときは、このログの走り始めに仮の計測線を置く。
     // 後から読み込むログもこの線の通過点を 0 m にそろえるので、開始位置の違うログを重ねてもずれない
-    if (!cl) {
-      cl = createVirtualControlLine(rawPoints);
-      setCurrentControlLine(cl);
-    }
-    controlLineRef.current = cl;
+    if (!cl) cl = createVirtualControlLine(rawPoints);
+    setCurrentControlLine(cl);
+    courseRef.current = { cl, sec, name: circName };
 
     // ラップ分割とセクタータイム計算
     const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(rawPoints, cl, sec);
