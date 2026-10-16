@@ -55,6 +55,9 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     }
   }, [cars, xAxisMode]);
 
+  // 現在位置のカーソルの、全体に対する位置 (0..1)
+  const cursorRatio = Math.max(0, Math.min(1, (xAxisMode === 'distance' ? currentDistance : currentTime) / maxDomain));
+
   // 最高速度のスケール
   const maxSpeedY = useMemo(() => {
     if (cars.length === 0) return 200;
@@ -401,17 +404,58 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     }
   };
 
-  // ズームイン / ズームアウト
+  // 表示範囲の幅を保ったまま、左端を min に動かす (0..1 に収める)
+  const clampRange = (min: number, span: number): [number, number] => {
+    const newMin = Math.max(0, Math.min(1 - span, min));
+    return [newMin, newMin + span];
+  };
+
+  // ズームイン / ズームアウト (現在位置のカーソルを中心にする)
   const handleZoom = (direction: 'in' | 'out') => {
     setViewRange(([min, max]) => {
-      const center = (min + max) / 2;
       const span = max - min;
       const factor = direction === 'in' ? 0.65 : 1.5;
       const newSpan = Math.max(0.05, Math.min(1.0, span * factor));
-      const newMin = Math.max(0, center - newSpan / 2);
-      const newMax = Math.min(1, newMin + newSpan);
-      return [newMin, newMax];
+      return clampRange(cursorRatio - newSpan / 2, newSpan);
     });
+  };
+
+  // 再生・コマ送り・他ウインドウからのシークでカーソルが表示範囲の外に出たら、カーソルを中心に表示し直す
+  useEffect(() => {
+    setViewRange(([min, max]) => {
+      if (cursorRatio >= min && cursorRatio <= max) return [min, max];
+      const span = max - min;
+      return clampRange(cursorRatio - span / 2, span);
+    });
+  }, [cursorRatio]);
+
+  // ルーラー: 枠のドラッグで表示範囲を動かし、枠の外をクリックするとそこを中心に表示する
+  const rulerRef = useRef<HTMLDivElement | null>(null);
+  const rulerDragRef = useRef<{ startX: number; startMin: number; width: number } | null>(null);
+  const viewSpan = viewRange[1] - viewRange[0];
+  const isZoomed = viewSpan < 0.999;
+
+  const handleRulerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const rect = rulerRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) return;
+    const ratio = (e.clientX - rect.left) / rect.width;
+    let startMin = viewRange[0];
+    if (ratio < viewRange[0] || ratio > viewRange[1]) {
+      startMin = clampRange(ratio - viewSpan / 2, viewSpan)[0];
+      setViewRange(clampRange(startMin, viewSpan));
+    }
+    rulerDragRef.current = { startX: e.clientX, startMin, width: rect.width };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const handleRulerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = rulerDragRef.current;
+    if (!drag) return;
+    setViewRange(clampRange(drag.startMin + (e.clientX - drag.startX) / drag.width, viewSpan));
+  };
+
+  const handleRulerPointerUp = () => {
+    rulerDragRef.current = null;
   };
 
   const handleResetZoom = () => {
@@ -553,6 +597,30 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
             );
           })}
         </div>
+      </div>
+
+      {/* ルーラー (拡大中のみ)。グラフの描画領域と左右をそろえる */}
+      <div className="h-4 shrink-0 bg-[#141721]" style={{ paddingLeft: 55, paddingRight: 45 }}>
+        {isZoomed && (
+          <div
+            ref={rulerRef}
+            onPointerDown={handleRulerPointerDown}
+            onPointerMove={handleRulerPointerMove}
+            onPointerUp={handleRulerPointerUp}
+            onPointerCancel={handleRulerPointerUp}
+            title="ドラッグで表示範囲を移動"
+            className="relative h-2.5 bg-[#1f2533] rounded-sm cursor-pointer touch-none"
+          >
+            <div
+              className="absolute top-0 h-full bg-slate-500/50 border border-slate-400/70 rounded-sm cursor-grab active:cursor-grabbing"
+              style={{ left: `${viewRange[0] * 100}%`, width: `${viewSpan * 100}%` }}
+            />
+            <div
+              className="absolute top-0 h-full w-[2px] -ml-px bg-red-500 pointer-events-none"
+              style={{ left: `${cursorRatio * 100}%` }}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
