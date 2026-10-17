@@ -6,7 +6,7 @@
 
 ## 🔖 残件一覧（ID）
 
-ID の付け方: 不具合は `BUG-NN`（[BUGS.md](BUGS.md) と同じ番号）、そのうち対応するものは `LATER-NN`、大きい計画は `PLAN-NN`。番号は使い回さない。
+ID の付け方: 不具合は `BUG-NN`（[BUGS.md](BUGS.md) と同じ番号）、そのうち対応するものは `LATER-NN`、大きい計画は `PLAN-NN`、実機などがそろえばやりたいもの（今は進められない）は `WISH-NN`。番号は使い回さない。
 
 | ID | 内容 | 状態 |
 |---|---|---|
@@ -28,10 +28,11 @@ ID の付け方: 不具合は `BUG-NN`（[BUGS.md](BUGS.md) と同じ番号）�
 | PLAN-01 | iPhone アプリ版（Bluetooth 接続。通信の層の分離を含む） | プロトコル解析済み |
 | PLAN-02 | AI によるドライビングコーチ | 検討のみ |
 | PLAN-03 | GoPro の動画の GPS（GPMF）の読み込み | 未着手 |
-| PLAN-04 | MoTeC / AIM / RaceChrono 形式（実データでの確認・AIM） | 一部対応 |
+| PLAN-04 | MoTeC / AIM / RaceChrono 形式（AIM の CSV・.xrk / .xrz の読み込み、MoTeC CSV の有効化、KML の書き出し） | 一部対応 |
 | PLAN-05 | 日本語 / 英語の切り替え・ハイコントラスト表示 | 未着手 |
 | PLAN-06 | メーターを焼き込んだ動画の書き出し | 未着手 |
 | PLAN-07 | Tauri 化（Electron からの移行） | 未着手 |
+| WISH-01 | AiM のロガー（MyChron・Solo など）から USB で直接データを吸い出す。USB の通信の形は一部分かったが、確かめるには AiM の実機が要る | 実機待ち |
 
 ---
 
@@ -158,6 +159,9 @@ USB シリアル通信をさらに拡張し、公式アプリを使わずにロ�
 - [ ] **PLAN-04（2.5）MoTeC i2 / AIM / RaceChrono 形式の相互インポート・エクスポート**
   - [x] MoTeC CSV 形式（i2 の CSV エクスポートと同じ書式）の出力と読み込み: **試験機能としてコードのみ組み込み、画面には出していない**
     - `src/services/externalFormats.ts` の `MOTEC_CSV_ENABLED` を `true` にすると、データ管理の書き出しボタンと読み込み時の自動判別が有効になる
+  - [ ] AIM の読み込み（MUST）: Race Studio の CSV（`"Format","AiM CSV File"`）と .xrk / .xrz。.xrk / .xrz は libxrk（MIT）を参考にする。サンプルは `_private/samples/aim_libxrk/`（富士 GP ショート・筑波など）
+  - [ ] MoTeC CSV の有効化: 実物の i2 の書き出し（`_private/samples/motec_lapsim/`、小数点がカンマ）で確かめてから `MOTEC_CSV_ENABLED` を true にする
+  - [ ] KML の書き出し（Google Earth 用。区間ごとに色を付けた線）
   - [x] RaceChrono CSV（v2 / v3）・VBO (Racelogic) 形式のインポート対応
   - [ ] MoTeC: 実物の i2 から書き出した GPS 入り CSV での読み込み確認（入手できた公開サンプルは書式の確認用で、GPS チャンネルを含まない）。確認できたら画面に出す
   - [ ] RaceChrono: 実機で書き出した CSV での確認（入手できた公開サンプルは数行の合成データ）
