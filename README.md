@@ -1,3 +1,5 @@
+<p align="center"><img src="build/icon.svg" width="128" height="128" alt="DS Universal のアイコン"></p>
+
 # DS Universal (`ds_universal`)
 
 **デジスパイスIV（DigSpice IV）USB通信・ログ吸い出し ＆ モータースポーツ・テレメトリ解析・車載動画同期スイート**

@@ -112,14 +112,14 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
   return (
     <div className="bg-surface-0 border-t border-line-1 flex flex-col shrink-0 select-none font-sans text-xs">
       {/* タイムラインヘッダーバー */}
-      <div className="h-6 bg-surface-1 px-3 flex items-center justify-between border-b border-line-1 text-[10px] text-slate-400">
-        <div className="flex items-center gap-2">
+      <div className="h-6 bg-surface-1 px-3 flex items-center justify-between gap-2 border-b border-line-1 text-[10px] text-slate-400 whitespace-nowrap overflow-hidden">
+        <div className="flex items-center gap-2 min-w-0 overflow-hidden">
           <span className="font-bold text-slate-300 flex items-center gap-1">
             <Layers size={11} className="text-red-400" />
-            タイムライン同期インスペクター (NLE Multi-Track)
+            タイムライン
           </span>
           <span className="text-slate-500">|</span>
-          <span>範囲: {formatDuration(minTime)} 〜 {formatDuration(maxTime)} ({formatDuration(totalDuration)})</span>
+          <span className="truncate">範囲: {formatDuration(minTime)} 〜 {formatDuration(maxTime)} ({formatDuration(totalDuration)})</span>
         </div>
 
         <div className="flex items-center gap-2">
