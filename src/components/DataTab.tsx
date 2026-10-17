@@ -591,7 +591,7 @@ const LapCards: React.FC<{
                   {formatTime(lap.lapTime)}
                 </div>
                 <div className={`font-mono text-[11px] ${isBest ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>
-                  {isBest ? 'BEST' : lap.isPartialLap ? '途中まで' : bestLap ? delta(lap.lapTime, bestLap.lapTime) : ''}
+                  {lap.isPartialLap ? (isBest ? 'BEST（途中まで）' : '途中まで') : isBest ? 'BEST' : bestLap ? delta(lap.lapTime, bestLap.lapTime) : ''}
                 </div>
               </div>
               <div className="text-right shrink-0">

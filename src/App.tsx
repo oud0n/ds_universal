@@ -929,12 +929,14 @@ export const App: React.FC = () => {
                 ))}
               </div>
               <div className="flex-1 min-h-0 overflow-hidden">
-                {mobilePanel === 'map' && trackMapEl}
-                {mobilePanel === 'replay' && replayEl}
-                {mobilePanel === 'gg' && frictionEl}
-                {mobilePanel === 'corner' && cornerEl}
-                {mobilePanel === 'braking' && brakingEl}
-                {mobilePanel === 'drift' && driftEl}
+                {/* 切り替えても表示の設定 (色分け・拡大・追従など) が消えないよう、外さずに隠すだけにする */}
+                {([['map', trackMapEl], ['replay', replayEl], ['gg', frictionEl], ['corner', cornerEl], ['braking', brakingEl], ['drift', driftEl]] as const)
+                  .filter(([id]) => MOBILE_PANELS.some(p => p.id === id))
+                  .map(([id, el]) => (
+                    <div key={id} className={mobilePanel === id ? 'h-full' : 'hidden'}>
+                      {el}
+                    </div>
+                  ))}
               </div>
             </div>
           </div>

@@ -133,7 +133,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     const paddingBottom = 30;
 
     // デルタタイム領域の分割
-    const hasDelta = showDeltaTime && xAxisMode === 'distance' && cars.length > 1;
+    // (高さが足りず、タイム差の欄が 30px 取れないときは描かない。スマートフォンを横にしたときなど)
+    const hasDelta = showDeltaTime && xAxisMode === 'distance' && cars.length > 1 && (height - paddingTop - paddingBottom) * 0.32 - 15 >= 30;
     const speedHeight = hasDelta ? (height - paddingTop - paddingBottom) * 0.68 : height - paddingTop - paddingBottom;
     const deltaTop = paddingTop + speedHeight + 15;
     const deltaHeight = hasDelta ? height - deltaTop - paddingBottom : 0;

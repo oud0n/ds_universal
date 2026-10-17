@@ -76,12 +76,10 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   const [correctGpsShift, setCorrectGpsShift] = useState(true);
   const [zoom, setZoom] = useState(1.0);
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
   // 車両追従。ON の間は基準車が常に画面の中央に来るように表示を動かす
   const [isFollowing, setIsFollowing] = useState(false);
   // 実際に描画に使った平行移動量。追従を外したとき、その位置から手動の移動を続けるために覚えておく
   const drawnPanRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // 背景地図 (既定はなし = オフライン動作)
   const [background, setBackground] = useState<MapBackground>(() => {
@@ -527,42 +525,46 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   }, [cars, controlLine, sectors, pathPolylines, currentDistance, currentTime, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick, theme]);
 
   // パン操作 (ドラッグ)
+  // ドラッグの状態は、同じイベントの中で続けて読めるよう ref で持つ (タッチは動かしたときに押下と移動が続けて届くため)
+  const panningRef = useRef(false);
+  // ドラッグを始めた (前回の) ポインターの位置と、そのときの表示位置
+  const dragFromRef = useRef({ x: 0, y: 0 });
+  const panBaseRef = useRef<{ x: number; y: number } | null>(null);
+
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    setIsPanning(true);
-    // 位置調整モードでは、前回のマウス位置からの移動量で地図を動かす
-    if (isAdjustingMap) {
-      setPanStart({ x: e.clientX, y: e.clientY });
-      return;
-    }
-    // 追従中にドラッグしたら追従を外し、今見えている位置から手動で動かす
-    const current = isFollowing ? drawnPanRef.current : panOffset;
-    if (isFollowing) {
-      setIsFollowing(false);
-      setPanOffset(current);
-    }
-    setPanStart({ x: e.clientX - current.x, y: e.clientY - current.y });
+    panningRef.current = true;
+    dragFromRef.current = { x: e.clientX, y: e.clientY };
+    // 表示位置の基準は、実際に動かしたときに決める (タップしただけでは追従を外さない)
+    panBaseRef.current = null;
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isPanning) return;
+    if (!panningRef.current) return;
+    // 位置調整モードでは、前回のポインターの位置からの移動量で地図を動かす
     if (isAdjustingMap) {
       const mpp = metersPerPixelRef.current;
-      const dx = e.clientX - panStart.x;
-      const dy = e.clientY - panStart.y;
-      setPanStart({ x: e.clientX, y: e.clientY });
+      const dx = e.clientX - dragFromRef.current.x;
+      const dy = e.clientY - dragFromRef.current.y;
+      dragFromRef.current = { x: e.clientX, y: e.clientY };
       // 画面の右 = 東、上 = 北
       setMapOffset(o => ({ eastM: o.eastM + dx * mpp, northM: o.northM - dy * mpp }));
       return;
     }
+    if (!panBaseRef.current) {
+      // 追従中にドラッグしたら追従を外し、今見えている位置から手動で動かす
+      panBaseRef.current = isFollowing ? drawnPanRef.current : panOffset;
+      if (isFollowing) setIsFollowing(false);
+    }
+    const base = panBaseRef.current;
     setPanOffset({
-      x: e.clientX - panStart.x,
-      y: e.clientY - panStart.y
+      x: base.x + e.clientX - dragFromRef.current.x,
+      y: base.y + e.clientY - dragFromRef.current.y
     });
   };
 
   const handleMouseUp = () => {
-    if (isPanning && isAdjustingMap) store(offsetKey, mapOffset);
-    setIsPanning(false);
+    if (panningRef.current && isAdjustingMap) store(offsetKey, mapOffset);
+    panningRef.current = false;
   };
 
   const handleSelectBackground = (value: MapBackground) => {
@@ -716,7 +718,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       </div>
 
       {/* Canvas */}
-      <div className="relative flex-1 w-full h-full min-h-[220px]">
+      <div className={`relative flex-1 w-full h-full ${compact ? 'min-h-0' : 'min-h-[220px]'}`}>
         <canvas
           ref={canvasRef}
           {...pointerHandlers}

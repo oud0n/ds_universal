@@ -50,7 +50,8 @@ export function usePinchPointers(opts: {
   };
   const release = (e: React.PointerEvent<HTMLCanvasElement>) => {
     pointers.current.delete(e.pointerId);
-    if (pointers.current.size < 2) lastDistance.current = null;
+    // 指が 2 本以上残るときは、残った指の組で間隔を測り直す (3 本目の指が離れたときに倍率が跳ばないように)
+    lastDistance.current = pointers.current.size >= 2 ? pinchState().distance : null;
     if (pointers.current.size === 0) latest.current.onUp();
   };
 

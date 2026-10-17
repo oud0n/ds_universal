@@ -311,7 +311,7 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
       </div>
 
       {/* Canvas */}
-      <div className="relative flex-1 w-full h-full min-h-[200px]">
+      <div className={`relative flex-1 w-full h-full ${compact ? 'min-h-0' : 'min-h-[200px]'}`}>
         <canvas ref={canvasRef} className="w-full h-full block" />
       </div>
     </div>
