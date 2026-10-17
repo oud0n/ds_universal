@@ -42,6 +42,10 @@ export type SamplingRateHz = 5 | 10 | 20;
 const FLASH_CAPACITY_BYTES = 0x1000000;
 // ログ吸い出しで本体が 1 行に載せて返すデータの大きさ
 const DOWNLOAD_BLOCK_SIZE = 0x800;
+// 吸い出しで欠けたブロックだけを、範囲を指定して本体に読み直させる (BUG-16)。
+// 公式アプリはこの使い方をしておらず、本体が範囲指定の読み出しに正しく応じるかを実機で確かめていないため、無効にしてある
+export const PARTIAL_REFETCH_ENABLED = false;
+const PARTIAL_REFETCH_ATTEMPTS = 3;
 // ログ全消去の完了応答を待つ最大時間
 const ERASE_TIMEOUT_MS = 120000;
 
@@ -558,17 +562,32 @@ export class DigSpiceDevice {
       let rejectedLines = 0;
       let lastActivityTime = Date.now();
 
-      const streamPromise = new Promise<void>((resolve, reject) => {
-        checkInterval = setInterval(() => {
-          if (Date.now() - lastActivityTime > 8000) {
-            reject(new Error(`受信タイムアウト: 8秒間データが途絶えました (${receivedBlocks}/${totalBlocks} ブロック受信済)`));
-          }
-        }, 1000);
+      // 1 回の読み出し要求 (終端の応答まで) を待つ。欠けたブロックを読み直すときは、もう一度待つ
+      let endRound: (() => void) | null = null;
+      let failRound: ((err: Error) => void) | null = null;
+      const waitRound = () => {
+        const round = new Promise<void>((resolve, reject) => {
+          endRound = resolve;
+          failRound = reject;
+        });
+        lastActivityTime = Date.now();
+        // 送信に失敗した場合でも、後から発火するタイムアウトが未処理の reject にならないようにする
+        round.catch(() => {});
+        return round;
+      };
+      const fail = (err: Error) => failRound?.(err);
 
+      checkInterval = setInterval(() => {
+        if (Date.now() - lastActivityTime > 8000) {
+          fail(new Error(`受信タイムアウト: 8秒間データが途絶えました (${receivedBlocks}/${totalBlocks} ブロック受信済)`));
+        }
+      }, 1000);
+
+      // 通信断・切断のときは無通信タイムアウトを待たずに中断する
+      this.streamAbort = fail;
+
+      {
         let lastUiUpdate = 0;
-
-        // 通信断・切断のときは無通信タイムアウトを待たずに中断する
-        this.streamAbort = reject;
 
         this.streamingHandler = (line: string) => {
           if (!line.startsWith('$PMTK182,8,')) return;
@@ -585,8 +604,8 @@ export class DigSpiceDevice {
           }
 
           if (addr === 0xfffff0) {
-            // 終端の応答。ここまでに全ブロックが届いているはず
-            resolve();
+            // 終端の応答。ここまでに要求したブロックが届いているはず
+            endRound?.();
             return;
           }
 
@@ -606,7 +625,7 @@ export class DigSpiceDevice {
             // 同じ位置が再度届いた場合、内容が食い違えばどちらが正しいか判断できないため失敗にする
             for (let j = 0; j < size; j++) {
               if (image[addr + j] !== block[j]) {
-                reject(new Error(`受信データが食い違っています (位置 0x${addr.toString(16).toUpperCase()})。もう一度ダウンロードしてください。`));
+                fail(new Error(`受信データが食い違っています (位置 0x${addr.toString(16).toUpperCase()})。もう一度ダウンロードしてください。`));
                 return;
               }
             }
@@ -632,17 +651,30 @@ export class DigSpiceDevice {
             }
           }
         };
-      });
-
-      // 送信に失敗した場合でも、後から発火するタイムアウトが未処理の reject にならないようにする
-      streamPromise.catch(() => {});
+      }
 
       // 一括ストリーミング読み出し要求
+      const mainRound = waitRound();
       await this.sendCommand(`PMTK182,7,0,${reqSizeHex}`);
       await new Promise(r => setTimeout(r, 10));
       await this.sendCommand('PMTK182,7,FFFFF0,10');
 
-      await streamPromise;
+      await mainRound;
+
+      // 欠けたブロックだけを読み直す (無効の間は、欠けていればそのまま下でエラーにする)
+      for (let attempt = 1; PARTIAL_REFETCH_ENABLED && attempt <= PARTIAL_REFETCH_ATTEMPTS && receivedBlocks < totalBlocks; attempt++) {
+        const ranges = DigSpiceDevice.missingRanges(received);
+        this.log('sys', `欠けたブロックを読み直します (${attempt} 回目): ${totalBlocks - receivedBlocks} ブロック、${ranges.length} 区間`);
+        const round = waitRound();
+        for (const [first, count] of ranges) {
+          const addr = first * DOWNLOAD_BLOCK_SIZE;
+          const size = Math.min(count * DOWNLOAD_BLOCK_SIZE, reqSize - addr);
+          await this.sendCommand(`PMTK182,7,${addr.toString(16).toUpperCase()},${size.toString(16).toUpperCase()}`);
+          await new Promise(r => setTimeout(r, 10));
+        }
+        await this.sendCommand('PMTK182,7,FFFFF0,10');
+        await round;
+      }
 
       // 欠けたブロックがあるデータを「吸い出し成功」として渡さない (消去前のバックアップに使われるため)
       if (receivedBlocks < totalBlocks) {
@@ -669,6 +701,18 @@ export class DigSpiceDevice {
       this.streamingHandler = null;
       this.streamAbort = null;
     }
+  }
+
+  // 受信していないブロックの区間 ([先頭のブロック番号, ブロック数] の並び)
+  public static missingRanges(received: Uint8Array): [number, number][] {
+    const ranges: [number, number][] = [];
+    for (let i = 0; i < received.length; i++) {
+      if (received[i]) continue;
+      const last = ranges[ranges.length - 1];
+      if (last && last[0] + last[1] === i) last[1]++;
+      else ranges.push([i, 1]);
+    }
+    return ranges;
   }
 
   // 公式後処理メタデータ (0x0100..0x0109: Delphi 80-bit Extended 浮動小数点数) の適用
@@ -714,6 +758,14 @@ export class DigSpiceDevice {
 
         if (esi + recSize > 0x1000) break;
 
+        // レコード末尾のチェックサム ('*' + 先頭 34 バイトの XOR) が合わないもの (破損) は数えない
+        let x = 0;
+        for (let i = 0; i < 34; i++) x ^= buffer[pos + i];
+        if (buffer[pos + 34] !== 0x2a || buffer[pos + 35] !== x) {
+          esi += recSize;
+          continue;
+        }
+
         const view = new DataView(buffer.buffer, buffer.byteOffset + pos, recSize);
         const fixMode = view.getUint16(4, true);
         const lat = view.getFloat64(6, true);
@@ -739,6 +791,7 @@ export class DigSpiceDevice {
     const SCALE = 64n;
 
     function doubleToFixed(d: number): bigint {
+      if (d === 0) return 0n;
       const b = new ArrayBuffer(8);
       const v = new DataView(b);
       v.setFloat64(0, d, true);
@@ -772,7 +825,14 @@ export class DigSpiceDevice {
     const term2 = (lonFixed << SCALE) / piFixed;
     const resFixed = sqrtN + term1 + term2;
 
-    let tmp = resFixed;
+    // 南半球・西経では結果が負になり得るので、絶対値を符号と分けて Extended に詰める
+    const negative = resFixed < 0n;
+    const absFixed = negative ? -resFixed : resFixed;
+    if (absFixed === 0n) {
+      buffer.fill(0, 0x100, 0x10a);
+      return;
+    }
+    let tmp = absFixed;
     let bitLen = 0;
     while (tmp > 0n) { bitLen++; tmp >>= 1n; }
 
@@ -780,12 +840,18 @@ export class DigSpiceDevice {
     const biasedExp = exp + 16383;
     const shift = BigInt(bitLen - 64);
     const roundBit = shift > 0n ? (1n << (shift - 1n)) : 0n;
-    const mantissa64 = ((resFixed + roundBit) >> shift);
+    let mantissa64 = shift >= 0n ? ((absFixed + roundBit) >> shift) : (absFixed << -shift);
+    let expWord = biasedExp;
+    // 丸めで 64 ビットを超えたら、指数を 1 つ上げる
+    if (mantissa64 >> 64n) {
+      mantissa64 >>= 1n;
+      expWord++;
+    }
 
     for (let i = 0; i < 8; i++) {
       buffer[0x100 + i] = Number((mantissa64 >> BigInt(i * 8)) & 0xffn);
     }
-    const expWord = biasedExp;
+    if (negative) expWord |= 0x8000;
     buffer[0x108] = expWord & 0xff;
     buffer[0x109] = (expWord >> 8) & 0xff;
   }

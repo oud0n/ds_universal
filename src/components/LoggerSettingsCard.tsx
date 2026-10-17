@@ -194,6 +194,9 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
                   );
                 })}
               </div>
+              <p className="text-[10px] text-slate-500 leading-relaxed" data-testid="rate-note">
+                公式ソフトでレートを変えたときと同じ命令を送るため、記録する項目などの本体の記録設定も標準の値に書き直されます。
+              </p>
               <NoticeLine notice={rateNotice} />
             </div>
 

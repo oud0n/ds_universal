@@ -495,6 +495,8 @@ export const App: React.FC = () => {
     let rawPoints: any[] = [];
     let samplingRate = 10;
     let startDate: Date | undefined;
+    // 1 つのファイルに走行が複数入っているとき (生ログ) は、走行ごとに別のセッションにする
+    let parts: { points: any[]; samplingRate: number; startDate?: Date }[] | null = null;
 
     const ext = fileName.split('.').pop()?.toLowerCase();
 
@@ -504,10 +506,7 @@ export const App: React.FC = () => {
       samplingRate = parsed.samplingRate;
       startDate = parsed.startDate;
     } else if (ext === 'bnx4' || ext === 'bon4' || ext === 'binx' || ext === 'bon') {
-      const parsed = parseDigispiceRawBinary(fileName, buffer);
-      rawPoints = parsed.points;
-      samplingRate = parsed.samplingRate;
-      startDate = parsed.startDate;
+      parts = parseDigispiceRawBinary(fileName, buffer);
     } else if (['vbo', 'csv', 'txt', 'gpx', 'nmea', 'log'].includes(ext || '')) {
       // テキストの形式は拡張子で決めつけず、中身の先頭で判別する (.txt の NMEA・VBO、.log の CSV なども読めるように)。
       // 判別できないときは拡張子に従う
@@ -546,105 +545,115 @@ export const App: React.FC = () => {
       throw new Error(`未対応のファイル形式です: .${ext}`);
     }
 
-    if (rawPoints.length === 0) {
+    if (!parts) parts = [{ points: rawPoints, samplingRate, startDate }];
+    if (parts.length === 0 || parts.every(p => p.points.length === 0)) {
       throw new Error('有効なGPS位置データが見つかりませんでした');
     }
 
-    // サーキット自動判定
-    // 保存済みのユーザーコースの読み込みが終わってから判定する (起動直後に開いたファイルでも使えるように)
-    await userCircuitStorage.ready;
-    let matchedCircuit = findMatchingCircuit(rawPoints[0].latitude, rawPoints[0].longitude, rawPoints);
-    // 同じ場所のコースの手がかり: 読み込み済みのセッションのうち、計測線がこのログの近くにあるもの (基準車を優先)。
-    // なければ直前に決まったコース (一度に複数のファイルを読み込むときは、まだセッション一覧に入っていないため)
-    const prev = courseRef.current;
-    const loaded = latestRef.current.sessions;
-    const samePlace = [...(courseSession ? [courseSession] : []), ...loaded]
-      .find(s => s.controlLine && passesNearControlLine(rawPoints, s.controlLine));
-    const hint: CourseHint = samePlace
-      ? { cl: samePlace.controlLine, sec: samePlace.sectors, name: samePlace.circuitName, polylines: samePlace.pathPolylines }
-      : prev;
-    let cl = hint.cl;
-    let sec = hint.sec;
-    let circName = hint.name;
-
-    // 手がかりが判定したコースと同じコース (コース編集で計測線・セクターを直したものなど) なら、その設定を引き継ぐ
-    const sameCourse = !!matchedCircuit && hint.name === matchedCircuit.name && !!hint.cl && passesNearControlLine(rawPoints, hint.cl);
-    if (matchedCircuit && !sameCourse) {
-      // 計測線を持たないコース (名阪など) では、同じ場所で先に決めた計測線 (仮の計測線・コース編集で置いた線) を引き継ぐ
-      cl = matchedCircuit.controlLine ?? (hint.cl && passesNearControlLine(rawPoints, hint.cl) ? hint.cl : undefined);
-      sec = matchedCircuit.sectors;
-      circName = matchedCircuit.name;
+    const baseName = fileName.replace(/\.[^/.]+$/, '');
+    for (const [partIndex, part] of parts.entries()) {
+      if (part.points.length === 0) continue;
+      await addParsedSession(part.points, part.samplingRate, part.startDate, parts.length > 1 ? `${baseName}_${partIndex + 1}` : baseName);
     }
 
-    // コースを判定できず、手がかりの計測線がこのログの近くにない (または計測線がない) ときは、その計測線・セクター・コース名は使わない
-    if (!matchedCircuit && !(cl && passesNearControlLine(rawPoints, cl))) {
-      cl = undefined;
-      sec = [];
-      circName = '';
-    }
+    // 読み込んだ点列から周回を計算し、セッションとして加える
+    async function addParsedSession(rawPoints: any[], samplingRate: number, startDate: Date | undefined, sessionName: string) {
+      // サーキット自動判定
+      // 保存済みのユーザーコースの読み込みが終わってから判定する (起動直後に開いたファイルでも使えるように)
+      await userCircuitStorage.ready;
+      let matchedCircuit = findMatchingCircuit(rawPoints[0].latitude, rawPoints[0].longitude, rawPoints);
+      // 同じ場所のコースの手がかり: 読み込み済みのセッションのうち、計測線がこのログの近くにあるもの (基準車を優先)。
+      // なければ直前に決まったコース (一度に複数のファイルを読み込むときは、まだセッション一覧に入っていないため)
+      const prev = courseRef.current;
+      const loaded = latestRef.current.sessions;
+      const samePlace = [...(courseSession ? [courseSession] : []), ...loaded]
+        .find(s => s.controlLine && passesNearControlLine(rawPoints, s.controlLine));
+      const hint: CourseHint = samePlace
+        ? { cl: samePlace.controlLine, sec: samePlace.sectors, name: samePlace.circuitName, polylines: samePlace.pathPolylines }
+        : prev;
+      let cl = hint.cl;
+      let sec = hint.sec;
+      let circName = hint.name;
 
-    // 手がかりのコース図 (先に読み込んだ .pth など) がこのログの近くにあれば、このセッションに付ける
-    // 別のコースと判定した手がかり (同じ施設の隣のコースなど) のコース図は使わない (コース名のない、先に読み込んだ .pth は使う)
-    const hintForThisCourse = !matchedCircuit || !hint.name || hint.name === matchedCircuit.name;
-    const hintPolylines = hintForThisCourse && hint.polylines && passesNearPolylines({ points: rawPoints } as Session, hint.polylines, 2000) ? hint.polylines : undefined;
-
-    // コースが分からず計測線もないときは、このログの走り始めに仮の計測線を置く。
-    // 後から読み込むログもこの線の通過点を 0 m にそろえるので、開始位置の違うログを重ねてもずれない
-    if (!cl) cl = createVirtualControlLine(rawPoints);
-    courseRef.current = { cl, sec, name: circName, polylines: hintPolylines };
-
-    // ラップ分割とセクタータイム計算
-    const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(rawPoints, cl, sec);
-
-    const newSession: Session = {
-      id: `sess_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-      fileName,
-      sessionName: fileName.replace(/\.[^/.]+$/, ''),
-      date: startDate ? startDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-      circuitName: circName,
-      samplingRate,
-      totalDistance: rawPoints[rawPoints.length - 1].distance,
-      points: rawPoints,
-      laps,
-      bestLapIndex,
-      theoreticalBestTime,
-      controlLine: cl,
-      sectors: sec,
-      ...(hintPolylines ? { pathPolylines: hintPolylines } : {})
-    };
-
-    setSessions(prev => [...prev, newSession]);
-    // コース図の自動読込 (ユーザー設置 → OpenStreetMap)。このセッションにだけ設定する。手で読み込んだコース図を付けたときは取りに行かない
-    if (matchedCircuit && !hintPolylines) requestPolylines([newSession.id], matchedCircuit);
-
-    // 最初のセッションであれば Car 1 (基準車: 赤) に自動割り当て
-    setSelectedCars(prev => {
-      const bestLapNum = laps[bestLapIndex]?.lapNumber || 1;
-      if (prev.length === 0) {
-        return [
-          {
-            slot: 0,
-            sessionId: newSession.id,
-            lapNumber: bestLapNum,
-            colorHex: '#ef4444',
-            label: `${newSession.sessionName} (L${bestLapNum})`
-          }
-        ];
-      } else if (prev.length === 1 && prev[0].slot === 0) {
-        // 2台目を Car 2 (青) に自動割り当て
-        return [
-          ...prev,
-          {
-            slot: 1,
-            sessionId: newSession.id,
-            lapNumber: bestLapNum,
-            colorHex: '#3b82f6',
-            label: `${newSession.sessionName} (L${bestLapNum})`
-          }
-        ];
+      // 手がかりが判定したコースと同じコース (コース編集で計測線・セクターを直したものなど) なら、その設定を引き継ぐ
+      const sameCourse = !!matchedCircuit && hint.name === matchedCircuit.name && !!hint.cl && passesNearControlLine(rawPoints, hint.cl);
+      if (matchedCircuit && !sameCourse) {
+        // 計測線を持たないコース (名阪など) では、同じ場所で先に決めた計測線 (仮の計測線・コース編集で置いた線) を引き継ぐ
+        cl = matchedCircuit.controlLine ?? (hint.cl && passesNearControlLine(rawPoints, hint.cl) ? hint.cl : undefined);
+        sec = matchedCircuit.sectors;
+        circName = matchedCircuit.name;
       }
-      return prev;
-    });
+
+      // コースを判定できず、手がかりの計測線がこのログの近くにない (または計測線がない) ときは、その計測線・セクター・コース名は使わない
+      if (!matchedCircuit && !(cl && passesNearControlLine(rawPoints, cl))) {
+        cl = undefined;
+        sec = [];
+        circName = '';
+      }
+
+      // 手がかりのコース図 (先に読み込んだ .pth など) がこのログの近くにあれば、このセッションに付ける
+      // 別のコースと判定した手がかり (同じ施設の隣のコースなど) のコース図は使わない (コース名のない、先に読み込んだ .pth は使う)
+      const hintForThisCourse = !matchedCircuit || !hint.name || hint.name === matchedCircuit.name;
+      const hintPolylines = hintForThisCourse && hint.polylines && passesNearPolylines({ points: rawPoints } as Session, hint.polylines, 2000) ? hint.polylines : undefined;
+
+      // コースが分からず計測線もないときは、このログの走り始めに仮の計測線を置く。
+      // 後から読み込むログもこの線の通過点を 0 m にそろえるので、開始位置の違うログを重ねてもずれない
+      if (!cl) cl = createVirtualControlLine(rawPoints);
+      courseRef.current = { cl, sec, name: circName, polylines: hintPolylines };
+
+      // ラップ分割とセクタータイム計算
+      const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(rawPoints, cl, sec);
+
+      const newSession: Session = {
+        id: `sess_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        fileName,
+        sessionName,
+        date: startDate ? startDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        circuitName: circName,
+        samplingRate,
+        totalDistance: rawPoints[rawPoints.length - 1].distance,
+        points: rawPoints,
+        laps,
+        bestLapIndex,
+        theoreticalBestTime,
+        controlLine: cl,
+        sectors: sec,
+        ...(hintPolylines ? { pathPolylines: hintPolylines } : {})
+      };
+
+      setSessions(prev => [...prev, newSession]);
+      // コース図の自動読込 (ユーザー設置 → OpenStreetMap)。このセッションにだけ設定する。手で読み込んだコース図を付けたときは取りに行かない
+      if (matchedCircuit && !hintPolylines) requestPolylines([newSession.id], matchedCircuit);
+
+      // 最初のセッションであれば Car 1 (基準車: 赤) に自動割り当て
+      setSelectedCars(prev => {
+        const bestLapNum = laps[bestLapIndex]?.lapNumber || 1;
+        if (prev.length === 0) {
+          return [
+            {
+              slot: 0,
+              sessionId: newSession.id,
+              lapNumber: bestLapNum,
+              colorHex: '#ef4444',
+              label: `${newSession.sessionName} (L${bestLapNum})`
+            }
+          ];
+        } else if (prev.length === 1 && prev[0].slot === 0) {
+          // 2台目を Car 2 (青) に自動割り当て
+          return [
+            ...prev,
+            {
+              slot: 1,
+              sessionId: newSession.id,
+              lapNumber: bestLapNum,
+              colorHex: '#3b82f6',
+              label: `${newSession.sessionName} (L${bestLapNum})`
+            }
+          ];
+        }
+        return prev;
+      });
+    }
 
     // 変換ページから読み込んだときは、そのまま変換ページに留まる
     if (currentTabRef.current !== 'convert') setCurrentTab('graph');
