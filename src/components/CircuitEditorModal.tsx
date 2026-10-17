@@ -42,10 +42,10 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   onSavedCircuitsChange,
   onSaveCircuit
 }) => {
-  if (!isOpen) return null;
-
   const [name, setName] = useState((currentCircuitName || 'カスタムコース').replace(USER_SUFFIX, ''));
   const [remember, setRemember] = useState(true);
+  // 計測線がないときに .sci を読み込んだか (保存・書き出しのときに、計測線までのフィニッシュを足す)
+  const [needsFinish, setNeedsFinish] = useState(false);
   const [fileMessage, setFileMessage] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // コース編集で保存したコース (呼び出し・削除用)
@@ -61,6 +61,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
     setClLatB(String(c.controlLine.latB));
     setClLonB(String(c.controlLine.lonB));
     setSectors(c.sectors);
+    setNeedsFinish(false);
     setFileMessage(`「${c.name}」を呼び出しました`);
   };
 
@@ -93,7 +94,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
     setSectors([
       ...sectors.slice(0, finishIdx),
       {
-        id: `custom_s${Date.now()}`,
+        id: `custom_s${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         name: `Sector ${nextIdx}`,
         latA: (parseFloat(clLatA) || 0) + 0.002 * nextIdx,
         lonA: (parseFloat(clLonA) || 0) + 0.002 * nextIdx,
@@ -135,8 +136,11 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   );
 
   // フィニッシュのセクター (id が _finish で終わる) は、計測線と同じ線にする (計測線を直したら付いていく)
-  const withFinish = (list: Sector[], cl: ControlLine): Sector[] =>
-    list.map(s => (s.id.endsWith('_finish') ? { ...s, latA: cl.latA, lonA: cl.lonA, latB: cl.latB, lonB: cl.lonB } : s));
+  const withFinish = (list: Sector[], cl: ControlLine): Sector[] => {
+    const updated = list.map(s => (s.id.endsWith('_finish') ? { ...s, latA: cl.latA, lonA: cl.lonA, latB: cl.latB, lonB: cl.lonB } : s));
+    if (!needsFinish || updated.length === 0 || updated.some(s => s.id.endsWith('_finish'))) return updated;
+    return [...updated, { id: `custom_${Date.now()}_finish`, name: `S${updated.length + 1}`, latA: cl.latA, lonA: cl.lonA, latB: cl.latB, lonB: cl.lonB }];
+  };
 
   // .cln (計測線) と .sci (セクター) を読み込む。両方選んだときは、.cln を先に読む (.sci のフィニッシュに使うため)
   const handleImportFiles = async (files: FileList | null) => {
@@ -166,8 +170,9 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
             ? [{ id: `${prefix}_finish`, name: `S${gates.length + 1}`, latA: cl.latA, lonA: cl.lonA, latB: cl.latB, lonB: cl.lonB }]
             : [];
           setSectors([...gates, ...finish]);
+          setNeedsFinish(!cl);
           done.push(f.name);
-          if (!cl) errors.push('計測線がないので、最後の区間 (計測線まで) は足していません');
+          if (!cl) errors.push('計測線を入れると、保存するときに最後の区間 (計測線まで) を足します');
         } else {
           errors.push(`${f.name}: .cln か .sci を選んでください`);
         }
@@ -193,7 +198,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
     }
     setSaveError('');
     // ファイル名に使えない文字と、末尾の点・空白 (Windows で使えない) を置き換える
-    const base = (name.trim() || 'course').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/[. ]+$/, '') || 'course';
+    const base = (name.trim() || 'course').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/[. ]+$/, '').replace(/^cl_/i, '') || 'course';
     downloadText(exportCln(cl), `cl_${base}.cln`);
     const sci = exportSci(finished, cl);
     if (sci) downloadText(sci, `${base}.sci`);
@@ -228,6 +233,9 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
     onSaveCircuit(saveName, newControlLine, withFinish(sectors, newControlLine), remember);
     onClose();
   };
+
+  // フックをすべて呼んでから閉じているときは何も出さない (フックの数を変えない)
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
