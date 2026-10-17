@@ -79,7 +79,21 @@ export function exportBurnedInVideo(options: VideoExportOptions): VideoExportCon
 
   const chunks: Blob[] = [];
 
+  // 元の動画の状態に戻す (書き出しの終わり・キャンセルのどちらでも 1 回だけ)
+  let restored = false;
+  const restoreVideo = () => {
+    if (restored) return;
+    restored = true;
+    videoElement.pause();
+    videoElement.playbackRate = origPlaybackRate;
+    videoElement.currentTime = origCurrentTime;
+    if (!origPaused) videoElement.play().catch(() => {});
+  };
+  let rejectPromise: (err: Error) => void = () => {};
+  let onSeeked: (() => void) | null = null;
+
   const promise = new Promise<Blob>((resolve, reject) => {
+    rejectPromise = reject;
     try {
       mediaRecorder = new MediaRecorder(stream, {
         mimeType,
@@ -102,9 +116,7 @@ export function exportBurnedInVideo(options: VideoExportOptions): VideoExportCon
 
     mediaRecorder.onstop = () => {
       // 元の動画状態を復元
-      videoElement.playbackRate = origPlaybackRate;
-      videoElement.currentTime = origCurrentTime;
-      if (!origPaused) videoElement.play().catch(() => {});
+      restoreVideo();
 
       if (isCancelled) {
         reject(new Error('エクスポートがユーザーによりキャンセルされました'));
@@ -132,8 +144,8 @@ export function exportBurnedInVideo(options: VideoExportOptions): VideoExportCon
     videoElement.currentTime = startVideoTime;
     videoElement.playbackRate = 1.0;
 
-    const onSeeked = () => {
-      videoElement.removeEventListener('seeked', onSeeked);
+    onSeeked = () => {
+      if (onSeeked) videoElement.removeEventListener('seeked', onSeeked);
       if (isCancelled) return;
 
       mediaRecorder?.start(250); // 250msごとにchunkを収集
@@ -180,14 +192,18 @@ export function exportBurnedInVideo(options: VideoExportOptions): VideoExportCon
 
   return {
     cancel: () => {
+      if (isCancelled) return;
       isCancelled = true;
       if (animFrameId) cancelAnimationFrame(animFrameId);
+      if (onSeeked) videoElement.removeEventListener('seeked', onSeeked);
       if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        // 録画中なら、止まったとき (onstop) に元に戻して終わる
         mediaRecorder.stop();
+      } else {
+        // 開始位置への移動を待っている間 (録画を始める前) にキャンセルしたときは、onstop が来ないので、ここで終える
+        restoreVideo();
+        rejectPromise(new Error('エクスポートがユーザーによりキャンセルされました'));
       }
-      videoElement.pause();
-      videoElement.currentTime = origCurrentTime;
-      videoElement.playbackRate = origPlaybackRate;
     },
     promise
   };
