@@ -216,12 +216,13 @@ export function applyGFilter(points: TelemetryPoint[], level: GFilterLevel = get
   }
   dts.sort((a, b) => a - b);
   const dtTypical = dts.length > 0 ? dts[Math.floor(dts.length / 2)] : Infinity;
-  const lowRate = !(dtTypical <= 0.2); // 5Hz 以下
+  // (0.2・0.1 ちょうどの間隔も、浮動小数の誤差で少し大きくなるので余裕を持たせる)
+  const lowRate = !(dtTypical <= 0.2 + 1e-6); // 5Hz 以下
 
   // 旋回半径をならす
   let R = rawR.slice();
   if (level !== 'weak' && !lowRate && n >= 5) {
-    const highRate = dtTypical <= 0.1; // 10Hz 以上
+    const highRate = dtTypical <= 0.1 + 1e-6; // 10Hz 以上
     const med = rawR.slice();
     for (let i = 2; i < n - 2; i++) med[i] = median5([rawR[i - 2], rawR[i - 1], rawR[i], rawR[i + 1], rawR[i + 2]], !highRate);
     if (n > 3) {
