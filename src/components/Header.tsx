@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, Repeat, BarChart2, List, Video, Download, Coffee, Sun, Moon, Monitor, MoreHorizontal } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, Repeat, BarChart2, List, Video, Coffee, Sun, Moon, Monitor, MoreHorizontal } from 'lucide-react';
 import { SelectedCarSlot, Session } from '../types/telemetry';
 import { ThemeSetting, setThemeSetting, useThemeSetting } from '../utils/theme';
 import { canUseLoggerUsb } from '../utils/device';
@@ -23,7 +23,6 @@ interface HeaderProps {
   playbackSpeed: number;
   onChangePlaybackSpeed: (speed: number) => void;
   onOpenFile: () => void;
-  onExportNmea?: () => void;
   onOpenDonate?: () => void;
   // スマートフォン向けの配置 (タブは画面下のタブバーに出し、ここには再生操作とメニューだけを置く)
   compact?: boolean;
@@ -41,7 +40,6 @@ export const Header: React.FC<HeaderProps> = ({
   playbackSpeed,
   onChangePlaybackSpeed,
   onOpenFile,
-  onExportNmea,
   onOpenDonate,
   compact = false
 }) => {
@@ -91,17 +89,11 @@ export const Header: React.FC<HeaderProps> = ({
           <MoreHorizontal size={18} />
         </button>
 
-        {/* メニュー (NMEA 出力・開発支援・テーマ)。外側をタップすると閉じる */}
+        {/* メニュー (開発支援・テーマ)。外側をタップすると閉じる */}
         {menuOpen && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
             <div className="absolute right-2 top-full mt-1 z-50 w-56 bg-surface-2 border border-line-3 rounded-lg shadow-xl p-2 flex flex-col gap-1 text-sm">
-              {sessions.length > 0 && onExportNmea && (
-                <button onClick={() => { setMenuOpen(false); onExportNmea(); }} className="flex items-center gap-2 px-3 py-2.5 rounded text-slate-200 hover:bg-surface-4 text-left">
-                  <Download size={16} className="text-cyan-400" />
-                  NMEA出力
-                </button>
-              )}
               {onOpenDonate && (
                 <button onClick={() => { setMenuOpen(false); onOpenDonate(); }} className="flex items-center gap-2 px-3 py-2.5 rounded text-slate-200 hover:bg-surface-4 text-left">
                   <Coffee size={16} className="text-amber-400" />
@@ -251,18 +243,6 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* ファイル操作 (フラットデザイン) */}
       <div className="flex items-center gap-2">
-        {/* NMEA-0183 出力 (RaceChrono連携) */}
-        {sessions.length > 0 && onExportNmea && (
-          <button
-            onClick={onExportNmea}
-            className="flex items-center gap-1.5 text-xs bg-surface-3 hover:bg-surface-5 text-slate-200 border border-line-3 font-medium px-2.5 py-1.5 rounded transition-colors cursor-pointer"
-            title="現在の走行データを RaceChrono 互換の NMEA-0183 (.nmea) としてエクスポート"
-          >
-            <Download size={13} className="text-cyan-400" />
-            NMEA出力
-          </button>
-        )}
-
         {/* ファイル読み込み */}
         <button
           onClick={onOpenFile}

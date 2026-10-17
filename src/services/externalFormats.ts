@@ -82,6 +82,7 @@ function finalize(samples: RawSample[], formatName: string): ImportedLog {
       latitude: Number(s.latitude.toFixed(7)),
       longitude: Number(s.longitude.toFixed(7)),
       altitude: Number((Number.isFinite(s.altitude) ? s.altitude : 0).toFixed(2)),
+      ...(Number.isFinite(s.altitude) ? {} : { altitudeMissing: true }),
       speed: Number((Number.isFinite(s.speedKmh) ? Math.max(0, s.speedKmh) : 0).toFixed(2)),
       heading: Number.isFinite(s.heading) ? s.heading : 0,
       distance: 0,

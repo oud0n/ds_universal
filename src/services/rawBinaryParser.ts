@@ -70,8 +70,8 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
         const second = view.getUint8(offset + 24);
         const subSec = view.getUint8(offset + 25);
         // +12 の int32 は標高 (0.1 m 単位)。.bon4 の実ログで確認。.bon は未確認のため読まない
-        const rawAlt = ext === 'bon4' ? view.getInt32(offset + 12, true) / 10 : 0;
-        const altitude = rawAlt > -500 && rawAlt < 10000 ? rawAlt : 0;
+        const rawAlt = ext === 'bon4' ? view.getInt32(offset + 12, true) / 10 : NaN;
+        const altitude = rawAlt > -500 && rawAlt < 10000 ? rawAlt : undefined;
 
         const speedKmh = (rawSpeed / 100) * 3.6;
         const lat = rawLat / 1e7;
@@ -158,7 +158,7 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
               ts > 946684800 && ts < 2524608000
             ) {
               const cleanSpeed = !isNaN(spd) && spd >= 0 && spd < 500 ? spd : 0;
-              const cleanAltitude = !isNaN(alt) && alt >= -500 && alt < 10000 ? alt : 0;
+              const cleanAltitude = !isNaN(alt) && alt >= -500 && alt < 10000 ? alt : undefined;
               // ミリ秒が記録されていればそれを使う (範囲外なら 0 とし、後段で補間する)
               const timeSec = ts + (ms < 1000 ? ms / 1000 : 0);
               if (ms > 0 && ms < 1000) hasMilliseconds = true;
@@ -262,7 +262,7 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
               const heading = v.getFloat32(z + 20, true);
               const speedKmh = v.getFloat32(z + 24, true);
               const ms = v.getUint16(z + 34, true);
-              return { lat, lon, speedKmh, heading, ms, u_t, alt: 0 };
+              return { lat, lon, speedKmh, heading, ms, u_t, alt: NaN };
             } catch {
               return null;
             }
@@ -308,7 +308,7 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
                 timeSec,
                 timestamp: new Date(timeSec * 1000),
                 heading: cleanHeading,
-                altitude: alt
+                altitude: alt > -500 && alt < 10000 ? alt : undefined
               });
 
               z += layout.recordSize;
@@ -343,6 +343,7 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
     latitude: Number(r.lat.toFixed(7)),
     longitude: Number(r.lon.toFixed(7)),
     altitude: Number((r.altitude ?? 0).toFixed(1)),
+    ...(r.altitude === undefined ? { altitudeMissing: true } : {}),
     ...(r.satellites !== undefined ? { satellites: r.satellites } : {}),
     speed: Number(r.speedKmh.toFixed(2)),
     heading: r.heading ?? 0,

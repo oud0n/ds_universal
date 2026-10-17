@@ -7,6 +7,7 @@ export interface TelemetryPoint {
   latitude: number;      // 緯度 (度)
   longitude: number;     // 経度 (度)
   altitude: number;      // 標高 (m)
+  altitudeMissing?: boolean; // 標高が記録されていない点 (altitude は 0。書き出しでは空欄にする)
   speed: number;         // 車速 (km/h)
   heading: number;       // 方位角 (0-360度)
   distance: number;      // 累積走行距離 (km)
