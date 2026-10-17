@@ -1039,22 +1039,23 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             )}
           </>
         ) : (
-          <div className="flex flex-col items-center justify-center w-full h-full p-8 text-center space-y-3">
-            <div className="p-4 rounded bg-surface-2 text-slate-400 border border-line-2">
-              <Video size={40} className="text-red-500" />
-            </div>
-            <h3 className="text-sm font-bold text-slate-200">車載動画（オンボード映像）を読み込む</h3>
-            <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
-              GoPro（H.265 / HEVC 4GBチャプター分割対応）や複数カメラの MP4 / MOV 動画をここにドラッグ＆ドロップしてください。
-            </p>
-            <div className="flex items-center gap-2 pt-1">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition-colors cursor-pointer"
-              >
-                <Upload size={13} />
-                動画ファイルを選択
-              </button>
+          // 動画がないときの案内。狭いウインドウでも切れないよう、大きなアイコンは出さず、はみ出したらスクロールする
+          // (中央に寄せるのは m-auto で行う。justify-center だと、収まらないときに上が切れてスクロールでも見えないため)
+          <div className="flex flex-col w-full h-full p-3 overflow-y-auto">
+            <div className="m-auto flex flex-col items-center text-center space-y-2">
+              <h3 className="text-sm font-bold text-slate-200">車載動画（オンボード映像）を読み込む</h3>
+              <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
+                GoPro（H.265 / HEVC 4GBチャプター分割対応）や複数カメラの MP4 / MOV 動画をここにドラッグ＆ドロップしてください。
+              </p>
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition-colors cursor-pointer"
+                >
+                  <Upload size={13} />
+                  動画ファイルを選択
+                </button>
+              </div>
             </div>
           </div>
         )}
