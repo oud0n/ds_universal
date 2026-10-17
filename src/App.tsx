@@ -806,8 +806,6 @@ export const App: React.FC = () => {
       currentTime={currentTimeSec}
       compareAxis={compareAxis}
       onSeekDistance={handleSeekDistance}
-      // パソコン表示では、ツールバーの右端にたたむボタンを出す
-      onCollapse={isCompact ? undefined : () => toggleCollapsed('map', true)}
     />
   );
   const frictionEl = (
@@ -1096,18 +1094,25 @@ export const App: React.FC = () => {
               style={{ width: `${(1 - horizSplit.ratio) * 100}%` }}
               className={`flex-col h-full overflow-hidden min-w-[200px] ${rightCollapsed ? 'hidden' : 'flex'}`}
             >
-              {/* 右上: 全コースウインドウ (たたむと名前の帯だけ残す。表示の設定を消さないよう、外さずに隠す) */}
-              {collapsed.map && (
-                <div className="shrink-0 mb-2 flex items-center justify-between bg-surface-2 border border-line-1 rounded px-2 py-1 text-[11px] font-bold text-slate-400">
-                  <button onClick={() => toggleCollapsed('map', false)} className="hover:text-slate-200 cursor-pointer">全コースウインドウ</button>
-                  <CollapseButton collapsed onClick={() => toggleCollapsed('map', false)} />
-                </div>
-              )}
+              {/* 右上: 全コースウインドウ。下のウインドウと同じく上に帯を付け、たたむと帯だけ残す (表示の設定を消さないよう、外さずに隠す) */}
               <div
                 style={collapsed.map || collapsed.sub ? undefined : { height: `${rightVertSplit.ratio * 100}%` }}
-                className={`min-h-[120px] overflow-hidden ${collapsed.map ? 'hidden' : collapsed.sub ? 'flex-1' : ''}`}
+                className={`overflow-hidden flex flex-col bg-surface-1 rounded border border-line-1 ${
+                  collapsed.map ? 'shrink-0 mb-2' : collapsed.sub ? 'flex-1 min-h-[120px]' : 'min-h-[120px]'
+                }`}
               >
-                {trackMapEl}
+                <div className={`flex items-center bg-surface-2 p-1 text-[11px] gap-1 shrink-0 ${collapsed.map ? '' : 'border-b border-line-1'}`}>
+                  <button
+                    onClick={() => toggleCollapsed('map', false)}
+                    className="px-3 py-0.5 rounded font-bold bg-emerald-600 text-white cursor-pointer"
+                  >
+                    全コースウインドウ
+                  </button>
+                  <CollapseButton collapsed={collapsed.map} onClick={() => toggleCollapsed('map')} />
+                </div>
+                <div className={`flex-1 min-h-0 overflow-hidden ${collapsed.map ? 'hidden' : ''}`}>
+                  {trackMapEl}
+                </div>
               </div>
 
               {/* 右上下スプリッター */}
