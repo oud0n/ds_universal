@@ -44,7 +44,7 @@ P0〜P2 は完了（P2 は実データ確認が残り）。P3（多言語化・�
 - [ ] **UI 修正案の反映**
 - [ ] **スマートフォン向けレイアウト**（ブラウザ版）: ロガー設定タブ（USB 通信）はスマートフォン・タブレットでは出さない（2026-10-17 対応済み）。iPhone / iPad は Web Serial 非対応、Android の Chrome も USB 接続のシリアルは使えないため
 - [x] **（2026-10-17 対応）アプリ名の表記の統一**: 「DS Universal」に統一した（画面・README・書き出すファイルの作成元・Electron の productName）。デスクトップ版のデータの保存先は、前の名前のフォルダ（DS Universal Suite）を使い続ける
-- [ ] **README のロゴ差し替え**: 新しいアイコン（`build/icon.svg`）に置き換える（アプリ内ヘッダーのロゴ「DS-ANALYSER」と名称「DS Universal Analyser」は 2026-10-17 に削除した）
+- [x] **（2026-10-17 対応）README のロゴ差し替え**: 新しいアイコン（`build/icon.svg`）に置き換える（アプリ内ヘッダーのロゴ「DS-ANALYSER」と名称「DS Universal Analyser」は 2026-10-17 に削除した）
 - [x] **（2026-10-17 対応）ブラウザ版（GitHub Pages）のファビコン設定**: `index.html` が存在しない `/vite.svg` を参照しており 404 になっているため、`build/icon.svg`（および `apple-touch-icon` 用の `build/icon.png`）を `public/` に配置して相対パスで参照させる
 
 ---
