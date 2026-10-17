@@ -88,8 +88,10 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
 
   const handleAddSector = () => {
     const nextIdx = sectors.length + 1;
+    // 最後がフィニッシュ (計測線まで) のときは、その前に足す (フィニッシュより後ろのセクターは区間がおかしくなる)
+    const finishIdx = sectors.length > 0 && sectors[sectors.length - 1].id.endsWith('_finish') ? sectors.length - 1 : sectors.length;
     setSectors([
-      ...sectors,
+      ...sectors.slice(0, finishIdx),
       {
         id: `custom_s${Date.now()}`,
         name: `Sector ${nextIdx}`,
@@ -97,7 +99,8 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
         lonA: (parseFloat(clLonA) || 0) + 0.002 * nextIdx,
         latB: (parseFloat(clLatB) || 0) + 0.002 * nextIdx,
         lonB: (parseFloat(clLonB) || 0) + 0.002 * nextIdx
-      }
+      },
+      ...sectors.slice(finishIdx)
     ]);
   };
 
@@ -123,6 +126,14 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
     return { name: 'Start/Finish Line', latA, lonA, latB, lonB };
   };
 
+  // 緯度・経度の正しくないセクター (空欄・範囲外・0,0・2 点が同じ)
+  const findBadSector = (list: Sector[]) => list.find(sec =>
+    ![sec.latA, sec.lonA, sec.latB, sec.lonB].every(Number.isFinite) ||
+    Math.abs(sec.latA) > 90 || Math.abs(sec.latB) > 90 || Math.abs(sec.lonA) > 180 || Math.abs(sec.lonB) > 180 ||
+    (sec.latA === 0 && sec.lonA === 0) || (sec.latB === 0 && sec.lonB === 0) ||
+    (sec.latA === sec.latB && sec.lonA === sec.lonB)
+  );
+
   // フィニッシュのセクター (id が _finish で終わる) は、計測線と同じ線にする (計測線を直したら付いていく)
   const withFinish = (list: Sector[], cl: ControlLine): Sector[] =>
     list.map(s => (s.id.endsWith('_finish') ? { ...s, latA: cl.latA, lonA: cl.lonA, latB: cl.latB, lonB: cl.lonB } : s));
@@ -134,6 +145,9 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
     const done: string[] = [];
     const errors: string[] = [];
     let cl = readControlLine();
+    const sciCount = list.filter(f => /\.sci$/i.test(f.name)).length;
+    if (sciCount > 1) errors.push('.sci を複数選んだので、最後のものだけを使いました');
+    if (list.filter(f => /\.cln$/i.test(f.name)).length > 1) errors.push('.cln を複数選んだので、最後のものだけを使いました');
     for (const f of list) {
       try {
         const text = await f.text();
@@ -171,9 +185,17 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
       setSaveError('計測線の 2 点の緯度・経度を正しく入力してください');
       return;
     }
-    const base = (name.trim() || 'course').replace(/[\\/:*?"<>|]/g, '_');
+    const finished = withFinish(sectors, cl);
+    const badSector = findBadSector(finished);
+    if (badSector) {
+      setSaveError(`セクター「${badSector.name}」の 2 点の緯度・経度を正しく入力してください`);
+      return;
+    }
+    setSaveError('');
+    // ファイル名に使えない文字と、末尾の点・空白 (Windows で使えない) を置き換える
+    const base = (name.trim() || 'course').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/[. ]+$/, '') || 'course';
     downloadText(exportCln(cl), `cl_${base}.cln`);
-    const sci = exportSci(withFinish(sectors, cl), cl);
+    const sci = exportSci(finished, cl);
     if (sci) downloadText(sci, `${base}.sci`);
     setFileMessage(sci ? `書き出しました: cl_${base}.cln, ${base}.sci` : `書き出しました: cl_${base}.cln (セクターがないので .sci は書き出していません)`);
   };
@@ -190,19 +212,20 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
       setSaveError('計測線の 2 点の緯度・経度を正しく入力してください');
       return;
     }
-    const badSector = sectors.find(sec =>
-      ![sec.latA, sec.lonA, sec.latB, sec.lonB].every(Number.isFinite) ||
-      Math.abs(sec.latA) > 90 || Math.abs(sec.latB) > 90 || Math.abs(sec.lonA) > 180 || Math.abs(sec.lonB) > 180 ||
-      (sec.latA === 0 && sec.lonA === 0) || (sec.latB === 0 && sec.lonB === 0) ||
-      (sec.latA === sec.latB && sec.lonA === sec.lonB)
-    );
+    const newControlLine: ControlLine = { name: 'Start/Finish Line', latA, lonA, latB, lonB };
+    const badSector = findBadSector(withFinish(sectors, newControlLine));
     if (badSector) {
       setSaveError(`セクター「${badSector.name}」の 2 点の緯度・経度を正しく入力してください`);
       return;
     }
-    const newControlLine: ControlLine = { name: 'Start/Finish Line', latA, lonA, latB, lonB };
+    const saveName = name.trim() || 'カスタムコース';
+    // 同じ名前で別の場所のコースを保存していたら、上書きしてよいか聞く (名前を付けずに別のコースで保存したときなど)
+    if (remember && userCircuitStorage.isEditedNameUsedElsewhere(saveName, newControlLine) &&
+        !confirm(`「${saveName}」という名前で、別の場所のコースを保存しています。上書きしますか？ (残すときは、キャンセルしてコース名を変えてください)`)) {
+      return;
+    }
 
-    onSaveCircuit(name.trim() || 'カスタムコース', newControlLine, withFinish(sectors, newControlLine), remember);
+    onSaveCircuit(saveName, newControlLine, withFinish(sectors, newControlLine), remember);
     onClose();
   };
 
@@ -377,6 +400,9 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                       <Trash2 size={13} />
                     </button>
                   </div>
+                  {sec.id.endsWith('_finish') && (
+                    <p className="text-[10px] text-slate-500">フィニッシュ (計測線まで)。位置は計測線と同じになります</p>
+                  )}
                   <div className="grid grid-cols-4 gap-2 text-[10px] font-mono">
                     <input
                       type="number"
@@ -384,7 +410,8 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                       value={sec.latA}
                       onChange={e => handleUpdateSector(idx, 'latA', parseFloat(e.target.value) || 0)}
                       placeholder="Lat A"
-                      className="bg-surface-2 border border-line-3 rounded p-1"
+                      disabled={sec.id.endsWith('_finish')}
+                      className="bg-surface-2 border border-line-3 rounded p-1 disabled:opacity-60"
                     />
                     <input
                       type="number"
@@ -392,7 +419,8 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                       value={sec.lonA}
                       onChange={e => handleUpdateSector(idx, 'lonA', parseFloat(e.target.value) || 0)}
                       placeholder="Lon A"
-                      className="bg-surface-2 border border-line-3 rounded p-1"
+                      disabled={sec.id.endsWith('_finish')}
+                      className="bg-surface-2 border border-line-3 rounded p-1 disabled:opacity-60"
                     />
                     <input
                       type="number"
@@ -400,7 +428,8 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                       value={sec.latB}
                       onChange={e => handleUpdateSector(idx, 'latB', parseFloat(e.target.value) || 0)}
                       placeholder="Lat B"
-                      className="bg-surface-2 border border-line-3 rounded p-1"
+                      disabled={sec.id.endsWith('_finish')}
+                      className="bg-surface-2 border border-line-3 rounded p-1 disabled:opacity-60"
                     />
                     <input
                       type="number"
@@ -408,7 +437,8 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                       value={sec.lonB}
                       onChange={e => handleUpdateSector(idx, 'lonB', parseFloat(e.target.value) || 0)}
                       placeholder="Lon B"
-                      className="bg-surface-2 border border-line-3 rounded p-1"
+                      disabled={sec.id.endsWith('_finish')}
+                      className="bg-surface-2 border border-line-3 rounded p-1 disabled:opacity-60"
                     />
                   </div>
                 </div>

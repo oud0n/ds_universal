@@ -358,6 +358,8 @@ class UserCircuitStorage {
   private circuits: UserCircuitItem[] = [];
   private loose: LoosePolyline[] = [];
   private edited: UserCircuitItem[] = [];
+  // 保存済みのデータを読めなかったか。読めなかったときは、保存済みのデータを空で上書きしないよう保存しない
+  private loadFailed = false;
   /** 保存済みのデータの読み込みが終わると解決する。コースの判定の前に待つ */
   public readonly ready: Promise<void>;
 
@@ -371,6 +373,7 @@ class UserCircuitStorage {
       data = await dbGet<StoredData>(DB_KEY);
     } catch (e) {
       console.warn('[UserCircuit] IndexedDB を開けません:', e);
+      this.loadFailed = true;
     }
     if (data) {
       this.files = data.files || [];
@@ -459,6 +462,9 @@ class UserCircuitStorage {
 
   /** 今の内容を保存する */
   private async persist(): Promise<{ saved: boolean; saveError?: string }> {
+    if (this.loadFailed) {
+      return { saved: false, saveError: '保存済みのコースを読み込めなかったため、消さないよう保存していません (アプリを開き直してください)' };
+    }
     try {
       await dbPut(DB_KEY, { files: this.files, circuits: this.circuits, loose: this.loose, edited: this.edited } satisfies StoredData);
       return { saved: true };
@@ -479,14 +485,21 @@ class UserCircuitStorage {
     polylines?: Array<Array<[number, number]>>
   ): Promise<{ saved: boolean; saveError?: string }> {
     await this.ready.catch(() => undefined);
+    // コース図が今はないとき (取得中など) は、同じ名前で前に保存したコース図を (同じ場所なら) 引き継ぐ
+    const prev = this.edited.find(c => c.name === name);
+    const prevPolylines = prev?.polylines && distM(lineMid(prev.controlLine).lat, lineMid(prev.controlLine).lon, lineMid(controlLine).lat, lineMid(controlLine).lon) < 1000
+      ? prev.polylines
+      : undefined;
+    const keptPolylines = polylines ?? prevPolylines;
     const item: UserCircuitItem = {
       id: `edited:${name}`,
       name,
       controlLine: { ...controlLine, name },
       sectors,
-      ...(polylines ? { polylines } : {}),
+      ...(keptPolylines ? { polylines: keptPolylines } : {}),
       sources: { cln: 'edited' }
     };
+    // 新しく保存したものを最後に置く (同じ場所に複数あるときは、後に保存したものを使う)
     this.edited = [...this.edited.filter(c => c.name !== name), item];
     return this.persist();
   }
@@ -494,6 +507,15 @@ class UserCircuitStorage {
   /** コース編集で保存したコース */
   public getEditedCircuits(): UserCircuitItem[] {
     return this.edited;
+  }
+
+  /** 同じ名前で保存したコースが、別の場所 (計測線が 1 km 以上離れている) にあるか */
+  public isEditedNameUsedElsewhere(name: string, controlLine: ControlLine): boolean {
+    const prev = this.edited.find(c => c.name === name);
+    if (!prev) return false;
+    const a = lineMid(prev.controlLine);
+    const b = lineMid(controlLine);
+    return distM(a.lat, a.lon, b.lat, b.lon) >= 1000;
   }
 
   /** コース編集で保存したコースを消す */
@@ -514,7 +536,6 @@ class UserCircuitStorage {
     maxDistMeters = 15000,
     points?: TelemetryPoint[]
   ): { circuit: UserCircuitItem; crossings: number } | null {
-    // コース編集で保存したコースを先に並べ、通過した回数が同じなら、そちらを選ぶ (利用者が直した最新の設定のため)
     const near = [...this.edited, ...this.circuits]
       .map(c => ({ c, d: distM(lat, lon, lineMid(c.controlLine).lat, lineMid(c.controlLine).lon) }))
       .filter(x => x.d < maxDistMeters)
@@ -524,11 +545,18 @@ class UserCircuitStorage {
     // 走行データがなければ、通過したかは分からないので近いものを返す (crossings は -1)
     if (!points) return { circuit: near[0].c, crossings: -1 };
     // 周回の数ではなく計測線を通過した回数で比べる (通過が 1 回で、通過より前の方が長いログは周回が「ログ全体」になり、0 周と区別できないため)
+    const counted = near.map(({ c }) => ({ c, count: countGateCrossings(points, c.controlLine) }));
+    // コース編集で保存したコースの計測線を通過していれば、読み込んだコースデータより優先する (利用者が直した設定のため。
+    // 計測線を動かすと通過の回数が変わるので、回数では比べない)。保存したコースどうしは回数で比べ、同じなら後に保存したものを使う
+    const editedOrder = (c: UserCircuitItem) => this.edited.indexOf(c);
+    const crossedEdited = counted
+      .filter(x => isEdited(x.c) && x.count > 0)
+      .sort((a, b) => b.count - a.count || editedOrder(b.c) - editedOrder(a.c));
+    if (crossedEdited.length > 0) return { circuit: crossedEdited[0].c, crossings: crossedEdited[0].count };
     let best = near[0].c;
     let bestCount = 0;
-    for (const { c } of near) {
-      const count = countGateCrossings(points, c.controlLine);
-      if (count > bestCount || (count > 0 && count === bestCount && isEdited(c) && !isEdited(best))) {
+    for (const { c, count } of counted) {
+      if (count > bestCount) {
         bestCount = count;
         best = c;
       }
