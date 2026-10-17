@@ -6,9 +6,18 @@ import {
 } from '../services/logConverter';
 import { exportDtb } from '../services/dtbParser';
 import { triggerFileDownload } from '../services/nmeaExporter';
+import { exportDigispiceCsv, exportLapListCsv } from '../services/csvParser';
+import { MOTEC_CSV_ENABLED, exportMotecCsv } from '../services/externalFormats';
+import { GFilterLevel } from '../services/physics';
+import { TrimPreview } from './TrimPreview';
 
 interface ConvertTabProps {
   sessions: Session[];
+  // 書き出すログ (データ管理の「変換画面で開く」で選ばれる)。見つからなければ defaultSessionId のログ
+  sessionId: string;
+  defaultSessionId?: string;
+  onSelectSession: (sessionId: string) => void;
+  gFilterLevel: GFilterLevel;
   onOpenFile: () => void;
   onDropFiles: (files: FileList) => void;
 }
@@ -18,8 +27,9 @@ type RangeKind = 'all' | 'lap' | 'time';
 const fmtTime = (d: Date) => d.toISOString().replace('T', ' ').slice(0, 23);
 
 // 走行ログを他の形式 (NMEA / GPX / CSV / DTB / 地図 HTML) に書き出すページ
-export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, onDropFiles }) => {
-  const [sessionId, setSessionId] = useState<string>('');
+const G_LEVEL_LABEL: Record<GFilterLevel, string> = { weak: '弱', standard: '標準', strong: '強' };
+
+export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, defaultSessionId, onSelectSession, gFilterLevel, onOpenFile, onDropFiles }) => {
   const [rangeKind, setRangeKind] = useState<RangeKind>('all');
   const [lapNumber, setLapNumber] = useState<number>(1);
   const [startSec, setStartSec] = useState<string>('0');
@@ -29,11 +39,10 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
   const [includeGga, setIncludeGga] = useState(true);
   const [dragOver, setDragOver] = useState(false);
 
-  // 選択中のセッションが無くなったら、最後に読み込んだものを選ぶ
-  const session = sessions.find(s => s.id === sessionId) ?? sessions[sessions.length - 1];
-  useEffect(() => {
-    if (session && session.id !== sessionId) setSessionId(session.id);
-  }, [session, sessionId]);
+  // 選ばれたログが無ければ (最初や、削除されたとき) 基準車のログ、それも無ければ最後に読み込んだもの
+  const session = sessions.find(s => s.id === sessionId)
+    ?? sessions.find(s => s.id === defaultSessionId)
+    ?? sessions[sessions.length - 1];
 
   const duration = session && session.points.length > 0
     ? session.points[session.points.length - 1].time - session.points[0].time
@@ -45,7 +54,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
     setRangeKind('all');
     setLapNumber(session.laps[session.bestLapIndex]?.lapNumber ?? session.laps[0]?.lapNumber ?? 1);
     setStartSec('0');
-    setEndSec(duration.toFixed(1));
+    setEndSec(String(duration));
   }, [session?.id]);
 
   const range: ConvertRange = useMemo(() => {
@@ -62,6 +71,29 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
     }
     return { kind: 'all' };
   }, [rangeKind, lapNumber, startSec, endSec, session, duration]);
+
+  // 切り出しのプレビューに出す範囲 (ログの先頭からの秒)。ラップ・ログ全体を選んでいるときは、その範囲を出す
+  const t0 = session?.points[0]?.time ?? 0;
+  const previewRange = useMemo((): [number, number] => {
+    if (rangeKind === 'time') return [range.kind === 'time' ? range.startSec - t0 : 0, range.kind === 'time' ? range.endSec - t0 : duration];
+    if (rangeKind === 'lap') {
+      const lap = session?.laps.find(l => l.lapNumber === lapNumber);
+      if (lap) return [Math.max(0, lap.startTime - t0), Math.min(duration, lap.endTime - t0)];
+    }
+    return [0, duration];
+  }, [rangeKind, range, lapNumber, session, t0, duration]);
+  // プレビューで範囲を動かしたら、時間での指定に切り替える
+  const handleTrimChange = (a: number, b: number) => {
+    setRangeKind('time');
+    // (丸めない。丸めると、選んだ地点や最後の点が範囲から外れるため)
+    setStartSec(String(a));
+    setEndSec(String(b));
+  };
+  const handleTrimReset = () => {
+    setRangeKind('all');
+    setStartSec('0');
+    setEndSec(String(duration));
+  };
 
   const points = useMemo(
     () => (session ? selectConvertPoints(session, range, offsetHours) : []),
@@ -102,8 +134,17 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
     URL.revokeObjectURL(url);
   };
 
-  const inputCls = 'bg-[#10131a] border border-[#2d364c] text-xs text-slate-200 rounded-lg px-3 py-2 outline-none focus:border-red-500';
-  const btnCls = 'flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#222838] hover:bg-[#2c344a] text-xs text-slate-200 border border-[#333d54] transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
+  // 範囲に入っている周 (ラップ一覧 CSV 用)
+  const lapsInRange = useMemo(() => {
+    if (!session) return [];
+    if (rangeKind === 'all') return session.laps;
+    if (rangeKind === 'lap') return session.laps.filter(l => l.lapNumber === lapNumber);
+    if (range.kind !== 'time') return [];
+    return session.laps.filter(l => l.startTime >= range.startSec - 1e-6 && l.endTime <= range.endSec + 1e-6);
+  }, [session, rangeKind, lapNumber, range]);
+
+  const inputCls = 'bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg px-3 py-2 outline-none focus:border-red-500';
+  const btnCls = 'flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-surface-4 hover:bg-surface-5 text-xs text-slate-200 border border-line-4 transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
   const disabled = points.length === 0;
 
   return (
@@ -118,7 +159,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
             setDragOver(false);
             if (e.dataTransfer.files.length > 0) onDropFiles(e.dataTransfer.files);
           }}
-          className={`bg-[#181c26] border rounded-xl p-5 flex flex-col sm:flex-row items-center gap-4 ${dragOver ? 'border-red-500' : 'border-[#272f42]'}`}
+          className={`bg-surface-2 border rounded-xl p-5 flex flex-col sm:flex-row items-center gap-4 ${dragOver ? 'border-red-500' : 'border-line-2'}`}
         >
           <div className="p-2.5 rounded-lg bg-red-500/10 text-red-400"><Repeat size={20} /></div>
           <div className="flex-1 text-center sm:text-left">
@@ -135,19 +176,19 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
         </div>
 
         {!session ? (
-          <div className="bg-[#181c26] border border-[#272f42] rounded-xl p-8 text-center text-xs text-slate-500">
+          <div className="bg-surface-2 border border-line-2 rounded-xl p-8 text-center text-xs text-slate-500">
             まだログが読み込まれていません。
           </div>
         ) : (
           <>
             {/* 設定 */}
-            <div className="bg-[#181c26] border border-[#272f42] rounded-xl p-4 space-y-3">
+            <div className="bg-surface-2 border border-line-2 rounded-xl p-4 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className="text-xs text-slate-400 space-y-1 block">
                   <span>対象のログ</span>
-                  <select value={session.id} onChange={e => setSessionId(e.target.value)} className={`${inputCls} w-full`} data-testid="convert-session">
+                  <select value={session.id} onChange={e => onSelectSession(e.target.value)} className={`${inputCls} w-full`} data-testid="convert-session">
                     {sessions.map(s => (
-                      <option key={s.id} value={s.id}>{s.sessionName}（{s.points.length} 点）</option>
+                      <option key={s.id} value={s.id}>{s.fileName}{s.sessionName !== s.fileName.replace(/\.[^/.]+$/, '') ? `（${s.sessionName}）` : ''}　{s.date}　{s.circuitName || '一般コース'}　{s.laps.length} 周（{s.points.length} 点）</option>
                     ))}
                   </select>
                 </label>
@@ -174,19 +215,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
                 </label>
               )}
 
-              {rangeKind === 'time' && (
-                <div className="flex items-end gap-2 flex-wrap">
-                  <label className="text-xs text-slate-400 space-y-1 block">
-                    <span>開始（先頭からの秒）</span>
-                    <input type="number" min={0} step={0.1} value={startSec} onChange={e => setStartSec(e.target.value)} className={`${inputCls} w-36`} data-testid="convert-start" />
-                  </label>
-                  <label className="text-xs text-slate-400 space-y-1 block">
-                    <span>終了（先頭からの秒）</span>
-                    <input type="number" min={0} step={0.1} value={endSec} onChange={e => setEndSec(e.target.value)} className={`${inputCls} w-36`} data-testid="convert-end" />
-                  </label>
-                  <span className="text-[11px] text-slate-500 pb-2">ログの長さ: {duration.toFixed(1)} 秒</span>
-                </div>
-              )}
+              {/* 時間で指定するときの範囲は、下の切り出しのプレビューで指定する */}
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <label className="text-xs text-slate-400 space-y-1 block">
@@ -211,8 +240,18 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
               </div>
             </div>
 
+            {/* 切り出し (範囲のプレビューと指定) */}
+            <TrimPreview
+              session={session}
+              startSec={previewRange[0]}
+              endSec={previewRange[1]}
+              onChange={handleTrimChange}
+              onReset={handleTrimReset}
+              offsetHours={offsetHours}
+            />
+
             {/* 概要 */}
-            <div className="bg-[#181c26] border border-[#272f42] rounded-xl p-4 text-xs text-slate-300 font-mono" data-testid="convert-summary">
+            <div className="bg-surface-2 border border-line-2 rounded-xl p-4 text-xs text-slate-300 font-mono" data-testid="convert-summary">
               {summary ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
                   <span>点数: {points.length}</span>
@@ -233,31 +272,61 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
             </div>
 
             {/* 書き出し */}
-            <div className="bg-[#181c26] border border-[#272f42] rounded-xl p-4">
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                <button disabled={disabled} className={btnCls} data-testid="convert-nmea"
-                  onClick={() => save('nmea', convertToNmea(points, talkerId, includeGga), 'text/plain')}>
-                  <Download size={13} /> NMEA
-                </button>
-                <button disabled={disabled} className={btnCls} data-testid="convert-gpx"
-                  onClick={() => save('gpx', convertToGpx(points, baseName), 'application/gpx+xml')}>
-                  <Download size={13} /> GPX
-                </button>
-                <button disabled={disabled} className={btnCls} data-testid="convert-csv"
-                  onClick={() => save('csv', convertToCsv(points), 'text/csv')}>
-                  <Download size={13} /> CSV
-                </button>
-                <button disabled={disabled} className={btnCls} data-testid="convert-dtb" onClick={saveDtb}>
-                  <Download size={13} /> DTB
-                </button>
-                <button disabled={disabled} className={btnCls} data-testid="convert-html"
-                  onClick={() => save('html', convertToHtmlMap(points, baseName), 'text/html')}>
-                  <Download size={13} /> 地図 HTML
-                </button>
+            <div className="bg-surface-2 border border-line-2 rounded-xl p-4 space-y-4">
+              <div>
+                <h3 className="text-xs font-bold text-slate-300 mb-2">位置のログ</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button disabled={disabled} className={btnCls} data-testid="convert-nmea"
+                    onClick={() => save('nmea', convertToNmea(points, talkerId, includeGga), 'text/plain')}>
+                    <Download size={13} /> NMEA
+                  </button>
+                  <button disabled={disabled} className={btnCls} data-testid="convert-gpx"
+                    onClick={() => save('gpx', convertToGpx(points, baseName), 'application/gpx+xml')}>
+                    <Download size={13} /> GPX
+                  </button>
+                  <button disabled={disabled} className={btnCls} data-testid="convert-csv"
+                    onClick={() => save('csv', convertToCsv(points), 'text/csv')}>
+                    <Download size={13} /> CSV
+                  </button>
+                  <button disabled={disabled} className={btnCls} data-testid="convert-html"
+                    onClick={() => save('html', convertToHtmlMap(points, baseName), 'text/html')}>
+                    <Download size={13} /> 地図 HTML
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-2">
+                  NMEA / GPX は RaceChrono などの解析アプリに読み込めます。CSV は位置・速度・方位・衛星数の表です。記録されていない項目（標高・衛星数）は空欄にします。
+                  地図 HTML は開くときにインターネット接続が必要です（地図は OpenStreetMap、表示用のスクリプトは unpkg.com から読み込みます）。
+                </p>
               </div>
-              <p className="text-[11px] text-slate-500 mt-3">
-                NMEA / GPX は RaceChrono などの解析アプリに読み込めます。地図 HTML は開くときにインターネット接続が必要です（地図は OpenStreetMap、表示用のスクリプトは unpkg.com から読み込みます）。
-              </p>
+              <div>
+                <h3 className="text-xs font-bold text-slate-300 mb-2">解析データ（G などの計算値を含む）</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button disabled={disabled} className={btnCls} data-testid="convert-dscsv"
+                    onClick={() => triggerFileDownload(`${baseName}_telemetry.csv`, exportDigispiceCsv(toTelemetryPoints(points)), 'text/csv;charset=utf-8')}
+                    title="デジスパイス公式ソフトと同じ列の CSV（旋回半径・G 付き）">
+                    <Download size={13} /> 走行データCSV
+                  </button>
+                  <button disabled={lapsInRange.length === 0} className={btnCls} data-testid="convert-lapcsv"
+                    onClick={() => triggerFileDownload(`${baseName}_lap_list.csv`, exportLapListCsv(lapsInRange), 'text/csv;charset=utf-8')}
+                    title="範囲に入っている周のラップタイム一覧">
+                    <Download size={13} /> ラップ一覧CSV
+                  </button>
+                  <button disabled={disabled} className={btnCls} data-testid="convert-dtb" onClick={saveDtb}
+                    title="デジスパイスの .dtb 形式">
+                    <Download size={13} /> DTB
+                  </button>
+                  {MOTEC_CSV_ENABLED && (
+                    <button disabled={disabled} className={btnCls} onClick={() => triggerFileDownload(`${session.sessionName.replace(/[\\/:*?"<>|]/g, '_')}_motec.csv`, exportMotecCsv(session), 'text/csv;charset=utf-8')}
+                      title="MoTeC CSV 形式 (i2 の CSV エクスポートと同じ書式)。範囲によらずログ全体">
+                      <Download size={13} /> MoTeC CSV
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-2" data-testid="convert-gnote">
+                  G・旋回半径は、いまの「G のならし方」（{G_LEVEL_LABEL[gFilterLevel]}）で計算した値です。ならし方はデータ管理で変えられます。
+                  ラップ一覧は、書き出す範囲に収まる周だけを出します（{lapsInRange.length} 周）。
+                </p>
+              </div>
             </div>
           </>
         )}

@@ -16,7 +16,7 @@ export interface ConvertedPoint {
   elapsed: number;   // 範囲の先頭からの経過秒
   latitude: number;
   longitude: number;
-  altitude: number;
+  altitude: number | null; // 記録されていなければ null (書き出しでは空欄・省略)
   speed: number;     // km/h
   heading: number;
   satellites: number | null;
@@ -68,7 +68,7 @@ export function selectConvertPoints(session: Session, range: ConvertRange, offse
       elapsed: p.time - t0,
       latitude: p.latitude,
       longitude: p.longitude,
-      altitude: Number.isFinite(p.altitude) ? p.altitude : 0,
+      altitude: !p.altitudeMissing && Number.isFinite(p.altitude) ? p.altitude : null,
       speed: Number.isFinite(p.speed) ? p.speed : 0,
       heading: Number.isFinite(p.heading) ? p.heading : 0,
       satellites: Number.isInteger(p.satellites) ? (p.satellites as number) : null,
@@ -106,9 +106,10 @@ export function convertToNmea(points: ConvertedPoint[], talkerId: 'GP' | 'GN' = 
     const lat = formatNmeaCoord(p.latitude, true);
     const lon = formatNmeaCoord(p.longitude, false);
     if (includeGga) {
-      // 記録されていない項目 (衛星数・HDOP・ジオイド高) は固定値で埋めず、空欄にする
+      // 記録されていない項目 (衛星数・HDOP・標高・ジオイド高) は固定値で埋めず、空欄にする
       const sat = p.satellites != null ? pad(Math.min(99, Math.max(0, p.satellites))) : '';
-      lines.push(createNmeaSentence(`${talkerId}GGA,${timeStr},${lat.nmea},${lat.dir},${lon.nmea},${lon.dir},1,${sat},,${p.altitude.toFixed(1)},M,,M,,`).trimEnd());
+      const alt = p.altitude != null ? p.altitude.toFixed(1) : '';
+      lines.push(createNmeaSentence(`${talkerId}GGA,${timeStr},${lat.nmea},${lat.dir},${lon.nmea},${lon.dir},1,${sat},,${alt},M,,M,,`).trimEnd());
     }
     lines.push(createNmeaSentence(`${talkerId}RMC,${timeStr},A,${lat.nmea},${lat.dir},${lon.nmea},${lon.dir},${(p.speed / 1.852).toFixed(1)},${p.heading.toFixed(2)},${dateStr},,,A`).trimEnd());
   }
@@ -126,8 +127,8 @@ export function convertToGpx(points: ConvertedPoint[], trackName: string): strin
   const body = points
     .map(p => {
       const sat = p.satellites != null ? `\n        <sat>${p.satellites}</sat>` : '';
-      return `      <trkpt lat="${p.latitude.toFixed(7)}" lon="${p.longitude.toFixed(7)}">
-        <ele>${p.altitude.toFixed(1)}</ele>
+      const ele = p.altitude != null ? `\n        <ele>${p.altitude.toFixed(1)}</ele>` : '';
+      return `      <trkpt lat="${p.latitude.toFixed(7)}" lon="${p.longitude.toFixed(7)}">${ele}
         <time>${p.time.toISOString()}</time>${sat}
         <extensions>
           <gpxtpx:TrackPointExtension>
@@ -139,7 +140,7 @@ export function convertToGpx(points: ConvertedPoint[], trackName: string): strin
     })
     .join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="DS Universal Suite" xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v2">
+<gpx version="1.1" creator="DS Universal" xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v2">
   <metadata>
     <name>${name}</name>
     <time>${new Date().toISOString()}</time>
@@ -165,7 +166,7 @@ export function convertToCsv(points: ConvertedPoint[]): string {
       p.elapsed.toFixed(3),
       p.latitude.toFixed(7),
       p.longitude.toFixed(7),
-      p.altitude.toFixed(1),
+      p.altitude != null ? p.altitude.toFixed(1) : '',
       p.speed.toFixed(2),
       p.heading.toFixed(2),
       p.satellites ?? '',

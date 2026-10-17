@@ -1,7 +1,7 @@
 {
   "name": "ds-universal",
-  "version": "0.8.0",
-  "description": "DS Universal Suite - GPS Data Logger Communication & Motorsports Telemetry Analyser",
+  "version": "0.9.0",
+  "description": "DS Universal - GPS Data Logger Communication & Motorsports Telemetry Analyser",
   "license": "PolyForm-Noncommercial-1.0.0",
   "author": {
     "name": "oud0n",

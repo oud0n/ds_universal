@@ -110,6 +110,7 @@ export function interpolatePoint(
     latitude: lerp(a.latitude, b.latitude),
     longitude: lerp(a.longitude, b.longitude),
     altitude: lerp(a.altitude, b.altitude),
+    altitudeMissing: a.altitudeMissing || b.altitudeMissing ? true : undefined,
     speed: lerp(a.speed, b.speed),
     heading: (a.heading + dh * r + 360) % 360
   };

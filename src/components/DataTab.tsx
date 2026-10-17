@@ -1,13 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Session, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
-import { exportDigispiceCsv, exportLapListCsv } from '../services/csvParser';
-import { exportNmea, exportGpx } from '../services/nmeaParser';
-import { exportDtb } from '../services/dtbParser';
-import { MOTEC_CSV_ENABLED, exportMotecCsv } from '../services/externalFormats';
 import { CIRCUIT_PRESETS } from '../services/circuitDatabase';
 import {
   FileText,
-  Download,
   Trash2,
   Trophy,
   CheckCircle2,
@@ -18,9 +13,12 @@ import {
   Edit3,
   FolderOpen,
   Globe,
+  Repeat,
   X
 } from 'lucide-react';
 import { formatMinSec } from '../utils/timeFormat';
+import { useCompactLayout } from '../hooks/useCompactLayout';
+import { GFilterLevel } from '../services/physics';
 
 interface DataTabProps {
   sessions: Session[];
@@ -36,12 +34,18 @@ interface DataTabProps {
   // 登録済みのユーザーコースの数
   userCircuitCount: number;
   onRemoveSession: (sessionId: string) => void;
+  onOpenInConvert: (sessionId: string) => void;
   onEditSessionName: (sessionId: string, newName: string) => void;
   onSelectCircuitPreset: (presetId: string) => void;
   onOpenCircuitEditor: () => void;
   onLoadPthFile: () => void;
   onLoadClnFile: () => void;
   onLoadCircuitFolder?: () => void;
+  // 走行データのファイルを選ぶ (データがないときの案内をタップ・クリックしたとき)
+  onOpenFile?: () => void;
+  // G のならし方 (解析の設定)
+  gFilterLevel: GFilterLevel;
+  onChangeGFilterLevel: (level: GFilterLevel) => void;
 }
 
 export const DataTab: React.FC<DataTabProps> = ({
@@ -55,13 +59,23 @@ export const DataTab: React.FC<DataTabProps> = ({
   baseSlot,
   userCircuitCount,
   onRemoveSession,
+  onOpenInConvert,
   onEditSessionName,
   onSelectCircuitPreset,
   onOpenCircuitEditor,
   onLoadPthFile,
   onLoadClnFile,
-  onLoadCircuitFolder
+  onLoadCircuitFolder,
+  onOpenFile,
+  gFilterLevel,
+  onChangeGFilterLevel
 }) => {
+  // スマートフォン向けの配置では、ラップ一覧を表でなく 1 周ずつのカードで出す
+  const compact = useCompactLayout();
+  // スマートフォンでは、コースの設定はたたんでおき、見出しをタップして開く (ラップ一覧を先に見せる)
+  const [courseOpen, setCourseOpen] = useState(false);
+  const showCourseTools = !compact || courseOpen;
+
   const formatTime = (sec: number) => {
     if (!sec || isNaN(sec)) return '--:--.---';
     return formatMinSec(sec, 3);
@@ -74,73 +88,30 @@ export const DataTab: React.FC<DataTabProps> = ({
     { slot: 3, label: 'Car 4 (橙)', hex: '#f59e0b', bg: 'bg-amber-500' }
   ];
 
-  // ダウンロードヘルパー
-  const downloadFile = (content: string | Uint8Array, fileName: string, mimeType: string) => {
-    const blob = new Blob([content as any], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  // CSVエクスポート
-  const handleExportCsv = (session: Session) => {
-    const csv = exportDigispiceCsv(session.points);
-    downloadFile(csv, `${session.sessionName}_telemetry.csv`, 'text/csv;charset=utf-8');
-  };
-
-  // ラップ一覧CSVエクスポート
-  const handleExportLapListCsv = (session: Session) => {
-    const csv = exportLapListCsv(session.laps);
-    downloadFile(csv, `${session.sessionName}_lap_list.csv`, 'text/csv;charset=utf-8');
-  };
-
-  // NMEAエクスポート
-  const handleExportNmea = (session: Session) => {
-    const nmea = exportNmea(session.points);
-    downloadFile(nmea, `${session.sessionName}.nmea`, 'text/plain;charset=utf-8');
-  };
-
-  // GPXエクスポート (RaceChrono等連携用)
-  const handleExportGpx = (session: Session) => {
-    const gpx = exportGpx(session.points, session.sessionName);
-    downloadFile(gpx, `${session.sessionName}.gpx`, 'application/gpx+xml;charset=utf-8');
-  };
-
-  // MoTeC CSV エクスポート
-  const handleExportMotecCsv = (session: Session) => {
-    downloadFile(exportMotecCsv(session), `${session.sessionName}_motec.csv`, 'text/csv;charset=utf-8');
-  };
-
-  // .dtb エクスポート
-  const handleExportDtb = (session: Session) => {
-    const bytes = exportDtb(session.points, session.samplingRate);
-    downloadFile(bytes, `${session.sessionName}.dtb`, 'application/octet-stream');
-  };
-
   return (
-    <div className="flex flex-col h-full bg-[#12141a] text-slate-200 overflow-y-auto p-4 space-y-6">
+    <div className={`flex flex-col h-full bg-surface-1 text-slate-200 overflow-y-auto overflow-x-hidden ${compact ? 'p-2 space-y-3' : 'p-4 space-y-6'}`}>
       {/* 上部: コース設定 & プリセット切り替えバー */}
-      <div className="bg-[#181c26] border border-[#272f42] rounded-xl p-4 shadow-md flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className={`bg-surface-2 border border-line-2 rounded-xl shadow-md flex flex-wrap items-center justify-between ${compact ? 'p-3 gap-3' : 'p-4 gap-4'}`}>
+        <div
+          className={`flex items-center gap-3 ${compact ? 'w-full cursor-pointer' : ''}`}
+          onClick={compact ? () => setCourseOpen(o => !o) : undefined}
+          aria-expanded={compact ? courseOpen : undefined}
+        >
           <div className="p-2 bg-red-600/20 text-red-500 rounded-lg">
             <MapPin size={22} />
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <h2 className="text-sm font-bold text-slate-100">コース / コントロールライン設定</h2>
             <p className="text-xs text-slate-400">全国主要サーキットのプリセット、または独自コースの定義</p>
           </div>
+          {compact && <span className="text-slate-400 text-lg">{courseOpen ? '−' : '+'}</span>}
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className={`items-center gap-2 flex-wrap ${showCourseTools ? 'flex' : 'hidden'}`}>
           {/* サーキットプリセット選択 */}
           <select
             onChange={e => onSelectCircuitPreset(e.target.value)}
-            className="bg-[#10131a] border border-[#2d364c] text-xs text-slate-200 rounded-lg px-3 py-2 outline-none focus:border-red-500 transition-colors"
+            className="bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg px-3 py-2 outline-none focus:border-red-500 transition-colors"
           >
             <option value="">-- サーキットプリセット選択 --</option>
             {CIRCUIT_PRESETS.map(c => (
@@ -170,7 +141,7 @@ export const DataTab: React.FC<DataTabProps> = ({
           {/* コース図読込 */}
           <button
             onClick={onLoadPthFile}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#222838] hover:bg-[#2c344a] text-xs text-slate-300 border border-[#333d54] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
           >
             <Layers size={13} />
             コース図 (.pth)
@@ -179,7 +150,7 @@ export const DataTab: React.FC<DataTabProps> = ({
           {/* コントロールライン読込 */}
           <button
             onClick={onLoadClnFile}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#222838] hover:bg-[#2c344a] text-xs text-slate-300 border border-[#333d54] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
           >
             <FileText size={13} />
             計測線 (.cln)
@@ -197,7 +168,7 @@ export const DataTab: React.FC<DataTabProps> = ({
       </div>
 
       {/* 比較スロット (Car 1〜4) の選択状態バー */}
-      <div className="bg-[#181c26] border border-[#272f42] rounded-xl p-3 shadow-md">
+      <div className="bg-surface-2 border border-line-2 rounded-xl p-3 shadow-md">
         <div className="text-xs font-bold text-slate-300 mb-2 flex items-center justify-between">
           <span>比較スロット割り当て (最大4台 同時比較)</span>
           <span className="text-[11px] text-slate-400 font-normal">
@@ -210,8 +181,8 @@ export const DataTab: React.FC<DataTabProps> = ({
             return (
               <div
                 key={slot.slot}
-                className="flex items-center justify-between p-2.5 rounded-lg border bg-[#12151f]"
-                style={{ borderColor: assigned ? slot.hex : '#272f42' }}
+                className="flex items-center justify-between p-2.5 rounded-lg border bg-surface-1"
+                style={{ borderColor: assigned ? slot.hex : 'var(--ds-line-2)' }}
               >
                 <div className="flex items-center gap-2">
                   <span className={`w-3 h-3 rounded-full ${slot.bg}`} />
@@ -229,7 +200,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                         <span>距離補正</span>
                         <button
                           onClick={e => onSetDistanceOffset(slot.slot, (assigned.distanceOffsetM || 0) - (e.shiftKey ? 10 : 1))}
-                          className="px-1.5 rounded border border-[#2e374c] hover:text-slate-200"
+                          className="px-1.5 rounded border border-line-3 hover:text-slate-200"
                         >
                           −
                         </button>
@@ -241,12 +212,12 @@ export const DataTab: React.FC<DataTabProps> = ({
                             const v = parseFloat(e.target.value);
                             onSetDistanceOffset(slot.slot, Number.isFinite(v) ? v : 0);
                           }}
-                          className="w-14 bg-[#0f121a] border border-[#2e374c] rounded px-1 text-right font-mono text-slate-200"
+                          className="w-14 bg-surface-0 border border-line-3 rounded px-1 text-right font-mono text-slate-200"
                         />
                         <span>m</span>
                         <button
                           onClick={e => onSetDistanceOffset(slot.slot, (assigned.distanceOffsetM || 0) + (e.shiftKey ? 10 : 1))}
-                          className="px-1.5 rounded border border-[#2e374c] hover:text-slate-200"
+                          className="px-1.5 rounded border border-line-3 hover:text-slate-200"
                         >
                           ＋
                         </button>
@@ -258,7 +229,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                   <button
                     onClick={() => onClearCarSlot(slot.slot)}
                     title={`${slot.label} の割り当てを解除`}
-                    className="self-start flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-[#2e374c] text-[11px] text-slate-400 hover:text-slate-100 hover:border-slate-500 transition-colors"
+                    className="self-start flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-line-3 text-[11px] text-slate-400 hover:text-slate-100 hover:border-slate-500 transition-colors"
                   >
                     <X size={11} />
                     解除
@@ -277,32 +248,66 @@ export const DataTab: React.FC<DataTabProps> = ({
         </label>
       </div>
 
+      {/* 解析の設定 */}
+      <div className={`bg-surface-2 border border-line-2 rounded-xl shadow-md space-y-2 ${compact ? 'p-3' : 'p-4'}`}>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-xs font-bold text-slate-300">G のならし方</span>
+          <div className="flex bg-surface-1 rounded p-0.5 border border-line-3" role="radiogroup" aria-label="G のならし方">
+            {([['weak', '弱'], ['standard', '標準（推奨）'], ['strong', '強']] as const).map(([value, label]) => (
+              <button
+                key={value}
+                role="radio"
+                aria-checked={gFilterLevel === value}
+                onClick={() => onChangeGFilterLevel(value)}
+                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                  gFilterLevel === value ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="text-[11px] text-slate-400 leading-relaxed">
+          G（加減速 G・横 G・合算 G）と旋回半径は、GPS の位置と車速の変化からアプリが計算しています（ロガーが G を測っているわけではありません）。
+          GPS の位置はわずかに揺れるので、計算した G も細かく揺れます。「ならし方」は、その揺れをどれだけ平らにするかの設定です。
+          強くするほど速度グラフの G 表示やフリクションサークルが落ち着きますが、急な変化（ブレーキの踏み始めなど）は鈍く、小さく出ます。
+          「標準」は記録レートに合わせてならし方を変えます。読み込み済みのログにもすぐ反映され、変換画面で書き出す「走行データCSV」・DTB の G もこの値になります。元のログファイルは変わりません。
+        </p>
+      </div>
+
       {/* セッション & ラップ一覧 */}
       {sessions.length === 0 ? (
-        <div className="bg-[#181c26] border border-[#272f42] rounded-xl p-12 text-center text-slate-400">
+        // タップ・クリックでファイルの選択画面を出す
+        <button
+          type="button"
+          onClick={onOpenFile}
+          disabled={!onOpenFile}
+          className="w-full bg-surface-2 border border-line-2 rounded-xl p-12 text-center text-slate-400 transition-colors hover:border-red-500/60 hover:bg-surface-3 cursor-pointer disabled:cursor-default"
+        >
           <FileText size={48} className="mx-auto mb-3 text-slate-600" />
           <p className="text-sm font-medium">走行データが読み込まれていません</p>
           <p className="text-xs text-slate-500 mt-1">
-            上部の「ファイル読込」からデジスパイス生ログ (.bnx4, .binx) や .dtb, .csv, .nmea などのログファイルを開いてください。
+            ここをタップ（クリック）するか、上部の「ファイル読込」から、デジスパイス生ログ (.bnx4, .binx) や .dtb, .csv, .nmea などのログファイルを開いてください。
           </p>
-        </div>
+        </button>
       ) : (
         sessions.map(session => (
           <div
             key={session.id}
-            className="bg-[#181c26] border border-[#272f42] rounded-xl p-4 shadow-md space-y-4"
+            className={`bg-surface-2 border border-line-2 rounded-xl shadow-md ${compact ? 'p-2 space-y-2' : 'p-4 space-y-4'}`}
           >
             {/* セッションヘッダー */}
-            <div className="flex flex-wrap items-center justify-between border-b border-[#272f42] pb-3 gap-2">
-              <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-between border-b border-line-2 pb-3 gap-2">
+              <div className={compact ? 'flex flex-wrap items-center gap-2 w-full' : 'flex items-center gap-3'}>
                 <input
                   type="text"
                   value={session.sessionName}
                   onChange={e => onEditSessionName(session.id, e.target.value)}
-                  className="bg-[#12151f] border border-[#2d364c] text-sm font-bold text-slate-100 rounded px-2.5 py-1 focus:border-red-500 outline-none"
+                  className={`bg-surface-1 border border-line-3 text-sm font-bold text-slate-100 rounded px-2.5 py-1 focus:border-red-500 outline-none min-w-0 ${compact ? 'w-full' : ''}`}
                   title="クリックして名前を変更"
                 />
-                <span className="text-xs bg-[#242c3d] text-slate-300 px-2.5 py-0.5 rounded font-mono">
+                <span className="text-xs bg-surface-4 text-slate-300 px-2.5 py-0.5 rounded font-mono">
                   {session.circuitName || '一般コース'}
                 </span>
                 <span className="text-xs text-slate-400 font-mono">
@@ -310,57 +315,16 @@ export const DataTab: React.FC<DataTabProps> = ({
                 </span>
               </div>
 
-              {/* エクスポート・削除アクション */}
+              {/* 変換画面へ・削除 */}
               <div className="flex items-center gap-1.5 flex-wrap">
                 <button
-                  onClick={() => handleExportCsv(session)}
-                  title="デジスパイス公式フォーマットでCSV保存"
-                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#222838] hover:bg-[#2c344a] text-xs text-slate-300 border border-[#333d54] transition-colors"
+                  onClick={() => onOpenInConvert(session.id)}
+                  title="このログを変換画面で開き、NMEA・GPX・CSV・.dtb などに書き出す"
+                  data-testid="open-in-convert"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
                 >
-                  <Download size={12} />
-                  走行データCSV
-                </button>
-                <button
-                  onClick={() => handleExportLapListCsv(session)}
-                  title="全周のラップタイム一覧をCSV保存"
-                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#222838] hover:bg-[#2c344a] text-xs text-slate-300 border border-[#333d54] transition-colors"
-                >
-                  <Download size={12} />
-                  ラップ一覧CSV
-                </button>
-                <button
-                  onClick={() => handleExportNmea(session)}
-                  title="NMEA形式 (.nmea) で出力 (公式ツール互換)"
-                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#222838] hover:bg-[#2c344a] text-xs text-slate-300 border border-[#333d54] transition-colors"
-                >
-                  <Download size={12} />
-                  NMEA出力
-                </button>
-                <button
-                  onClick={() => handleExportGpx(session)}
-                  title="GPX形式 (.gpx) で出力 (RaceChrono等スマートフォンアプリ連携用)"
-                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#222838] hover:bg-[#2c344a] text-xs text-cyan-300 border border-cyan-800/40 transition-colors"
-                >
-                  <Download size={12} />
-                  GPX出力
-                </button>
-                {MOTEC_CSV_ENABLED && (
-                  <button
-                    onClick={() => handleExportMotecCsv(session)}
-                    title="MoTeC CSV 形式 (i2 の CSV エクスポートと同じ書式) で出力"
-                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#222838] hover:bg-[#2c344a] text-xs text-slate-300 border border-[#333d54] transition-colors"
-                  >
-                    <Download size={12} />
-                    MoTeC CSV
-                  </button>
-                )}
-                <button
-                  onClick={() => handleExportDtb(session)}
-                  title="デジスパイス独自バイナリ (.dtb) として保存"
-                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-red-950/40 hover:bg-red-900/60 text-xs text-red-300 border border-red-800/40 transition-colors"
-                >
-                  <Download size={12} />
-                  .dtb 保存
+                  <Repeat size={12} />
+                  変換画面で開く
                 </button>
                 <button
                   onClick={() => onRemoveSession(session.id)}
@@ -388,136 +352,247 @@ export const DataTab: React.FC<DataTabProps> = ({
               </div>
             )}
 
-            {/* ラップ一覧テーブル */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-[#12151f] text-slate-400 font-mono uppercase text-[11px] border-b border-[#272f42]">
-                  <tr>
-                    <th className="py-2 px-3">Lap</th>
-                    <th className="py-2 px-3">ラップタイム</th>
-                    <th className="py-2 px-3">最高速</th>
-                    <th className="py-2 px-3">最低速</th>
-                    <th className="py-2 px-3">平均速度</th>
-                    <th className="py-2 px-3">距離</th>
-                    {session.sectors.map(sec => (
-                      <th key={sec.id} className="py-2 px-3 text-amber-400">
-                        {sec.name}
-                      </th>
-                    ))}
-                    <th className="py-2 px-3 text-center">スロット選択</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#202738] font-mono">
-                  {session.laps.map(lap => {
-                    const isSelectedAny = selectedCars.some(
-                      c => c.sessionId === session.id && c.lapNumber === lap.lapNumber
-                    );
+            {compact ? (
+              // ラップ一覧 (スマートフォン): 1 周ずつのカード。タイムの下にベストとの差、ベストには BEST を出す
+              <LapCards
+                session={session}
+                selectedCars={selectedCars}
+                slotColors={slotColors}
+                formatTime={formatTime}
+                onSelectCarSlot={onSelectCarSlot}
+              />
+            ) : (
+              // ラップ一覧テーブル
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-surface-1 text-slate-400 font-mono uppercase text-[11px] border-b border-line-2">
+                    <tr>
+                      <th className="py-2 px-3">Lap</th>
+                      <th className="py-2 px-3">ラップタイム</th>
+                      <th className="py-2 px-3">最高速</th>
+                      <th className="py-2 px-3">最低速</th>
+                      <th className="py-2 px-3">平均速度</th>
+                      <th className="py-2 px-3">距離</th>
+                      {session.sectors.map(sec => (
+                        <th key={sec.id} className="py-2 px-3 text-amber-400">
+                          {sec.name}
+                        </th>
+                      ))}
+                      <th className="py-2 px-3 text-center">スロット選択</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line-1 font-mono">
+                    {session.laps.map(lap => {
+                      const isSelectedAny = selectedCars.some(
+                        c => c.sessionId === session.id && c.lapNumber === lap.lapNumber
+                      );
 
-                    return (
-                      <tr
-                        key={lap.lapNumber}
-                        className={`transition-colors hover:bg-[#1f2636] ${
-                          lap.isBestLap ? 'bg-amber-950/20' : ''
-                        }`}
-                      >
-                        <td className="py-2.5 px-3 font-bold flex items-center gap-1.5">
-                          {lap.isBestLap && <Trophy size={13} className="text-amber-400" />}
-                          Lap {lap.lapNumber}
-                        </td>
-                        <td
-                          className={`py-2.5 px-3 font-bold ${
-                            lap.isBestLap ? 'text-amber-400 text-sm' : 'text-slate-100'
+                      return (
+                        <tr
+                          key={lap.lapNumber}
+                          className={`transition-colors hover:bg-surface-4 ${
+                            lap.isBestLap ? 'bg-amber-950/20' : ''
                           }`}
                         >
-                          {formatTime(lap.lapTime)}
-                          {lap.isPartialLap && (
-                            <span className="ml-1.5 text-[10px] text-amber-300" title="次の計測線の通過までログがないため、実際のラップタイムではありません">
-                              (途中まで)
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-200">{lap.topSpeed.toFixed(1)} km/h</td>
-                        <td className="py-2.5 px-3 text-slate-200">{lap.bottomSpeed.toFixed(1)} km/h</td>
-                        <td className="py-2.5 px-3 text-slate-300">{lap.avgSpeed.toFixed(1)} km/h</td>
-                        <td className="py-2.5 px-3 text-slate-400">{lap.distance.toFixed(3)} km</td>
-
-                        {/* セクタータイム */}
-                        {lap.sectors.map((secRes, sIdx) => (
+                          <td className="py-2.5 px-3 font-bold flex items-center gap-1.5">
+                            {lap.isBestLap && <Trophy size={13} className="text-amber-400" />}
+                            Lap {lap.lapNumber}
+                          </td>
                           <td
-                            key={sIdx}
-                            className={`py-2.5 px-3 ${
-                              secRes.isBest ? 'text-amber-400 font-bold' : secRes.isEstimated ? 'text-slate-500' : 'text-slate-300'
+                            className={`py-2.5 px-3 font-bold ${
+                              lap.isBestLap ? 'text-amber-400 text-sm' : 'text-slate-100'
                             }`}
-                            title={secRes.isEstimated ? 'セクター線の通過を検出できなかったため推定値です（セクターベスト・理論ベストには使いません）' : undefined}
                           >
-                            {secRes.isEstimated ? '~' : ''}{secRes.time.toFixed(3)}s
+                            {formatTime(lap.lapTime)}
+                            {lap.isPartialLap && (
+                              <span className="ml-1.5 text-[10px] text-amber-300" title="次の計測線の通過までログがないため、実際のラップタイムではありません">
+                                (途中まで)
+                              </span>
+                            )}
                           </td>
-                        ))}
+                          <td className="py-2.5 px-3 text-slate-200">{lap.topSpeed.toFixed(1)} km/h</td>
+                          <td className="py-2.5 px-3 text-slate-200">{lap.bottomSpeed.toFixed(1)} km/h</td>
+                          <td className="py-2.5 px-3 text-slate-300">{lap.avgSpeed.toFixed(1)} km/h</td>
+                          <td className="py-2.5 px-3 text-slate-400">{lap.distance.toFixed(3)} km</td>
 
-                        {/* 車両スロット割り当てボタン (Car 1..4) */}
-                        <td className="py-2.5 px-3 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            {slotColors.map(slot => {
-                              const isCurrentSlot = selectedCars.some(
-                                c =>
-                                  c.slot === slot.slot &&
-                                  c.sessionId === session.id &&
-                                  c.lapNumber === lap.lapNumber
-                              );
+                          {/* セクタータイム */}
+                          {lap.sectors.map((secRes, sIdx) => (
+                            <td
+                              key={sIdx}
+                              className={`py-2.5 px-3 ${
+                                secRes.isBest ? 'text-amber-400 font-bold' : secRes.isEstimated ? 'text-slate-500' : 'text-slate-300'
+                              }`}
+                              title={secRes.isEstimated ? 'セクター線の通過を検出できなかったため推定値です（セクターベスト・理論ベストには使いません）' : undefined}
+                            >
+                              {secRes.isEstimated ? '~' : ''}{secRes.time.toFixed(3)}s
+                            </td>
+                          ))}
 
-                              return (
-                                <button
-                                  key={slot.slot}
-                                  onClick={() => onSelectCarSlot(slot.slot, session.id, lap.lapNumber)}
-                                  title={`${slot.label} に割り当て`}
-                                  className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold transition-all ${
-                                    isCurrentSlot
-                                      ? `${slot.bg} text-white shadow`
-                                      : 'bg-[#252d3f] text-slate-400 hover:text-white hover:bg-[#323c54]'
-                                  }`}
-                                >
-                                  {slot.slot + 1}
-                                </button>
-                              );
-                            })}
-                          </div>
+                          {/* 車両スロット割り当てボタン (Car 1..4) */}
+                          <td className="py-2.5 px-3 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              {slotColors.map(slot => {
+                                const isCurrentSlot = selectedCars.some(
+                                  c =>
+                                    c.slot === slot.slot &&
+                                    c.sessionId === session.id &&
+                                    c.lapNumber === lap.lapNumber
+                                );
+
+                                return (
+                                  <button
+                                    key={slot.slot}
+                                    onClick={() => onSelectCarSlot(slot.slot, session.id, lap.lapNumber)}
+                                    title={`${slot.label} に割り当て`}
+                                    className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold transition-all ${
+                                      isCurrentSlot
+                                        ? `${slot.bg} text-white shadow`
+                                        : 'bg-surface-4 text-slate-400 hover:text-fg hover:bg-surface-5'
+                                    }`}
+                                  >
+                                    {slot.slot + 1}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+
+                  {/* 仮想ベストラップ行 */}
+                  {session.theoreticalBestTime > 0 && session.sectors.length > 0 && (
+                    <tfoot className="bg-surface-1 text-amber-300 font-mono font-bold text-[11px] border-t-2 border-amber-500/40">
+                      <tr>
+                        <td className="py-2 px-3 flex items-center gap-1">
+                          <Trophy size={13} className="text-amber-400" />
+                          仮想ベスト
                         </td>
+                        <td className="py-2 px-3 text-amber-400 text-sm">
+                          {formatTime(session.theoreticalBestTime)}
+                        </td>
+                        <td colSpan={4} className="py-2 px-3 text-slate-400 font-normal">
+                          (各セクターのベストタイム合算値)
+                        </td>
+                        {session.sectors.map((sec, sIdx) => {
+                          // セクターベストの印 (isBest) が付いた実測値だけを出す
+                          const best = session.laps.map(l => l.sectors[sIdx]).find(r => r?.isBest);
+                          return (
+                            <td key={sec.id} className="py-2 px-3 text-amber-400">
+                              {best ? `${best.time.toFixed(3)}s` : '--'}
+                            </td>
+                          );
+                        })}
+                        <td></td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-
-                {/* 仮想ベストラップ行 */}
-                {session.theoreticalBestTime > 0 && session.sectors.length > 0 && (
-                  <tfoot className="bg-[#121622] text-amber-300 font-mono font-bold text-[11px] border-t-2 border-amber-500/40">
-                    <tr>
-                      <td className="py-2 px-3 flex items-center gap-1">
-                        <Trophy size={13} className="text-amber-400" />
-                        仮想ベスト
-                      </td>
-                      <td className="py-2 px-3 text-amber-400 text-sm">
-                        {formatTime(session.theoreticalBestTime)}
-                      </td>
-                      <td colSpan={4} className="py-2 px-3 text-slate-400 font-normal">
-                        (各セクターのベストタイム合算値)
-                      </td>
-                      {session.sectors.map((sec, sIdx) => {
-                        // セクターベストの印 (isBest) が付いた実測値だけを出す
-                        const best = session.laps.map(l => l.sectors[sIdx]).find(r => r?.isBest);
-                        return (
-                          <td key={sec.id} className="py-2 px-3 text-amber-400">
-                            {best ? `${best.time.toFixed(3)}s` : '--'}
-                          </td>
-                        );
-                      })}
-                      <td></td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-            </div>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            )}
           </div>
         ))
+      )}
+    </div>
+  );
+};
+
+/** スマートフォン向けのラップ一覧 (1 周ずつのカード) */
+const LapCards: React.FC<{
+  session: Session;
+  selectedCars: SelectedCarSlot[];
+  slotColors: { slot: number; label: string; bg: string }[];
+  formatTime: (sec: number) => string;
+  onSelectCarSlot: (slotIndex: number, sessionId: string, lapNumber: number) => void;
+}> = ({ session, selectedCars, slotColors, formatTime, onSelectCarSlot }) => {
+  const bestLap = session.laps[session.bestLapIndex];
+  // セクターごとのベスト (実測値のうち isBest が付いたもの)
+  const bestSectors = session.sectors.map((_, sIdx) => session.laps.map(l => l.sectors[sIdx]).find(r => r?.isBest)?.time);
+  // ベストとの差。ベストの対象外の周・区間 (短すぎるものなど) はベストより速いことがあるので、符号を付けて出す
+  const delta = (v: number, best?: number) => {
+    if (best === undefined) return '';
+    const d = v - best;
+    return `${d >= 0 ? '+' : ''}${d.toFixed(3)}`;
+  };
+
+  return (
+    <div className="p-2 flex flex-col gap-2">
+      {session.laps.map(lap => {
+        const isBest = !!lap.isBestLap;
+        return (
+          <div
+            key={lap.lapNumber}
+            className={`rounded-lg border px-3 py-2.5 ${isBest ? 'border-red-500 bg-red-500/10' : 'border-line-2 bg-surface-1'}`}
+          >
+            <div className="flex items-start gap-3">
+              <span className={`font-mono text-sm pt-1 w-8 shrink-0 ${isBest ? 'text-red-400 font-bold' : 'text-slate-500'}`}>
+                L{String(lap.lapNumber).padStart(2, '0')}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className={`font-mono text-xl font-bold leading-tight ${isBest ? 'text-emerald-400' : 'text-slate-100'}`}>
+                  {formatTime(lap.lapTime)}
+                </div>
+                <div className={`font-mono text-[11px] ${isBest ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>
+                  {lap.isPartialLap ? (isBest ? 'BEST（途中まで）' : '途中まで') : isBest ? 'BEST' : bestLap ? delta(lap.lapTime, bestLap.lapTime) : ''}
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-[10px] font-bold text-slate-500 tracking-wider">MAX SPEED</div>
+                <div className="font-mono text-sm text-slate-200">
+                  {lap.topSpeed.toFixed(1)} <span className="text-[10px] text-slate-400">km/h</span>
+                </div>
+              </div>
+            </div>
+
+            {lap.sectors.length > 0 && (
+              <div className="grid grid-cols-4 gap-x-2 gap-y-1.5 mt-2 pl-11">
+                {lap.sectors.map((sec, sIdx) => (
+                  <div
+                    key={sIdx}
+                    title={sec.isEstimated ? 'セクター線の通過を検出できなかったため推定値です（セクターベスト・理論ベストには使いません）' : undefined}
+                  >
+                    <div className="text-[10px] font-bold text-slate-500">{session.sectors[sIdx]?.name ?? `S${sIdx + 1}`}</div>
+                    <div className={`font-mono text-sm leading-tight ${sec.isBest ? 'text-emerald-400' : sec.isEstimated ? 'text-slate-500' : 'text-slate-200'}`}>
+                      {sec.isEstimated ? '~' : ''}{sec.time.toFixed(3)}
+                    </div>
+                    <div className={`font-mono text-[10px] ${sec.isBest ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>
+                      {sec.isBest ? 'BEST' : sec.isEstimated ? '推定' : delta(sec.time, bestSectors[sIdx])}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 比較スロットへの割り当て (Car 1..4) */}
+            <div className="flex items-center justify-end gap-1.5 mt-2">
+              {slotColors.map(slot => {
+                const isCurrentSlot = selectedCars.some(
+                  c => c.slot === slot.slot && c.sessionId === session.id && c.lapNumber === lap.lapNumber
+                );
+                return (
+                  <button
+                    key={slot.slot}
+                    onClick={() => onSelectCarSlot(slot.slot, session.id, lap.lapNumber)}
+                    aria-label={`${slot.label} に割り当て`}
+                    className={`w-9 h-8 rounded text-xs font-bold ${
+                      isCurrentSlot ? `${slot.bg} text-white shadow` : 'bg-surface-4 text-slate-400'
+                    }`}
+                  >
+                    {slot.slot + 1}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+      {session.theoreticalBestTime > 0 && session.sectors.length > 0 && (
+        <div className="flex items-center justify-between border-t border-line-2 mt-1 pt-3 px-1">
+          <span className="text-xs font-bold text-slate-400 tracking-wider">理論ベスト</span>
+          <span className="font-mono text-lg font-bold text-emerald-400">{formatTime(session.theoreticalBestTime)}</span>
+        </div>
       )}
     </div>
   );

@@ -1,4 +1,6 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
+import { canvasColors, useResolvedTheme } from '../utils/theme';
+import { useCompactLayout } from '../hooks/useCompactLayout';
 import { CompareAxis, Lap, SelectedCarSlot } from '../types/telemetry';
 import { CircleDot, Disc } from 'lucide-react';
 import { findCarPoint } from '../utils/telemetrySearch';
@@ -11,14 +13,23 @@ interface FrictionCircleWindowProps {
   currentDistance: number;
   currentTime: number;
   compareAxis: CompareAxis;
+  // G のならし方を「強」にしているか。トグルで「強」と「標準」を切り替える (データ管理タブの設定と同じもの)
+  smoothStrong?: boolean;
+  onToggleSmooth?: () => void;
 }
 
 export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
   cars,
   currentDistance,
   currentTime,
-  compareAxis
+  compareAxis,
+  smoothStrong,
+  onToggleSmooth
 }) => {
+  // テーマを切り替えたら canvas を描き直す
+  const theme = useResolvedTheme();
+  // スマートフォンでは高さが足りず数値の欄が切れるので、ウインドウの中をスクロールできるようにする
+  const compact = useCompactLayout();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const baseCar = cars[0];
@@ -32,15 +43,29 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
 
   const basePoint = currentPoints[0];
 
+  // 表示領域の大きさが変わったら描き直す (スマートフォンを回したとき・ルーラーが出たときなど)
+  const [resizeTick, setResizeTick] = useState(0);
+  useEffect(() => {
+    const parent = canvasRef.current?.parentElement;
+    if (!parent || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => setResizeTick(t => t + 1));
+    observer.observe(parent);
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    // テーマの色 (テーマを切り替えたら描き直す)
+    const C = canvasColors();
 
     const dpr = window.devicePixelRatio || 1;
-    const width = canvas.parentElement?.clientWidth || 300;
-    const height = canvas.parentElement?.clientHeight || 300;
+    // 隠しているとき (たたんだウインドウ・切り替えで見えていないパネル) は描かない。見えたら大きさの変化で描き直す
+    const width = canvas.parentElement?.clientWidth ?? 0;
+    const height = canvas.parentElement?.clientHeight ?? 0;
+    if (width === 0 || height === 0) return;
 
     canvas.width = width * dpr;
     canvas.height = height * dpr;
@@ -50,7 +75,7 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
     ctx.scale(dpr, dpr);
 
     // 背景
-    ctx.fillStyle = '#141722';
+    ctx.fillStyle = C.bg;
     ctx.fillRect(0, 0, width, height);
 
     const centerX = width / 2;
@@ -68,18 +93,18 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
 
     [0.5, 1.0, 1.5].forEach(g => {
       const r = toPx(g);
-      ctx.strokeStyle = g === 1.0 ? '#38bdf8' : '#273147';
+      ctx.strokeStyle = g === 1.0 ? '#38bdf8' : C.grid;
       ctx.lineWidth = g === 1.0 ? 1.5 : 1;
       ctx.beginPath();
       ctx.arc(centerX, centerY, r, 0, Math.PI * 2);
       ctx.stroke();
 
-      ctx.fillStyle = g === 1.0 ? '#38bdf8' : '#64748b';
+      ctx.fillStyle = g === 1.0 ? '#38bdf8' : C.axis;
       ctx.fillText(`${g.toFixed(1)}G`, centerX + r - 12, centerY - 3);
     });
 
     // 2. 十字軸 (X: コーナリングG, Y: 加減速G)
-    ctx.strokeStyle = '#2e384f';
+    ctx.strokeStyle = C.gridStrong;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(centerX - maxRadius - 10, centerY);
@@ -89,7 +114,7 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
     ctx.stroke();
 
     // 軸ラベル (モータースポーツG-Gダイアグラム標準: ブレーキング=上, 加速=下, 右旋回遠心G=左, 左旋回遠心G=右)
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = C.label;
     ctx.font = 'bold 9px sans-serif';
     ctx.fillText('減速 (ブレーキ)', centerX, centerY - maxRadius - 4);
     ctx.fillText('加速', centerX, centerY + maxRadius + 12);
@@ -135,30 +160,44 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
       ctx.arc(px, py, 2.5, 0, Math.PI * 2);
       ctx.fill();
     });
-  }, [cars, currentDistance, currentPoints]);
+  }, [cars, currentDistance, currentPoints, theme, resizeTick]);
 
   return (
-    <div className="flex flex-col h-full bg-[#161922] rounded-lg border border-[#262c3d] overflow-hidden select-none shadow-lg">
+    <div className={`flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 select-none shadow-lg ${compact ? 'overflow-y-auto' : 'overflow-hidden'}`}>
       {/* ツールバー */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[#1b202d] border-b border-[#2a3245] text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0">
         <span className="font-bold text-slate-200 flex items-center gap-1.5">
           <Disc size={14} className="text-cyan-400" />
-          フリクションサークル (GGダイアグラム)
+          フリクションサークル
         </span>
-        <span className="text-[10px] text-cyan-400 font-mono">タイヤグリップ限界円 (1.0G)</span>
+        <div className="flex items-center gap-2">
+          {onToggleSmooth && (
+            <button
+              onClick={onToggleSmooth}
+              aria-pressed={!!smoothStrong}
+              title="G のならし方を「強」にして、点の動きを落ち着かせます (データ管理タブの「G のならし方」と同じ設定。急な変化は鈍く出ます)"
+              className={`px-2 py-0.5 rounded border text-[11px] font-medium transition-colors ${
+                smoothStrong ? 'bg-cyan-600 border-cyan-500 text-white' : 'border-line-3 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              なめらか{smoothStrong ? ': ON' : ''}
+            </button>
+          )}
+          <span className="text-[10px] text-cyan-400 font-mono">限界円 1.0G</span>
+        </div>
       </div>
 
       {/* メインCanvas & 数値表示 */}
-      <div className="flex-1 flex flex-col md:flex-row items-center p-2 gap-3 min-h-[200px]">
+      <div className={`flex-1 flex flex-col md:flex-row items-center p-2 gap-3 min-h-[200px] ${compact ? 'shrink-0' : ''}`}>
         {/* Canvas */}
-        <div className="flex-1 w-full h-full min-h-[170px] relative">
+        <div className={`flex-1 w-full h-full relative ${compact ? 'min-h-[220px]' : 'min-h-[170px]'}`}>
           <canvas ref={canvasRef} className="w-full h-full block" />
         </div>
 
         {/* リアルタイム計測値パネル */}
         {basePoint && (
-          <div className="w-full md:w-36 bg-[#12141c] border border-[#262c3d] rounded p-2.5 flex flex-col gap-2 text-xs">
-            <div className="text-[11px] font-bold text-slate-400 border-b border-[#262c3d] pb-1">
+          <div className="w-full md:w-36 bg-surface-1 border border-line-2 rounded p-2.5 flex flex-col gap-2 text-xs">
+            <div className="text-[11px] font-bold text-slate-400 border-b border-line-2 pb-1">
               基準車 (Red) テレメトリ
             </div>
 
@@ -189,7 +228,7 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
             </div>
 
             {/* 縦横G比率バー (公式アプリ仕様) */}
-            <div className="flex flex-col gap-1 mt-1 pt-1 border-t border-[#262c3d]">
+            <div className="flex flex-col gap-1 mt-1 pt-1 border-t border-line-2">
               <span className="text-[10px] text-slate-400">縦横G比率:</span>
               <div className="w-full h-2 rounded bg-slate-800 overflow-hidden flex">
                 {basePoint.combinedG > 0.05 && (

@@ -112,8 +112,8 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
   const currentSpeed = config ? config.autoLogSpeedKmh : null;
 
   return (
-    <div className="bg-[#181c26] border border-[#272f42] rounded-2xl p-5 shadow-lg space-y-5" data-testid="logger-settings-card">
-      <div className="flex items-center justify-between border-b border-[#272f42] pb-3">
+    <div className="bg-surface-2 border border-line-2 rounded-2xl p-5 shadow-lg space-y-5" data-testid="logger-settings-card">
+      <div className="flex items-center justify-between border-b border-line-2 pb-3">
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
           <Cpu size={16} className="text-red-500" />
           ロガー本体設定
@@ -140,19 +140,19 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
         <>
           {/* システム情報 */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] font-mono">
-            <div className="bg-[#10131a] p-2.5 rounded-lg border border-[#22293a]">
+            <div className="bg-surface-0 p-2.5 rounded-lg border border-line-1">
               <span className="text-slate-500 block text-[10px]">モデル</span>
               <span className="text-slate-200 font-semibold" data-testid="cfg-model">{config?.model || '---'}</span>
             </div>
-            <div className="bg-[#10131a] p-2.5 rounded-lg border border-[#22293a]">
+            <div className="bg-surface-0 p-2.5 rounded-lg border border-line-1">
               <span className="text-slate-500 block text-[10px]">ファームウェア</span>
               <span className="text-slate-200 font-semibold" data-testid="cfg-firmware">{config?.firmwareVersion ? `v${config.firmwareVersion}` : '---'}</span>
             </div>
-            <div className="bg-[#10131a] p-2.5 rounded-lg border border-[#22293a]">
+            <div className="bg-surface-0 p-2.5 rounded-lg border border-line-1">
               <span className="text-slate-500 block text-[10px]">内部ステータスコード</span>
               <span className="text-slate-200 font-semibold">{config?.statusCode ?? '---'}</span>
             </div>
-            <div className="bg-[#10131a] p-2.5 rounded-lg border border-[#22293a]">
+            <div className="bg-surface-0 p-2.5 rounded-lg border border-line-1">
               <span className="text-slate-500 block text-[10px]">記録フォーマット / フラッシュ状態</span>
               <span className="text-slate-200 font-semibold">
                 {config ? `0x${config.logFormatMaskHex} / 0x${config.flashStatusHex}` : '---'}
@@ -185,15 +185,18 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
                       className={`py-2 px-2 rounded-lg border text-xs font-bold transition-all cursor-pointer disabled:pointer-events-none ${
                         active
                           ? 'bg-red-600 border-red-500 text-white'
-                          : 'bg-[#10131a] border-[#2d364c] text-slate-300 hover:border-red-500 disabled:opacity-40'
+                          : 'bg-surface-0 border-line-3 text-slate-300 hover:border-red-500 disabled:opacity-40'
                       }`}
                     >
                       {opt.hz} Hz
-                      <span className={`block text-[10px] font-normal ${active ? 'text-red-100' : 'text-slate-500'}`}>{opt.label}</span>
+                      <span className={`block text-[10px] font-normal ${active ? 'text-white/80' : 'text-slate-500'}`}>{opt.label}</span>
                     </button>
                   );
                 })}
               </div>
+              <p className="text-[10px] text-slate-500 leading-relaxed" data-testid="rate-note">
+                公式ソフトでレートを変えたときと同じ命令を送るため、記録する項目などの本体の記録設定も標準の値に書き直されます。
+              </p>
               <NoticeLine notice={rateNotice} />
             </div>
 
@@ -220,7 +223,7 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
                       className={`py-2 px-3 rounded-lg border text-xs font-bold transition-all cursor-pointer disabled:pointer-events-none ${
                         active
                           ? 'bg-red-600 border-red-500 text-white'
-                          : 'bg-[#10131a] border-[#2d364c] text-slate-300 hover:border-red-500 disabled:opacity-40'
+                          : 'bg-surface-0 border-line-3 text-slate-300 hover:border-red-500 disabled:opacity-40'
                       }`}
                     >
                       {kmh} km/h
@@ -239,12 +242,12 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
                     disabled={disabled}
                     placeholder="任意"
                     aria-label="ログ記録開始速度 (km/h)"
-                    className="w-20 bg-[#10131a] border border-[#2d364c] text-xs text-slate-200 rounded-lg p-2 outline-none focus:border-red-500 transition-colors disabled:opacity-40"
+                    className="w-20 bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg p-2 outline-none focus:border-red-500 transition-colors disabled:opacity-40"
                   />
                   <button
                     onClick={handleCustomSpeed}
                     disabled={disabled}
-                    className="py-2 px-3 rounded-lg bg-[#1e2738] hover:bg-[#273248] text-slate-200 text-xs font-semibold border border-[#374561] transition-all cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
+                    className="py-2 px-3 rounded-lg bg-surface-4 hover:bg-surface-5 text-slate-200 text-xs font-semibold border border-line-4 transition-all cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
                   >
                     設定
                   </button>

@@ -20,8 +20,8 @@ export const SplitResizer: React.FC<SplitResizerProps> = ({
       onMouseDown={onMouseDown}
       className={`relative select-none flex-shrink-0 transition-colors z-20 group ${
         isHorizontal
-          ? 'w-1.5 cursor-col-resize hover:bg-cyan-500/50 bg-[#1e2433]'
-          : 'h-1.5 cursor-row-resize hover:bg-cyan-500/50 bg-[#1e2433]'
+          ? 'w-1.5 cursor-col-resize hover:bg-cyan-500/50 bg-surface-3'
+          : 'h-1.5 cursor-row-resize hover:bg-cyan-500/50 bg-surface-3'
       } ${isDragging ? '!bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)]' : ''} ${className}`}
     >
       {/* ホバー & ドラッグ時のグリップインジケーター */}
