@@ -31,10 +31,6 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
   const [config, setConfig] = useState<DeviceConfig | null>(null);
   const busyRef = useRef<boolean>(false);
 
-  // 設定用ステート
-  const [speedUnit, setSpeedUnit] = useState<string>('kmh');
-  const [filterStrength, setFilterStrength] = useState<string>('medium');
-
   const logEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -492,41 +488,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
         </div>
         )}
       </div>
-
-      {/* 設定カード */}
-      <div className="bg-surface-2 border border-line-2 rounded-2xl p-5 shadow-lg space-y-4">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2 border-b border-line-2 pb-3">
-          <Settings size={16} className="text-red-500" />
-          解析 & 単位設定
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-bold text-slate-300">速度単位</label>
-            <select
-              value={speedUnit}
-              onChange={e => setSpeedUnit(e.target.value)}
-              className="w-full bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg p-2 outline-none focus:border-red-500 transition-colors"
-            >
-              <option value="kmh">km/h (キロメートル/時)</option>
-              <option value="mph">mph (マイル/時)</option>
-            </select>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-bold text-slate-300">Gフォース微小微分フィルタ</label>
-            <select
-              value={filterStrength}
-              onChange={e => setFilterStrength(e.target.value)}
-              className="w-full bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg p-2 outline-none focus:border-red-500 transition-colors"
-            >
-              <option value="low">弱 (ダイレクト・反応重視)</option>
-              <option value="medium">標準 (推奨 - バランス型)</option>
-              <option value="high">強 (スパイク完全抑制)</option>
-            </select>
-          </div>
-        </div>
-      </div>
+      {/* G のならし方の設定は、ロガーを使わなくても選べるようデータ管理タブに置く */}
     </div>
   );
 };
