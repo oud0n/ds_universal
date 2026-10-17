@@ -48,6 +48,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
   // ズーム & パン状態 (0..1 の正規化範囲)
   const [viewRange, setViewRange] = useState<[number, number]>([0, 1]);
   const [isDragging, setIsDragging] = useState(false);
+  // ドラッグ中か (state は描き直すまで変わらないので、同じイベントの中で続けて読めるよう ref にも持つ)
+  const draggingRef = useRef(false);
   const [dragStartX, setDragStartX] = useState<number | null>(null);
 
   // 基準車 (Car 0: 赤)
@@ -439,6 +441,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     const plotWidth = rect.width - paddingLeft - paddingRight;
 
     if (x >= paddingLeft && x <= rect.width - paddingRight) {
+      draggingRef.current = true;
       setIsDragging(true);
       setDragStartX(x);
       seekToX(x, rect.width);
@@ -446,7 +449,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDragging) return;
+    if (!draggingRef.current) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -455,6 +458,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
   };
 
   const handleMouseUp = () => {
+    draggingRef.current = false;
     setIsDragging(false);
   };
 

@@ -566,7 +566,12 @@ const LapCards: React.FC<{
   const bestLap = session.laps[session.bestLapIndex];
   // セクターごとのベスト (実測値のうち isBest が付いたもの)
   const bestSectors = session.sectors.map((_, sIdx) => session.laps.map(l => l.sectors[sIdx]).find(r => r?.isBest)?.time);
-  const delta = (v: number, best?: number) => (best !== undefined ? `+${(v - best).toFixed(3)}` : '');
+  // ベストとの差。ベストの対象外の周・区間 (短すぎるものなど) はベストより速いことがあるので、符号を付けて出す
+  const delta = (v: number, best?: number) => {
+    if (best === undefined) return '';
+    const d = v - best;
+    return `${d >= 0 ? '+' : ''}${d.toFixed(3)}`;
+  };
 
   return (
     <div className="p-2 flex flex-col gap-2">

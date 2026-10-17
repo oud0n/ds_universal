@@ -1,15 +1,18 @@
 import React from 'react';
-import { BarChart2, List, Repeat } from 'lucide-react';
+import { BarChart2, List, Repeat, Settings } from 'lucide-react';
 import { formatMinSec } from '../utils/timeFormat';
 import { useLandscape } from '../hooks/useCompactLayout';
+import { isMobileDevice } from '../utils/device';
 
 type Tab = 'graph' | 'data' | 'logger' | 'video' | 'convert';
 
-// スマートフォンで出すタブ (動画同期・ロガー設定は出さない)
+// スマートフォン向けの配置で出すタブ (動画同期は出さない)。
+// ロガー設定は、USB でつなげるパソコンのウインドウを狭くしたときだけ出す
 const TABS: { id: Tab; label: string; Icon: typeof BarChart2 }[] = [
   { id: 'graph', label: 'グラフ', Icon: BarChart2 },
   { id: 'data', label: 'データ', Icon: List },
-  { id: 'convert', label: '変換', Icon: Repeat }
+  { id: 'convert', label: '変換', Icon: Repeat },
+  ...(isMobileDevice ? [] : [{ id: 'logger' as Tab, label: 'ロガー', Icon: Settings }])
 ];
 
 /** スマートフォン用の画面下のタブバー (親指で届く位置に置く) */

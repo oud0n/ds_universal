@@ -1137,22 +1137,24 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* 動画同期タブ */}
-        <div className={`h-full w-full overflow-hidden ${currentTab === 'video' ? 'block' : 'hidden'}`}>
-          <VideoSyncWindow
-            sessions={sessions}
-            selectedCars={selectedCars}
-            currentTimeSec={currentTimeSec}
-            currentDistanceKm={currentDistanceKm}
-            isPlaying={isPlaying}
-            onSeekTime={handleSeekTime}
-            onTogglePlay={() => setIsPlaying(!isPlaying)}
-            circuitName={currentCircuitName}
-            targetSessionId={baseSession?.id}
-            targetLap={baseLap}
-            isGraphEmbedded={false}
-          />
-        </div>
+        {/* 動画同期タブ。スマートフォン向けの配置では出さない (隠したまま動画が再生され続けないよう、外す) */}
+        {!isCompact && (
+          <div className={`h-full w-full overflow-hidden ${currentTab === 'video' ? 'block' : 'hidden'}`}>
+            <VideoSyncWindow
+              sessions={sessions}
+              selectedCars={selectedCars}
+              currentTimeSec={currentTimeSec}
+              currentDistanceKm={currentDistanceKm}
+              isPlaying={isPlaying}
+              onSeekTime={handleSeekTime}
+              onTogglePlay={() => setIsPlaying(!isPlaying)}
+              circuitName={currentCircuitName}
+              targetSessionId={baseSession?.id}
+              targetLap={baseLap}
+              isGraphEmbedded={false}
+            />
+          </div>
+        )}
 
         {/* データ管理タブ */}
         <div className={`h-full w-full overflow-hidden ${currentTab === 'data' ? 'block' : 'hidden'}`}>
