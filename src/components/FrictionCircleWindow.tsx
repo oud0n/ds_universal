@@ -13,13 +13,18 @@ interface FrictionCircleWindowProps {
   currentDistance: number;
   currentTime: number;
   compareAxis: CompareAxis;
+  // G のならし方を「強」にしているか。トグルで「強」と「標準」を切り替える (データ管理タブの設定と同じもの)
+  smoothStrong?: boolean;
+  onToggleSmooth?: () => void;
 }
 
 export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
   cars,
   currentDistance,
   currentTime,
-  compareAxis
+  compareAxis,
+  smoothStrong,
+  onToggleSmooth
 }) => {
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
@@ -160,12 +165,26 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
   return (
     <div className={`flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 select-none shadow-lg ${compact ? 'overflow-y-auto' : 'overflow-hidden'}`}>
       {/* ツールバー */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0">
         <span className="font-bold text-slate-200 flex items-center gap-1.5">
           <Disc size={14} className="text-cyan-400" />
-          フリクションサークル (GGダイアグラム)
+          フリクションサークル
         </span>
-        <span className="text-[10px] text-cyan-400 font-mono">タイヤグリップ限界円 (1.0G)</span>
+        <div className="flex items-center gap-2">
+          {onToggleSmooth && (
+            <button
+              onClick={onToggleSmooth}
+              aria-pressed={!!smoothStrong}
+              title="G のならし方を「強」にして、点の動きを落ち着かせます (データ管理タブの「G のならし方」と同じ設定。急な変化は鈍く出ます)"
+              className={`px-2 py-0.5 rounded border text-[11px] font-medium transition-colors ${
+                smoothStrong ? 'bg-cyan-600 border-cyan-500 text-white' : 'border-line-3 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              なめらか{smoothStrong ? ': ON' : ''}
+            </button>
+          )}
+          <span className="text-[10px] text-cyan-400 font-mono">限界円 1.0G</span>
+        </div>
       </div>
 
       {/* メインCanvas & 数値表示 */}

@@ -830,7 +830,14 @@ export const App: React.FC = () => {
     />
   );
   const frictionEl = (
-    <FrictionCircleWindow cars={activeCars} currentDistance={currentDistanceKm} currentTime={currentTimeSec} compareAxis={compareAxis} />
+    <FrictionCircleWindow
+      cars={activeCars}
+      currentDistance={currentDistanceKm}
+      currentTime={currentTimeSec}
+      compareAxis={compareAxis}
+      smoothStrong={gFilterLevel === 'strong'}
+      onToggleSmooth={() => handleChangeGFilterLevel(gFilterLevel === 'strong' ? 'standard' : 'strong')}
+    />
   );
   const driftEl = (
     <DriftWindow cars={activeCars} currentDistance={currentDistanceKm} />
