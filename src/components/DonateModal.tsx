@@ -81,7 +81,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
               <strong className="text-white">DS Universal Suite（ds_universal）</strong>
-              は、個人が休日や夜間に開発している完全無料のオープンソースソフトウェアです。
+              は、個人が休日や夜間に開発している、無料でソースコードを公開しているソフトウェアです。
               デジスパイスIV実機での通信テストやサーキットでの実走ログ検証、GoPro動画同期・高精度解析機能の継続開発をサポートしていただけると大変励みになります☕🏁
             </p>
           </div>
@@ -175,7 +175,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
             <ul className="text-xs text-slate-400 space-y-1.5 pl-1">
               <li className="flex items-start gap-2">
                 <span className="text-red-400">🏁</span>
-                <span>サーキット実走テスト枠・現地GPSデータ収集の活動費</span>
+                <span>サーキット走行費・ガソリン代・高速代</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-amber-400">📡</span>
