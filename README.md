@@ -3,10 +3,10 @@
 **デジスパイスIV（DigSpice IV）USB通信・ログ吸い出し ＆ モータースポーツ・テレメトリ解析・車載動画同期スイート**
 
 ![対応OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon-blue)
-![検証状況](https://img.shields.io/badge/Verified-Windows%20Only-amber)
+![検証状況](https://img.shields.io/badge/Verified-macOS%20Only-amber)
 ![バージョン](https://img.shields.io/badge/Version-0.7.1-red)
 ![デバイス](https://img.shields.io/badge/Device-DigSpice%20IV-red)
-![ライセンス](https://img.shields.io/badge/License-MIT-brightgreen)
+![ライセンス](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-oud0n-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/oud0n)
 
 > [!WARNING]
@@ -260,5 +260,11 @@ npm run dist:mac   # macOS用 (.dmg, .zip / Apple Silicon arm64)
 
 ## 📜 ライセンス
 
-MIT License
+[PolyForm Noncommercial License 1.0.0](LICENSE)（Copyright 2026 oud0n）
 
+- **非商用であれば自由に使えます**: 個人的な目的（趣味・学習・研究など、商用につながらないもの）での利用と、非営利団体・教育機関・公的な研究機関・政府機関での利用は、改変・再配布を含めて自由です。再配布するときは、`LICENSE`（またはライセンスの URL）と `Required Notice:` の行を一緒に渡してください。
+- **商用利用には事前の許諾が必要です**: 業務での利用、有償の製品・サービスへの組み込み、販売などを考えている方は、[caliber.trivia66@icloud.com](mailto:caliber.trivia66@icloud.com) までご連絡ください。
+- **改変版を公開・配布するときのお願い**: 出どころが分かるよう、次を守ってください。
+  - 本ソフトウェア（[oud0n/ds_universal](https://github.com/oud0n/ds_universal)）をもとにしていることと、改変したことを、README など利用者の目に入る場所に書く
+  - 改変版には別の名前を付け、本家の公式版・公認版と誤解されるような名前や表示を使わない
+- v0.7.1 までは MIT License として公開していました。すでに入手した v0.7.1 までの版の扱いは変わりません。

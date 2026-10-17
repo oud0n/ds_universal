@@ -2,6 +2,7 @@
   "name": "ds-universal",
   "version": "0.7.1",
   "description": "DS Universal Suite - GPS Data Logger Communication & Motorsports Telemetry Analyser",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "author": {
     "name": "oud0n",
     "email": "oud0n@users.noreply.github.com"
