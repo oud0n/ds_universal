@@ -22,7 +22,7 @@
 | 🟡 **中 (P2)** | BUG-07 | 比較解析・距離補正 | `distanceOffsetM` / `alignLapLength` のグラフ・Delta・コーナー診断との不整合 | `src/components/SpeedGraphWindow.tsx`, `src/services/lapCalculator.ts`, `src/services/drivingAnalysis.ts` | 修正済み（05b9427 / 3a99299。Delta の不連続は再現せず） |
 | 🟡 **中 (P2)** | BUG-08 | ラップ切り出し | 開始位置の違うログを重ねるとずれる問題の残り（計測線より後ろ開始など） | `src/services/lapCalculator.ts` | 一部実装済・確認待ち |
 | 🟡 **中 (P2)** | BUG-09 | 生バイナリ解析・通信 | `.bnx4` 複数セッション連結・重複時刻未除去・ミリ秒補間無効化・メタデータ負座標バグ | `src/services/rawBinaryParser.ts`, `src/services/digspiceDevice.ts` | 未対応（UI 修正でページ構成を変えるときに BUG-10 と一緒に対応する） |
-| 🟡 **中 (P2)** | BUG-10 | NMEA 入出力 | 出力経路による GGA ダミー値混入・読み込み時の GGA 衛星数欠落・標高 `0 m` 未区別 | `src/services/nmeaParser.ts`, `src/services/nmeaExporter.ts`, `src/services/logConverter.ts` | 未対応（UI 修正でページ構成を変えるときに対応する） |
+| 🟡 **中 (P2)** | BUG-10 | NMEA 入出力 | 出力経路による GGA ダミー値混入・読み込み時の GGA 衛星数欠落・標高 `0 m` 未区別 | `src/services/nmeaParser.ts`, `src/services/nmeaExporter.ts`, `src/services/logConverter.ts` | ✅ 対応済み（2026-10-17。書き出しを変換画面に 1 本化、GGA の衛星数の読み込み、標高の未記録を空欄で書き出す、GGA だけのログの読み込み） |
 | 🟡 **中 (P2)** | BUG-11 | CSV / GPX / VBO 入出力 | 拡張子固定判定・GPX ダイアログ漏れ・CSV 列ずれ/方位欠落・GPX 最終秒切り捨て | `src/App.tsx`, `electron/main.cjs`, `src/services/csvParser.ts`, `src/services/externalFormats.ts` | 修正済み（GPX は a8b630c / 3a99299、拡張子の判別と CSV は b390189） |
 | 🟡 **中 (P2)** | BUG-12 | 物理計算 | G 値・旋回半径の微分ウィンドウがサンプル数固定（記録レートで値が変わる） | `src/services/physics.ts` | 修正済み（前後 0.1 秒の時間で決める） |
 | 🟡 **中 (P2)** | BUG-13 | 時刻フォーマット | 分・秒フォーマットの丸めによる `"1:60.000"` 繰り上がりバグ | `src/services/csvParser.ts`, `src/components/DataTab.tsx`, `src/services/videoSyncPinManager.ts`, `src/components/VideoSyncWindow.tsx` | 修正済み（020c5a4） |

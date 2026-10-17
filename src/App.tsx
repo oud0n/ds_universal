@@ -31,7 +31,6 @@ import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
 import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
 import { BottomTabBar, MobileSeekBar } from './components/MobileNav';
 import { SplitResizer } from './components/SplitResizer';
-import { exportSessionToNmea, triggerFileDownload } from './services/nmeaExporter';
 import { interpolatePoint } from './utils/telemetrySearch';
 
 /**
@@ -103,6 +102,8 @@ export const App: React.FC = () => {
   });
   const currentTabRef = useRef(currentTab);
   currentTabRef.current = currentTab;
+  // 変換画面で書き出すログ (データ管理の「変換画面で開く」で選ぶ。空なら基準車のログ)
+  const [convertSessionId, setConvertSessionId] = useState('');
 
   // スマートフォン向けの配置 (画面の大きさで切り替える)。スマートフォンでは動画同期を出さない
   const isCompact = useCompactLayout();
@@ -771,14 +772,6 @@ export const App: React.FC = () => {
     setSelectedCars(updated);
   };
 
-  // NMEA-0183 (RaceChrono互換) エクスポート
-  const handleExportCurrentNmea = () => {
-    const targetSession = baseSession || sessions[0];
-    if (!targetSession) return;
-    const nmea = exportSessionToNmea(targetSession);
-    triggerFileDownload(`${targetSession.sessionName}.nmea`, nmea, 'text/plain;charset=utf-8');
-  };
-
   // グラフ解析タブのウインドウ (パソコン向けの分割表示とスマートフォン向けの切り替え表示の両方で使う)
   const speedGraphEl = (
     <SpeedGraphWindow
@@ -968,7 +961,6 @@ export const App: React.FC = () => {
         playbackSpeed={playbackSpeed}
         onChangePlaybackSpeed={setPlaybackSpeed}
         onOpenFile={() => fileInputRef.current?.click()}
-        onExportNmea={sessions.length > 0 ? handleExportCurrentNmea : undefined}
         onOpenDonate={() => setIsDonateModalOpen(true)}
         compact={isCompact}
       />
@@ -1286,8 +1278,13 @@ export const App: React.FC = () => {
             onSetAlignLapLength={setAlignLapLength}
             baseSlot={baseSelected?.slot}
             userCircuitCount={userCircuitCount}
+            onOpenInConvert={id => {
+              setConvertSessionId(id);
+              setCurrentTab('convert');
+            }}
             onRemoveSession={id => {
               polylineRequestRef.current.delete(id);
+              setConvertSessionId(prev => (prev === id ? '' : prev));
               setSessions(prev => prev.filter(s => s.id !== id));
               setSelectedCars(prev => prev.filter(c => c.sessionId !== id));
             }}
@@ -1309,6 +1306,10 @@ export const App: React.FC = () => {
         {currentTab === 'convert' && (
           <ConvertTab
             sessions={sessions}
+            sessionId={convertSessionId}
+            defaultSessionId={baseSession?.id}
+            onSelectSession={setConvertSessionId}
+            gFilterLevel={gFilterLevel}
             onOpenFile={() => fileInputRef.current?.click()}
             onDropFiles={async files => {
               for (let i = 0; i < files.length; i++) {

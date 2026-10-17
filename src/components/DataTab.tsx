@@ -1,13 +1,8 @@
 import React, { useState } from 'react';
 import { Session, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
-import { exportDigispiceCsv, exportLapListCsv } from '../services/csvParser';
-import { exportNmea, exportGpx } from '../services/nmeaParser';
-import { exportDtb } from '../services/dtbParser';
-import { MOTEC_CSV_ENABLED, exportMotecCsv } from '../services/externalFormats';
 import { CIRCUIT_PRESETS } from '../services/circuitDatabase';
 import {
   FileText,
-  Download,
   Trash2,
   Trophy,
   CheckCircle2,
@@ -18,6 +13,7 @@ import {
   Edit3,
   FolderOpen,
   Globe,
+  Repeat,
   X
 } from 'lucide-react';
 import { formatMinSec } from '../utils/timeFormat';
@@ -38,6 +34,7 @@ interface DataTabProps {
   // 登録済みのユーザーコースの数
   userCircuitCount: number;
   onRemoveSession: (sessionId: string) => void;
+  onOpenInConvert: (sessionId: string) => void;
   onEditSessionName: (sessionId: string, newName: string) => void;
   onSelectCircuitPreset: (presetId: string) => void;
   onOpenCircuitEditor: () => void;
@@ -62,6 +59,7 @@ export const DataTab: React.FC<DataTabProps> = ({
   baseSlot,
   userCircuitCount,
   onRemoveSession,
+  onOpenInConvert,
   onEditSessionName,
   onSelectCircuitPreset,
   onOpenCircuitEditor,
@@ -89,54 +87,6 @@ export const DataTab: React.FC<DataTabProps> = ({
     { slot: 2, label: 'Car 3 (緑)', hex: '#10b981', bg: 'bg-emerald-600' },
     { slot: 3, label: 'Car 4 (橙)', hex: '#f59e0b', bg: 'bg-amber-500' }
   ];
-
-  // ダウンロードヘルパー
-  const downloadFile = (content: string | Uint8Array, fileName: string, mimeType: string) => {
-    const blob = new Blob([content as any], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  // CSVエクスポート
-  const handleExportCsv = (session: Session) => {
-    const csv = exportDigispiceCsv(session.points);
-    downloadFile(csv, `${session.sessionName}_telemetry.csv`, 'text/csv;charset=utf-8');
-  };
-
-  // ラップ一覧CSVエクスポート
-  const handleExportLapListCsv = (session: Session) => {
-    const csv = exportLapListCsv(session.laps);
-    downloadFile(csv, `${session.sessionName}_lap_list.csv`, 'text/csv;charset=utf-8');
-  };
-
-  // NMEAエクスポート
-  const handleExportNmea = (session: Session) => {
-    const nmea = exportNmea(session.points);
-    downloadFile(nmea, `${session.sessionName}.nmea`, 'text/plain;charset=utf-8');
-  };
-
-  // GPXエクスポート (RaceChrono等連携用)
-  const handleExportGpx = (session: Session) => {
-    const gpx = exportGpx(session.points, session.sessionName);
-    downloadFile(gpx, `${session.sessionName}.gpx`, 'application/gpx+xml;charset=utf-8');
-  };
-
-  // MoTeC CSV エクスポート
-  const handleExportMotecCsv = (session: Session) => {
-    downloadFile(exportMotecCsv(session), `${session.sessionName}_motec.csv`, 'text/csv;charset=utf-8');
-  };
-
-  // .dtb エクスポート
-  const handleExportDtb = (session: Session) => {
-    const bytes = exportDtb(session.points, session.samplingRate);
-    downloadFile(bytes, `${session.sessionName}.dtb`, 'application/octet-stream');
-  };
 
   return (
     <div className={`flex flex-col h-full bg-surface-1 text-slate-200 overflow-y-auto overflow-x-hidden ${compact ? 'p-2 space-y-3' : 'p-4 space-y-6'}`}>
@@ -322,7 +272,7 @@ export const DataTab: React.FC<DataTabProps> = ({
           G（加減速 G・横 G・合算 G）と旋回半径は、GPS の位置と車速の変化からアプリが計算しています（ロガーが G を測っているわけではありません）。
           GPS の位置はわずかに揺れるので、計算した G も細かく揺れます。「ならし方」は、その揺れをどれだけ平らにするかの設定です。
           強くするほど速度グラフの G 表示やフリクションサークルが落ち着きますが、急な変化（ブレーキの踏み始めなど）は鈍く、小さく出ます。
-          「標準」は記録レートに合わせてならし方を変えます。読み込み済みのログにもすぐ反映され、データ管理の「走行データCSV」の G の列もこの値になります。元のログファイルは変わりません。
+          「標準」は記録レートに合わせてならし方を変えます。読み込み済みのログにもすぐ反映され、変換画面で書き出す「走行データCSV」・DTB の G もこの値になります。元のログファイルは変わりません。
         </p>
       </div>
 
@@ -365,57 +315,16 @@ export const DataTab: React.FC<DataTabProps> = ({
                 </span>
               </div>
 
-              {/* エクスポート・削除アクション */}
+              {/* 変換画面へ・削除 */}
               <div className="flex items-center gap-1.5 flex-wrap">
                 <button
-                  onClick={() => handleExportCsv(session)}
-                  title="デジスパイス公式フォーマットでCSV保存"
+                  onClick={() => onOpenInConvert(session.id)}
+                  title="このログを変換画面で開き、NMEA・GPX・CSV・.dtb などに書き出す"
+                  data-testid="open-in-convert"
                   className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
                 >
-                  <Download size={12} />
-                  走行データCSV
-                </button>
-                <button
-                  onClick={() => handleExportLapListCsv(session)}
-                  title="全周のラップタイム一覧をCSV保存"
-                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
-                >
-                  <Download size={12} />
-                  ラップ一覧CSV
-                </button>
-                <button
-                  onClick={() => handleExportNmea(session)}
-                  title="NMEA形式 (.nmea) で出力 (公式ツール互換)"
-                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
-                >
-                  <Download size={12} />
-                  NMEA出力
-                </button>
-                <button
-                  onClick={() => handleExportGpx(session)}
-                  title="GPX形式 (.gpx) で出力 (RaceChrono等スマートフォンアプリ連携用)"
-                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-xs text-cyan-300 border border-cyan-800/40 transition-colors"
-                >
-                  <Download size={12} />
-                  GPX出力
-                </button>
-                {MOTEC_CSV_ENABLED && (
-                  <button
-                    onClick={() => handleExportMotecCsv(session)}
-                    title="MoTeC CSV 形式 (i2 の CSV エクスポートと同じ書式) で出力"
-                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
-                  >
-                    <Download size={12} />
-                    MoTeC CSV
-                  </button>
-                )}
-                <button
-                  onClick={() => handleExportDtb(session)}
-                  title="デジスパイス独自バイナリ (.dtb) として保存"
-                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-red-950/40 hover:bg-red-900/60 text-xs text-red-300 border border-red-800/40 transition-colors"
-                >
-                  <Download size={12} />
-                  .dtb 保存
+                  <Repeat size={12} />
+                  変換画面で開く
                 </button>
                 <button
                   onClick={() => onRemoveSession(session.id)}

@@ -96,7 +96,7 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
     // 数値として読めない座標を 0 に置き換えない (その行を捨てる)
     const lat = parseFloat(rawCols[colLat]);
     const lon = parseFloat(rawCols[colLon]);
-    const alt = colAlt !== -1 ? parseFloat(rawCols[colAlt]) || 0 : 0;
+    const alt = colAlt !== -1 ? parseFloat(rawCols[colAlt]) : NaN;
     let speed = colSpeed !== -1 ? parseFloat(rawCols[colSpeed]) || 0 : 0;
     // もし m/s や mph の可能性がある場合 (km/h に補正)
     if (headers[colSpeed]?.toLowerCase().includes('m/s')) {
@@ -123,7 +123,8 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
         time: Number(time.toFixed(3)),
         latitude: Number(lat.toFixed(7)),
         longitude: Number(lon.toFixed(7)),
-        altitude: Number(alt.toFixed(2)),
+        altitude: Number.isFinite(alt) ? Number(alt.toFixed(2)) : 0,
+        ...(Number.isFinite(alt) ? {} : { altitudeMissing: true }),
         speed: Number(speed.toFixed(2)),
         heading: Number.isFinite(heading) ? ((heading % 360) + 360) % 360 : 0,
         distance: Number(dist.toFixed(4)),
@@ -175,7 +176,7 @@ export function exportDigispiceCsv(points: TelemetryPoint[]): string {
       p.latitude.toFixed(6),
       p.longitude.toFixed(6),
       p.distance.toFixed(3),
-      p.altitude.toFixed(2),
+      p.altitudeMissing ? '' : p.altitude.toFixed(2),
       p.speed.toFixed(2),
       p.turningRadius > 9998 ? '' : p.turningRadius.toFixed(2),
       p.corneringG.toFixed(3),
