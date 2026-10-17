@@ -30,7 +30,7 @@ function hasValidChecksum(bytes: Uint8Array, pos: number): boolean {
 // ピットでの停止 (記録開始速度を下回って記録が止まる) は数分なので、それより長くとる
 export const SESSION_GAP_SEC = 10 * 60;
 // これより短い走行 (パドックの移動など) は、ほかに走行があれば読み込まない
-const MIN_SESSION_SEC = 30;
+const MIN_SESSION_SEC = 10;
 
 export interface RawBinarySession {
   points: TelemetryPoint[];
@@ -82,6 +82,7 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
         const minute = view.getUint8(offset + 23);
         const second = view.getUint8(offset + 24);
         const subSec = view.getUint8(offset + 25);
+        if (subSec > 0 && subSec * msMultiplier < 1000) hasMilliseconds = true;
         // +12 の int32 は標高 (0.1 m 単位)。.bon4 の実ログで確認。.bon は未確認のため読まない
         const rawAlt = ext === 'bon4' ? view.getInt32(offset + 12, true) / 10 : NaN;
         const altitude = rawAlt > -500 && rawAlt < 10000 ? rawAlt : undefined;
@@ -334,14 +335,17 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
     : rawPoints;
 
   // 同じ整数秒のレコードが続く部分 (ミリ秒が記録されていない) は、その 1 秒の中で等分して割り振る。
-  // ミリ秒付きのログでも、ミリ秒が抜けた秒だけはこれで補う
+  // ミリ秒付きのログでも、ミリ秒が抜けた秒だけはこれで補う。同じ秒の中に次の時刻のレコードがあれば、
+  // その手前までの間で割り振る (時刻の順が入れ替わらないように)
   for (let i = 0; i < deduped.length; ) {
     const curTs = deduped[i].timeSec;
     let count = 1;
     while (i + count < deduped.length && deduped[i + count].timeSec === curTs) count++;
     if (count > 1 && Number.isInteger(curTs)) {
+      const next = deduped[i + count]?.timeSec ?? Infinity;
+      const width = Math.min(1, next - curTs);
       for (let k = 0; k < count; k++) {
-        const preciseTime = curTs + k / count;
+        const preciseTime = curTs + (k * width) / count;
         deduped[i + k].timeSec = preciseTime;
         deduped[i + k].timestamp = new Date(preciseTime * 1000);
       }

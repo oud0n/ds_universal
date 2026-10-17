@@ -670,10 +670,17 @@ export class DigSpiceDevice {
           const addr = first * DOWNLOAD_BLOCK_SIZE;
           const size = Math.min(count * DOWNLOAD_BLOCK_SIZE, reqSize - addr);
           await this.sendCommand(`PMTK182,7,${addr.toString(16).toUpperCase()},${size.toString(16).toUpperCase()}`);
-          await new Promise(r => setTimeout(r, 10));
+          // 本体が送信中なので、命令を詰めて送らない
+          await new Promise(r => setTimeout(r, 50));
         }
         await this.sendCommand('PMTK182,7,FFFFF0,10');
-        await round;
+        try {
+          await round;
+        } catch (err) {
+          // 無通信のタイムアウトなら次の回で読み直す (切断・食い違いは中断する)
+          if (!(err instanceof Error && err.message.startsWith('受信タイムアウト')) || attempt === PARTIAL_REFETCH_ATTEMPTS) throw err;
+          this.log('sys', `読み直しの応答が途絶えました。もう一度要求します`);
+        }
       }
 
       // 欠けたブロックがあるデータを「吸い出し成功」として渡さない (消去前のバックアップに使われるため)
@@ -821,7 +828,8 @@ export class DigSpiceDevice {
     const piFixed = PI_MANTISSA * 4n;
     const latFixed = doubleToFixed(firstLat);
     const lonFixed = doubleToFixed(firstLon);
-    const term1 = (piFixed * latFixed) >> SCALE;
+    // 負の値も 0 に向けて切り捨てる (>> は負の無限大に向けて丸めるため、絶対値で計算する)
+    const term1 = latFixed < 0n ? -((piFixed * -latFixed) >> SCALE) : (piFixed * latFixed) >> SCALE;
     const term2 = (lonFixed << SCALE) / piFixed;
     const resFixed = sqrtN + term1 + term2;
 
