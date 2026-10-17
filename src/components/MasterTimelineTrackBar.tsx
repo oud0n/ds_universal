@@ -110,9 +110,9 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
   const playheadPercent = timeToPercent(currentSessionTimeSec);
 
   return (
-    <div className="bg-[#0e121d] border-t border-[#22293a] flex flex-col shrink-0 select-none font-sans text-xs">
+    <div className="bg-surface-0 border-t border-line-1 flex flex-col shrink-0 select-none font-sans text-xs">
       {/* タイムラインヘッダーバー */}
-      <div className="h-6 bg-[#131724] px-3 flex items-center justify-between border-b border-[#1f2638] text-[10px] text-slate-400">
+      <div className="h-6 bg-surface-1 px-3 flex items-center justify-between border-b border-line-1 text-[10px] text-slate-400">
         <div className="flex items-center gap-2">
           <span className="font-bold text-slate-300 flex items-center gap-1">
             <Layers size={11} className="text-red-400" />
@@ -142,11 +142,11 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
         <div
           ref={containerRef}
           onMouseDown={handleMouseDown}
-          className="relative px-2 py-1.5 flex flex-col gap-1 cursor-pointer bg-[#0b0e17] overflow-hidden"
+          className="relative px-2 py-1.5 flex flex-col gap-1 cursor-pointer bg-surface-0 overflow-hidden"
           style={{ height: '76px' }}
         >
           {/* 1. 時間目盛り (Time Ruler) */}
-          <div className="relative h-3 w-full border-b border-[#1e2538]">
+          <div className="relative h-3 w-full border-b border-line-1">
             {rulerTicks.map((t) => {
               const p = timeToPercent(t);
               return (
@@ -163,8 +163,8 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
           </div>
 
           {/* 2. Track 1: GPS 走行ログトラック (Laps) */}
-          <div className="relative h-4.5 w-full bg-[#121624] border border-[#1e273b] rounded-sm overflow-hidden flex items-center">
-            <span className="absolute left-1 z-10 text-[8px] font-mono font-bold text-emerald-400 bg-black/60 px-1 py-0.2 rounded pointer-events-none flex items-center gap-0.5">
+          <div className="relative h-4.5 w-full bg-surface-1 border border-line-1 rounded-sm overflow-hidden flex items-center">
+            <span className="absolute left-1 z-10 text-[8px] font-mono font-bold text-emerald-400 bg-surface-0/80 px-1 py-0.2 rounded pointer-events-none flex items-center gap-0.5">
               <Gauge size={8} /> GPS
             </span>
             {session && session.laps && session.laps.map((lap) => {
@@ -177,7 +177,7 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
                 <div
                   key={lap.lapNumber}
                   style={{ left: `${leftP}%`, width: `${widthP}%` }}
-                  className={`absolute top-0 bottom-0 border-r border-[#1a2236] flex items-center justify-center px-0.5 transition-colors ${
+                  className={`absolute top-0 bottom-0 border-r border-line-1 flex items-center justify-center px-0.5 transition-colors ${
                     isSelected
                       ? 'bg-emerald-900/80 border-t-2 border-t-emerald-400'
                       : 'bg-emerald-950/40 hover:bg-emerald-950/70'
@@ -193,8 +193,8 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
           </div>
 
           {/* 3. Track 2: 車載動画メイン (GoPro / Chapters) */}
-          <div className="relative h-4.5 w-full bg-[#121624] border border-[#1e273b] rounded-sm overflow-hidden flex items-center">
-            <span className="absolute left-1 z-10 text-[8px] font-mono font-bold text-red-400 bg-black/60 px-1 py-0.2 rounded pointer-events-none flex items-center gap-0.5">
+          <div className="relative h-4.5 w-full bg-surface-1 border border-line-1 rounded-sm overflow-hidden flex items-center">
+            <span className="absolute left-1 z-10 text-[8px] font-mono font-bold text-red-400 bg-surface-0/80 px-1 py-0.2 rounded pointer-events-none flex items-center gap-0.5">
               <Video size={8} /> Video
             </span>
 
@@ -238,7 +238,7 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
                     className="absolute top-0 bottom-0 bg-red-900/80 border border-red-500/80 flex items-center justify-center px-1"
                     title={`${activeTrack.fileName} (${formatDuration(activeTrack.durationSec)})`}
                   >
-                    <span className="text-[8px] font-mono text-white truncate font-bold">
+                    <span className="text-[8px] font-mono text-fg truncate font-bold">
                       {activeTrack.fileName}
                     </span>
                   </div>
@@ -251,8 +251,8 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
 
           {/* 4. Track 3: サブ動画 (Sub Cam - 2カメラ時) */}
           {subTrack && (
-            <div className="relative h-3 w-full bg-[#101420] border border-[#1a2233] rounded-xs overflow-hidden flex items-center">
-              <span className="absolute left-1 z-10 text-[7px] font-mono font-bold text-blue-400 bg-black/60 px-1 rounded pointer-events-none">
+            <div className="relative h-3 w-full bg-surface-1 border border-line-1 rounded-xs overflow-hidden flex items-center">
+              <span className="absolute left-1 z-10 text-[7px] font-mono font-bold text-blue-400 bg-surface-0/80 px-1 rounded pointer-events-none">
                 Sub
               </span>
               {(() => {

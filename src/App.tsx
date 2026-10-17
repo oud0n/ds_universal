@@ -691,7 +691,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0f1117] text-slate-100">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-surface-0 text-slate-100">
       {/* 非表示ファイル入力 */}
       <input
         type="file"
@@ -854,10 +854,10 @@ export const App: React.FC = () => {
             {/* 下部: 走行アニメーション or 車載動画 切替エリア (フラットデザイン) */}
             <div
               style={{ height: `${(1 - leftVertSplit.ratio) * 100}%` }}
-              className="min-h-[120px] overflow-hidden flex flex-col bg-[#12141c] rounded border border-[#22293a]"
+              className="min-h-[120px] overflow-hidden flex flex-col bg-surface-1 rounded border border-line-1"
             >
               {/* 左下タブバー */}
-              <div className="flex bg-[#161a25] p-1 border-b border-[#22293a] text-[11px] gap-1 shrink-0">
+              <div className="flex bg-surface-2 p-1 border-b border-line-1 text-[11px] gap-1 shrink-0">
                 <button
                   onClick={() => setLeftBottomMode('replay')}
                   className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
@@ -963,9 +963,9 @@ export const App: React.FC = () => {
             {/* 右下: サブウインドウ切替タブ (フラットデザイン) */}
             <div
               style={{ height: `${(1 - rightVertSplit.ratio) * 100}%` }}
-              className="min-h-[120px] overflow-hidden flex flex-col bg-[#12141c] rounded border border-[#22293a]"
+              className="min-h-[120px] overflow-hidden flex flex-col bg-surface-1 rounded border border-line-1"
             >
-              <div className="flex bg-[#161a25] p-1 border-b border-[#22293a] text-[11px] gap-1 shrink-0 overflow-x-auto whitespace-nowrap">
+              <div className="flex bg-surface-2 p-1 border-b border-line-1 text-[11px] gap-1 shrink-0 overflow-x-auto whitespace-nowrap">
                 <button
                   onClick={() => setSubWindowMode('all')}
                   className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${

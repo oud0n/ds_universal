@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -32,7 +32,8 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     title: 'DS Universal Suite - GPS Data Logger & Telemetry Analyser',
-    backgroundColor: '#0f1117',
+    // 画面が出るまでの背景。テーマ (システムに合わせる場合) と同じく OS の設定に合わせる
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0f1117' : '#e9edf2',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,

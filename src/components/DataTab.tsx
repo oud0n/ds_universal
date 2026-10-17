@@ -123,9 +123,9 @@ export const DataTab: React.FC<DataTabProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#12141a] text-slate-200 overflow-y-auto p-4 space-y-6">
+    <div className="flex flex-col h-full bg-surface-1 text-slate-200 overflow-y-auto p-4 space-y-6">
       {/* 上部: コース設定 & プリセット切り替えバー */}
-      <div className="bg-[#181c26] border border-[#272f42] rounded-xl p-4 shadow-md flex flex-wrap items-center justify-between gap-4">
+      <div className="bg-surface-2 border border-line-2 rounded-xl p-4 shadow-md flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-red-600/20 text-red-500 rounded-lg">
             <MapPin size={22} />
@@ -140,7 +140,7 @@ export const DataTab: React.FC<DataTabProps> = ({
           {/* サーキットプリセット選択 */}
           <select
             onChange={e => onSelectCircuitPreset(e.target.value)}
-            className="bg-[#10131a] border border-[#2d364c] text-xs text-slate-200 rounded-lg px-3 py-2 outline-none focus:border-red-500 transition-colors"
+            className="bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg px-3 py-2 outline-none focus:border-red-500 transition-colors"
           >
             <option value="">-- サーキットプリセット選択 --</option>
             {CIRCUIT_PRESETS.map(c => (
@@ -170,7 +170,7 @@ export const DataTab: React.FC<DataTabProps> = ({
           {/* コース図読込 */}
           <button
             onClick={onLoadPthFile}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#222838] hover:bg-[#2c344a] text-xs text-slate-300 border border-[#333d54] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
           >
             <Layers size={13} />
             コース図 (.pth)
@@ -179,7 +179,7 @@ export const DataTab: React.FC<DataTabProps> = ({
           {/* コントロールライン読込 */}
           <button
             onClick={onLoadClnFile}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#222838] hover:bg-[#2c344a] text-xs text-slate-300 border border-[#333d54] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
           >
             <FileText size={13} />
             計測線 (.cln)
@@ -197,7 +197,7 @@ export const DataTab: React.FC<DataTabProps> = ({
       </div>
 
       {/* 比較スロット (Car 1〜4) の選択状態バー */}
-      <div className="bg-[#181c26] border border-[#272f42] rounded-xl p-3 shadow-md">
+      <div className="bg-surface-2 border border-line-2 rounded-xl p-3 shadow-md">
         <div className="text-xs font-bold text-slate-300 mb-2 flex items-center justify-between">
           <span>比較スロット割り当て (最大4台 同時比較)</span>
           <span className="text-[11px] text-slate-400 font-normal">
@@ -210,8 +210,8 @@ export const DataTab: React.FC<DataTabProps> = ({
             return (
               <div
                 key={slot.slot}
-                className="flex items-center justify-between p-2.5 rounded-lg border bg-[#12151f]"
-                style={{ borderColor: assigned ? slot.hex : '#272f42' }}
+                className="flex items-center justify-between p-2.5 rounded-lg border bg-surface-1"
+                style={{ borderColor: assigned ? slot.hex : 'var(--ds-line-2)' }}
               >
                 <div className="flex items-center gap-2">
                   <span className={`w-3 h-3 rounded-full ${slot.bg}`} />
@@ -229,7 +229,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                         <span>距離補正</span>
                         <button
                           onClick={e => onSetDistanceOffset(slot.slot, (assigned.distanceOffsetM || 0) - (e.shiftKey ? 10 : 1))}
-                          className="px-1.5 rounded border border-[#2e374c] hover:text-slate-200"
+                          className="px-1.5 rounded border border-line-3 hover:text-slate-200"
                         >
                           −
                         </button>
@@ -241,12 +241,12 @@ export const DataTab: React.FC<DataTabProps> = ({
                             const v = parseFloat(e.target.value);
                             onSetDistanceOffset(slot.slot, Number.isFinite(v) ? v : 0);
                           }}
-                          className="w-14 bg-[#0f121a] border border-[#2e374c] rounded px-1 text-right font-mono text-slate-200"
+                          className="w-14 bg-surface-0 border border-line-3 rounded px-1 text-right font-mono text-slate-200"
                         />
                         <span>m</span>
                         <button
                           onClick={e => onSetDistanceOffset(slot.slot, (assigned.distanceOffsetM || 0) + (e.shiftKey ? 10 : 1))}
-                          className="px-1.5 rounded border border-[#2e374c] hover:text-slate-200"
+                          className="px-1.5 rounded border border-line-3 hover:text-slate-200"
                         >
                           ＋
                         </button>
@@ -258,7 +258,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                   <button
                     onClick={() => onClearCarSlot(slot.slot)}
                     title={`${slot.label} の割り当てを解除`}
-                    className="self-start flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-[#2e374c] text-[11px] text-slate-400 hover:text-slate-100 hover:border-slate-500 transition-colors"
+                    className="self-start flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-line-3 text-[11px] text-slate-400 hover:text-slate-100 hover:border-slate-500 transition-colors"
                   >
                     <X size={11} />
                     解除
@@ -279,7 +279,7 @@ export const DataTab: React.FC<DataTabProps> = ({
 
       {/* セッション & ラップ一覧 */}
       {sessions.length === 0 ? (
-        <div className="bg-[#181c26] border border-[#272f42] rounded-xl p-12 text-center text-slate-400">
+        <div className="bg-surface-2 border border-line-2 rounded-xl p-12 text-center text-slate-400">
           <FileText size={48} className="mx-auto mb-3 text-slate-600" />
           <p className="text-sm font-medium">走行データが読み込まれていません</p>
           <p className="text-xs text-slate-500 mt-1">
@@ -290,19 +290,19 @@ export const DataTab: React.FC<DataTabProps> = ({
         sessions.map(session => (
           <div
             key={session.id}
-            className="bg-[#181c26] border border-[#272f42] rounded-xl p-4 shadow-md space-y-4"
+            className="bg-surface-2 border border-line-2 rounded-xl p-4 shadow-md space-y-4"
           >
             {/* セッションヘッダー */}
-            <div className="flex flex-wrap items-center justify-between border-b border-[#272f42] pb-3 gap-2">
+            <div className="flex flex-wrap items-center justify-between border-b border-line-2 pb-3 gap-2">
               <div className="flex items-center gap-3">
                 <input
                   type="text"
                   value={session.sessionName}
                   onChange={e => onEditSessionName(session.id, e.target.value)}
-                  className="bg-[#12151f] border border-[#2d364c] text-sm font-bold text-slate-100 rounded px-2.5 py-1 focus:border-red-500 outline-none"
+                  className="bg-surface-1 border border-line-3 text-sm font-bold text-slate-100 rounded px-2.5 py-1 focus:border-red-500 outline-none"
                   title="クリックして名前を変更"
                 />
-                <span className="text-xs bg-[#242c3d] text-slate-300 px-2.5 py-0.5 rounded font-mono">
+                <span className="text-xs bg-surface-4 text-slate-300 px-2.5 py-0.5 rounded font-mono">
                   {session.circuitName || '一般コース'}
                 </span>
                 <span className="text-xs text-slate-400 font-mono">
@@ -315,7 +315,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                 <button
                   onClick={() => handleExportCsv(session)}
                   title="デジスパイス公式フォーマットでCSV保存"
-                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#222838] hover:bg-[#2c344a] text-xs text-slate-300 border border-[#333d54] transition-colors"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
                 >
                   <Download size={12} />
                   走行データCSV
@@ -323,7 +323,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                 <button
                   onClick={() => handleExportLapListCsv(session)}
                   title="全周のラップタイム一覧をCSV保存"
-                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#222838] hover:bg-[#2c344a] text-xs text-slate-300 border border-[#333d54] transition-colors"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
                 >
                   <Download size={12} />
                   ラップ一覧CSV
@@ -331,7 +331,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                 <button
                   onClick={() => handleExportNmea(session)}
                   title="NMEA形式 (.nmea) で出力 (公式ツール互換)"
-                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#222838] hover:bg-[#2c344a] text-xs text-slate-300 border border-[#333d54] transition-colors"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
                 >
                   <Download size={12} />
                   NMEA出力
@@ -339,7 +339,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                 <button
                   onClick={() => handleExportGpx(session)}
                   title="GPX形式 (.gpx) で出力 (RaceChrono等スマートフォンアプリ連携用)"
-                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#222838] hover:bg-[#2c344a] text-xs text-cyan-300 border border-cyan-800/40 transition-colors"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-xs text-cyan-300 border border-cyan-800/40 transition-colors"
                 >
                   <Download size={12} />
                   GPX出力
@@ -348,7 +348,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                   <button
                     onClick={() => handleExportMotecCsv(session)}
                     title="MoTeC CSV 形式 (i2 の CSV エクスポートと同じ書式) で出力"
-                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#222838] hover:bg-[#2c344a] text-xs text-slate-300 border border-[#333d54] transition-colors"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
                   >
                     <Download size={12} />
                     MoTeC CSV
@@ -391,7 +391,7 @@ export const DataTab: React.FC<DataTabProps> = ({
             {/* ラップ一覧テーブル */}
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-left">
-                <thead className="bg-[#12151f] text-slate-400 font-mono uppercase text-[11px] border-b border-[#272f42]">
+                <thead className="bg-surface-1 text-slate-400 font-mono uppercase text-[11px] border-b border-line-2">
                   <tr>
                     <th className="py-2 px-3">Lap</th>
                     <th className="py-2 px-3">ラップタイム</th>
@@ -407,7 +407,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                     <th className="py-2 px-3 text-center">スロット選択</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#202738] font-mono">
+                <tbody className="divide-y divide-line-1 font-mono">
                   {session.laps.map(lap => {
                     const isSelectedAny = selectedCars.some(
                       c => c.sessionId === session.id && c.lapNumber === lap.lapNumber
@@ -416,7 +416,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                     return (
                       <tr
                         key={lap.lapNumber}
-                        className={`transition-colors hover:bg-[#1f2636] ${
+                        className={`transition-colors hover:bg-surface-4 ${
                           lap.isBestLap ? 'bg-amber-950/20' : ''
                         }`}
                       >
@@ -473,7 +473,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                                   className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold transition-all ${
                                     isCurrentSlot
                                       ? `${slot.bg} text-white shadow`
-                                      : 'bg-[#252d3f] text-slate-400 hover:text-white hover:bg-[#323c54]'
+                                      : 'bg-surface-4 text-slate-400 hover:text-fg hover:bg-surface-5'
                                   }`}
                                 >
                                   {slot.slot + 1}
@@ -489,7 +489,7 @@ export const DataTab: React.FC<DataTabProps> = ({
 
                 {/* 仮想ベストラップ行 */}
                 {session.theoreticalBestTime > 0 && session.sectors.length > 0 && (
-                  <tfoot className="bg-[#121622] text-amber-300 font-mono font-bold text-[11px] border-t-2 border-amber-500/40">
+                  <tfoot className="bg-surface-1 text-amber-300 font-mono font-bold text-[11px] border-t-2 border-amber-500/40">
                     <tr>
                       <td className="py-2 px-3 flex items-center gap-1">
                         <Trophy size={13} className="text-amber-400" />

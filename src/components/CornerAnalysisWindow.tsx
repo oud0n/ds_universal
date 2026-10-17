@@ -43,10 +43,10 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
   }, [analysed, base]);
 
   if (!base || !result) {
-    return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-[#141722]">走行データを読み込むとコーナー別の速度を表示します</div>;
+    return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-surface-1">走行データを読み込むとコーナー別の速度を表示します</div>;
   }
   if (result.corners.length === 0) {
-    return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-[#141722]">このラップからコーナーを検出できませんでした</div>;
+    return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-surface-1">このラップからコーナーを検出できませんでした</div>;
   }
 
   // 現在位置は、ログの距離欄ではなく解析用に積算し直した距離で比べる (両者の尺度が違う場合があるため)
@@ -54,8 +54,8 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
   const baseMetrics = result.perCar[0].metrics;
 
   return (
-    <div className="h-full flex flex-col bg-[#141722] text-slate-200 overflow-hidden" data-testid="corner-analysis">
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-[#22293a] text-[11px] shrink-0">
+    <div className="h-full flex flex-col bg-surface-1 text-slate-200 overflow-hidden" data-testid="corner-analysis">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-line-1 text-[11px] shrink-0">
         <span className="font-bold flex items-center gap-1.5">
           <CornerDownRight size={13} className="text-amber-400" />
           コーナー別速度 ({result.corners.length} コーナー)
@@ -65,12 +65,12 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
 
       <div className="flex-1 overflow-auto">
         <table className="w-full text-[11px] font-mono border-collapse">
-          <thead className="sticky top-0 bg-[#1b202d] text-slate-400">
+          <thead className="sticky top-0 bg-surface-3 text-slate-400">
             <tr>
               <th className="px-2 py-1 text-left font-medium" rowSpan={2}>コーナー</th>
               <th className="px-2 py-1 text-right font-medium" rowSpan={2}>最小R</th>
               {result.perCar.map(({ car }) => (
-                <th key={car.slot.slot} className="px-2 py-1 text-center font-medium border-l border-[#2a3245]" colSpan={car === base ? 3 : 4}>
+                <th key={car.slot.slot} className="px-2 py-1 text-center font-medium border-l border-line-2" colSpan={car === base ? 3 : 4}>
                   <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: car.slot.colorHex }} />
                   Car {car.slot.slot + 1} (L{car.lap.lapNumber})
                 </th>
@@ -79,7 +79,7 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
             <tr>
               {result.perCar.map(({ car }) => (
                 <React.Fragment key={car.slot.slot}>
-                  <th className="px-2 py-1 text-right font-medium border-l border-[#2a3245]">進入</th>
+                  <th className="px-2 py-1 text-right font-medium border-l border-line-2">進入</th>
                   <th className="px-2 py-1 text-right font-medium">ボトム</th>
                   <th className="px-2 py-1 text-right font-medium">脱出</th>
                   {car !== base && <th className="px-2 py-1 text-right font-medium">ライン</th>}
@@ -94,7 +94,7 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
                 <tr
                   key={c.number}
                   onClick={() => onSeekDistance(base.lap.points[c.apexIndex].distance)}
-                  className={`cursor-pointer border-t border-[#1f2533] hover:bg-[#1f2636] ${active ? 'bg-[#232b3e]' : ''}`}
+                  className={`cursor-pointer border-t border-line-1 hover:bg-surface-4 ${active ? 'bg-surface-4' : ''}`}
                 >
                   <td className="px-2 py-1 whitespace-nowrap">
                     <span className="font-bold text-slate-100">C{c.number}</span>
@@ -106,12 +106,12 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
                     const m = metrics[i];
                     const b = baseMetrics[i];
                     if (!m || !b) {
-                      return <td key={car.slot.slot} colSpan={car === base ? 3 : 4} className="px-2 py-1 text-center text-slate-600 border-l border-[#2a3245]">対応区間なし</td>;
+                      return <td key={car.slot.slot} colSpan={car === base ? 3 : 4} className="px-2 py-1 text-center text-slate-600 border-l border-line-2">対応区間なし</td>;
                     }
                     const off = apexOffsets[i];
                     return (
                       <React.Fragment key={car.slot.slot}>
-                        <td className="px-2 py-1 text-right border-l border-[#2a3245] whitespace-nowrap">{m.entrySpeed.toFixed(1)}{car !== base && <Diff value={m.entrySpeed - b.entrySpeed} />}</td>
+                        <td className="px-2 py-1 text-right border-l border-line-2 whitespace-nowrap">{m.entrySpeed.toFixed(1)}{car !== base && <Diff value={m.entrySpeed - b.entrySpeed} />}</td>
                         <td className="px-2 py-1 text-right font-bold whitespace-nowrap">{m.bottomSpeed.toFixed(1)}{car !== base && <Diff value={m.bottomSpeed - b.bottomSpeed} />}</td>
                         <td className="px-2 py-1 text-right whitespace-nowrap">{m.exitSpeed.toFixed(1)}{car !== base && <Diff value={m.exitSpeed - b.exitSpeed} />}</td>
                         {car !== base && (
@@ -129,7 +129,7 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
         </table>
       </div>
 
-      <div className="px-3 py-1 border-t border-[#22293a] text-[10px] text-slate-500 shrink-0">
+      <div className="px-3 py-1 border-t border-line-1 text-[10px] text-slate-500 shrink-0">
         車速は km/h。進入 = ターンイン時 / ボトム = コーナー内の最低車速 / 脱出 = コーナー出口。コーナーは基準車の走行ラインの曲率から自動検出。
         ラインは基準車のアペックス位置での左右のズレ (ラップ間の GPS の位置ずれを補正済み。1 m 未満の差は参考値)
       </div>

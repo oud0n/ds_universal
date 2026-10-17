@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
+import { canvasColors, useResolvedTheme } from '../utils/theme';
 import { CompareAxis, Lap, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { findCarPoint } from '../utils/telemetrySearch';
 import { passesNearPoint } from '../services/lapCalculator';
@@ -61,6 +62,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   compareAxis,
   onSeekDistance
 }) => {
+  // テーマを切り替えたら canvas を描き直す
+  const theme = useResolvedTheme();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [colorMode, setColorMode] = useState<'car' | 'speed' | 'accel' | 'line'>('car');
@@ -177,6 +180,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    // テーマの色 (テーマを切り替えたら描き直す)
+    const C = canvasColors();
 
     const dpr = window.devicePixelRatio || 1;
     const width = canvas.parentElement?.clientWidth || 400;
@@ -190,11 +195,11 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     ctx.scale(dpr, dpr);
 
     // 背景
-    ctx.fillStyle = '#11141d';
+    ctx.fillStyle = C.bg;
     ctx.fillRect(0, 0, width, height);
 
     if (cars.length === 0 && (!pathPolylines || pathPolylines.length === 0)) {
-      ctx.fillStyle = '#64748b';
+      ctx.fillStyle = C.axis;
       ctx.font = '13px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('コースデータがありません', width / 2, height / 2);
@@ -276,7 +281,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         ctx.stroke();
       }
     } else if (pathPolylines && pathPolylines.length > 0) {
-      ctx.strokeStyle = '#273147';
+      ctx.strokeStyle = C.track;
       ctx.lineWidth = 14;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -295,7 +300,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       }
 
       // コース境界線
-      ctx.strokeStyle = '#3b4866';
+      ctx.strokeStyle = C.trackEdge;
       ctx.lineWidth = 1.5;
       for (const poly of pathPolylines) {
         if (poly.length < 2) continue;
@@ -315,7 +320,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       const pA = toScreen(controlLine.latA, controlLine.lonA);
       const pB = toScreen(controlLine.latB, controlLine.lonB);
 
-      ctx.strokeStyle = '#ffffff';
+      ctx.strokeStyle = C.strong;
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.moveTo(pA.x, pA.y);
@@ -323,7 +328,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       ctx.stroke();
 
       // チェッカー柄またはラベル
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = C.strong;
       ctx.font = 'bold 10px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('FINISH', (pA.x + pB.x) / 2, (pA.y + pB.y) / 2 - 6);
@@ -334,7 +339,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       const pA = toScreen(sec.latA, sec.lonA);
       const pB = toScreen(sec.latB, sec.lonB);
 
-      ctx.strokeStyle = '#facc15';
+      ctx.strokeStyle = C.sector;
       ctx.lineWidth = 2;
       ctx.setLineDash([4, 4]);
       ctx.beginPath();
@@ -343,7 +348,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      ctx.fillStyle = '#facc15';
+      ctx.fillStyle = C.sector;
       ctx.font = 'bold 9px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(sec.name || `S${idx + 1}`, (pA.x + pB.x) / 2, (pA.y + pB.y) / 2 - 5);
@@ -377,7 +382,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         }
       } else if (colorMode === 'car' || colorMode === 'line') {
         // ライン偏差モードでは、基準車を細い白線で描く
-        ctx.strokeStyle = colorMode === 'line' ? '#e2e8f0' : car.slot.colorHex;
+        ctx.strokeStyle = colorMode === 'line' ? C.soft : car.slot.colorHex;
         ctx.lineWidth = colorMode === 'line' ? 1.5 : car.slot.slot === 0 ? 3 : 2;
         ctx.beginPath();
         const start = toScreen(pts[0].latitude, pts[0].longitude);
@@ -426,7 +431,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
             const alpha = Math.min(1, g / 0.5);
             ctx.strokeStyle = `rgba(6, 182, 212, ${0.4 + alpha * 0.6})`;
           } else {
-            ctx.strokeStyle = '#64748b';
+            ctx.strokeStyle = C.axis;
           }
 
           ctx.beginPath();
@@ -514,7 +519,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 
       ctx.restore();
     });
-  }, [cars, controlLine, sectors, pathPolylines, currentDistance, currentTime, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick]);
+  }, [cars, controlLine, sectors, pathPolylines, currentDistance, currentTime, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick, theme]);
 
   // パン操作 (ドラッグ)
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -579,9 +584,9 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#161922] rounded-lg border border-[#262c3d] overflow-hidden select-none shadow-lg">
+    <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
-      <div className="flex flex-wrap items-center justify-between gap-y-1 px-3 py-1.5 bg-[#1b202d] border-b border-[#2a3245] text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-y-1 px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-bold text-slate-200 flex items-center gap-1.5">
             <Map size={14} className="text-emerald-400" />
@@ -589,7 +594,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
           </span>
 
           {/* カラーモード切替 */}
-          <div className="flex items-center bg-[#12141c] rounded p-0.5 border border-[#2e374c]">
+          <div className="flex items-center bg-surface-1 rounded p-0.5 border border-line-3">
             <button
               onClick={() => setColorMode('car')}
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
@@ -628,7 +633,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
             onClick={() => setShowCorners(v => !v)}
             title="コーナー番号の表示切替"
             className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-all ${
-              showCorners ? 'border-amber-500/50 text-amber-300' : 'border-[#2e374c] text-slate-500 hover:text-slate-300'
+              showCorners ? 'border-amber-500/50 text-amber-300' : 'border-line-3 text-slate-500 hover:text-slate-300'
             }`}
           >
             コーナー番号
@@ -638,7 +643,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
             onChange={e => handleSelectBackground(e.target.value as MapBackground)}
             title="コース図の背景に地図を表示します (国土地理院タイル。表示にはインターネット接続が必要です)"
             aria-label="背景地図"
-            className="bg-[#12141c] border border-[#2e374c] text-[11px] text-slate-300 rounded px-1.5 py-0.5 outline-none"
+            className="bg-surface-1 border border-line-3 text-[11px] text-slate-300 rounded px-1.5 py-0.5 outline-none"
           >
             <option value="none">背景: なし</option>
             <option value="photo">背景: {TILE_SOURCES.photo.label}</option>
@@ -650,7 +655,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
               aria-pressed={isAdjustingMap}
               title="ON の間は、ドラッグで背景地図だけを動かして GPS 軌跡に合わせます。OFF にすると通常の移動・拡大操作に戻ります"
               className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border transition-all ${
-                isAdjustingMap ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-[#2e374c] text-slate-400 hover:text-slate-200'
+                isAdjustingMap ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-line-3 text-slate-400 hover:text-slate-200'
               }`}
             >
               <Move size={11} />
@@ -670,7 +675,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
             title="車両追従 (基準車を常に中央に表示)"
             aria-pressed={isFollowing}
             className={`flex items-center gap-1 px-1.5 py-0.5 mr-1 rounded border text-[11px] transition-colors ${
-              isFollowing ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-[#2e374c] text-slate-400 hover:text-slate-200'
+              isFollowing ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-line-3 text-slate-400 hover:text-slate-200'
             }`}
           >
             <LocateFixed size={13} />
@@ -679,21 +684,21 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
           <button
             onClick={() => setZoom(z => Math.min(10, z * 1.25))}
             title="拡大"
-            className="p-1 hover:bg-[#283247] rounded text-slate-300 transition-colors"
+            className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
           >
             <ZoomIn size={14} />
           </button>
           <button
             onClick={() => setZoom(z => Math.max(0.4, z * 0.8))}
             title="縮小"
-            className="p-1 hover:bg-[#283247] rounded text-slate-300 transition-colors"
+            className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
           >
             <ZoomOut size={14} />
           </button>
           <button
             onClick={handleReset}
             title="コース全体を表示"
-            className="p-1 hover:bg-[#283247] rounded text-slate-300 transition-colors"
+            className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
           >
             <RotateCcw size={13} />
           </button>
@@ -730,7 +735,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
             href={TILE_ATTRIBUTION.url}
             target="_blank"
             rel="noreferrer"
-            className="absolute bottom-1 right-1 bg-[#12141cd0] rounded px-1.5 py-0.5 text-[9px] text-slate-300 hover:text-white"
+            className="absolute bottom-1 right-1 bg-surface-1/82 rounded px-1.5 py-0.5 text-[9px] text-slate-300 hover:text-fg"
           >
             {TILE_ATTRIBUTION.text}
           </a>
@@ -738,14 +743,14 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 
         {/* 凡例 / ガイド */}
         {colorMode === 'speed' && (
-          <div className="absolute bottom-2 left-2 bg-[#12141ce0] border border-[#2e374c] rounded px-2 py-1 text-[10px] text-slate-300 flex items-center gap-2">
+          <div className="absolute bottom-2 left-2 bg-surface-1/88 border border-line-3 rounded px-2 py-1 text-[10px] text-slate-300 flex items-center gap-2">
             <span>低速 (青)</span>
             <div className="w-16 h-2 rounded bg-gradient-to-r from-blue-600 via-green-500 to-red-500"></div>
             <span>高速 (赤)</span>
           </div>
         )}
         {colorMode === 'line' && (
-          <div className="absolute bottom-2 left-2 bg-[#12141ce0] border border-[#2e374c] rounded px-2 py-1 text-[10px] text-slate-300 flex items-center gap-2" data-testid="line-delta-legend">
+          <div className="absolute bottom-2 left-2 bg-surface-1/88 border border-line-3 rounded px-2 py-1 text-[10px] text-slate-300 flex items-center gap-2" data-testid="line-delta-legend">
             {lineDeltas.length === 0 ? (
               <span className="text-amber-300">比較する車両 (Car 2 以降) を「データ管理」で選択してください</span>
             ) : (
@@ -771,7 +776,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
           </div>
         )}
         {colorMode === 'accel' && (
-          <div className="absolute bottom-2 left-2 bg-[#12141ce0] border border-[#2e374c] rounded px-2 py-1 text-[10px] text-slate-300 flex items-center gap-2">
+          <div className="absolute bottom-2 left-2 bg-surface-1/88 border border-line-3 rounded px-2 py-1 text-[10px] text-slate-300 flex items-center gap-2">
             <span className="text-red-400">減速G (赤)</span>
             <div className="w-16 h-2 rounded bg-gradient-to-r from-red-500 via-slate-600 to-cyan-400"></div>
             <span className="text-cyan-400">加速G (青)</span>
