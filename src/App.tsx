@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { CompareAxis, Lap, Session, TelemetryPoint, SelectedCarSlot, ControlLine, Sector, CircuitPreset } from './types/telemetry';
 import { parseDtb } from './services/dtbParser';
@@ -21,7 +21,7 @@ import { DriftWindow } from './components/DriftWindow';
 import { CornerAnalysisWindow } from './components/CornerAnalysisWindow';
 import { BrakingAnalysisWindow } from './components/BrakingAnalysisWindow';
 import { VideoSyncWindow } from './components/VideoSyncWindow';
-import { useVideoTracks } from './services/videoViewStore';
+import { useVideoTracks, useVideoView } from './services/videoViewStore';
 import { DataTab } from './components/DataTab';
 import { LoggerTab } from './components/LoggerTab';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
@@ -318,41 +318,46 @@ export const App: React.FC = () => {
   const lastTimeRef = useRef<number>(performance.now());
 
   // 再生の基準はこのループだけにする。動画のウインドウは、この時刻に合わせて動画を再生する (動画の有無にかかわらず時刻が進む)
-  // グラフ画面では選んでいる周の中の時刻、動画同期タブではセッション全体の時刻を進める
-  // 動画同期タブでは、ログがなくても (動画だけでも) 再生できるよう、動画の終わりまで進める
+  // 時刻の基準: グラフ画面では選んでいる周の中の時刻 ('lap')、動画同期タブではセッション全体の時刻 ('session')。
+  // データ管理などほかのタブでは直前の基準のままにする (行って戻っても再生位置が変わらないように)
+  // 動画同期タブでは、ログがなくても (動画だけでも) 再生できるよう、表示している動画の終わりまで進める
   const isVideoTab = !isCompact && currentTab === 'video';
   const videoTracks = useVideoTracks();
+  const videoView = useVideoView();
+  const shownVideoIds = [videoView.selectedTrackId, videoView.viewMode !== 'single' ? videoView.subTrackId : null];
   const sessionEndTime = Math.max(
     baseSession?.points.length ? baseSession.points[baseSession.points.length - 1].time : 0,
-    ...videoTracks.filter(t => t.objectUrl).map(t => t.syncOffsetSec + (t.durationSec || 0))
+    ...videoTracks.filter(t => t.objectUrl && shownVideoIds.includes(t.id)).map(t => t.syncOffsetSec + (t.durationSec || 0))
   );
-  // グラフ画面と動画同期タブを行き来したら、時刻を読み替える (周の中の時刻 ⇔ セッション全体の時刻)。距離もその時刻のものにする
-  // 画面に出る前に直すため、useLayoutEffect にする
-  const prevIsVideoTabRef = useRef(isVideoTab);
-  useLayoutEffect(() => {
-    if (prevIsVideoTabRef.current === isVideoTab) return;
-    prevIsVideoTabRef.current = isVideoTab;
+  const [clockBase, setClockBase] = useState<'lap' | 'session'>(() => (isVideoTab ? 'session' : 'lap'));
+  const wantClockBase: 'lap' | 'session' = isVideoTab ? 'session' : currentTab === 'graph' ? 'lap' : clockBase;
+  if (wantClockBase !== clockBase) {
+    // 基準が変わったら、時刻と距離を読み替える。描画の途中で直し、ウインドウが古い基準の時刻を受け取らないようにする
+    setClockBase(wantClockBase);
     const lapStart = baseLap?.startTime ?? 0;
     // 周の外のセッション時刻からグラフ画面に戻ったときは、周の始め・終わりに寄せる
-    const next = isVideoTab ? currentTimeSec + lapStart : Math.max(0, Math.min(playEndTime, currentTimeSec - lapStart));
+    const next = wantClockBase === 'session' ? currentTimeSec + lapStart : Math.max(0, Math.min(playEndTime, currentTimeSec - lapStart));
     setCurrentTimeSec(next);
-    const pts = isVideoTab ? baseSession?.points : baseLap?.points;
+    const pts = wantClockBase === 'session' ? baseSession?.points : baseLap?.points;
     if (pts && pts.length > 0) {
       const curPt = interpolatePoint(pts, 'time', next);
       if (curPt) setCurrentDistanceKm(curPt.distance);
     }
-  }, [isVideoTab]);
+  }
+  const isSessionClock = wantClockBase === 'session';
+
+  // セッション全体の時刻で、終わりまで再生したあとに再生を押したら、始めから再生する
+  useEffect(() => {
+    if (isPlaying && isSessionClock) setCurrentTimeSec(t => (t >= sessionEndTime - 1e-3 ? 0 : t));
+  }, [isPlaying]);
 
   useEffect(() => {
-    const pts = isVideoTab ? baseSession?.points : baseLap?.points;
-    const endTime = isVideoTab ? sessionEndTime : playEndTime;
-    if (!isPlaying || (!isVideoTab && (!pts || pts.length === 0)) || !(endTime > 0)) {
+    const pts = isSessionClock ? baseSession?.points : baseLap?.points;
+    const endTime = isSessionClock ? sessionEndTime : playEndTime;
+    if (!isPlaying || (!isSessionClock && (!pts || pts.length === 0)) || !(endTime > 0)) {
       if (animRef.current) cancelAnimationFrame(animRef.current);
       return;
     }
-
-    // 動画同期タブで終わりまで再生したあとに再生を押したら、始めから再生する
-    if (isVideoTab) setCurrentTimeSec(t => (t >= endTime - 1e-3 ? 0 : t));
 
     lastTimeRef.current = performance.now();
 
@@ -364,8 +369,8 @@ export const App: React.FC = () => {
       setCurrentTimeSec(prevTime => {
         let nextTime = prevTime + dtSec;
         if (nextTime > endTime) {
-          if (isVideoTab) {
-            // 動画同期タブでは、セッションの終わりで止める
+          if (isSessionClock) {
+            // セッション全体の時刻では、終わりで止める
             nextTime = endTime;
             setIsPlaying(false);
           } else {
@@ -393,7 +398,7 @@ export const App: React.FC = () => {
     return () => {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
-  }, [isPlaying, playbackSpeed, baseLap, baseSession, playEndTime, sessionEndTime, isVideoTab]);
+  }, [isPlaying, playbackSpeed, baseLap, baseSession, playEndTime, sessionEndTime, isSessionClock]);
 
   // キーボードショートカット (Space: 再生/停止, F / →: コマ送り, B / ←: コマ戻し, Shift で 1 秒単位)
   useEffect(() => {
@@ -417,7 +422,7 @@ export const App: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [baseLap, baseSession, isVideoTab, playEndTime, sessionEndTime]);
+  }, [baseLap, baseSession, isSessionClock, playEndTime, sessionEndTime]);
 
   // Electron ネイティブメニューからのファイルオープン受信
   useEffect(() => {
@@ -455,13 +460,13 @@ export const App: React.FC = () => {
 
   const handleStep = (stepSec: number) => {
     // 動画同期タブでは、ログがなくても (動画だけでも) コマ送りできる
-    if (isVideoTab ? !(sessionEndTime > 0) : !baseLap) return;
+    if (isSessionClock ? !(sessionEndTime > 0) : !baseLap) return;
     setIsPlaying(false);
     setCurrentTimeSec(prev => {
       // 動画タブではセッション全体の時間 (動画の終わりまで)、それ以外では選択中ラップの時間が上限
-      const maxLimit = isVideoTab ? sessionEndTime : playEndTime;
+      const maxLimit = isSessionClock ? sessionEndTime : playEndTime;
       const next = Math.max(0, Math.min(maxLimit, prev + stepSec));
-      const pts = (isVideoTab ? baseSession?.points : baseLap?.points) || baseSession?.points;
+      const pts = (isSessionClock ? baseSession?.points : baseLap?.points) || baseSession?.points;
       if (pts && pts.length > 0) {
         const curPt = interpolatePoint(pts, 'time', next);
         if (curPt) setCurrentDistanceKm(curPt.distance);
@@ -473,7 +478,7 @@ export const App: React.FC = () => {
   // シーク操作 (動画タブ時はセッション全体のタイムラインを参照)
   const handleSeekTime = (timeSec: number) => {
     setCurrentTimeSec(timeSec);
-    const pts = (isVideoTab ? baseSession?.points : baseLap?.points) || baseSession?.points;
+    const pts = (isSessionClock ? baseSession?.points : baseLap?.points) || baseSession?.points;
     if (pts && pts.length > 0) {
       const curPt = interpolatePoint(pts, 'time', timeSec);
       if (curPt) setCurrentDistanceKm(curPt.distance);

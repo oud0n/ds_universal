@@ -59,7 +59,11 @@ class VideoViewStore {
   /** メインとサブが、今ある動画を指すようにする */
   private reconcile(tracks: VideoTrack[]): void {
     let { selectedTrackId, subTrackId } = this.state;
-    if (!tracks.some(t => t.id === selectedTrackId)) selectedTrackId = tracks[0]?.id ?? null;
+    if (!tracks.some(t => t.id === selectedTrackId)) {
+      selectedTrackId = tracks[0]?.id ?? null;
+      // 選んでいた動画を消したら、次に照合済みの動画を読み込んだときに自動で選び直す
+      this.autoSelectedSessionId = null;
+    }
     if (!tracks.some(t => t.id === subTrackId) || subTrackId === selectedTrackId) {
       subTrackId = tracks.find(t => t.id !== selectedTrackId)?.id ?? null;
     }
