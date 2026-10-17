@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ControlLine, Sector } from '../types/telemetry';
-import { X, Plus, Trash2, Check, MapPin } from 'lucide-react';
+import { X, Plus, Trash2, Check, MapPin, Upload, Download } from 'lucide-react';
+import { parseCln, exportCln } from '../services/pthParser';
+import { parseSci, exportSci, userCircuitStorage, UserCircuitItem } from '../services/userCircuitStorage';
 
 interface CircuitEditorModalProps {
   isOpen: boolean;
@@ -10,7 +12,24 @@ interface CircuitEditorModalProps {
   // 計測線が未設定のときの初期値に使う位置 (読み込んだログの先頭など)
   defaultPosition?: { lat: number; lon: number };
   sectors: Sector[];
-  onSaveCircuit: (name: string, controlLine: ControlLine, sectors: Sector[]) => void;
+  // 保存したコースを消したとき (データ管理の件数の表示を直す)
+  onSavedCircuitsChange?: () => void;
+  // remember: アプリに保存して、次から同じ場所のログに使う
+  onSaveCircuit: (name: string, controlLine: ControlLine, sectors: Sector[], remember: boolean) => void;
+}
+
+// 自動で判定したユーザーコースの名前に付く印。保存するときは外す
+const USER_SUFFIX = ' (ユーザー設置)';
+
+function downloadText(text: string, fileName: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
@@ -20,11 +39,38 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   controlLine,
   defaultPosition,
   sectors: initialSectors,
+  onSavedCircuitsChange,
   onSaveCircuit
 }) => {
   if (!isOpen) return null;
 
-  const [name, setName] = useState(currentCircuitName || 'カスタムコース');
+  const [name, setName] = useState((currentCircuitName || 'カスタムコース').replace(USER_SUFFIX, ''));
+  const [remember, setRemember] = useState(true);
+  const [fileMessage, setFileMessage] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // コース編集で保存したコース (呼び出し・削除用)
+  const [savedCircuits, setSavedCircuits] = useState<UserCircuitItem[]>(() => [...userCircuitStorage.getEditedCircuits()]);
+  useEffect(() => {
+    userCircuitStorage.ready.then(() => setSavedCircuits([...userCircuitStorage.getEditedCircuits()]));
+  }, []);
+
+  const handleLoadSaved = (c: UserCircuitItem) => {
+    setName(c.name);
+    setClLatA(String(c.controlLine.latA));
+    setClLonA(String(c.controlLine.lonA));
+    setClLatB(String(c.controlLine.latB));
+    setClLonB(String(c.controlLine.lonB));
+    setSectors(c.sectors);
+    setFileMessage(`「${c.name}」を呼び出しました`);
+  };
+
+  const handleDeleteSaved = async (c: UserCircuitItem) => {
+    if (!confirm(`保存したコース「${c.name}」を削除しますか？ (読み込み済みのログの設定はそのままです)`)) return;
+    const r = await userCircuitStorage.deleteEditedCircuit(c.name);
+    setSavedCircuits([...userCircuitStorage.getEditedCircuits()]);
+    onSavedCircuitsChange?.();
+    if (!r.saved) setSaveError(`削除を保存できませんでした: ${r.saveError ?? ''}`);
+  };
   // 計測線が未設定なら、ログの位置を挟む南北約 30 m の線分を仮の初期値にする (ログも無ければ空欄)
   const initial = controlLine ?? (defaultPosition && {
     latA: Number((defaultPosition.lat + 0.00015).toFixed(6)),
@@ -65,6 +111,73 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
     setSectors(sectors.filter((_, i) => i !== idx));
   };
 
+  // 計測線の入力欄の値 (正しくなければ null)
+  const readControlLine = (): ControlLine | null => {
+    const values = [clLatA, clLonA, clLatB, clLonB].map(v => parseFloat(v));
+    const [latA, lonA, latB, lonB] = values;
+    if (
+      values.some(v => !Number.isFinite(v)) ||
+      Math.abs(latA) > 90 || Math.abs(latB) > 90 || Math.abs(lonA) > 180 || Math.abs(lonB) > 180 ||
+      (latA === latB && lonA === lonB)
+    ) return null;
+    return { name: 'Start/Finish Line', latA, lonA, latB, lonB };
+  };
+
+  // フィニッシュのセクター (id が _finish で終わる) は、計測線と同じ線にする (計測線を直したら付いていく)
+  const withFinish = (list: Sector[], cl: ControlLine): Sector[] =>
+    list.map(s => (s.id.endsWith('_finish') ? { ...s, latA: cl.latA, lonA: cl.lonA, latB: cl.latB, lonB: cl.lonB } : s));
+
+  // .cln (計測線) と .sci (セクター) を読み込む。両方選んだときは、.cln を先に読む (.sci のフィニッシュに使うため)
+  const handleImportFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const list = [...files].sort((a, b) => (/\.cln$/i.test(a.name) ? 0 : 1) - (/\.cln$/i.test(b.name) ? 0 : 1));
+    const done: string[] = [];
+    const errors: string[] = [];
+    let cl = readControlLine();
+    for (const f of list) {
+      try {
+        const text = await f.text();
+        if (/\.cln$/i.test(f.name)) {
+          cl = parseCln(text);
+          setClLatA(String(cl.latA));
+          setClLonA(String(cl.lonA));
+          setClLatB(String(cl.latB));
+          setClLonB(String(cl.lonB));
+          done.push(f.name);
+        } else if (/\.sci$/i.test(f.name)) {
+          const prefix = `custom_${Date.now()}`;
+          const gates = parseSci(text, prefix);
+          // 公式の .sci はフィニッシュ (計測線) を含まないので、最後の区間として足す (アプリの中では計測線までを最後のセクターにする)
+          const finish = cl
+            ? [{ id: `${prefix}_finish`, name: `S${gates.length + 1}`, latA: cl.latA, lonA: cl.lonA, latB: cl.latB, lonB: cl.lonB }]
+            : [];
+          setSectors([...gates, ...finish]);
+          done.push(f.name);
+          if (!cl) errors.push('計測線がないので、最後の区間 (計測線まで) は足していません');
+        } else {
+          errors.push(`${f.name}: .cln か .sci を選んでください`);
+        }
+      } catch (e) {
+        errors.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    setFileMessage([done.length ? `読み込みました: ${done.join(', ')}` : '', ...errors].filter(Boolean).join(' / '));
+  };
+
+  // 計測線を .cln、セクターを .sci に書き出す (公式アプリと同じ形)
+  const handleExportFiles = () => {
+    const cl = readControlLine();
+    if (!cl) {
+      setSaveError('計測線の 2 点の緯度・経度を正しく入力してください');
+      return;
+    }
+    const base = (name.trim() || 'course').replace(/[\\/:*?"<>|]/g, '_');
+    downloadText(exportCln(cl), `cl_${base}.cln`);
+    const sci = exportSci(withFinish(sectors, cl), cl);
+    if (sci) downloadText(sci, `${base}.sci`);
+    setFileMessage(sci ? `書き出しました: cl_${base}.cln, ${base}.sci` : `書き出しました: cl_${base}.cln (セクターがないので .sci は書き出していません)`);
+  };
+
   const handleSave = () => {
     const values = [clLatA, clLonA, clLatB, clLonB].map(v => parseFloat(v));
     const [latA, lonA, latB, lonB] = values;
@@ -89,7 +202,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
     }
     const newControlLine: ControlLine = { name: 'Start/Finish Line', latA, lonA, latB, lonB };
 
-    onSaveCircuit(name, newControlLine, sectors);
+    onSaveCircuit(name.trim() || 'カスタムコース', newControlLine, withFinish(sectors, newControlLine), remember);
     onClose();
   };
 
@@ -119,6 +232,64 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
               className="w-full bg-surface-0 border border-line-3 rounded-lg p-2 text-slate-100 focus:border-red-500 outline-none"
             />
           </div>
+
+          {/* ファイルの読み込み・書き出し (公式アプリと同じ .cln / .sci) */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-slate-200 border border-line-4 text-[11px]"
+              title="計測線 (.cln) とセクター (.sci) を読み込みます。両方まとめて選べます"
+            >
+              <Upload size={13} />
+              .cln / .sci を読み込む
+            </button>
+            <button
+              onClick={handleExportFiles}
+              className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-slate-200 border border-line-4 text-[11px]"
+              title="計測線を .cln、セクターを .sci に書き出します (公式アプリと同じ形)"
+            >
+              <Download size={13} />
+              .cln / .sci に書き出す
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".cln,.sci"
+              multiple
+              className="hidden"
+              onChange={e => {
+                handleImportFiles(e.target.files);
+                e.target.value = '';
+              }}
+            />
+            {fileMessage && <span className="text-[11px] text-slate-400">{fileMessage}</span>}
+          </div>
+
+          {/* コース編集で保存したコース */}
+          {savedCircuits.length > 0 && (
+            <div className="bg-surface-1 border border-line-2 rounded-lg p-3 space-y-1.5">
+              <div className="font-bold text-slate-300">保存したコース</div>
+              {savedCircuits.map(c => (
+                <div key={c.id} className="flex items-center gap-2 text-[11px]">
+                  <span className="flex-1 truncate text-slate-200">{c.name}</span>
+                  <span className="text-slate-500">セクター {c.sectors.length}</span>
+                  <button
+                    onClick={() => handleLoadSaved(c)}
+                    className="px-2 py-0.5 rounded bg-surface-4 hover:bg-surface-5 border border-line-4 text-slate-200"
+                  >
+                    呼び出す
+                  </button>
+                  <button
+                    onClick={() => handleDeleteSaved(c)}
+                    className="p-1 text-slate-500 hover:text-red-400"
+                    title="削除"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* コントロールライン (スタート/フィニッシュ) */}
           <div className="bg-surface-1 border border-line-2 rounded-lg p-4 space-y-3">
@@ -248,7 +419,11 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
 
         {/* フッター */}
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-line-2 bg-surface-1">
-          {saveError && <span className="mr-auto text-xs text-amber-400">{saveError}</span>}
+          <label className="mr-auto flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer" title="アプリに保存し、次からこの計測線を通るログに使います (データ管理の「ユーザーコース」に入ります)">
+            <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
+            アプリに保存して、次からも使う
+          </label>
+          {saveError && <span className="text-xs text-amber-400">{saveError}</span>}
           <button
             onClick={onClose}
             className="px-4 py-1.5 rounded-lg border border-line-3 text-xs text-slate-300 hover:bg-surface-4"
