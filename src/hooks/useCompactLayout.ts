@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { isPhone } from '../utils/device';
 
-// スマートフォン向けの配置にするかは、画面の幅でなく機種 (スマートフォンか) で決める。
+// スマートフォン向けの配置にするかは、端末の画面の大きさで決める (src/utils/device.ts の isPhone)。
 // タブレットとパソコン (ウインドウを狭くしても) はパソコン向けの配置
 const LANDSCAPE_QUERY = '(orientation: landscape)';
 
