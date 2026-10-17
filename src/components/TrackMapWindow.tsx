@@ -1,9 +1,11 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { canvasColors, useResolvedTheme } from '../utils/theme';
+import { useCompactLayout } from '../hooks/useCompactLayout';
+import { usePinchPointers } from '../hooks/usePinchPointers';
 import { CompareAxis, Lap, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { findCarPoint } from '../utils/telemetrySearch';
 import { passesNearPoint } from '../services/lapCalculator';
-import { Map, ZoomIn, ZoomOut, RotateCcw, Eye, Palette, Move, LocateFixed } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, Eye, Palette, Move, LocateFixed } from 'lucide-react';
 import { getTileImage, MapBackground, TILE_ATTRIBUTION, TILE_SOURCES, tilesForView } from '../services/mapTiles';
 import { useLapGeometries } from '../hooks/useLapGeometries';
 import { computeCorrectedLineDelta, computeLineDelta, detectCorners } from '../services/drivingAnalysis';
@@ -64,6 +66,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 }) => {
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
+  // スマートフォン向けの配置では、ツールバーを 1 行にして横にスクロールさせ、見出しを省く
+  const compact = useCompactLayout();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [colorMode, setColorMode] = useState<'car' | 'speed' | 'accel' | 'line'>('car');
@@ -72,12 +76,10 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   const [correctGpsShift, setCorrectGpsShift] = useState(true);
   const [zoom, setZoom] = useState(1.0);
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
   // 車両追従。ON の間は基準車が常に画面の中央に来るように表示を動かす
   const [isFollowing, setIsFollowing] = useState(false);
   // 実際に描画に使った平行移動量。追従を外したとき、その位置から手動の移動を続けるために覚えておく
   const drawnPanRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // 背景地図 (既定はなし = オフライン動作)
   const [background, setBackground] = useState<MapBackground>(() => {
@@ -523,42 +525,46 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   }, [cars, controlLine, sectors, pathPolylines, currentDistance, currentTime, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick, theme]);
 
   // パン操作 (ドラッグ)
+  // ドラッグの状態は、同じイベントの中で続けて読めるよう ref で持つ (タッチは動かしたときに押下と移動が続けて届くため)
+  const panningRef = useRef(false);
+  // ドラッグを始めた (前回の) ポインターの位置と、そのときの表示位置
+  const dragFromRef = useRef({ x: 0, y: 0 });
+  const panBaseRef = useRef<{ x: number; y: number } | null>(null);
+
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    setIsPanning(true);
-    // 位置調整モードでは、前回のマウス位置からの移動量で地図を動かす
-    if (isAdjustingMap) {
-      setPanStart({ x: e.clientX, y: e.clientY });
-      return;
-    }
-    // 追従中にドラッグしたら追従を外し、今見えている位置から手動で動かす
-    const current = isFollowing ? drawnPanRef.current : panOffset;
-    if (isFollowing) {
-      setIsFollowing(false);
-      setPanOffset(current);
-    }
-    setPanStart({ x: e.clientX - current.x, y: e.clientY - current.y });
+    panningRef.current = true;
+    dragFromRef.current = { x: e.clientX, y: e.clientY };
+    // 表示位置の基準は、実際に動かしたときに決める (タップしただけでは追従を外さない)
+    panBaseRef.current = null;
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isPanning) return;
+    if (!panningRef.current) return;
+    // 位置調整モードでは、前回のポインターの位置からの移動量で地図を動かす
     if (isAdjustingMap) {
       const mpp = metersPerPixelRef.current;
-      const dx = e.clientX - panStart.x;
-      const dy = e.clientY - panStart.y;
-      setPanStart({ x: e.clientX, y: e.clientY });
+      const dx = e.clientX - dragFromRef.current.x;
+      const dy = e.clientY - dragFromRef.current.y;
+      dragFromRef.current = { x: e.clientX, y: e.clientY };
       // 画面の右 = 東、上 = 北
       setMapOffset(o => ({ eastM: o.eastM + dx * mpp, northM: o.northM - dy * mpp }));
       return;
     }
+    if (!panBaseRef.current) {
+      // 追従中にドラッグしたら追従を外し、今見えている位置から手動で動かす
+      panBaseRef.current = isFollowing ? drawnPanRef.current : panOffset;
+      if (isFollowing) setIsFollowing(false);
+    }
+    const base = panBaseRef.current;
     setPanOffset({
-      x: e.clientX - panStart.x,
-      y: e.clientY - panStart.y
+      x: base.x + e.clientX - dragFromRef.current.x,
+      y: base.y + e.clientY - dragFromRef.current.y
     });
   };
 
   const handleMouseUp = () => {
-    if (isPanning && isAdjustingMap) store(offsetKey, mapOffset);
-    setIsPanning(false);
+    if (panningRef.current && isAdjustingMap) store(offsetKey, mapOffset);
+    panningRef.current = false;
   };
 
   const handleSelectBackground = (value: MapBackground) => {
@@ -570,6 +576,14 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     setMapOffset({ eastM: 0, northM: 0 });
     store(offsetKey, { eastM: 0, northM: 0 });
   };
+
+  // 2 本指のピンチで拡大・縮小する
+  const pointerHandlers = usePinchPointers({
+    onDown: handleMouseDown,
+    onMove: handleMouseMove,
+    onUp: handleMouseUp,
+    onPinch: scale => setZoom(z => Math.max(0.4, Math.min(10.0, z * scale)))
+  });
 
   // ホイールズーム
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
@@ -587,12 +601,9 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
-      <div className="flex flex-wrap items-center justify-between gap-y-1 px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-bold text-slate-200 flex items-center gap-1.5">
-            <Map size={14} className="text-emerald-400" />
-            全コースウインドウ
-          </span>
+      {/* 狭いときはボタン単位で折り返す (文字の途中で折れないよう nowrap)。見出しは出さない (切り替えのないウインドウなので) */}
+      <div className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-1 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0 ${compact ? 'px-2 py-1' : 'px-3 py-1.5'}`}>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
 
           {/* カラーモード切替 */}
           <div className="flex items-center bg-surface-1 rounded p-0.5 border border-line-3">
@@ -610,7 +621,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
                 colorMode === 'speed' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              車速ヒート
+              {compact ? '車速' : '車速ヒート'}
             </button>
             <button
               onClick={() => setColorMode('accel')}
@@ -627,7 +638,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
                 colorMode === 'line' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              ライン偏差
+              {compact ? 'ライン' : 'ライン偏差'}
             </button>
           </div>
           <button
@@ -637,7 +648,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
               showCorners ? 'border-amber-500/50 text-amber-300' : 'border-line-3 text-slate-500 hover:text-slate-300'
             }`}
           >
-            コーナー番号
+            {compact ? 'コーナー' : 'コーナー番号'}
           </button>
           <select
             value={background}
@@ -646,9 +657,9 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
             aria-label="背景地図"
             className="bg-surface-1 border border-line-3 text-[11px] text-slate-300 rounded px-1.5 py-0.5 outline-none"
           >
-            <option value="none">背景: なし</option>
-            <option value="photo">背景: {TILE_SOURCES.photo.label}</option>
-            <option value="standard">背景: {TILE_SOURCES.standard.label}</option>
+            <option value="none">{compact ? '地図なし' : '背景: なし'}</option>
+            <option value="photo">{compact ? '' : '背景: '}{TILE_SOURCES.photo.label}</option>
+            <option value="standard">{compact ? '' : '背景: '}{TILE_SOURCES.standard.label}</option>
           </select>
           {background !== 'none' && (
             <button
@@ -660,7 +671,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
               }`}
             >
               <Move size={11} />
-              地図の位置調整{isAdjustingMap ? ': ON' : ''}
+              {compact ? '位置調整' : '地図の位置調整'}{isAdjustingMap ? ': ON' : ''}
             </button>
           )}
         </div>
@@ -707,15 +718,12 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       </div>
 
       {/* Canvas */}
-      <div className="relative flex-1 w-full h-full min-h-[220px]">
+      <div className={`relative flex-1 w-full h-full ${compact ? 'min-h-0' : 'min-h-[220px]'}`}>
         <canvas
           ref={canvasRef}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
+          {...pointerHandlers}
           onWheel={handleWheel}
-          className={`w-full h-full block ${isAdjustingMap ? 'cursor-move' : 'cursor-grab active:cursor-grabbing'}`}
+          className={`w-full h-full block touch-none ${isAdjustingMap ? 'cursor-move' : 'cursor-grab active:cursor-grabbing'}`}
         />
 
         {/* 地図の位置調整中の案内 */}

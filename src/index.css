@@ -555,3 +555,11 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--ds-scrollbar-thumb-hover);
 }
+
+/* 横にスクロールするツールバー・タブ (スマートフォン向けの配置) で、スクロールバーを出さない */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

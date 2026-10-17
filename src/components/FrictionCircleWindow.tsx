@@ -1,5 +1,6 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { canvasColors, useResolvedTheme } from '../utils/theme';
+import { useCompactLayout } from '../hooks/useCompactLayout';
 import { CompareAxis, Lap, SelectedCarSlot } from '../types/telemetry';
 import { CircleDot, Disc } from 'lucide-react';
 import { findCarPoint } from '../utils/telemetrySearch';
@@ -22,6 +23,8 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
 }) => {
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
+  // スマートフォンでは高さが足りず数値の欄が切れるので、ウインドウの中をスクロールできるようにする
+  const compact = useCompactLayout();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const baseCar = cars[0];
@@ -34,6 +37,16 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
   });
 
   const basePoint = currentPoints[0];
+
+  // 表示領域の大きさが変わったら描き直す (スマートフォンを回したとき・ルーラーが出たときなど)
+  const [resizeTick, setResizeTick] = useState(0);
+  useEffect(() => {
+    const parent = canvasRef.current?.parentElement;
+    if (!parent || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => setResizeTick(t => t + 1));
+    observer.observe(parent);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -140,10 +153,10 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
       ctx.arc(px, py, 2.5, 0, Math.PI * 2);
       ctx.fill();
     });
-  }, [cars, currentDistance, currentPoints, theme]);
+  }, [cars, currentDistance, currentPoints, theme, resizeTick]);
 
   return (
-    <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
+    <div className={`flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 select-none shadow-lg ${compact ? 'overflow-y-auto' : 'overflow-hidden'}`}>
       {/* ツールバー */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs">
         <span className="font-bold text-slate-200 flex items-center gap-1.5">
@@ -154,9 +167,9 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
       </div>
 
       {/* メインCanvas & 数値表示 */}
-      <div className="flex-1 flex flex-col md:flex-row items-center p-2 gap-3 min-h-[200px]">
+      <div className={`flex-1 flex flex-col md:flex-row items-center p-2 gap-3 min-h-[200px] ${compact ? 'shrink-0' : ''}`}>
         {/* Canvas */}
-        <div className="flex-1 w-full h-full min-h-[170px] relative">
+        <div className={`flex-1 w-full h-full relative ${compact ? 'min-h-[220px]' : 'min-h-[170px]'}`}>
           <canvas ref={canvasRef} className="w-full h-full block" />
         </div>
 

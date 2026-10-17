@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Usb, WifiOff, RefreshCw, Trash2, Download, Save, 
   PlayCircle, AlertTriangle, CheckCircle, Terminal, 
-  Settings, Cpu, HardDrive, ShieldCheck
+  Settings, Cpu, HardDrive, ShieldCheck, ChevronRight, ChevronDown
 } from 'lucide-react';
 import { DigSpiceDevice, LogInfo, DownloadProgress, DeviceConfig } from '../services/digspiceDevice';
 import { LoggerSettingsCard } from './LoggerSettingsCard';
@@ -25,6 +25,8 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [downloadedData, setDownloadedData] = useState<{ buffer: Uint8Array; fileName: string } | null>(null);
   const [logs, setLogs] = useState<Array<{ type: 'tx' | 'rx' | 'sys' | 'err'; msg: string; time: string }>>([]);
+  // 通信コンソールを開いているか (ふだんはたたんでおく)
+  const [consoleOpen, setConsoleOpen] = useState(false);
 
   const [config, setConfig] = useState<DeviceConfig | null>(null);
   const busyRef = useRef<boolean>(false);
@@ -439,21 +441,30 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
         onConfigChange={setConfig}
       />
 
-      {/* 通信ログコンソール */}
+      {/* 通信ログコンソール (不具合を調べるとき以外は見ないので、ふだんはたたんでおく) */}
       <div className="bg-surface-1 border border-line-1 rounded-2xl p-4 shadow-lg space-y-2">
-        <div className="flex items-center justify-between border-b border-line-1 pb-2">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+        <div className={`flex items-center justify-between ${consoleOpen ? 'border-b border-line-1 pb-2' : ''}`}>
+          <button
+            onClick={() => setConsoleOpen(o => !o)}
+            aria-expanded={consoleOpen}
+            className="text-[11px] font-bold text-slate-400 hover:text-slate-200 uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+          >
+            {consoleOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             <Terminal size={14} className="text-amber-500" />
             NMEA / Serial 通信コンソール
-          </span>
-          <button
-            onClick={() => setLogs([])}
-            className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
-          >
-            ログ消去
+            {!consoleOpen && logs.length > 0 && <span className="normal-case font-normal text-slate-500">（{logs.length} 件）</span>}
           </button>
+          {consoleOpen && (
+            <button
+              onClick={() => setLogs([])}
+              className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+            >
+              ログ消去
+            </button>
+          )}
         </div>
 
+        {consoleOpen && (
         <div className="h-44 bg-surface-0 rounded-lg p-3 font-mono text-[11px] overflow-y-auto space-y-1 select-text">
           {logs.length === 0 ? (
             <div className="text-slate-600 italic">通信ログはまだありません</div>
@@ -479,6 +490,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
           )}
           <div ref={logEndRef} />
         </div>
+        )}
       </div>
 
       {/* 設定カード */}
