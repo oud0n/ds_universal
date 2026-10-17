@@ -4,7 +4,7 @@ import { useCompactLayout } from '../hooks/useCompactLayout';
 import { usePinchPointers } from '../hooks/usePinchPointers';
 import { CompareAxis, Lap, SelectedCarSlot, Sector } from '../types/telemetry';
 import { calculateDeltaTimes } from '../services/lapCalculator';
-import { ZoomIn, ZoomOut, RotateCcw, Activity, TrendingUp, Layers } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, Activity, Layers } from 'lucide-react';
 
 interface SpeedGraphWindowProps {
   cars: {
@@ -580,14 +580,9 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
-      <div className={compact ? 'flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2 py-1 bg-surface-3 border-b border-line-2 text-xs shrink-0' : 'flex items-center justify-between px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs'}>
-        <div className={compact ? 'flex flex-wrap items-center gap-x-2 gap-y-1' : 'flex items-center gap-2'}>
-          {!compact && (
-            <span className="font-bold text-slate-200 flex items-center gap-1.5">
-              <TrendingUp size={14} className="text-red-500" />
-              速度ウインドウ
-            </span>
-          )}
+      {/* 狭いときはボタン単位で折り返す (文字の途中で折れないよう nowrap)。見出しは出さない (切り替えのないウインドウなので) */}
+      <div className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-1 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0 ${compact ? 'px-2 py-1' : 'px-3 py-1.5'}`}>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
 
           {/* 横軸切替 */}
           <div className="flex bg-surface-1 rounded p-0.5 border border-line-3">
@@ -686,32 +681,34 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
           className="w-full h-full cursor-crosshair block touch-none"
         />
 
-        {/* 右上リアルタイム数値インジケーター */}
-        <div className={`absolute bg-surface-0/86 backdrop-blur-sm border border-line-2 rounded-md flex flex-col gap-1 shadow-md pointer-events-none ${compact ? 'top-1 right-1 p-1 text-[10px]' : 'top-2 right-3 p-2 text-xs min-w-[130px]'}`}>
-          {cars.map((c, idx) => {
-            // 現在のポイント検索
-            const pts = c.lap.points;
-            let curPt = pts[0];
-            if (pts.length > 0) {
-              const targetVal = xAxisMode === 'distance' ? currentDistance : currentTime;
-              curPt = pts.reduce((prev, curr) => {
-                const prevDiff = Math.abs((xAxisMode === 'distance' ? prev.distance : prev.time) - targetVal);
-                const currDiff = Math.abs((xAxisMode === 'distance' ? curr.distance : curr.time) - targetVal);
-                return currDiff < prevDiff ? curr : prev;
-              }, pts[0]);
-            }
+        {/* 右上リアルタイム数値インジケーター (車両がないときは出さない) */}
+        {cars.length > 0 && (
+          <div className={`absolute bg-surface-0/86 backdrop-blur-sm border border-line-2 rounded-md flex flex-col gap-1 shadow-md pointer-events-none ${compact ? 'top-1 right-1 p-1 text-[10px]' : 'top-2 right-3 p-2 text-xs min-w-[130px]'}`}>
+            {cars.map((c, idx) => {
+              // 現在のポイント検索
+              const pts = c.lap.points;
+              let curPt = pts[0];
+              if (pts.length > 0) {
+                const targetVal = xAxisMode === 'distance' ? currentDistance : currentTime;
+                curPt = pts.reduce((prev, curr) => {
+                  const prevDiff = Math.abs((xAxisMode === 'distance' ? prev.distance : prev.time) - targetVal);
+                  const currDiff = Math.abs((xAxisMode === 'distance' ? curr.distance : curr.time) - targetVal);
+                  return currDiff < prevDiff ? curr : prev;
+                }, pts[0]);
+              }
 
-            return (
-              <div key={idx} className="flex items-center justify-between font-mono">
-                <span className="flex items-center gap-1.5 font-bold" style={{ color: c.slot.colorHex }}>
-                  <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: c.slot.colorHex }}></span>
-                  {c.slot.label}:
-                </span>
-                <span className="font-bold text-slate-100">{curPt ? curPt.speed.toFixed(1) : '0.0'} km/h</span>
-              </div>
-            );
-          })}
-        </div>
+              return (
+                <div key={idx} className="flex items-center justify-between font-mono">
+                  <span className="flex items-center gap-1.5 font-bold" style={{ color: c.slot.colorHex }}>
+                    <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: c.slot.colorHex }}></span>
+                    {c.slot.label}:
+                  </span>
+                  <span className="font-bold text-slate-100">{curPt ? curPt.speed.toFixed(1) : '0.0'} km/h</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* ルーラー (拡大中のみ)。グラフの描画領域と左右をそろえる */}

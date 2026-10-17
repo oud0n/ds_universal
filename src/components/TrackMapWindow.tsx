@@ -5,7 +5,7 @@ import { usePinchPointers } from '../hooks/usePinchPointers';
 import { CompareAxis, Lap, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { findCarPoint } from '../utils/telemetrySearch';
 import { passesNearPoint } from '../services/lapCalculator';
-import { Map, ZoomIn, ZoomOut, RotateCcw, Eye, Palette, Move, LocateFixed } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, Eye, Palette, Move, LocateFixed } from 'lucide-react';
 import { getTileImage, MapBackground, TILE_ATTRIBUTION, TILE_SOURCES, tilesForView } from '../services/mapTiles';
 import { useLapGeometries } from '../hooks/useLapGeometries';
 import { computeCorrectedLineDelta, computeLineDelta, detectCorners } from '../services/drivingAnalysis';
@@ -599,14 +599,9 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
-      <div className={compact ? 'flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2 py-1 bg-surface-3 border-b border-line-2 text-xs shrink-0' : 'flex flex-wrap items-center justify-between gap-y-1 px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs'}>
-        <div className={compact ? 'flex flex-wrap items-center gap-x-2 gap-y-1' : 'flex flex-wrap items-center gap-2'}>
-          {!compact && (
-            <span className="font-bold text-slate-200 flex items-center gap-1.5">
-              <Map size={14} className="text-emerald-400" />
-              全コースウインドウ
-            </span>
-          )}
+      {/* 狭いときはボタン単位で折り返す (文字の途中で折れないよう nowrap)。見出しは出さない (切り替えのないウインドウなので) */}
+      <div className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-1 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0 ${compact ? 'px-2 py-1' : 'px-3 py-1.5'}`}>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
 
           {/* カラーモード切替 */}
           <div className="flex items-center bg-surface-1 rounded p-0.5 border border-line-3">

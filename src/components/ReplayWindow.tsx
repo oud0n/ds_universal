@@ -235,8 +235,9 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
-      <div className={compact ? 'flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2 py-1 bg-surface-3 border-b border-line-2 text-xs shrink-0' : 'flex items-center justify-between px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs'}>
-        <div className={compact ? 'flex flex-wrap items-center gap-x-2 gap-y-1' : 'flex items-center gap-2'}>
+      {/* 狭いときはボタン単位で折り返す (文字の途中で折れないよう nowrap) */}
+      <div className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-1 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0 ${compact ? 'px-2 py-1' : 'px-3 py-1.5'}`}>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {!compact && (
             <span className="font-bold text-slate-200 flex items-center gap-1.5">
               <PlaySquare size={14} className="text-amber-400" />
@@ -246,7 +247,7 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
 
           {/* セクター同時スタートボタン */}
           {sectors.length > 0 && (
-            <div className={compact ? 'flex flex-wrap items-center gap-1' : 'flex items-center gap-1 ml-2'}>
+            <div className={`flex flex-wrap items-center gap-1 ${compact ? '' : 'ml-2'}`}>
               <span className="text-[10px] text-slate-400 font-medium">{compact ? '同時:' : '同時スタート:'}</span>
               <div className="flex gap-1">
                 {sectors.map((sec, idx) => (
