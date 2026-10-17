@@ -1,5 +1,6 @@
 import { TelemetryPoint, Lap } from '../types/telemetry';
 import { calculatePhysics } from './physics';
+import { splitCsvLine } from './externalFormats';
 import { formatMinSec } from '../utils/timeFormat';
 
 /**
@@ -19,7 +20,8 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
   let headers: string[] = [];
 
   for (let i = 0; i < Math.min(lines.length, 25); i++) {
-    const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+    // 引用符で囲んだ値の中のカンマで列がずれないよう、引用符に対応した分割を使う
+    const cols = splitCsvLine(lines[i]);
     const colsLower = cols.map(c => c.toLowerCase());
     
     // デジスパイス公式: 秒, 時間, 緯度, 経度...
@@ -39,7 +41,7 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
 
   if (headers.length === 0) {
     // 最初の行をヘッダーとして試みる
-    headers = lines[0].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+    headers = splitCsvLine(lines[0]);
     headerIndex = 0;
   }
 
@@ -55,6 +57,8 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
   let colCornerG = -1;
   let colCombG = -1;
   let colRadius = -1;
+  let colHeading = -1;
+  let colSats = -1;
 
   headers.forEach((h, idx) => {
     const hl = h.toLowerCase();
@@ -72,6 +76,9 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
     if (colAccelG === -1 && (hl.includes('加減速g') || hl.includes('long g') || hl.includes('longitudinal g') || hl === 'g_long')) colAccelG = idx;
     if (colCombG === -1 && (hl.includes('合算g') || hl.includes('combined g') || hl === 'g_sum')) colCombG = idx;
     if (colRadius === -1 && (hl.includes('旋回半径') || hl.includes('radius'))) colRadius = idx;
+    // 進行方向・衛星数 (変換ページの CSV の heading_deg / satellites など)
+    if (colHeading === -1 && (hl.includes('方位') || hl.includes('進行方向') || base === 'heading' || base === 'heading_deg' || base === 'bearing' || base === 'course')) colHeading = idx;
+    if (colSats === -1 && (hl.includes('衛星') || base === 'satellites' || base === 'sats')) colSats = idx;
   });
 
   // 位置がなければ解析できない
@@ -82,7 +89,7 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
   const points: TelemetryPoint[] = [];
 
   for (let i = headerIndex + 1; i < lines.length; i++) {
-    const rawCols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+    const rawCols = splitCsvLine(lines[i]);
     if (rawCols.length < 2) continue;
 
     const time = colTime !== -1 ? parseFloat(rawCols[colTime]) : (i - headerIndex - 1) * 0.1;
@@ -105,6 +112,8 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
     const radius = colRadius !== -1 ? parseFloat(rawCols[colRadius]) || 9999 : 9999;
 
     const clockMs = colClock !== -1 ? Date.parse(rawCols[colClock]) : NaN;
+    const heading = colHeading !== -1 ? parseFloat(rawCols[colHeading]) : NaN;
+    const sats = colSats !== -1 ? parseInt(rawCols[colSats], 10) : NaN;
 
     const validPosition = Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(lat === 0 && lon === 0);
     const inOrder = points.length === 0 || time > points[points.length - 1].time;
@@ -116,16 +125,23 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
         longitude: Number(lon.toFixed(7)),
         altitude: Number(alt.toFixed(2)),
         speed: Number(speed.toFixed(2)),
-        heading: 0,
+        heading: Number.isFinite(heading) ? ((heading % 360) + 360) % 360 : 0,
         distance: Number(dist.toFixed(4)),
         accelG: Number(accelG.toFixed(3)),
         corneringG: Number(cornerG.toFixed(3)),
         combinedG: Number(combG.toFixed(3)),
         turningRadius: Number(radius.toFixed(1)),
         driftAngle: 0,
-        ...(Number.isFinite(clockMs) ? { timestamp: new Date(clockMs).toISOString() } : {})
+        ...(Number.isFinite(clockMs) ? { timestamp: new Date(clockMs).toISOString() } : {}),
+        ...(Number.isInteger(sats) && sats >= 0 ? { satellites: sats } : {})
       });
     }
+  }
+
+  // 先頭の時刻を 0 秒にそろえる (経過時間の列が 0 から始まらない CSV でも、他の形式と同じ扱いにする)
+  if (points.length > 0 && points[0].time !== 0) {
+    const t0 = points[0].time;
+    for (const p of points) p.time = Number((p.time - t0).toFixed(3));
   }
 
   // 物理計算の付与・更新

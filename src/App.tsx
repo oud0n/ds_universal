@@ -4,7 +4,7 @@ import { parseDtb } from './services/dtbParser';
 import { parseDigispiceRawBinary } from './services/rawBinaryParser';
 import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
-import { MOTEC_CSV_ENABLED, isMotecCsv, isRaceChronoCsv, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
+import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
 import { parsePth, parseCln } from './services/pthParser';
 import { createVirtualControlLine, extractLaps, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
 import { ConvertTab } from './components/ConvertTab';
@@ -337,33 +337,32 @@ export const App: React.FC = () => {
       rawPoints = parsed.points;
       samplingRate = parsed.samplingRate;
       startDate = parsed.startDate;
-    } else if (ext === 'vbo') {
-      const parsed = parseVbo(new TextDecoder('utf-8').decode(buffer));
-      rawPoints = parsed.points;
-      samplingRate = parsed.samplingRate;
-      startDate = parsed.startDate;
-    } else if (ext === 'csv' || ext === 'txt') {
+    } else if (['vbo', 'csv', 'txt', 'gpx', 'nmea', 'log'].includes(ext || '')) {
+      // テキストの形式は拡張子で決めつけず、中身の先頭で判別する (.txt の NMEA・VBO、.log の CSV なども読めるように)。
+      // 判別できないときは拡張子に従う
       const text = new TextDecoder('utf-8').decode(buffer);
-      // 他社形式の CSV は先頭の書式で判別する
-      // MoTeC CSV は単位行などの構造が汎用 CSV と違うため、無効の間は汎用の読み込みに回さず断る
-      if (isMotecCsv(text) && !MOTEC_CSV_ENABLED) {
-        throw new Error('MoTeC CSV の読み込みには現在対応していません');
+      const head = text.slice(0, 4000);
+      const kind =
+        isGpx(text) ? 'gpx'
+        : isVbo(text) ? 'vbo'
+        : /^\s*\$G[PNLAB][A-Z]{3},/m.test(head) ? 'nmea'
+        : ext === 'vbo' || ext === 'gpx' ? ext
+        : ext === 'nmea' ? 'nmea'
+        : 'csv';
+      let parsed: { points: any[]; samplingRate: number; startDate?: Date };
+      if (kind === 'gpx') parsed = parseGpx(text);
+      else if (kind === 'vbo') parsed = parseVbo(text);
+      else if (kind === 'nmea') parsed = parseNmea(text);
+      else {
+        // 他社形式の CSV は先頭の書式で判別する
+        // MoTeC CSV は単位行などの構造が汎用 CSV と違うため、無効の間は汎用の読み込みに回さず断る
+        if (isMotecCsv(text) && !MOTEC_CSV_ENABLED) {
+          throw new Error('MoTeC CSV の読み込みには現在対応していません');
+        }
+        parsed = isRaceChronoCsv(text) ? parseRaceChronoCsv(text)
+          : isMotecCsv(text) ? parseMotecCsv(text)
+          : parseCsv(text);
       }
-      const parsed: { points: any[]; samplingRate: number; startDate?: Date } =
-        isRaceChronoCsv(text) ? parseRaceChronoCsv(text)
-        : isMotecCsv(text) ? parseMotecCsv(text)
-        : parseCsv(text);
-      rawPoints = parsed.points;
-      samplingRate = parsed.samplingRate;
-      startDate = parsed.startDate;
-    } else if (ext === 'gpx') {
-      const parsed = parseGpx(new TextDecoder('utf-8').decode(buffer));
-      rawPoints = parsed.points;
-      samplingRate = parsed.samplingRate;
-      startDate = parsed.startDate;
-    } else if (ext === 'nmea' || ext === 'log') {
-      const text = new TextDecoder('utf-8').decode(buffer);
-      const parsed = parseNmea(text);
       rawPoints = parsed.points;
       samplingRate = parsed.samplingRate;
       startDate = parsed.startDate;
