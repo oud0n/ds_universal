@@ -121,7 +121,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
                     className={`flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium transition-colors cursor-pointer ${
                       copied
                         ? 'bg-emerald-600 text-white'
-                        : 'bg-surface-5 hover:bg-surface-5 text-slate-200'
+                        : 'bg-surface-4 hover:bg-surface-5 text-slate-200'
                     }`}
                     title="URLをクリップボードにコピー"
                   >

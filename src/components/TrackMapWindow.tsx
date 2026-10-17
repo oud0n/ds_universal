@@ -181,7 +181,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     // テーマの色 (テーマを切り替えたら描き直す)
-    const C = canvasColors();
+    // 背景に地図・航空写真を敷くときは、その上で見えるよう、ライトでもダークの色で描く (従来どおり)
+    const C = canvasColors(background !== 'none');
 
     const dpr = window.devicePixelRatio || 1;
     const width = canvas.parentElement?.clientWidth || 400;
@@ -725,7 +726,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
               東 {mapOffset.eastM >= 0 ? '+' : ''}{mapOffset.eastM.toFixed(1)}m / 北 {mapOffset.northM >= 0 ? '+' : ''}{mapOffset.northM.toFixed(1)}m
             </span>
             <button onClick={handleResetMapOffset} className="px-1.5 py-0.5 rounded border border-emerald-500/60 hover:bg-emerald-800/60">リセット</button>
-            <button onClick={() => setIsAdjustingMap(false)} className="px-1.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 font-bold">完了</button>
+            <button onClick={() => setIsAdjustingMap(false)} className="px-1.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold">完了</button>
           </div>
         )}
 
@@ -758,7 +759,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
                 <span className="text-sky-400">左 {LINE_DELTA_FULL_SCALE_M}m</span>
                 <div className="w-20 h-2 rounded bg-gradient-to-r from-sky-400 via-slate-700 to-orange-400"></div>
                 <span className="text-orange-400">右 {LINE_DELTA_FULL_SCALE_M}m</span>
-                <span className="text-slate-500">白線: 基準車 / 進行方向に対する左右</span>
+                <span className="text-slate-500">{theme === 'light' && background === 'none' ? '濃い線' : '白線'}: 基準車 / 進行方向に対する左右</span>
                 <label className="flex items-center gap-1 text-slate-300 cursor-pointer" title="ラップ間の GPS の位置ずれ (ほぼ一定の平行移動として現れる誤差) を推定して差し引きます。周回コースでのみ有効です">
                   <input type="checkbox" checked={correctGpsShift} onChange={e => setCorrectGpsShift(e.target.checked)} className="accent-red-500" />
                   GPS ずれ補正

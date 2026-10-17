@@ -1329,25 +1329,25 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             <div className="flex items-center gap-0.5">
               <button
                 onClick={() => handleNudgeOffset(-1.0)}
-                className="px-1.5 py-0.5 rounded bg-surface-5 hover:bg-surface-5 text-[10px] font-mono text-slate-300 cursor-pointer"
+                className="px-1.5 py-0.5 rounded bg-surface-4 hover:bg-surface-5 text-[10px] font-mono text-slate-300 cursor-pointer"
               >
                 -1s
               </button>
               <button
                 onClick={() => handleNudgeOffset(-0.05)}
-                className="px-1.5 py-0.5 rounded bg-surface-5 hover:bg-surface-5 text-[10px] font-mono text-slate-200 cursor-pointer"
+                className="px-1.5 py-0.5 rounded bg-surface-4 hover:bg-surface-5 text-[10px] font-mono text-slate-200 cursor-pointer"
               >
                 -0.05s
               </button>
               <button
                 onClick={() => handleNudgeOffset(0.05)}
-                className="px-1.5 py-0.5 rounded bg-surface-5 hover:bg-surface-5 text-[10px] font-mono text-slate-200 cursor-pointer"
+                className="px-1.5 py-0.5 rounded bg-surface-4 hover:bg-surface-5 text-[10px] font-mono text-slate-200 cursor-pointer"
               >
                 +0.05s
               </button>
               <button
                 onClick={() => handleNudgeOffset(1.0)}
-                className="px-1.5 py-0.5 rounded bg-surface-5 hover:bg-surface-5 text-[10px] font-mono text-slate-300 cursor-pointer"
+                className="px-1.5 py-0.5 rounded bg-surface-4 hover:bg-surface-5 text-[10px] font-mono text-slate-300 cursor-pointer"
               >
                 +1s
               </button>

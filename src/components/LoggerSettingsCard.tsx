@@ -189,7 +189,7 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
                       }`}
                     >
                       {opt.hz} Hz
-                      <span className={`block text-[10px] font-normal ${active ? 'text-red-100' : 'text-slate-500'}`}>{opt.label}</span>
+                      <span className={`block text-[10px] font-normal ${active ? 'text-white/80' : 'text-slate-500'}`}>{opt.label}</span>
                     </button>
                   );
                 })}

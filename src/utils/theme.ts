@@ -69,9 +69,25 @@ export function useResolvedTheme(): ResolvedTheme {
 }
 
 
-/** canvas に描く色 (src/index.css の --ds-canvas-*)。描くたびに読むので、テーマを切り替えたら描き直すだけで変わる */
-export function canvasColors() {
-  const cs = getComputedStyle(document.documentElement);
+// ダークの色を読むための見えない要素 (.keep-dark の中ではライトでもダークの値になる)
+let darkProbe: HTMLElement | null = null;
+
+/**
+ * canvas に描く色 (src/index.css の --ds-canvas-*)。描くたびに読むので、テーマを切り替えたら描き直すだけで変わる。
+ * forceDark: ライトでもダークの色を使う (航空写真など暗い背景の上に描くとき)
+ */
+export function canvasColors(forceDark = false) {
+  let el: HTMLElement = document.documentElement;
+  if (forceDark) {
+    if (!darkProbe) {
+      darkProbe = document.createElement('div');
+      darkProbe.className = 'keep-dark';
+      darkProbe.hidden = true;
+      document.body.appendChild(darkProbe);
+    }
+    el = darkProbe;
+  }
+  const cs = getComputedStyle(el);
   const v = (name: string) => cs.getPropertyValue(`--ds-canvas-${name}`).trim();
   return {
     bg: v('bg'),
