@@ -18,7 +18,7 @@
 | 🔴 **高 (P1)** | BUG-03 | コース・複数セッション | 複数セッション読み込み時のコース設定・計測線・ポリラインの混線 | `src/App.tsx` | 修正済み（ブランチ fix/bug03-per-session-course を f45e432 で dev に統合） |
 | 🔴 **高 (P1)** | BUG-04 | 再生・状態管理 | 基準車スロット（Car 1）未割り当て・削除時に再生とシークが完全停止する | `src/App.tsx` | 修正済み（0f2644c） |
 | 🔴 **高 (P1)** | BUG-05 | 計測線・セクター判定 | ゲート交差判定に進行方向（通過向き）のチェックがない | `src/services/lapCalculator.ts` | 修正済み（c67967f。ログの中で多い方の向きを進行方向とする） |
-| 🔴 **高 (P1)** | BUG-06 | 車載動画同期・書き出し | 動画画面の競合・手動同期の自動上書き・MP4 メタデータ誤検出・書き出し拡張子不一致など（計9件） | `src/components/VideoSyncWindow.tsx`, `src/services/videoSyncManager.ts`, `src/services/videoMetadataParser.ts`, `src/services/telemetryVideoExporter.ts` | 一部修正（1071c3e で 2〜5・7・9 を修正。1 動画画面の競合・6 再選択時の引き継ぎ・8 書き出しのキャンセル / 巻き戻しは未対応） |
+| 🔴 **高 (P1)** | BUG-06 | 車載動画同期・書き出し | 動画画面の競合・手動同期の自動上書き・MP4 メタデータ誤検出・書き出し拡張子不一致など（計9件） | `src/components/VideoSyncWindow.tsx`, `src/services/videoSyncManager.ts`, `src/services/videoMetadataParser.ts`, `src/services/telemetryVideoExporter.ts` | 修正済み（1071c3e で 2〜5・7・9、c69c286 / cdb1492 / 0ba3fac / c2b93de で 1・6・8 と issue #10・#11。ブランチ feat/bug06-video を dev に統合） |
 | 🟡 **中 (P2)** | BUG-07 | 比較解析・距離補正 | `distanceOffsetM` / `alignLapLength` のグラフ・Delta・コーナー診断との不整合 | `src/components/SpeedGraphWindow.tsx`, `src/services/lapCalculator.ts`, `src/services/drivingAnalysis.ts` | 修正済み（05b9427 / 3a99299。Delta の不連続は再現せず） |
 | 🟡 **中 (P2)** | BUG-08 | ラップ切り出し | 開始位置の違うログを重ねるとずれる問題の残り（計測線より後ろ開始など） | `src/services/lapCalculator.ts` | 一部実装済・確認待ち |
 | 🟡 **中 (P2)** | BUG-09 | 生バイナリ解析・通信 | `.bnx4` 複数セッション連結・重複時刻未除去・ミリ秒補間無効化・メタデータ負座標バグ | `src/services/rawBinaryParser.ts`, `src/services/digspiceDevice.ts` | ✅ 対応済み（2026-10-17。記録の空き 10 分で別セッションに分ける、重複の除去、ミリ秒補間は秒ごとに判定、メタデータのチェックサム・負の座標。※ `_private/re_report/samples/dtb/DS4_202605181303.bnx4` のメタデータは修正前から一致しない（仮数の下位が違う）。もう 1 つのサンプルは一致） |
@@ -31,6 +31,7 @@
 | 🟢 **低 (P3)** | BUG-16 | ロガー設定 UI・通信 | 「解析 & 単位設定」が未接続のダミー UI・レート変更副作用の未明示・欠落ブロック再取得 | `src/components/LoggerTab.tsx`, `src/services/digspiceDevice.ts` | 対応済み（「解析 & 単位設定」の G のならし方はデータ管理タブに移してつないだ。速度単位は外した。レート変更の注意書きを追加。欠落ブロックの再取得は実装したが、実機未確認のため無効（TODO）） |
 | 🟢 **低 (P3)** | BUG-17 | フリクションサークル | 再生中に現在の G の点が小刻みに跳ねる（G を記録点の間で補間していない） | `src/utils/telemetrySearch.ts`, `src/components/FrictionCircleWindow.tsx` | 一部対応（「なめらか」のトグルを追加。G の補間は未対応） |
 | 🟢 **低 (P3)** | BUG-18 | コースデータ管理 | 一括設置で読み込んだ、組み合わせ先のないコース図 (.pth) が、OSM のコース図を取得済みのログに反映されない | `src/App.tsx`, `src/services/userCircuitStorage.ts` | 未対応（BUG-15 から分けた） |
+| 🟢 **低 (P3)** | BUG-19 | 車載動画の表示 | グラフ解析の左下を「車載動画」にすると、ウインドウが小さいとき操作の段が場所を使い切り、動画の映る部分の高さが 0 になる（BUG-06 の確認で判明。修正前から） | `src/components/VideoSyncWindow.tsx` | 未対応 |
 
 ---
 
