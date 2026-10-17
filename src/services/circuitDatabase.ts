@@ -1,5 +1,5 @@
 import { CircuitPreset, TelemetryPoint } from '../types/telemetry';
-import { extractLaps } from './lapCalculator';
+import { countGateCrossings, passesNearControlLine } from './lapCalculator';
 import { userCircuitStorage } from './userCircuitStorage';
 import { fetchOsmCircuitPolylines } from './osmCircuitService';
 
@@ -214,21 +214,33 @@ export const ALL_CIRCUITS: CircuitPreset[] = CIRCUIT_PRESETS;
  * 計測線で最も多く周回を区切れたコースを選ぶ
  */
 export function findMatchingCircuit(lat: number, lon: number, points?: TelemetryPoint[]): CircuitPreset | undefined {
-  // 1. ユーザー設置データを確認
-  const userMatch = userCircuitStorage.findNearCircuit(lat, lon, 15000);
-  if (userMatch && userMatch.controlLine) {
+  // 1. ユーザー設置データを確認 (近くに複数あるときは、計測線を実際に通過しているコースを優先する)
+  const found = userCircuitStorage.findNearCircuit(lat, lon, 15000, points);
+  const userMatch = found?.circuit;
+  // 走行データがあって、近くのユーザーコースの計測線をどれも通過していないときは、すぐには使わない。
+  // 内蔵のコースの計測線を通過していればそちらを、どちらも通過していなければ、計測線がログの近く (1 km 以内) にあるときだけ使う
+  // (近くにあるだけの別のコースを使うと周回が区切れず、内蔵のコースや仮の計測線も使われなくなるため)
+  const preset = findMatchingPreset(lat, lon, points);
+  const presetCrossed = !!(points && preset?.controlLine && countGateCrossings(points, preset.controlLine) > 0);
+  const useUser = userMatch && (found!.crossings !== 0 || (!presetCrossed && !!points && passesNearControlLine(points, userMatch.controlLine)));
+  if (userMatch && useUser) {
     return {
-      id: userMatch.name,
+      id: `user:${userMatch.id}`,
       name: `${userMatch.name} (ユーザー設置)`,
       country: 'JP',
       centerLat: (userMatch.controlLine.latA + userMatch.controlLine.latB) / 2,
       centerLon: (userMatch.controlLine.lonA + userMatch.controlLine.lonB) / 2,
       controlLine: userMatch.controlLine,
-      sectors: userMatch.sectors || [],
+      sectors: userMatch.sectors,
       pathPolylines: userMatch.polylines
     };
   }
 
+  return preset;
+}
+
+/** 内蔵のコースから検索 (近くに複数あるときは、計測線を実際に通過しているコースを優先する) */
+function findMatchingPreset(lat: number, lon: number, points?: TelemetryPoint[]): CircuitPreset | undefined {
   // 2. プリセットから検索
   let closest: CircuitPreset | undefined;
   let minDistance = 15000; // 15km以内
@@ -252,8 +264,8 @@ export function findMatchingCircuit(lat: number, lon: number, points?: Telemetry
     let best: CircuitPreset | undefined;
     for (const circuit of nearby) {
       if (!circuit.controlLine) continue;
-      const laps = extractLaps(points, circuit.controlLine, []).laps;
-      const count = laps.some(l => l.isWholeSession) ? 0 : laps.length;
+      // 周回の数ではなく計測線を通過した回数で比べる (通過が 1 回のログでも区別できるように)
+      const count = countGateCrossings(points, circuit.controlLine);
       // 同数なら先頭位置に近い方 (closest) を残す
       if (count > bestLaps || (count === bestLaps && count > 0 && circuit === closest)) {
         bestLaps = count;
@@ -276,8 +288,13 @@ export async function resolveCircuitPolylines(
   circuit: CircuitPreset,
   sourcePreference: 'osm' | 'user' = 'osm'
 ): Promise<Array<Array<[number, number]>> | undefined> {
-  // 1. ユーザー設置データ確認
-  const userPolylines = userCircuitStorage.getPolylines(circuit.id);
+  // 1. ユーザー設置データ確認: ユーザーコースならそのコース図、内蔵のコースなら計測線 (なければ中心) の近くを通る読み込み済みのコース図
+  await userCircuitStorage.ready;
+  const userPolylines = circuit.id.startsWith('user:')
+    ? userCircuitStorage.getCircuitPolylines(circuit.id.slice(5))
+    : circuit.controlLine
+      ? userCircuitStorage.findPolylinesNear((circuit.controlLine.latA + circuit.controlLine.latB) / 2, (circuit.controlLine.lonA + circuit.controlLine.lonB) / 2, undefined, circuit.name)
+      : userCircuitStorage.findPolylinesNear(circuit.centerLat, circuit.centerLon, 1500, circuit.name);
   if (userPolylines && userPolylines.length > 0) {
     console.log('[Circuit] ユーザー設置コース図を使用:', circuit.id);
     return userPolylines;

@@ -132,6 +132,11 @@ function distanceToGateMeters(p: TelemetryPoint, gate: Gate): number {
   return Math.hypot(ax + dx * t, ay + dy * t);
 }
 
+/** 計測線 (ゲート) を進行方向に通過した回数 (コースの自動判定で、どのコースの計測線を走ったかを比べるのに使う) */
+export function countGateCrossings(points: TelemetryPoint[], gate: Gate): number {
+  return findGateCrossings(points, gate, 15).length;
+}
+
 /**
  * セクタータイムの計算
  */

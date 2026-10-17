@@ -19,7 +19,6 @@ import {
   FolderOpen,
   Globe
 } from 'lucide-react';
-import { userCircuitStorage } from '../services/userCircuitStorage';
 
 interface DataTabProps {
   sessions: Session[];
@@ -30,6 +29,8 @@ interface DataTabProps {
   onSetAlignLapLength: (value: boolean) => void;
   // 基準車のスロット (Car 1 が空のときは割り当てのある一番若いスロット)。基準車には距離補正を出さない
   baseSlot?: number;
+  // 登録済みのユーザーコースの数
+  userCircuitCount: number;
   onRemoveSession: (sessionId: string) => void;
   onEditSessionName: (sessionId: string, newName: string) => void;
   onSelectCircuitPreset: (presetId: string) => void;
@@ -47,6 +48,7 @@ export const DataTab: React.FC<DataTabProps> = ({
   alignLapLength,
   onSetAlignLapLength,
   baseSlot,
+  userCircuitCount,
   onRemoveSession,
   onEditSessionName,
   onSelectCircuitPreset,
@@ -154,9 +156,9 @@ export const DataTab: React.FC<DataTabProps> = ({
             >
               <FolderOpen size={13} />
               コースフォルダ一括設置
-              {userCircuitStorage.getCircuitCount() > 0 && (
+              {userCircuitCount > 0 && (
                 <span className="bg-emerald-900 text-emerald-200 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
-                  {userCircuitStorage.getCircuitCount()}
+                  {userCircuitCount}
                 </span>
               )}
             </button>
