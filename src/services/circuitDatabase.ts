@@ -128,10 +128,10 @@ export const CIRCUIT_PRESETS: CircuitPreset[] = [
     centerLon: 130.972808,
     controlLine: {
       name: 'Start/Finish Line',
-      latA: 33.037506,
-      lonA: 130.975812,
-      latB: 33.037206,
-      lonB: 130.975575
+      latA: 33.038907,
+      lonA: 130.973405,
+      latB: 33.038537,
+      lonB: 130.973117
     },
     sectors: []
   },
