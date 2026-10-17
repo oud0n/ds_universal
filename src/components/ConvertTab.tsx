@@ -170,7 +170,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
                   <span>対象のログ</span>
                   <select value={session.id} onChange={e => setSessionId(e.target.value)} className={`${inputCls} w-full`} data-testid="convert-session">
                     {sessions.map(s => (
-                      <option key={s.id} value={s.id}>{s.sessionName}（{s.points.length} 点）</option>
+                      <option key={s.id} value={s.id}>{s.fileName}　{s.date}　{s.circuitName || '一般コース'}　{s.laps.length} 周（{s.points.length} 点）</option>
                     ))}
                   </select>
                 </label>

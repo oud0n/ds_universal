@@ -129,6 +129,16 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
   }, [cursorPt, drawPts, mapXY]);
   useEffect(() => setCursorSec(null), [session.id]);
 
+  // ラップの区切り (各ラップの始まりと最後のラップの終わり。ログの先頭からの秒)。グラフに目盛りとして出す
+  const lapMarks = useMemo(() => {
+    const laps = session.laps.filter(l => !l.isWholeSession);
+    const marks = laps.map(l => ({ sec: l.startTime - t0, label: `L${l.lapNumber}` }));
+    const last = laps[laps.length - 1];
+    // 最後のラップの終わりも選べるようにする
+    if (last) marks.push({ sec: last.endTime - t0, label: '終' });
+    return marks.filter(m => m.sec >= 0 && m.sec <= duration);
+  }, [session.laps, t0, duration]);
+
   const secFromPointer = (e: React.PointerEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const r = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
@@ -206,8 +216,28 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
           <rect x={xOf(endSec)} y={0} width={Math.max(0, CH_W - xOf(endSec))} height={CH_H} fill="var(--ds-surface-0)" opacity={0.7} />
           <line x1={xOf(startSec)} x2={xOf(startSec)} y1={0} y2={CH_H} stroke="#22c55e" strokeWidth={2} vectorEffect="non-scaling-stroke" />
           <line x1={xOf(endSec)} x2={xOf(endSec)} y1={0} y2={CH_H} stroke="#ef4444" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+          {/* ラップの区切りの目盛り */}
+          {lapMarks.map((m, i) => (
+            <line key={i} x1={xOf(m.sec)} x2={xOf(m.sec)} y1={0} y2={CH_H} stroke="var(--ds-canvas-axis)" strokeWidth={1} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
+          ))}
           {cursorSec !== null && <line x1={xOf(cursorSec)} x2={xOf(cursorSec)} y1={0} y2={CH_H} stroke="#facc15" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />}
         </svg>
+        {/* ラップの番号 (押すと、そのラップの始まりの地点を選ぶ。「1〜3 周目を切り出す」ときなどに使う) */}
+        {lapMarks.length > 0 && (
+          <div className="relative h-5 text-[10px] font-mono">
+            {lapMarks.filter(m => m.label).map((m, i) => (
+              <button
+                key={i}
+                onClick={() => setCursorSec(m.sec)}
+                title={m.label === '終' ? '最後のラップの終わりを選ぶ' : `${m.label} の始まりを選ぶ`}
+                style={{ left: `${(m.sec / duration) * 100}%` }}
+                className="absolute -translate-x-1/2 px-1 rounded text-slate-400 hover:text-slate-100 hover:bg-surface-4"
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400 min-h-[28px]">
           {cursorPt ? (
             <>
