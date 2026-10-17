@@ -34,6 +34,8 @@ class VideoViewStore {
   };
   private listeners = new Set<() => void>();
   private pinCache = new Map<string, SyncPin[]>();
+  // 照合した動画を自動で選んだセッション。同じセッションのあいだは選び直さない (タブの切り替え・書き出しの後に、手で選んだ動画を戻さない)
+  autoSelectedSessionId: string | null = null;
 
   constructor() {
     // 動画を足したり消したりしたら、選んでいる動画がなくならないように選び直す

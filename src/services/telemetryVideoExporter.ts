@@ -90,6 +90,8 @@ export function exportBurnedInVideo(options: VideoExportOptions): VideoExportCon
     if (!origPaused) videoElement.play().catch(() => {});
   };
   let rejectPromise: (err: Error) => void = () => {};
+  // 終わりまで書き出して、録画を止めたところか (この後のキャンセルでは、書き出したものを捨てない)
+  let finished = false;
   let onSeeked: (() => void) | null = null;
 
   const promise = new Promise<Blob>((resolve, reject) => {
@@ -176,6 +178,7 @@ export function exportBurnedInVideo(options: VideoExportOptions): VideoExportCon
 
         // 終了判定
         if (currentSessionTime >= endTimeSec || videoElement.ended) {
+          finished = true;
           videoElement.pause();
           mediaRecorder?.stop();
           return;
@@ -192,7 +195,7 @@ export function exportBurnedInVideo(options: VideoExportOptions): VideoExportCon
 
   return {
     cancel: () => {
-      if (isCancelled) return;
+      if (isCancelled || finished) return;
       isCancelled = true;
       if (animFrameId) cancelAnimationFrame(animFrameId);
       if (onSeeked) videoElement.removeEventListener('seeked', onSeeked);
