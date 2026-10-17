@@ -104,5 +104,6 @@ export function parseCln(clnText: string, name = 'Control Line'): ControlLine {
  * コントロールラインを デジスパイス (.cln) 形式で文字列化
  */
 export function exportCln(line: ControlLine): string {
-  return ['1', line.latA.toFixed(6), line.lonA.toFixed(6), line.latB.toFixed(6), line.lonB.toFixed(6)].join('\r\n');
+  // 公式の .cln と同じく、最後の行にも改行を付ける
+  return ['1', line.latA.toFixed(6), line.lonA.toFixed(6), line.latB.toFixed(6), line.lonB.toFixed(6)].join('\r\n') + '\r\n';
 }
