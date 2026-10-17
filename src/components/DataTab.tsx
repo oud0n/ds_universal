@@ -43,6 +43,8 @@ interface DataTabProps {
   onLoadPthFile: () => void;
   onLoadClnFile: () => void;
   onLoadCircuitFolder?: () => void;
+  // 走行データのファイルを選ぶ (データがないときの案内をタップ・クリックしたとき)
+  onOpenFile?: () => void;
 }
 
 export const DataTab: React.FC<DataTabProps> = ({
@@ -61,7 +63,8 @@ export const DataTab: React.FC<DataTabProps> = ({
   onOpenCircuitEditor,
   onLoadPthFile,
   onLoadClnFile,
-  onLoadCircuitFolder
+  onLoadCircuitFolder,
+  onOpenFile
 }) => {
   // スマートフォン向けの配置では、ラップ一覧を表でなく 1 周ずつのカードで出す
   const compact = useCompactLayout();
@@ -291,13 +294,19 @@ export const DataTab: React.FC<DataTabProps> = ({
 
       {/* セッション & ラップ一覧 */}
       {sessions.length === 0 ? (
-        <div className="bg-surface-2 border border-line-2 rounded-xl p-12 text-center text-slate-400">
+        // タップ・クリックでファイルの選択画面を出す
+        <button
+          type="button"
+          onClick={onOpenFile}
+          disabled={!onOpenFile}
+          className="w-full bg-surface-2 border border-line-2 rounded-xl p-12 text-center text-slate-400 transition-colors hover:border-red-500/60 hover:bg-surface-3 cursor-pointer disabled:cursor-default"
+        >
           <FileText size={48} className="mx-auto mb-3 text-slate-600" />
           <p className="text-sm font-medium">走行データが読み込まれていません</p>
           <p className="text-xs text-slate-500 mt-1">
-            上部の「ファイル読込」からデジスパイス生ログ (.bnx4, .binx) や .dtb, .csv, .nmea などのログファイルを開いてください。
+            ここをタップ（クリック）するか、上部の「ファイル読込」から、デジスパイス生ログ (.bnx4, .binx) や .dtb, .csv, .nmea などのログファイルを開いてください。
           </p>
-        </div>
+        </button>
       ) : (
         sessions.map(session => (
           <div

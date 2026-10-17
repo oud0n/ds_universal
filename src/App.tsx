@@ -1179,6 +1179,7 @@ export const App: React.FC = () => {
             onLoadPthFile={() => pthInputRef.current?.click()}
             onLoadClnFile={() => clnInputRef.current?.click()}
             onLoadCircuitFolder={() => folderInputRef.current?.click()}
+            onOpenFile={() => fileInputRef.current?.click()}
           />
         </div>
 
