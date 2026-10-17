@@ -40,8 +40,8 @@ P0〜P2 は完了（P2 は実データ確認が残り）。P3（多言語化・�
 
 - [ ] **UI 修正案の反映**
 - [ ] **スマートフォン向けレイアウト**（ブラウザ版）: ロガー設定タブ（USB 通信）はスマートフォンでは無効化する。iPhone / iPad は Web Serial 非対応、Android の Chrome も USB 接続のシリアルは使えないため
-- [ ] **アプリ名の表記の統一**: どの表記に揃えるかを決めて一括で直す（現状: `DS Universal Suite` / `DS Universal Analyser` / `DS-ANALYSER`（ヘッダーのロゴ）/ `DS Universal Tool`（旧 `main.js`）/ `ds_universal`）
-- [ ] **アプリ内ヘッダー・README のロゴ差し替え**: 新しいアイコン（`build/icon.svg`）に置き換える。ヘッダーのロゴは名称を含むので、表記を決めてから
+- [ ] **アプリ名の表記の統一**: どの表記に揃えるかを決めて一括で直す（現状: `DS Universal Suite` / `DS Universal Analyser` / `DS-ANALYSER`（ヘッダーのロゴ。2026-10-17 削除）/ `DS Universal Tool`（旧 `main.js`）/ `ds_universal`）
+- [ ] **README のロゴ差し替え**: 新しいアイコン（`build/icon.svg`）に置き換える（アプリ内ヘッダーのロゴ「DS-ANALYSER」と名称「DS Universal Analyser」は 2026-10-17 に削除した）
 - [ ] **ブラウザ版（GitHub Pages）のファビコン設定**: `index.html` が存在しない `/vite.svg` を参照しており 404 になっているため、`build/icon.svg`（および `apple-touch-icon` 用の `build/icon.png`）を `public/` に配置して相対パスで参照させる
 
 ---

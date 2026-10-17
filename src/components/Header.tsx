@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, Repeat, BarChart2, List, ShieldCheck, Video, Download, Coffee } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, Repeat, BarChart2, List, Video, Download, Coffee } from 'lucide-react';
 import { SelectedCarSlot, Session } from '../types/telemetry';
 
 interface HeaderProps {
@@ -35,22 +35,6 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   return (
     <header className="bg-[#131620] border-b border-[#222838] text-slate-200 px-4 py-2 flex items-center justify-between select-none">
-      {/* ロゴ & アプリ名 (フラットデザイン) */}
-      <div className="flex items-center space-x-3">
-        <div className="bg-red-600 text-white font-black text-sm px-2.5 py-1 rounded tracking-wider flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-white"></span>
-          DS-ANALYSER
-        </div>
-        <div className="hidden md:flex flex-col">
-          <span className="text-xs font-semibold text-slate-300 tracking-wide">
-            DS Universal Analyser
-          </span>
-          <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
-            <ShieldCheck size={11} /> 完全オフライン動作 / 互換仕様
-          </span>
-        </div>
-      </div>
-
       {/* タブ切り替え (フラットデザイン) */}
       <div className="flex bg-[#181d2a] p-0.5 rounded border border-[#262e40]">
         <button
