@@ -61,6 +61,9 @@ const COURSE_MATCH_RADIUS_M = 15000;
 const NO_SECTORS: Sector[] = [];
 const NO_POLYLINES: Array<Array<[number, number]>> = [];
 
+// ドリフト採点・評価の表示 (2026-10-17 に表示をやめた。DriftWindow などのコードは残してあるので、true に戻せば出る)
+const SHOW_DRIFT = false;
+
 // スマートフォンのグラフ解析タブで、速度ウインドウの下 (横向きでは右) に切り替えて出すウインドウ
 type MobilePanel = 'map' | 'replay' | 'gg' | 'corner' | 'braking' | 'drift';
 const MOBILE_PANELS: { id: MobilePanel; label: string }[] = [
@@ -70,7 +73,7 @@ const MOBILE_PANELS: { id: MobilePanel; label: string }[] = [
   { id: 'corner', label: 'コーナー' },
   { id: 'braking', label: 'ブレーキ' },
   { id: 'drift', label: 'ドリフト' }
-];
+].filter(p => SHOW_DRIFT || p.id !== 'drift') as { id: MobilePanel; label: string }[];
 
 export const App: React.FC = () => {
   // タブ
@@ -1056,16 +1059,18 @@ export const App: React.FC = () => {
                   >
                     フリクションサークル (GG)
                   </button>
-                  <button
-                    onClick={() => setSubWindowMode('track_friction')}
-                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
-                      subWindowMode === 'track_friction'
-                        ? 'bg-orange-600 text-white'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    ドリフト採点・評価
-                  </button>
+                  {SHOW_DRIFT && (
+                    <button
+                      onClick={() => setSubWindowMode('track_friction')}
+                      className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                        subWindowMode === 'track_friction'
+                          ? 'bg-orange-600 text-white'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      ドリフト採点・評価
+                    </button>
+                  )}
                   <button
                     onClick={() => setSubWindowMode('corner')}
                     className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
