@@ -316,12 +316,14 @@ export const App: React.FC = () => {
   const animRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(performance.now());
 
+  // 再生の基準はこのループだけにする。動画のウインドウは、この時刻に合わせて動画を再生する (動画の有無にかかわらず時刻が進む)
+  // グラフ画面では選んでいる周の中の時刻、動画同期タブではセッション全体の時刻を進める
+  const isVideoTab = !isCompact && currentTab === 'video';
+  const sessionEndTime = baseSession?.points.length ? baseSession.points[baseSession.points.length - 1].time : 0;
   useEffect(() => {
-    // 動画表示時は <video> 要素が再生マスターとなるため、lapTimeでのrequestAnimationFrameループは停止する
-    // (スマートフォンの配置では動画を出さないので、アニメーションループで再生する)
-    // (たたんだウインドウの動画は外れているので、再生の基準にしない)
-    const isVideoModeActive = !isCompact && (currentTab === 'video' || (currentTab === 'graph' && ((leftBottomMode === 'video' && !collapsed.anim) || (subWindowMode === 'video' && !collapsed.sub))));
-    if (!isPlaying || !baseLap || isVideoModeActive) {
+    const pts = isVideoTab ? baseSession?.points : baseLap?.points;
+    const endTime = isVideoTab ? sessionEndTime : playEndTime;
+    if (!isPlaying || !pts || pts.length === 0) {
       if (animRef.current) cancelAnimationFrame(animRef.current);
       return;
     }
@@ -335,14 +337,19 @@ export const App: React.FC = () => {
 
       setCurrentTimeSec(prevTime => {
         let nextTime = prevTime + dtSec;
-        if (nextTime > playEndTime) {
-          nextTime = 0; // ループ
-          // 周の始めに戻ったら、セクターにそろえるのをやめ、全車を計測線から同時に走らせる
-          setAlignedSector(null);
+        if (nextTime > endTime) {
+          if (isVideoTab) {
+            // 動画同期タブでは、セッションの終わりで止める
+            nextTime = endTime;
+            setIsPlaying(false);
+          } else {
+            nextTime = 0; // ループ
+            // 周の始めに戻ったら、セクターにそろえるのをやめ、全車を計測線から同時に走らせる
+            setAlignedSector(null);
+          }
         }
 
         // タイムに対応する距離を計算 (O(log N) 二分探索)
-        const pts = baseLap.points;
         const curPt = interpolatePoint(pts, 'time', nextTime);
 
         if (curPt) {
@@ -360,7 +367,7 @@ export const App: React.FC = () => {
     return () => {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
-  }, [isPlaying, playbackSpeed, baseLap, playEndTime, currentTab, subWindowMode, leftBottomMode, isCompact, collapsed.anim, collapsed.sub]);
+  }, [isPlaying, playbackSpeed, baseLap, baseSession, playEndTime, sessionEndTime, isVideoTab]);
 
   // キーボードショートカット (Space: 再生/停止, F / →: コマ送り, B / ←: コマ戻し, Shift で 1 秒単位)
   useEffect(() => {
@@ -1086,6 +1093,9 @@ export const App: React.FC = () => {
                       targetSessionId={baseSession?.id}
                       targetLap={baseLap}
                       isGraphEmbedded={true}
+                      isVisible={currentTab === 'graph'}
+                      playbackSpeed={playbackSpeed}
+                      onChangePlaybackSpeed={setPlaybackSpeed}
                     />
                   )}
                 </div>
@@ -1247,6 +1257,9 @@ export const App: React.FC = () => {
                       targetSessionId={baseSession?.id}
                       targetLap={baseLap}
                       isGraphEmbedded={true}
+                      isVisible={currentTab === 'graph'}
+                      playbackSpeed={playbackSpeed}
+                      onChangePlaybackSpeed={setPlaybackSpeed}
                     />
                   )}
                 </div>
@@ -1271,6 +1284,9 @@ export const App: React.FC = () => {
               targetSessionId={baseSession?.id}
               targetLap={baseLap}
               isGraphEmbedded={false}
+              isVisible={currentTab === 'video'}
+              playbackSpeed={playbackSpeed}
+              onChangePlaybackSpeed={setPlaybackSpeed}
             />
           </div>
         )}

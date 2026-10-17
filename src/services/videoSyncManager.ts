@@ -3,6 +3,7 @@
  */
 import { Session } from '../types/telemetry';
 import { parseVideoMetadata, VideoMetadata } from './videoMetadataParser';
+import type { SyncPin } from './videoSyncPinManager';
 import { detectCircuitTimezone, scanBestTimezoneOffset } from './masterTimelineEngine';
 import { 
   groupVideoTracksByChapter, 
@@ -91,25 +92,95 @@ export interface SyncProjectData {
     totalLaps: number;
     samplingRate: number;
   }>;
+  // 同期ピン (古い同期プロジェクトにはない)。動画の ID は読み込むたびに変わるので、ファイル名で持つ
+  pins?: Array<{
+    name: string;
+    sessionTimeSec: number;
+    videoTimeSec: number;
+    calculatedOffsetSec: number;
+    trackFileName: string | null;
+    createdAt?: string;
+  }>;
 }
 
 class VideoSyncManager {
   private videos: VideoTrack[] = [];
   public defaultVideoTimezone: string = 'JST';
   public defaultGpsTimezone: string = 'JST';
-  public onTracksUpdated?: (tracks: VideoTrack[]) => void;
+  // 変更の通知先。動画のウインドウは同時にいくつも開けるので、全員に知らせる
+  private listeners = new Set<() => void>();
+  // useSyncExternalStore 用の、変更のたびに作り直す一覧 (トラックの中身は同じオブジェクトを書き換えるため)
+  private snapshot: VideoTrack[] = [];
 
   public getTracks(): VideoTrack[] {
     return this.videos;
   }
 
+  public subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  };
+
+  public getSnapshot = (): VideoTrack[] => this.snapshot;
+
+  // 同期プロジェクトに保存されていたセッション。セッションの ID は読み込むたびに変わるので、ファイル名と開始日時で今のセッションに読み替える
+  private importedSessions: SyncProjectData['sessions'] = [];
+
+  private remapSessionId(savedId: string | null, sessions: Session[]): string | null {
+    if (!savedId) return null;
+    if (sessions.some(s => s.id === savedId)) return savedId;
+    const saved = this.importedSessions.find(s => s.id === savedId);
+    if (!saved) return savedId;
+    const candidates = sessions.filter(s => s.fileName === saved.fileName);
+    const hit = candidates.find(s => s.date === saved.startDateJst) ?? (candidates.length === 1 ? candidates[0] : undefined);
+    return hit ? hit.id : savedId;
+  }
+
+  /** 同期プロジェクトから戻した動画の照合先を、今読み込んでいるセッションに読み替える (ログを後から読み込んだとき用) */
+  public remapImportedSessions(sessions: Session[]): void {
+    if (this.importedSessions.length === 0 || sessions.length === 0) return;
+    let changed = false;
+    for (const v of this.videos) {
+      const id = this.remapSessionId(v.matchedSessionId, sessions);
+      if (id !== v.matchedSessionId) { v.matchedSessionId = id; changed = true; }
+    }
+    if (changed) {
+      this.updateChapterGroupOffsets();
+      this.notify();
+    }
+  }
+
+  private notify(): void {
+    this.snapshot = [...this.videos];
+    this.listeners.forEach(l => l());
+  }
+
   // 複数動画ファイルの読み込み & 自動解析
   public async addVideoFiles(files: FileList | File[], sessions: Session[]): Promise<VideoTrack[]> {
     const newTracks: VideoTrack[] = [];
+    let relinked = false;
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const meta: VideoMetadata = await parseVideoMetadata(file);
+
+      // 同期プロジェクトから戻した、ファイルのまだない動画と同じファイルなら、そこにつなぐ (保存したオフセットを引き継ぐ)
+      const placeholder = this.videos.find(v =>
+        !v.objectUrl && v.fileName === file.name && (!v.fileSize || v.fileSize === file.size));
+      if (placeholder) {
+        placeholder.file = file;
+        placeholder.objectUrl = URL.createObjectURL(file);
+        placeholder.fileSize = file.size;
+        if (meta.durationSec > 0) placeholder.durationSec = meta.durationSec;
+        if (!placeholder.rawRecordedAt && meta.creationTime) {
+          placeholder.rawRecordedAt = meta.creationTime;
+          placeholder.recordedAtJst = meta.creationTime;
+        }
+        placeholder.notes = undefined;
+        placeholder.matchedSessionId = this.remapSessionId(placeholder.matchedSessionId, sessions);
+        relinked = true;
+        continue;
+      }
 
       const track: VideoTrack = {
         id: `vid_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -134,10 +205,9 @@ class VideoSyncManager {
 
     // GPSセッションとの自動照合。追加した動画だけを照合し、手で合わせた既存の動画の同期は変えない
     this.autoMatchTracks(sessions, newTracks);
+    if (relinked && newTracks.length === 0) this.updateChapterGroupOffsets();
 
-    if (this.onTracksUpdated) {
-      this.onTracksUpdated(this.videos);
-    }
+    this.notify();
 
     return this.videos;
   }
@@ -171,7 +241,7 @@ class VideoSyncManager {
     if (sessionId) track.matchedSessionId = sessionId;
 
     if (!track.rawRecordedAt) {
-      if (this.onTracksUpdated) this.onTracksUpdated(this.videos);
+      this.notify();
       return track;
     }
 
@@ -219,7 +289,7 @@ class VideoSyncManager {
     }
 
     this.updateChapterGroupOffsets();
-    if (this.onTracksUpdated) this.onTracksUpdated(this.videos);
+    this.notify();
     return track;
   }
 
@@ -339,7 +409,7 @@ class VideoSyncManager {
         }
       }
 
-      if (this.onTracksUpdated) this.onTracksUpdated(this.videos);
+      this.notify();
     }
   }
 
@@ -361,7 +431,7 @@ class VideoSyncManager {
         }
       }
 
-      if (this.onTracksUpdated) this.onTracksUpdated(this.videos);
+      this.notify();
     }
   }
 
@@ -370,7 +440,7 @@ class VideoSyncManager {
     const track = this.videos.find(v => v.id === trackId);
     if (track) {
       track.matchedSessionId = sessionId;
-      if (this.onTracksUpdated) this.onTracksUpdated(this.videos);
+      this.notify();
     }
   }
 
@@ -381,11 +451,11 @@ class VideoSyncManager {
       URL.revokeObjectURL(track.objectUrl);
     }
     this.videos = this.videos.filter(v => v.id !== trackId);
-    if (this.onTracksUpdated) this.onTracksUpdated(this.videos);
+    this.notify();
   }
 
   // 同期プロジェクト JSON エクスポート
-  public exportProjectJson(sessions: Session[], circuitName: string): string {
+  public exportProjectJson(sessions: Session[], circuitName: string, pins: SyncPin[] = []): string {
     const data: SyncProjectData = {
       version: '1.0',
       savedAt: new Date().toISOString(),
@@ -408,6 +478,14 @@ class VideoSyncManager {
         startDateJst: s.date,
         totalLaps: s.laps.length,
         samplingRate: s.samplingRate
+      })),
+      pins: pins.map(p => ({
+        name: p.name,
+        sessionTimeSec: p.sessionTimeSec,
+        videoTimeSec: p.videoTimeSec,
+        calculatedOffsetSec: p.calculatedOffsetSec,
+        trackFileName: this.videos.find(v => v.id === p.trackId)?.fileName ?? null,
+        createdAt: p.createdAt
       }))
     };
 
@@ -415,7 +493,7 @@ class VideoSyncManager {
   }
 
   // 同期プロジェクト JSON インポート & 復元
-  public importProjectJson(jsonText: string): SyncProjectData {
+  public importProjectJson(jsonText: string, sessions: Session[] = []): SyncProjectData {
     const data: SyncProjectData = JSON.parse(jsonText);
     if (!data || data.version !== '1.0' || !Array.isArray(data.videos)) {
       throw new Error('無効な同期プロジェクト JSON 形式です');
@@ -433,9 +511,28 @@ class VideoSyncManager {
       const raw = v.rawRecordedAt || v.recordedAtJst;
       if (raw && Number.isNaN(new Date(raw).getTime())) throw new Error(`同期プロジェクト JSON の動画 ${v.fileName} の記録日時が不正です`);
     }
+    if (data.pins !== undefined) {
+      if (!Array.isArray(data.pins)) throw new Error('同期プロジェクト JSON の同期ピンが不正です');
+      for (const p of data.pins) {
+        const ok = p && typeof p.name === 'string' &&
+          [p.sessionTimeSec, p.videoTimeSec, p.calculatedOffsetSec].every(x => Number.isFinite(x) && Math.abs(x) <= MAX_OFFSET_SEC) &&
+          (p.trackFileName === null || typeof p.trackFileName === 'string');
+        if (!ok) throw new Error(`同期プロジェクト JSON の同期ピン ${p?.name ?? ''} の値が不正です`);
+      }
+    }
+
+    // 保存したときのセッションの一覧を覚えておく (ログを後から読み込んだときにも読み替えられるように)
+    if (Array.isArray(data.sessions)) {
+      for (const sd of data.sessions) {
+        if (sd && typeof sd.id === 'string' && typeof sd.fileName === 'string' && !this.importedSessions.some(x => x.id === sd.id)) {
+          this.importedSessions.push(sd);
+        }
+      }
+    }
 
     // 既存動画トラックのオフセットを上書き・復元
     for (const vData of data.videos) {
+      vData.matchedSessionId = this.remapSessionId(vData.matchedSessionId, sessions);
       const existing = this.videos.find(v => v.fileName === vData.fileName);
       if (existing) {
         existing.matchedSessionId = vData.matchedSessionId;
@@ -465,7 +562,8 @@ class VideoSyncManager {
       }
     }
 
-    if (this.onTracksUpdated) this.onTracksUpdated(this.videos);
+    this.updateChapterGroupOffsets();
+    this.notify();
     return data;
   }
 }
