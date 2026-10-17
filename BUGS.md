@@ -27,7 +27,7 @@
 | 🟡 **中 (P2)** | BUG-12 | 物理計算 | G 値・旋回半径の微分ウィンドウがサンプル数固定（記録レートで値が変わる） | `src/services/physics.ts` | 未対応 |
 | 🟡 **中 (P2)** | BUG-13 | 時刻フォーマット | 分・秒フォーマットの丸めによる `"1:60.000"` 繰り上がりバグ | `src/services/csvParser.ts`, `src/components/DataTab.tsx`, `src/services/videoSyncPinManager.ts`, `src/components/VideoSyncWindow.tsx` | 未対応 |
 | 🟢 **低 (P3)** | BUG-14 | パフォーマンス | 高密度ログ再生時の毎フレーム全点 Canvas 再描画および $O(N)$ 線形探索 | `src/components/SpeedGraphWindow.tsx`, `src/components/TrackMapWindow.tsx`, `src/components/FrictionCircleWindow.tsx` | 未対応 |
-| 🟢 **低 (P3)** | BUG-15 | コースデータ管理 | `.sci` 未使用・同名ファイル混在・保存失敗時の成功表示・隣接コース判定 | `src/services/userCircuitStorage.ts`, `src/services/circuitDatabase.ts` | 未対応 |
+| 🟢 **低 (P3)** | BUG-15 | コースデータ管理 | `.sci` 未使用・同名ファイル混在・保存失敗時の成功表示・隣接コース判定 | `src/services/userCircuitStorage.ts`, `src/services/circuitDatabase.ts` | 修正済み（ブランチ fix/bug15-course-data を dev に統合。内蔵の計測線の実走確認は残り） |
 | 🟢 **低 (P3)** | BUG-16 | ロガー設定 UI・通信 | 「解析 & 単位設定」が未接続のダミー UI・レート変更副作用の未明示・欠落ブロック再取得 | `src/components/LoggerTab.tsx`, `src/services/digspiceDevice.ts` | 未対応 |
 
 ---
