@@ -121,6 +121,15 @@ export const App: React.FC = () => {
   // 車両どうしを比べる基準 (速度ウインドウの横軸)。全コースウインドウ・アニメーション・摩擦円の車両位置もこれに合わせる
   const [compareAxis, setCompareAxis] = useState<CompareAxis>('distance');
 
+  // セクターの同時スタートの動作: base = 基準車をそのセクター線へ移すだけ / all = 全車がそのセクター線を同時に通るよう時刻をそろえる
+  const [sectorStartMode, setSectorStartMode] = useState<'base' | 'all'>('base');
+  // all のときに時刻をそろえているセクター線 (sectors の添字)。周や車を選び直したら解除する
+  const [alignedSector, setAlignedSector] = useState<number | null>(null);
+  const carsKey = selectedCars.map(c => `${c.slot}:${c.sessionId}:${c.lapNumber}`).join('|');
+  useEffect(() => {
+    setAlignedSector(null);
+  }, [carsKey]);
+
   // 1 周の長さを基準車にそろえる (ロガーごとの距離の測り方の差を吸収する)
   const [alignLapLength, setAlignLapLength] = useState(false);
 
@@ -137,17 +146,21 @@ export const App: React.FC = () => {
       const isFullLap = (l: Lap) => !l.isWholeSession && !l.isPartialLap && l.distance > 0;
       const scale = alignLapLength && baseLap && isFullLap(baseLap) && isFullLap(lap) ? baseLap.distance / lap.distance : 1;
       const offsetKm = (slot.distanceOffsetM || 0) / 1000;
-      if (scale === 1 && offsetKm === 0) return { slot, lap };
+      // セクターにそろえるときは、そのセクター線を通った時刻が基準車と同じになるよう時刻をずらす
+      const baseSplit = alignedSector !== null ? baseLap?.sectors[alignedSector]?.splitTime : undefined;
+      const carSplit = alignedSector !== null ? lap.sectors[alignedSector]?.splitTime : undefined;
+      const shiftSec = baseSplit !== undefined && carSplit !== undefined ? carSplit - baseSplit : 0;
+      if (scale === 1 && offsetKm === 0 && shiftSec === 0) return { slot, lap };
       return {
         slot,
         lap: {
           ...lap,
           distance: lap.distance * scale,
-          points: lap.points.map(p => ({ ...p, distance: p.distance * scale + offsetKm }))
+          points: lap.points.map(p => ({ ...p, distance: p.distance * scale + offsetKm, time: p.time - shiftSec }))
         }
       };
     })
-    .filter(Boolean) as { slot: SelectedCarSlot; lap: Lap }[], [selectedCars, sessions, baseSelected?.slot, baseLap, alignLapLength]);
+    .filter(Boolean) as { slot: SelectedCarSlot; lap: Lap }[], [selectedCars, sessions, baseSelected?.slot, baseLap, alignLapLength, alignedSector]);
 
   const handleSetDistanceOffset = (slotIndex: number, offsetM: number) => {
     setSelectedCars(prev => prev.map(c => (c.slot === slotIndex ? { ...c, distanceOffsetM: offsetM } : c)));
@@ -297,6 +310,13 @@ export const App: React.FC = () => {
     if (!baseLap) return;
     const sec = baseLap.sectors[sectorIndex];
     if (sec) {
+      // 全車をそろえるモードでは、全車がこのセクター線を同時に通るよう時刻をそろえ、時間基準で比べる
+      if (sectorStartMode === 'all') {
+        setAlignedSector(sectorIndex);
+        setCompareAxis('time');
+      } else {
+        setAlignedSector(null);
+      }
       // そのセクター線の位置 (計測線からの累積距離) から一斉スタートする
       handleSeekDistance(sec.splitDistance);
       setIsPlaying(true);
@@ -792,6 +812,13 @@ export const App: React.FC = () => {
                     onStepBack={() => handleStep(-0.1)}
                     onSeekDistance={handleSeekDistance}
                     onSyncSectorStart={handleSyncSectorStart}
+                    sectorStartMode={sectorStartMode}
+                    onChangeSectorStartMode={mode => {
+                      setSectorStartMode(mode);
+                      if (mode === 'base') setAlignedSector(null);
+                    }}
+                    alignedSectorName={alignedSector !== null ? currentSectors[alignedSector]?.name || `S${alignedSector + 1}` : undefined}
+                    onClearAlignedSector={() => setAlignedSector(null)}
                   />
                 ) : (
                   <VideoSyncWindow

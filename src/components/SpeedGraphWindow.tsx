@@ -56,7 +56,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
       // 距離補正で後ろへずらした車両は、末尾が 1 周の距離より先に出るので、最後の点の距離も見る
       return Math.max(...cars.map(c => Math.max(c.lap.distance, c.lap.points[c.lap.points.length - 1]?.distance ?? 0)), 1);
     } else {
-      return Math.max(...cars.map(c => c.lap.lapTime), 1);
+      // セクターにそろえて時刻をずらした車両は、末尾が周のタイムより先に出るので、最後の点の時刻も見る
+      return Math.max(...cars.map(c => Math.max(c.lap.lapTime, c.lap.points[c.lap.points.length - 1]?.time ?? 0)), 1);
     }
   }, [cars, xAxisMode]);
 

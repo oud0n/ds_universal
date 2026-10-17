@@ -18,6 +18,12 @@ interface ReplayWindowProps {
   onStepBack: () => void;
   onSeekDistance: (dist: number) => void;
   onSyncSectorStart: (sectorIndex: number) => void;
+  // 同時スタートの動作 (base: 基準車に合わせる / all: 全車をそのセクター線にそろえる)
+  sectorStartMode: 'base' | 'all';
+  onChangeSectorStartMode: (mode: 'base' | 'all') => void;
+  // 時刻をそろえているセクター線の名前 (そろえていなければ undefined)
+  alignedSectorName?: string;
+  onClearAlignedSector: () => void;
 }
 
 export const ReplayWindow: React.FC<ReplayWindowProps> = ({
@@ -31,7 +37,11 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
   onStepForward,
   onStepBack,
   onSeekDistance,
-  onSyncSectorStart
+  onSyncSectorStart,
+  sectorStartMode,
+  onChangeSectorStartMode,
+  alignedSectorName,
+  onClearAlignedSector
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [followCar, setFollowCar] = useState(true);
@@ -217,13 +227,39 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
                   <button
                     key={sec.id}
                     onClick={() => onSyncSectorStart(idx)}
-                    title={`${sec.name} から全車一斉スタート`}
+                    title={sectorStartMode === 'all'
+                      ? `全車が ${sec.name} を同時に通るよう時刻をそろえて、そこから一斉スタート (時間基準)`
+                      : `${sec.name} から全車一斉スタート (基準車の位置に合わせる)`}
                     className="px-1.5 py-0.5 rounded bg-[#232a3d] hover:bg-amber-600 hover:text-white text-slate-300 text-[10px] font-bold border border-[#343e59] transition-all"
                   >
                     {sec.name || `S${idx + 1}`}
                   </button>
                 ))}
               </div>
+              {/* 動作の切り替え: 基準車に合わせる / 全車をセクター線にそろえる */}
+              <div className="flex bg-[#12141c] rounded p-0.5 border border-[#2e374c] ml-1">
+                {(['base', 'all'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => onChangeSectorStartMode(mode)}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-all ${
+                      sectorStartMode === mode ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    title={mode === 'base' ? '基準車 (Car 1) の位置に合わせる' : '全車がそのセクター線を同時に通るようにそろえる'}
+                  >
+                    {mode === 'base' ? 'Car 1 に合わせる' : '全車をそろえる'}
+                  </button>
+                ))}
+              </div>
+              {alignedSectorName && (
+                <button
+                  onClick={onClearAlignedSector}
+                  title="セクターにそろえるのをやめる"
+                  className="ml-1 px-1.5 py-0.5 rounded border border-amber-600/60 text-[10px] text-amber-300 hover:text-white hover:bg-amber-700/40"
+                >
+                  {alignedSectorName} にそろえ中 ✕
+                </button>
+              )}
             </div>
           )}
         </div>
