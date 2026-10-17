@@ -28,7 +28,7 @@
 | 🟡 **中 (P2)** | BUG-13 | 時刻フォーマット | 分・秒フォーマットの丸めによる `"1:60.000"` 繰り上がりバグ | `src/services/csvParser.ts`, `src/components/DataTab.tsx`, `src/services/videoSyncPinManager.ts`, `src/components/VideoSyncWindow.tsx` | 修正済み（020c5a4） |
 | 🟢 **低 (P3)** | BUG-14 | パフォーマンス | 高密度ログ再生時の毎フレーム全点 Canvas 再描画および $O(N)$ 線形探索 | `src/components/SpeedGraphWindow.tsx`, `src/components/TrackMapWindow.tsx`, `src/components/FrictionCircleWindow.tsx` | 未対応（UI 修正・BUG-09/10 の後に対応する） |
 | 🟢 **低 (P3)** | BUG-15 | コースデータ管理 | `.sci` 未使用・同名ファイル混在・保存失敗時の成功表示・隣接コース判定 | `src/services/userCircuitStorage.ts`, `src/services/circuitDatabase.ts` | 修正済み（ブランチ fix/bug15-course-data を dev に統合。内蔵の計測線の実走確認は残り） |
-| 🟢 **低 (P3)** | BUG-16 | ロガー設定 UI・通信 | 「解析 & 単位設定」が未接続のダミー UI・レート変更副作用の未明示・欠落ブロック再取得 | `src/components/LoggerTab.tsx`, `src/services/digspiceDevice.ts` | 未対応（つなぐか消すかは UI 修正のときに決める） |
+| 🟢 **低 (P3)** | BUG-16 | ロガー設定 UI・通信 | 「解析 & 単位設定」が未接続のダミー UI・レート変更副作用の未明示・欠落ブロック再取得 | `src/components/LoggerTab.tsx`, `src/services/digspiceDevice.ts` | 一部対応（「解析 & 単位設定」の G のならし方はデータ管理タブに移してつないだ。速度単位は外した。レート変更の注意書きと欠落ブロックの再取得は未対応） |
 
 ---
 

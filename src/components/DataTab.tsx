@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { formatMinSec } from '../utils/timeFormat';
 import { useCompactLayout } from '../hooks/useCompactLayout';
+import { GFilterLevel } from '../services/physics';
 
 interface DataTabProps {
   sessions: Session[];
@@ -45,6 +46,9 @@ interface DataTabProps {
   onLoadCircuitFolder?: () => void;
   // 走行データのファイルを選ぶ (データがないときの案内をタップ・クリックしたとき)
   onOpenFile?: () => void;
+  // G のならし方 (解析の設定)
+  gFilterLevel: GFilterLevel;
+  onChangeGFilterLevel: (level: GFilterLevel) => void;
 }
 
 export const DataTab: React.FC<DataTabProps> = ({
@@ -64,7 +68,9 @@ export const DataTab: React.FC<DataTabProps> = ({
   onLoadPthFile,
   onLoadClnFile,
   onLoadCircuitFolder,
-  onOpenFile
+  onOpenFile,
+  gFilterLevel,
+  onChangeGFilterLevel
 }) => {
   // スマートフォン向けの配置では、ラップ一覧を表でなく 1 周ずつのカードで出す
   const compact = useCompactLayout();
@@ -290,6 +296,34 @@ export const DataTab: React.FC<DataTabProps> = ({
           <input type="checkbox" checked={alignLapLength} onChange={e => onSetAlignLapLength(e.target.checked)} />
           1 周の長さを基準車にそろえる
         </label>
+      </div>
+
+      {/* 解析の設定 */}
+      <div className={`bg-surface-2 border border-line-2 rounded-xl shadow-md space-y-2 ${compact ? 'p-3' : 'p-4'}`}>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-xs font-bold text-slate-300">G のならし方</span>
+          <div className="flex bg-surface-1 rounded p-0.5 border border-line-3" role="radiogroup" aria-label="G のならし方">
+            {([['weak', '弱'], ['standard', '標準（推奨）'], ['strong', '強']] as const).map(([value, label]) => (
+              <button
+                key={value}
+                role="radio"
+                aria-checked={gFilterLevel === value}
+                onClick={() => onChangeGFilterLevel(value)}
+                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                  gFilterLevel === value ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="text-[11px] text-slate-400 leading-relaxed">
+          G（加減速 G・横 G・合算 G）と旋回半径は、GPS の位置と車速の変化からアプリが計算しています（ロガーが G を測っているわけではありません）。
+          GPS の位置はわずかに揺れるので、計算した G も細かく揺れます。「ならし方」は、その揺れをどれだけ平らにするかの設定です。
+          強くするほど速度グラフの G 表示やフリクションサークルが落ち着きますが、急な変化（ブレーキの踏み始めなど）は鈍く、小さく出ます。
+          「標準」は記録レートに合わせてならし方を変えます。読み込み済みのログにもすぐ反映され、データ管理の「走行データCSV」の G の列もこの値になります。元のログファイルは変わりません。
+        </p>
       </div>
 
       {/* セッション & ラップ一覧 */}

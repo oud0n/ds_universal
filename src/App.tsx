@@ -28,6 +28,7 @@ import { DonateModal } from './components/DonateModal';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLoggerUsb } from './utils/device';
 import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
+import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
 import { BottomTabBar, MobileSeekBar } from './components/MobileNav';
 import { SplitResizer } from './components/SplitResizer';
 import { exportSessionToNmea, triggerFileDownload } from './services/nmeaExporter';
@@ -244,6 +245,20 @@ export const App: React.FC = () => {
     if (!alignGate) return 0;
     const t = firstGateCrossingTime(lap.points, alignGate, alignDirection);
     return t !== undefined && baseAlignTime !== undefined ? t - baseAlignTime : undefined;
+  };
+
+  // G のならし方。変えたら、読み込み済みのログの G を計算し直す (周回の区切りは変わらないが、周の点も作り直す)
+  const [gFilterLevel, setGFilterLevelState] = useState<GFilterLevel>(getGFilterLevel());
+  const handleChangeGFilterLevel = (level: GFilterLevel) => {
+    if (level === gFilterLevel) return;
+    setGFilterLevel(level);
+    setGFilterLevelState(level);
+    const updated = new Map(latestRef.current.sessions.map(s => {
+      const points = applyGFilter(s.points.map(p => ({ ...p })), level);
+      const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(points, s.controlLine, s.sectors);
+      return [s.id, { points, laps, bestLapIndex, theoreticalBestTime }] as const;
+    }));
+    setSessions(prev => prev.map(s => (updated.has(s.id) ? { ...s, ...updated.get(s.id)! } : s)));
   };
 
   // 有効な選択中車両一覧。比較車両には、距離の手動補正と 1 周の長さの伸縮をここで適用する
@@ -1278,6 +1293,8 @@ export const App: React.FC = () => {
             onLoadClnFile={() => clnInputRef.current?.click()}
             onLoadCircuitFolder={() => folderInputRef.current?.click()}
             onOpenFile={() => fileInputRef.current?.click()}
+            gFilterLevel={gFilterLevel}
+            onChangeGFilterLevel={handleChangeGFilterLevel}
           />
         </div>
 
