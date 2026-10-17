@@ -91,6 +91,24 @@ function distToPolylinesM(lat: number, lon: number, polylines: Array<Array<[numb
   return best;
 }
 
+/**
+ * ログのほとんど (95%) が、コース図から 50 m 以内を走っているか (間引いて調べる)。
+ * ピット・パドックで止まっている間やピットロードは外れるので、40 km/h 以上で走っている点だけで調べる
+ */
+function runsOnPolylines(points: TelemetryPoint[], polylines: Array<Array<[number, number]>>): boolean {
+  if (polylines.length === 0) return false;
+  const moving = points.filter(p => p.speed >= 40);
+  if (moving.length === 0) return true;
+  const step = Math.max(1, Math.floor(moving.length / 200));
+  let total = 0;
+  let near = 0;
+  for (let i = 0; i < moving.length; i += step) {
+    total++;
+    if (distToPolylinesM(moving[i].latitude, moving[i].longitude, polylines) <= 50) near++;
+  }
+  return near / total >= 0.95;
+}
+
 /** ファイル名から比較用の名前を作る (cd_ / cl_ の接頭辞、_DS4 などの接尾辞、拡張子を除く) */
 export function normalizeCourseName(path: string): string {
   const file = path.split(/[\\/]/).pop() || path;
@@ -549,13 +567,20 @@ class UserCircuitStorage {
     // コース編集で保存したコースの計測線を通過していれば、読み込んだコースデータより優先する (利用者が直した設定のため。
     // 計測線を動かすと通過の回数が変わるので、回数では比べない)。保存したコースどうしは回数で比べ、同じなら後に保存したものを使う
     const editedOrder = (c: UserCircuitItem) => this.edited.indexOf(c);
+    // 保存したコースにコース図があれば、ログがその上を走っていることも確かめる
+    // (鈴鹿のフルコースと東コースのように、計測線とストレートを共有する別のコースを取り違えないように)
+    const offTrack = new Set(counted.filter(x => isEdited(x.c) && x.count > 0 && x.c.polylines && !runsOnPolylines(points, x.c.polylines!)).map(x => x.c));
     const crossedEdited = counted
-      .filter(x => isEdited(x.c) && x.count > 0)
+      .filter(x => isEdited(x.c) && x.count > 0 && !offTrack.has(x.c))
       .sort((a, b) => b.count - a.count || editedOrder(b.c) - editedOrder(a.c));
     if (crossedEdited.length > 0) return { circuit: crossedEdited[0].c, crossings: crossedEdited[0].count };
-    let best = near[0].c;
+    const candidates = near.filter(x => !offTrack.has(x.c));
+    if (candidates.length === 0) return null;
+    let best = candidates[0].c;
     let bestCount = 0;
     for (const { c, count } of counted) {
+      // コース図から外れた保存したコースは使わない (別のコース)
+      if (offTrack.has(c)) continue;
       if (count > bestCount) {
         bestCount = count;
         best = c;
