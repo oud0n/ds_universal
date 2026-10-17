@@ -21,7 +21,7 @@ import { DriftWindow } from './components/DriftWindow';
 import { CornerAnalysisWindow } from './components/CornerAnalysisWindow';
 import { BrakingAnalysisWindow } from './components/BrakingAnalysisWindow';
 import { VideoSyncWindow } from './components/VideoSyncWindow';
-import { useVideoTracks, useVideoView } from './services/videoViewStore';
+import { useVideoTracks, useVideoView, videoEndSessionSec } from './services/videoViewStore';
 import { DataTab } from './components/DataTab';
 import { LoggerTab } from './components/LoggerTab';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
@@ -327,7 +327,7 @@ export const App: React.FC = () => {
   const shownVideoIds = [videoView.selectedTrackId, videoView.viewMode !== 'single' ? videoView.subTrackId : null];
   const sessionEndTime = Math.max(
     baseSession?.points.length ? baseSession.points[baseSession.points.length - 1].time : 0,
-    ...videoTracks.filter(t => t.objectUrl && shownVideoIds.includes(t.id)).map(t => t.syncOffsetSec + (t.durationSec || 0))
+    ...videoTracks.filter(t => shownVideoIds.includes(t.id)).map(videoEndSessionSec)
   );
   const [clockBase, setClockBase] = useState<'lap' | 'session'>(() => (isVideoTab ? 'session' : 'lap'));
   const wantClockBase: 'lap' | 'session' = isVideoTab ? 'session' : currentTab === 'graph' ? 'lap' : clockBase;

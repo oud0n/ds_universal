@@ -104,6 +104,14 @@ class VideoViewStore {
 
 export const videoViewStore = new VideoViewStore();
 
+/** 動画の終わりのセッション時刻。チャプターに分かれた動画は、最後のチャプターの終わり */
+export function videoEndSessionSec(track: VideoTrack | null | undefined): number {
+  if (!track?.objectUrl) return 0;
+  const group = videoSyncManager.getChapterGroupForTrack(track.id);
+  if (group && group.tracks.length > 1) return group.baseSyncOffsetSec + group.totalDurationSec;
+  return track.syncOffsetSec + (track.durationSec || 0);
+}
+
 export function useVideoView(): VideoViewState {
   return useSyncExternalStore(videoViewStore.subscribe, videoViewStore.getState);
 }
