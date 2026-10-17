@@ -138,8 +138,9 @@ export function countGateCrossings(points: TelemetryPoint[], gate: Gate): number
 }
 
 /** 点列がゲートを最初に通過した時刻 (点列の時刻の基準のまま)。通過しなければ undefined */
-export function firstGateCrossingTime(points: TelemetryPoint[], gate: Gate): number | undefined {
-  return findGateCrossings(points, gate, 2)[0]?.time;
+export function firstGateCrossingTime(points: TelemetryPoint[], gate: Gate, direction?: number): number | undefined {
+  // 向きを渡さないときは、この点列の中で多い方の向き
+  return findGateCrossings(points, gate, 2, direction ?? gateDirection(points, gate))[0]?.time;
 }
 
 /**

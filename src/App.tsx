@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { CompareAxis, Lap, Session, SelectedCarSlot, ControlLine, Sector, CircuitPreset } from './types/telemetry';
+import { CompareAxis, Lap, Session, TelemetryPoint, SelectedCarSlot, ControlLine, Sector, CircuitPreset } from './types/telemetry';
 import { parseDtb } from './services/dtbParser';
 import { parseDigispiceRawBinary } from './services/rawBinaryParser';
 import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
 import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
 import { parsePth, parseCln } from './services/pthParser';
-import { createVirtualControlLine, extractLaps, firstGateCrossingTime, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
+import { createVirtualControlLine, extractLaps, firstGateCrossingTime, gateDirection, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
 import { ConvertTab } from './components/ConvertTab';
 import { CIRCUIT_PRESETS, ALL_CIRCUITS, findMatchingCircuit, resolveCircuitPolylines } from './services/circuitDatabase';
 import { userCircuitStorage } from './services/userCircuitStorage';
@@ -28,6 +28,29 @@ import { useResizableSplit } from './hooks/useResizableSplit';
 import { SplitResizer } from './components/SplitResizer';
 import { exportSessionToNmea, triggerFileDownload } from './services/nmeaExporter';
 import { interpolatePoint } from './utils/telemetrySearch';
+
+/**
+ * 距離を補正した周で、補正後の距離が 0 になる時刻 (秒)。
+ * 補正で走り始めが 0 m より先に出たときは、最初の点の車速で 0 m まで戻した時刻 (負) を返す
+ */
+function timeAtDistanceZero(points: TelemetryPoint[], scale: number, offsetKm: number): number {
+  const d = (p: TelemetryPoint) => p.distance * scale + offsetKm;
+  if (points.length === 0) return 0;
+  const first = points[0];
+  if (d(first) >= 0) {
+    const kmPerSec = first.speed / 3600;
+    return kmPerSec > 0.001 ? first.time - d(first) / kmPerSec : first.time;
+  }
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    if (d(b) >= 0) {
+      const span = d(b) - d(a);
+      return span > 0 ? a.time + ((0 - d(a)) / span) * (b.time - a.time) : b.time;
+    }
+  }
+  return 0;
+}
 
 // コースのプリセットを、近くのログだけに反映するときの範囲 (自動判定と同じ 15 km)
 const COURSE_MATCH_RADIUS_M = 15000;
@@ -129,16 +152,25 @@ export const App: React.FC = () => {
   useEffect(() => {
     setAlignedSector(null);
   }, [carsKey]);
+  // そろえるのは時間基準で比べるときだけ。距離基準に戻したら解除する (距離基準のタイム差がずれるため)
+  useEffect(() => {
+    if (compareAxis !== 'time') setAlignedSector(null);
+  }, [compareAxis]);
 
   // 1 周の長さを基準車にそろえる (ロガーごとの距離の測り方の差を吸収する)
   const [alignLapLength, setAlignLapLength] = useState(false);
 
   // セクターにそろえるときの、比較車両の時刻のずらし量 (秒)。そろえていなければ 0、線を通過していなければ undefined
   const alignGate = alignedSector !== null ? currentSectors[alignedSector] : undefined;
-  const baseAlignTime = alignGate && baseLap ? firstGateCrossingTime(baseLap.points, alignGate) : undefined;
+  // 通過の向きは、基準車のセッション全体で決める (1 周だけだと、スピンなどの逆向きの通過しかない周で向きを取り違えるため)
+  const alignDirection = useMemo(
+    () => (alignGate && baseSession ? gateDirection(baseSession.points, alignGate) : undefined),
+    [alignGate, baseSession]
+  );
+  const baseAlignTime = alignGate && baseLap ? firstGateCrossingTime(baseLap.points, alignGate, alignDirection) : undefined;
   const alignShiftOf = (lap: Lap): number | undefined => {
     if (!alignGate) return 0;
-    const t = firstGateCrossingTime(lap.points, alignGate);
+    const t = firstGateCrossingTime(lap.points, alignGate, alignDirection);
     return t !== undefined && baseAlignTime !== undefined ? t - baseAlignTime : undefined;
   };
 
@@ -155,10 +187,14 @@ export const App: React.FC = () => {
       const isFullLap = (l: Lap) => !l.isWholeSession && !l.isPartialLap && l.distance > 0;
       const scale = alignLapLength && baseLap && isFullLap(baseLap) && isFullLap(lap) ? baseLap.distance / lap.distance : 1;
       const offsetKm = (slot.distanceOffsetM || 0) / 1000;
+      // 距離を補正したときは、補正後の 0 m (計測線) を通った時刻を 0 秒にする (タイム差・時間基準の比較が補正後の計測線から始まるように)
+      const zeroTime = offsetKm !== 0 ? timeAtDistanceZero(lap.points, scale, offsetKm) : 0;
       // セクターにそろえるときは、そのセクター線を通った時刻が基準車と同じになるよう時刻をずらす。
       // 線は基準車のセッションのもの (表示中のセクター) を使い、各車の軌跡が通った時刻を直接求める
       // (比較車両のセッションに同じセクターがない・数が違う場合でもそろえられるように)
-      const shiftSec = alignShiftOf(lap) ?? 0;
+      // (そろえていない・そろえられないときは、距離の補正に合わせた時刻のずらし量を使う)
+      const alignShift = alignGate ? alignShiftOf(lap) : undefined;
+      const shiftSec = alignShift ?? zeroTime;
       if (scale === 1 && offsetKm === 0 && shiftSec === 0) return { slot, lap };
       return {
         slot,
@@ -169,13 +205,20 @@ export const App: React.FC = () => {
         }
       };
     })
-    .filter(Boolean) as { slot: SelectedCarSlot; lap: Lap }[], [selectedCars, sessions, baseSelected?.slot, baseLap, alignLapLength, alignGate, baseAlignTime]);
+    .filter(Boolean) as { slot: SelectedCarSlot; lap: Lap }[], [selectedCars, sessions, baseSelected?.slot, baseLap, alignLapLength, alignGate, alignDirection, baseAlignTime]);
 
   // そろえていて、時刻をずらせなかった比較車両の数 (セクター線を通過していない周など)。表示に出す
-  const alignFailedCount = alignedSector === null ? 0 : [...selectedCars]
+  // 基準車がその線を通っていなければ、どの車もそろえられない (表示を分ける)
+  const alignBaseMissing = alignGate !== undefined && baseAlignTime === undefined;
+  const alignFailedCount = alignedSector === null || alignBaseMissing ? 0 : [...selectedCars]
     .filter(c => c.slot !== baseSelected?.slot)
     .map(c => findLap(c))
     .filter(l => l && alignShiftOf(l) === undefined).length;
+
+  // 再生・コマ送りの終わりの時刻。時間基準では、比較車両 (遅い車・時刻をずらした車) が走り終わるまで
+  const playEndTime = !baseLap ? 0 : compareAxis === 'time'
+    ? Math.max(baseLap.lapTime, ...activeCars.map(c => c.lap.points[c.lap.points.length - 1]?.time ?? 0))
+    : baseLap.lapTime;
 
   const handleSetDistanceOffset = (slotIndex: number, offsetM: number) => {
     setSelectedCars(prev => prev.map(c => (c.slot === slotIndex ? { ...c, distanceOffsetM: offsetM } : c)));
@@ -202,7 +245,7 @@ export const App: React.FC = () => {
 
       setCurrentTimeSec(prevTime => {
         let nextTime = prevTime + dtSec;
-        if (nextTime > baseLap.lapTime) {
+        if (nextTime > playEndTime) {
           nextTime = 0; // ループ
           // 周の始めに戻ったら、セクターにそろえるのをやめ、全車を計測線から同時に走らせる
           setAlignedSector(null);
@@ -227,7 +270,7 @@ export const App: React.FC = () => {
     return () => {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
-  }, [isPlaying, playbackSpeed, baseLap, currentTab, subWindowMode, leftBottomMode]);
+  }, [isPlaying, playbackSpeed, baseLap, playEndTime, currentTab, subWindowMode, leftBottomMode]);
 
   // キーボードショートカット (Space: 再生/停止, F / →: コマ送り, B / ←: コマ戻し, Shift で 1 秒単位)
   useEffect(() => {
@@ -251,7 +294,7 @@ export const App: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [baseLap, baseSession, currentTab]);
+  }, [baseLap, baseSession, currentTab, playEndTime]);
 
   // Electron ネイティブメニューからのファイルオープン受信
   useEffect(() => {
@@ -293,7 +336,7 @@ export const App: React.FC = () => {
     setCurrentTimeSec(prev => {
       // 動画タブではセッション全体の時間、それ以外では選択中ラップの時間が上限
       const sessionEnd = baseSession?.points.length ? baseSession.points[baseSession.points.length - 1].time : 99999;
-      const maxLimit = currentTab === 'video' ? sessionEnd : baseLap.lapTime;
+      const maxLimit = currentTab === 'video' ? sessionEnd : playEndTime;
       const next = Math.max(0, Math.min(maxLimit, prev + stepSec));
       const pts = (currentTab === 'video' ? baseSession?.points : baseLap?.points) || baseSession?.points;
       if (pts && pts.length > 0) {
@@ -383,7 +426,7 @@ export const App: React.FC = () => {
       const head = text.slice(0, 65536);
       // CSV の見出し行 (緯度・経度の列がある行) があるか
       const csvLike = isRaceChronoCsv(text) || isMotecCsv(text) ||
-        /^[^\n]*(lat|緯度)[^\n]*,[^\n]*(lon|lng|経度)/im.test(text.slice(0, 4000));
+        /^(?=[^\n]*(lat|緯度))(?=[^\n]*(lon|lng|経度))[^\n]*,/im.test(text.slice(0, 4000));
       const kind =
         isGpx(text) ? 'gpx'
         : isVbo(text) ? 'vbo'
@@ -434,7 +477,9 @@ export const App: React.FC = () => {
     let sec = hint.sec;
     let circName = hint.name;
 
-    if (matchedCircuit) {
+    // 手がかりが判定したコースと同じコース (コース編集で計測線・セクターを直したものなど) なら、その設定を引き継ぐ
+    const sameCourse = !!matchedCircuit && hint.name === matchedCircuit.name && !!hint.cl && passesNearControlLine(rawPoints, hint.cl);
+    if (matchedCircuit && !sameCourse) {
       // 計測線を持たないコース (名阪など) では、同じ場所で先に決めた計測線 (仮の計測線・コース編集で置いた線) を引き継ぐ
       cl = matchedCircuit.controlLine ?? (hint.cl && passesNearControlLine(rawPoints, hint.cl) ? hint.cl : undefined);
       sec = matchedCircuit.sectors;
@@ -449,7 +494,9 @@ export const App: React.FC = () => {
     }
 
     // 手がかりのコース図 (先に読み込んだ .pth など) がこのログの近くにあれば、このセッションに付ける
-    const hintPolylines = hint.polylines && passesNearPolylines({ points: rawPoints } as Session, hint.polylines, 2000) ? hint.polylines : undefined;
+    // 別のコースと判定した手がかり (同じ施設の隣のコースなど) のコース図は使わない (コース名のない、先に読み込んだ .pth は使う)
+    const hintForThisCourse = !matchedCircuit || !hint.name || hint.name === matchedCircuit.name;
+    const hintPolylines = hintForThisCourse && hint.polylines && passesNearPolylines({ points: rawPoints } as Session, hint.polylines, 2000) ? hint.polylines : undefined;
 
     // コースが分からず計測線もないときは、このログの走り始めに仮の計測線を置く。
     // 後から読み込むログもこの線の通過点を 0 m にそろえるので、開始位置の違うログを重ねてもずれない
@@ -562,6 +609,14 @@ export const App: React.FC = () => {
     // 前のコースのコース図を消し、選んだコースのコース図を読み込む
     setSessionPolylines(ids, undefined);
     requestPolylines(ids, p);
+    // ログを読み込む前なら、画面と次に読み込むログのために、選んだコースのコース図を手がかりに入れる
+    if (ids.length === 0) {
+      resolveCircuitPolylines(p).then(polylines => {
+        if (polylines && polylines.length > 0 && courseRef.current.name === p.name && !courseRef.current.polylines) {
+          setCourseHint({ ...courseRef.current, polylines });
+        }
+      }).catch(console.warn);
+    }
   };
 
   // ---- コースの設定をセッションごとに反映するための補助 ----
@@ -654,12 +709,15 @@ export const App: React.FC = () => {
           if (f) {
             const txt = await f.text();
             const polylines = parsePth(txt);
-            // コース図の近く (2 km 以内) を走ったログに設定する。なければ基準車のセッションに設定する
-            const ids = targetSessionIds(s => passesNearPolylines(s, polylines, 2000));
+            // コース図の近く (2 km 以内) を走ったログだけに設定する (別のコースのログのコース図を置き換えないように)
+            const ids = latestRef.current.sessions.filter(s => passesNearPolylines(s, polylines, 2000)).map(s => s.id);
             // 手動で読み込んだコース図を、遅れて届いた自動取得の結果で上書きしない
             setSessionPolylines(ids, polylines);
-            // ログを読み込む前なら、次に読み込む近くのログに付けるよう覚えておく (画面にもそのまま出す)
-            if (ids.length === 0) setCourseHint({ ...courseRef.current, polylines });
+            // 近くのログがなければ、次に読み込む近くのログに付けるよう覚えておく (ログを読み込む前なら画面にもそのまま出す)
+            if (ids.length === 0) {
+              setCourseHint({ ...courseRef.current, polylines });
+              if (latestRef.current.sessions.length > 0) alert('このコース図の近くを走ったログがないため、次に読み込む近くのログに使います。');
+            }
           }
           e.target.value = '';
         }}
@@ -679,7 +737,7 @@ export const App: React.FC = () => {
             const ids = latestRef.current.sessions.filter(s => passesNearControlLine(s.points, cl)).map(s => s.id);
             // 次に読むログの手がかりも、計測線を反映したセッションのコースにそろえる (別のコースのセクター・コース名と混ぜない)
             const target = latestRef.current.sessions.find(s => s.id === ids[0]);
-            setCourseHint({ cl, sec: target?.sectors ?? [], name: target?.circuitName ?? '' });
+            setCourseHint({ cl, sec: target?.sectors ?? [], name: target?.circuitName ?? '', polylines: target ? target.pathPolylines : courseRef.current.polylines });
             recalcSessions(s => (ids.includes(s.id) ? { cl, sec: s.sectors || [] } : null));
           }
           e.target.value = '';
@@ -843,6 +901,7 @@ export const App: React.FC = () => {
                     }}
                     alignedSectorName={alignedSector !== null ? `S${alignedSector + 2}` : undefined}
                     alignFailedCount={alignFailedCount}
+                    alignBaseMissing={alignBaseMissing}
                     onClearAlignedSector={() => setAlignedSector(null)}
                   />
                 ) : (

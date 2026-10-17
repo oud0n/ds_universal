@@ -211,6 +211,8 @@ class VideoSyncManager {
         const cTrack = group.tracks.find(ct => ct.track.id === trackId);
         if (cTrack) {
           const newBase = offset - cTrack.groupOffsetSec;
+          // グループのセッションは、先頭のチャプターの古い照合先でなく、今照合したセッションにそろえる
+          group.matchedSessionId = targetSession.id;
           syncGroupOffsets(group, newBase);
         }
       }
