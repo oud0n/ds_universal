@@ -26,11 +26,22 @@ function hasValidChecksum(bytes: Uint8Array, pos: number): boolean {
   return x === bytes[pos + 35];
 }
 
-export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): {
+// この時間より長く記録が空いたら、別の走行 (セッション) として分ける。
+// ピットでの停止 (記録開始速度を下回って記録が止まる) は数分なので、それより長くとる
+export const SESSION_GAP_SEC = 10 * 60;
+// これより短い走行 (パドックの移動など) は、ほかに走行があれば読み込まない
+const MIN_SESSION_SEC = 10;
+
+export interface RawBinarySession {
   points: TelemetryPoint[];
   samplingRate: number;
   startDate?: Date;
-} {
+}
+
+/**
+ * 生ログを読み、記録の空き (SESSION_GAP_SEC 以上) で区切った走行ごとに返す (時刻順)
+ */
+export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): RawBinarySession[] {
   const ext = fileName.split('.').pop()?.toLowerCase() || '';
   const bytes = new Uint8Array(buffer);
   const view = new DataView(buffer);
@@ -47,6 +58,8 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
   }
 
   const rawPoints: RawPoint[] = [];
+  // ミリ秒が記録されているログか (1 点でも 0 < ms < 1000 があれば)
+  let hasMilliseconds = false;
   // チェックサムの検証に通らないまま仮採用したレコード
   const unverified = new Set<RawPoint>();
 
@@ -69,6 +82,7 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
         const minute = view.getUint8(offset + 23);
         const second = view.getUint8(offset + 24);
         const subSec = view.getUint8(offset + 25);
+        if (subSec > 0 && subSec * msMultiplier < 1000) hasMilliseconds = true;
         // +12 の int32 は標高 (0.1 m 単位)。.bon4 の実ログで確認。.bon は未確認のため読まない
         const rawAlt = ext === 'bon4' ? view.getInt32(offset + 12, true) / 10 : NaN;
         const altitude = rawAlt > -500 && rawAlt < 10000 ? rawAlt : undefined;
@@ -113,7 +127,6 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
     const requireChecksum = ext === 'bnx4';
     // チェックサム付きのレコードを 1 件でも見つけたら、このファイルはセクター型と確定する
     let isSectorFormat = false;
-    let hasMilliseconds = false;
     // 末尾が途中で切れたファイルでも、最後のセクター内の完全なレコードは読む
     const numSectors = Math.ceil(bytes.length / 0x1000);
     if (numSectors > 0) {
@@ -190,26 +203,6 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
         const verified = rawPoints.filter(p => !unverified.has(p));
         rawPoints.length = 0;
         rawPoints.push(...verified);
-      }
-
-      // ミリ秒が記録されていないログに限り、同じ時刻のレコードが続く部分をその 1 秒の中で等分して割り振る。
-      // ミリ秒付きのログでは記録された時刻をそのまま使う (重複があっても作り替えない)
-      if (rawPoints.length > 0 && !hasMilliseconds) {
-        let i = 0;
-        while (i < rawPoints.length) {
-          const curTs = rawPoints[i].timeSec;
-          let count = 1;
-          while (i + count < rawPoints.length && rawPoints[i + count].timeSec === curTs) {
-            count++;
-          }
-          for (let k = 0; count > 1 && Number.isInteger(curTs) && k < count; k++) {
-            const frac = count > 1 ? k / count : 0;
-            const preciseTime = curTs + frac;
-            rawPoints[i + k].timeSec = preciseTime;
-            rawPoints[i + k].timestamp = new Date(preciseTime * 1000);
-          }
-          i += count;
-        }
       }
     }
 
@@ -329,9 +322,56 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
     throw new Error(`${fileName} から有効なGPSログレコードを抽出できませんでした`);
   }
 
-  // 時間順にソート & 重複除去
+  // 時間順にソートする (同じ時刻のレコードは記録順のまま)
   rawPoints.sort((a, b) => a.timeSec - b.timeSec);
 
+  // 重複の除去: 時刻・位置・速度がすべて同じレコードは、同じ記録が 2 回入ったものとして 1 つにする。
+  // ミリ秒の無いログでは、止まっている間の同じ秒のレコードが同じ値になり得るので除かない
+  const deduped = hasMilliseconds
+    ? rawPoints.filter((r, i) => {
+        const q = rawPoints[i - 1];
+        return !q || q.timeSec !== r.timeSec || q.lat !== r.lat || q.lon !== r.lon || q.speedKmh !== r.speedKmh;
+      })
+    : rawPoints;
+
+  // 同じ整数秒のレコードが続く部分 (ミリ秒が記録されていない) は、その 1 秒の中で等分して割り振る。
+  // ミリ秒付きのログでも、ミリ秒が抜けた秒だけはこれで補う。同じ秒の中に次の時刻のレコードがあれば、
+  // その手前までの間で割り振る (時刻の順が入れ替わらないように)
+  for (let i = 0; i < deduped.length; ) {
+    const curTs = deduped[i].timeSec;
+    let count = 1;
+    while (i + count < deduped.length && deduped[i + count].timeSec === curTs) count++;
+    if (count > 1 && Number.isInteger(curTs)) {
+      const next = deduped[i + count]?.timeSec ?? Infinity;
+      const width = Math.min(1, next - curTs);
+      for (let k = 0; k < count; k++) {
+        const preciseTime = curTs + (k * width) / count;
+        deduped[i + k].timeSec = preciseTime;
+        deduped[i + k].timestamp = new Date(preciseTime * 1000);
+      }
+    }
+    i += count;
+  }
+
+  // 記録の空きで走行を区切る
+  const groups: RawPoint[][] = [];
+  for (const r of deduped) {
+    const g = groups[groups.length - 1];
+    if (g && r.timeSec - g[g.length - 1].timeSec < SESSION_GAP_SEC) g.push(r);
+    else groups.push([r]);
+  }
+  const span = (g: RawPoint[]) => g[g.length - 1].timeSec - g[0].timeSec;
+  let kept = groups.filter(g => g.length >= 2 && span(g) >= MIN_SESSION_SEC);
+  // どれも短いときは、いちばん長いものだけを読む
+  if (kept.length === 0) kept = [groups.reduce((a, b) => (span(b) > span(a) || (span(b) === span(a) && b.length > a.length) ? b : a))];
+
+  return kept.map(toSession);
+}
+
+// 区切った走行の点列を、先頭を 0 秒とした TelemetryPoint にして解析値を付ける
+function toSession(
+  rawPoints: { lat: number; lon: number; speedKmh: number; timeSec: number; timestamp?: Date; heading?: number; altitude?: number; satellites?: number }[]
+): RawBinarySession {
   // 最初の時間を t=0 とする相対時間計算
   const t0 = rawPoints[0].timeSec;
   const startDate = rawPoints[0].timestamp;
