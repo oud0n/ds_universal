@@ -314,6 +314,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   useEffect(() => {
     if (!isVisible || isAnyExporting) return;
     if (!activeTrack || !baseSession || activeTrack.isManuallyAdjusted || !activeTrack.matchedSessionId) return;
+    // そのセッションに照合済みの動画があれば、それを選ぶ (上の自動選択)。今の動画をそのセッションに組み替えない
+    if (tracks.some(t => t.matchedSessionId === baseSession.id)) return;
     if (activeTrack.matchedSessionId !== baseSession.id) {
       videoSyncManager.resyncTrack(
         activeTrack.id,
@@ -338,6 +340,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     }
     // 移動中 (seeking) は合わせない。移動が終わったら (seeked) もう一度合わせる
     if (el.seeking) return;
+    // 動画の本当の長さを超えた位置には移動できない (移動しても終わりに止まり、移動が終わるたびに合わせ直して止まらなくなる)
+    if (Number.isFinite(el.duration) && el.duration > 0 && localTime > el.duration) localTime = el.duration;
     const diff = localTime - el.currentTime; // 正なら動画が遅れている
     if (!isPlaying) {
       if (!el.paused) el.pause();
@@ -575,7 +579,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         // 同期ピンも戻す。動画はファイル名で今の動画に読み替える (同じ時刻・名前のピンは足さない)
         if (data.pins && data.pins.length > 0) {
           // ピンは、書き出したときのコースに戻す (ログを読み込む前に戻しても、そのコースを開けば出る)
-          const importKey = data.circuitName || pinKey;
+          const importKey = data.circuitName || 'default';
           const current = videoViewStore.getPins(importKey);
           const all = videoSyncManager.getTracks();
           const restored = data.pins
@@ -1175,8 +1179,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         
         // セッション全体は、ログの終わりか動画の終わりの遅いほうまで
         const logEnd = baseSession && baseSession.points.length > 0 ? baseSession.points[baseSession.points.length - 1].time : 0;
-        const videoEnd = activeTrack ? activeTrack.syncOffsetSec + (activeTrack.durationSec || 0) : 0;
-        const sessionMax = Math.max(logEnd, videoEnd) || 60;
+        const videoEnd = (t?: VideoTrack | null) => (t?.objectUrl ? t.syncOffsetSec + (t.durationSec || 0) : 0);
+        // App の再生の終わりと同じ (表示しているメインとサブの動画)
+        const sessionMax = Math.max(logEnd, videoEnd(activeTrack), viewMode !== 'single' ? videoEnd(subTrack) : 0) || 60;
 
         // 周の時刻は、周の始めからの時刻 (動画同期タブでは App の時刻がセッション全体の時刻なので、周の始めを引く)
         const maxVal = isLapMode ? (baseLap.lapTime || 60) : sessionMax;
