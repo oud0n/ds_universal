@@ -46,9 +46,9 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
       onClick={handleBackdropClick}
       className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-150"
     >
-      <div className="bg-[#151924] border border-[#273043] rounded-2xl w-full max-w-xl flex flex-col shadow-2xl overflow-hidden my-auto text-slate-200">
+      <div className="bg-surface-2 border border-line-2 rounded-2xl w-full max-w-xl flex flex-col shadow-2xl overflow-hidden my-auto text-slate-200">
         {/* モーダルヘッダー */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#242c3e] bg-[#11141e]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-line-2 bg-surface-1">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-400 shadow-inner">
               <Coffee size={18} />
@@ -64,7 +64,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#202738] transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-fg hover:bg-surface-4 transition-colors cursor-pointer"
             aria-label="閉じる"
           >
             <X size={18} />
@@ -74,14 +74,14 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
         {/* モーダル本文 */}
         <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
           {/* メッセージカード */}
-          <div className="bg-gradient-to-r from-[#1c2233] to-[#171c2a] border border-[#2e3952] rounded-xl p-4 space-y-2">
+          <div className="bg-gradient-to-r from-surface-3 to-surface-2 border border-line-3 rounded-xl p-4 space-y-2">
             <div className="flex items-center gap-2 text-xs font-semibold text-amber-300">
               <Sparkles size={15} className="text-amber-400" />
               <span>いつもご利用ありがとうございます！</span>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              <strong className="text-white">DS Universal Suite（ds_universal）</strong>
-              は、個人が休日や夜間に開発している完全無料のオープンソースソフトウェアです。
+              <strong className="text-fg">DS Universal Suite（ds_universal）</strong>
+              は、個人が休日や夜間に開発している、無料でソースコードを公開しているソフトウェアです。
               デジスパイスIV実機での通信テストやサーキットでの実走ログ検証、GoPro動画同期・高精度解析機能の継続開発をサポートしていただけると大変励みになります☕🏁
             </p>
           </div>
@@ -89,7 +89,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
           {/* 支援方法エリア (2カラム: 左アクション / 右QRコード) */}
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-stretch">
             {/* 左: ボタン & URLコピー (3カラム分) */}
-            <div className="md:col-span-3 flex flex-col justify-between space-y-3 bg-[#11141e] border border-[#22293b] rounded-xl p-4">
+            <div className="md:col-span-3 flex flex-col justify-between space-y-3 bg-surface-1 border border-line-1 rounded-xl p-4">
               <div>
                 <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
                   PC / デスクトップから支援
@@ -112,7 +112,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
               {/* URL コピー欄 */}
               <div className="pt-2">
                 <span className="text-[10px] text-slate-400 block mb-1">URLを直接共有・保存:</span>
-                <div className="flex items-center gap-1.5 bg-[#181d2c] border border-[#2b364e] rounded-lg p-1.5 text-xs font-mono">
+                <div className="flex items-center gap-1.5 bg-surface-2 border border-line-3 rounded-lg p-1.5 text-xs font-mono">
                   <span className="flex-1 truncate text-slate-300 px-1 select-all">
                     {BUY_ME_A_COFFEE_URL}
                   </span>
@@ -121,7 +121,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
                     className={`flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium transition-colors cursor-pointer ${
                       copied
                         ? 'bg-emerald-600 text-white'
-                        : 'bg-[#273248] hover:bg-[#344260] text-slate-200'
+                        : 'bg-surface-4 hover:bg-surface-5 text-slate-200'
                     }`}
                     title="URLをクリップボードにコピー"
                   >
@@ -142,7 +142,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
             </div>
 
             {/* 右: スマホ用 QRコード (2カラム分) */}
-            <div className="md:col-span-2 flex flex-col items-center justify-center bg-[#11141e] border border-[#22293b] rounded-xl p-4 text-center">
+            <div className="md:col-span-2 flex flex-col items-center justify-center bg-surface-1 border border-line-1 rounded-xl p-4 text-center">
               <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 mb-2">
                 <Smartphone size={13} className="text-amber-400" />
                 <span>スマホから支援</span>
@@ -167,7 +167,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
           </div>
 
           {/* ご支援金の使途 */}
-          <div className="bg-[#11141e] border border-[#22293b] rounded-xl p-4 space-y-2">
+          <div className="bg-surface-1 border border-line-1 rounded-xl p-4 space-y-2">
             <h4 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
               <Heart size={13} className="text-red-400" />
               ご支援金の主な使い道
@@ -175,7 +175,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
             <ul className="text-xs text-slate-400 space-y-1.5 pl-1">
               <li className="flex items-start gap-2">
                 <span className="text-red-400">🏁</span>
-                <span>サーキット実走テスト枠・現地GPSデータ収集の活動費</span>
+                <span>サーキット走行費・ガソリン代・高速代</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-amber-400">📡</span>
@@ -189,7 +189,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
           </div>
 
           {/* その他の応援方法 */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-3 py-2.5 bg-[#181d2a]/50 rounded-xl border border-[#252f44] text-xs text-slate-400">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-3 py-2.5 bg-surface-2/50 rounded-xl border border-line-2 text-xs text-slate-400">
             <div className="flex items-center gap-2">
               <Star size={15} className="text-amber-400 fill-amber-400/20" />
               <span>GitHubでのStar ⭐ や不具合報告・フィードバックも大歓迎です！</span>
@@ -205,13 +205,13 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
         </div>
 
         {/* モーダルフッター */}
-        <div className="flex items-center justify-between px-6 py-3.5 border-t border-[#242c3e] bg-[#11141e]">
+        <div className="flex items-center justify-between px-6 py-3.5 border-t border-line-2 bg-surface-1">
           <span className="text-[11px] text-slate-400 flex items-center gap-1">
             Creator ID: <span className="font-mono font-bold text-amber-300">oud0n</span>
           </span>
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg border border-[#2d364c] text-xs text-slate-300 hover:bg-[#202738] transition-colors cursor-pointer"
+            className="px-4 py-1.5 rounded-lg border border-line-3 text-xs text-slate-300 hover:bg-surface-4 transition-colors cursor-pointer"
           >
             閉じる
           </button>

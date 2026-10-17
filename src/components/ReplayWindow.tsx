@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
+import { canvasColors, useResolvedTheme } from '../utils/theme';
 import { Lap, SelectedCarSlot, Sector, CompareAxis } from '../types/telemetry';
 import { Play, Pause, SkipBack, SkipForward, PlaySquare, Compass, Eye } from 'lucide-react';
 import { findCarPoint } from '../utils/telemetrySearch';
@@ -49,6 +50,8 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
   alignBaseMissing,
   onClearAlignedSector
 }) => {
+  // テーマを切り替えたら canvas を描き直す
+  const theme = useResolvedTheme();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [followCar, setFollowCar] = useState(true);
   const [zoomLevel, setZoomLevel] = useState(3.0); // クローズアップ倍率
@@ -60,6 +63,8 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    // テーマの色 (テーマを切り替えたら描き直す)
+    const C = canvasColors();
 
     const dpr = window.devicePixelRatio || 1;
     const width = canvas.parentElement?.clientWidth || 400;
@@ -73,11 +78,11 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
     ctx.scale(dpr, dpr);
 
     // 背景 (ダークサーキット)
-    ctx.fillStyle = '#0f121a';
+    ctx.fillStyle = C.bg;
     ctx.fillRect(0, 0, width, height);
 
     if (cars.length === 0 || !baseCar) {
-      ctx.fillStyle = '#64748b';
+      ctx.fillStyle = C.axis;
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('再生データがありません', width / 2, height / 2);
@@ -131,14 +136,14 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
     };
 
     // 1. 周辺トラック (アスファルト幅)
-    ctx.strokeStyle = '#22283a';
+    ctx.strokeStyle = C.track;
     ctx.lineWidth = 32;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     traceVisible(basePts, 50);
 
     // コース境界白線
-    ctx.strokeStyle = '#384259';
+    ctx.strokeStyle = C.trackEdge;
     ctx.lineWidth = 2;
     ctx.stroke();
 
@@ -200,24 +205,24 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
       ctx.restore();
 
       // 車両ラベル・速度タグ
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = C.strong;
       ctx.font = 'bold 10px monospace';
       ctx.textAlign = 'center';
       ctx.fillText(`${pt.speed.toFixed(0)} km/h`, pos.x, pos.y - 14);
     });
 
     // 4. クリップ位置・距離インジケーター
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = C.label;
     ctx.font = '10px monospace';
     ctx.textAlign = 'left';
     ctx.fillText(`Dist: ${currentDistance.toFixed(3)} km`, 10, height - 12);
     ctx.fillText(`Time: ${currentTime.toFixed(2)} s`, 10, height - 24);
-  }, [cars, baseCar, currentDistance, currentTime, compareAxis, zoomLevel, followCar]);
+  }, [cars, baseCar, currentDistance, currentTime, compareAxis, zoomLevel, followCar, theme]);
 
   return (
-    <div className="flex flex-col h-full bg-[#161922] rounded-lg border border-[#262c3d] overflow-hidden select-none shadow-lg">
+    <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[#1b202d] border-b border-[#2a3245] text-xs">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs">
         <div className="flex items-center gap-2">
           <span className="font-bold text-slate-200 flex items-center gap-1.5">
             <PlaySquare size={14} className="text-amber-400" />
@@ -236,14 +241,14 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
                     title={sectorStartMode === 'all'
                       ? `全車が S${idx + 1} の始まり (${idx === 0 ? '計測線' : `${sectors[idx - 1].name || `S${idx}`} の線`}) を同時に通るよう時刻をそろえて、そこから一斉スタート (時間基準)`
                       : `S${idx + 1} の始まり (${idx === 0 ? '計測線' : `${sectors[idx - 1].name || `S${idx}`} の線`}) から一斉スタート (基準車の位置に合わせる)`}
-                    className="px-1.5 py-0.5 rounded bg-[#232a3d] hover:bg-amber-600 hover:text-white text-slate-300 text-[10px] font-bold border border-[#343e59] transition-all"
+                    className="px-1.5 py-0.5 rounded bg-surface-4 hover:bg-amber-600 hover:text-white text-slate-300 text-[10px] font-bold border border-line-4 transition-all"
                   >
                     {`S${idx + 1}`}
                   </button>
                 ))}
               </div>
               {/* 動作の切り替え: 基準車に合わせる / 全車をセクター線にそろえる */}
-              <div className="flex bg-[#12141c] rounded p-0.5 border border-[#2e374c] ml-1">
+              <div className="flex bg-surface-1 rounded p-0.5 border border-line-3 ml-1">
                 {(['base', 'all'] as const).map(mode => (
                   <button
                     key={mode}
@@ -261,7 +266,7 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
                 <button
                   onClick={onClearAlignedSector}
                   title="セクターにそろえるのをやめる"
-                  className="ml-1 px-1.5 py-0.5 rounded border border-amber-600/60 text-[10px] text-amber-300 hover:text-white hover:bg-amber-700/40"
+                  className="ml-1 px-1.5 py-0.5 rounded border border-amber-600/60 text-[10px] text-amber-300 hover:text-fg hover:bg-amber-700/40"
                 >
                   {alignBaseMissing
                     ? `${alignedSectorName}: 基準車がこの線を通っていないため、そろえられません`
@@ -280,7 +285,7 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
               key={z}
               onClick={() => setZoomLevel(z)}
               className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
-                zoomLevel === z ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:bg-[#252c3e]'
+                zoomLevel === z ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:bg-surface-4'
               }`}
             >
               {z}x

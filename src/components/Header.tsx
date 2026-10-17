@@ -1,6 +1,14 @@
 import React from 'react';
-import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, Repeat, BarChart2, List, Video, Download, Coffee } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, Repeat, BarChart2, List, Video, Download, Coffee, Sun, Moon, Monitor } from 'lucide-react';
 import { SelectedCarSlot, Session } from '../types/telemetry';
+import { ThemeSetting, setThemeSetting, useThemeSetting } from '../utils/theme';
+
+// テーマの切り替え (ライト / ダーク / システムに合わせる)
+const THEME_OPTIONS: { value: ThemeSetting; label: string; Icon: typeof Sun }[] = [
+  { value: 'light', label: 'ライトモード', Icon: Sun },
+  { value: 'dark', label: 'ダークモード', Icon: Moon },
+  { value: 'system', label: 'システムに合わせる', Icon: Monitor }
+];
 
 interface HeaderProps {
   currentTab: 'graph' | 'data' | 'logger' | 'video' | 'convert';
@@ -33,16 +41,17 @@ export const Header: React.FC<HeaderProps> = ({
   onExportNmea,
   onOpenDonate
 }) => {
+  const themeSetting = useThemeSetting();
   return (
-    <header className="bg-[#131620] border-b border-[#222838] text-slate-200 px-4 py-2 flex items-center justify-between select-none">
+    <header className="bg-surface-1 border-b border-line-1 text-slate-200 px-4 py-2 flex items-center justify-between select-none">
       {/* タブ切り替え (フラットデザイン) */}
-      <div className="flex bg-[#181d2a] p-0.5 rounded border border-[#262e40]">
+      <div className="flex bg-surface-2 p-0.5 rounded border border-line-2">
         <button
           onClick={() => setCurrentTab('graph')}
           className={`flex items-center gap-1.5 px-3.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
             currentTab === 'graph'
               ? 'bg-red-600 text-white'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-[#202738]'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-surface-4'
           }`}
         >
           <BarChart2 size={14} />
@@ -53,7 +62,7 @@ export const Header: React.FC<HeaderProps> = ({
           className={`flex items-center gap-1.5 px-3.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
             currentTab === 'video'
               ? 'bg-red-600 text-white'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-[#202738]'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-surface-4'
           }`}
         >
           <Video size={14} />
@@ -64,7 +73,7 @@ export const Header: React.FC<HeaderProps> = ({
           className={`flex items-center gap-1.5 px-3.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
             currentTab === 'data'
               ? 'bg-red-600 text-white'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-[#202738]'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-surface-4'
           }`}
         >
           <List size={14} />
@@ -80,7 +89,7 @@ export const Header: React.FC<HeaderProps> = ({
           className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
             currentTab === 'convert'
               ? 'bg-red-600 text-white'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-[#202738]'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-surface-4'
           }`}
         >
           <Repeat size={14} />
@@ -91,7 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
           className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
             currentTab === 'logger'
               ? 'bg-red-600 text-white'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-[#202738]'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-surface-4'
           }`}
         >
           <Settings size={14} />
@@ -101,11 +110,11 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* アニメーション再生コントロール (フラットデザイン) */}
       {currentTab === 'graph' && selectedCars.length > 0 && (
-        <div className="hidden lg:flex items-center gap-2 bg-[#181d2a] px-2.5 py-1 rounded border border-[#262e40]">
+        <div className="hidden lg:flex items-center gap-2 bg-surface-2 px-2.5 py-1 rounded border border-line-2">
           <button
             onClick={onStepBack}
             title="コマ戻し (B / ←キー、Shift で 1 秒)"
-            className="p-1 hover:bg-[#242b3b] rounded text-slate-300 hover:text-white transition-colors cursor-pointer"
+            className="p-1 hover:bg-surface-4 rounded text-slate-300 hover:text-fg transition-colors cursor-pointer"
           >
             <SkipBack size={14} />
           </button>
@@ -121,7 +130,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onStepForward}
             title="コマ送り (F / →キー、Shift で 1 秒)"
-            className="p-1 hover:bg-[#242b3b] rounded text-slate-300 hover:text-white transition-colors cursor-pointer"
+            className="p-1 hover:bg-surface-4 rounded text-slate-300 hover:text-fg transition-colors cursor-pointer"
           >
             <SkipForward size={14} />
           </button>
@@ -137,7 +146,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className={`px-1.5 py-0.5 rounded cursor-pointer transition-colors ${
                   playbackSpeed === s
                     ? 'bg-red-600 text-white font-bold'
-                    : 'hover:bg-[#242b3b] text-slate-400'
+                    : 'hover:bg-surface-4 text-slate-400'
                 }`}
               >
                 {s}x
@@ -153,7 +162,7 @@ export const Header: React.FC<HeaderProps> = ({
         {sessions.length > 0 && onExportNmea && (
           <button
             onClick={onExportNmea}
-            className="flex items-center gap-1.5 text-xs bg-[#1a2030] hover:bg-[#252f46] text-slate-200 border border-[#2d3852] font-medium px-2.5 py-1.5 rounded transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 text-xs bg-surface-3 hover:bg-surface-5 text-slate-200 border border-line-3 font-medium px-2.5 py-1.5 rounded transition-colors cursor-pointer"
             title="現在の走行データを RaceChrono 互換の NMEA-0183 (.nmea) としてエクスポート"
           >
             <Download size={13} className="text-cyan-400" />
@@ -181,6 +190,24 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden sm:inline">開発支援</span>
           </button>
         )}
+
+        {/* テーマ */}
+        <div className="flex bg-surface-3 p-0.5 rounded border border-line-3" role="radiogroup" aria-label="テーマ">
+          {THEME_OPTIONS.map(({ value, label, Icon }) => (
+            <button
+              key={value}
+              onClick={() => setThemeSetting(value)}
+              role="radio"
+              aria-checked={themeSetting === value}
+              title={label}
+              className={`p-1 rounded transition-colors cursor-pointer ${
+                themeSetting === value ? 'bg-surface-5 text-fg' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Icon size={13} />
+            </button>
+          ))}
+        </div>
       </div>
     </header>
   );

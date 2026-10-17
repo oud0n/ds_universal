@@ -218,9 +218,9 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#10131a] text-slate-200 overflow-y-auto p-6 space-y-6 max-w-5xl mx-auto select-none">
+    <div className="flex flex-col h-full bg-surface-0 text-slate-200 overflow-y-auto p-6 space-y-6 max-w-5xl mx-auto select-none">
       {/* 上部ステータスバー */}
-      <div className="bg-gradient-to-r from-[#18202d] via-[#1c2436] to-[#181c26] border border-[#2d364c] rounded-2xl p-5 shadow-xl flex flex-wrap items-center justify-between gap-4">
+      <div className="bg-gradient-to-r from-surface-3 via-surface-3 to-surface-2 border border-line-3 rounded-2xl p-5 shadow-xl flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className={`p-3.5 rounded-xl ${isConnected ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700/30 text-slate-400'}`}>
             <Usb size={32} />
@@ -273,8 +273,8 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
       {/* メイングリッド (ロガー操作 & メモリ情報) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* メモリ情報カード */}
-        <div className="bg-[#181c26] border border-[#272f42] rounded-2xl p-5 shadow-lg space-y-4">
-          <div className="flex items-center justify-between border-b border-[#272f42] pb-3">
+        <div className="bg-surface-2 border border-line-2 rounded-2xl p-5 shadow-lg space-y-4">
+          <div className="flex items-center justify-between border-b border-line-2 pb-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
               <HardDrive size={16} className="text-red-500" />
               内部フラッシュメモリ
@@ -299,7 +299,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
                   {logInfo ? `${Math.round(logInfo.usedBytes / 1024)} KB` : isConnected ? '確認中...' : '---'}
                 </span>
               </div>
-              <div className="w-full bg-[#10131a] rounded-full h-2 overflow-hidden">
+              <div className="w-full bg-surface-0 rounded-full h-2 overflow-hidden">
                 <div
                   className="bg-red-500 h-full rounded-full transition-all duration-500"
                   style={{
@@ -310,11 +310,11 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
             </div>
 
             <div className="grid grid-cols-2 gap-2 pt-2 text-[11px] font-mono">
-              <div className="bg-[#10131a] p-2.5 rounded-lg border border-[#22293a]">
+              <div className="bg-surface-0 p-2.5 rounded-lg border border-line-1">
                 <span className="text-slate-500 block text-[10px]">書き込みポインタ</span>
                 <span className="text-slate-300 font-semibold">{logInfo?.writePointerHex ? `0x${logInfo.writePointerHex}` : '---'}</span>
               </div>
-              <div className="bg-[#10131a] p-2.5 rounded-lg border border-[#22293a]">
+              <div className="bg-surface-0 p-2.5 rounded-lg border border-line-1">
                 <span className="text-slate-500 block text-[10px]">ステータス</span>
                 <span className="text-emerald-400 font-semibold">{logInfo?.status || (isConnected ? '正常' : '未接続')}</span>
               </div>
@@ -336,9 +336,9 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
         </div>
 
         {/* ダウンロード操作カード */}
-        <div className="md:col-span-2 bg-[#181c26] border border-[#272f42] rounded-2xl p-5 shadow-lg space-y-4 flex flex-col justify-between">
+        <div className="md:col-span-2 bg-surface-2 border border-line-2 rounded-2xl p-5 shadow-lg space-y-4 flex flex-col justify-between">
           <div className="space-y-4">
-            <div className="border-b border-[#272f42] pb-3">
+            <div className="border-b border-line-2 pb-3">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
                 <Download size={16} className="text-red-500" />
                 走行ログ ダウンロード
@@ -347,7 +347,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
 
             {/* ダウンロード進行状況 */}
             {progress && (
-              <div className="bg-[#10131a] border border-[#272f42] rounded-xl p-4 space-y-3">
+              <div className="bg-surface-0 border border-line-2 rounded-xl p-4 space-y-3">
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-slate-300 font-semibold flex items-center gap-2">
                     <RefreshCw size={13} className="animate-spin text-red-500" />
@@ -355,7 +355,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
                   </span>
                   <span className="font-mono text-red-400 font-bold">{progress.percent}%</span>
                 </div>
-                <div className="w-full bg-[#181c26] rounded-full h-3 overflow-hidden">
+                <div className="w-full bg-surface-2 rounded-full h-3 overflow-hidden">
                   <div
                     className="bg-gradient-to-r from-red-600 to-amber-500 h-full rounded-full transition-all duration-150"
                     style={{ width: `${progress.percent}%` }}
@@ -399,7 +399,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
                   </button>
                   <button
                     onClick={handleSaveFile}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#1e2738] hover:bg-[#273248] text-slate-200 text-xs font-semibold border border-[#374561] transition-all cursor-pointer"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-4 hover:bg-surface-5 text-slate-200 text-xs font-semibold border border-line-4 transition-all cursor-pointer"
                   >
                     <Save size={15} />
                     .bnx4 ファイルを保存
@@ -440,8 +440,8 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
       />
 
       {/* 通信ログコンソール */}
-      <div className="bg-[#121620] border border-[#22293a] rounded-2xl p-4 shadow-lg space-y-2">
-        <div className="flex items-center justify-between border-b border-[#22293a] pb-2">
+      <div className="bg-surface-1 border border-line-1 rounded-2xl p-4 shadow-lg space-y-2">
+        <div className="flex items-center justify-between border-b border-line-1 pb-2">
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
             <Terminal size={14} className="text-amber-500" />
             NMEA / Serial 通信コンソール
@@ -454,7 +454,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
           </button>
         </div>
 
-        <div className="h-44 bg-[#0a0d14] rounded-lg p-3 font-mono text-[11px] overflow-y-auto space-y-1 select-text">
+        <div className="h-44 bg-surface-0 rounded-lg p-3 font-mono text-[11px] overflow-y-auto space-y-1 select-text">
           {logs.length === 0 ? (
             <div className="text-slate-600 italic">通信ログはまだありません</div>
           ) : (
@@ -482,8 +482,8 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
       </div>
 
       {/* 設定カード */}
-      <div className="bg-[#181c26] border border-[#272f42] rounded-2xl p-5 shadow-lg space-y-4">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2 border-b border-[#272f42] pb-3">
+      <div className="bg-surface-2 border border-line-2 rounded-2xl p-5 shadow-lg space-y-4">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2 border-b border-line-2 pb-3">
           <Settings size={16} className="text-red-500" />
           解析 & 単位設定
         </h3>
@@ -494,7 +494,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
             <select
               value={speedUnit}
               onChange={e => setSpeedUnit(e.target.value)}
-              className="w-full bg-[#10131a] border border-[#2d364c] text-xs text-slate-200 rounded-lg p-2 outline-none focus:border-red-500 transition-colors"
+              className="w-full bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg p-2 outline-none focus:border-red-500 transition-colors"
             >
               <option value="kmh">km/h (キロメートル/時)</option>
               <option value="mph">mph (マイル/時)</option>
@@ -506,7 +506,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
             <select
               value={filterStrength}
               onChange={e => setFilterStrength(e.target.value)}
-              className="w-full bg-[#10131a] border border-[#2d364c] text-xs text-slate-200 rounded-lg p-2 outline-none focus:border-red-500 transition-colors"
+              className="w-full bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg p-2 outline-none focus:border-red-500 transition-colors"
             >
               <option value="low">弱 (ダイレクト・反応重視)</option>
               <option value="medium">標準 (推奨 - バランス型)</option>

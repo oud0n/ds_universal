@@ -95,14 +95,14 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-[#181c26] border border-[#2d364c] rounded-xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+      <div className="bg-surface-2 border border-line-3 rounded-xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
         {/* モーダルヘッダー */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[#272f42] bg-[#141722]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-line-2 bg-surface-1">
           <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
             <MapPin size={18} className="text-amber-500" />
             コース・計測ライン（コントロールライン）編集
           </h3>
-          <button onClick={onClose} className="p-1 rounded text-slate-400 hover:text-white">
+          <button onClick={onClose} className="p-1 rounded text-slate-400 hover:text-fg">
             <X size={18} />
           </button>
         </div>
@@ -116,12 +116,12 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
               type="text"
               value={name}
               onChange={e => setName(e.target.value)}
-              className="w-full bg-[#10131a] border border-[#2d364c] rounded-lg p-2 text-slate-100 focus:border-red-500 outline-none"
+              className="w-full bg-surface-0 border border-line-3 rounded-lg p-2 text-slate-100 focus:border-red-500 outline-none"
             />
           </div>
 
           {/* コントロールライン (スタート/フィニッシュ) */}
-          <div className="bg-[#12151f] border border-[#272f42] rounded-lg p-4 space-y-3">
+          <div className="bg-surface-1 border border-line-2 rounded-lg p-4 space-y-3">
             <div className="font-bold text-amber-400">コントロールライン (スタート/フィニッシュ計測線)</div>
             <p className="text-[11px] text-slate-400">
               コースのスタート/フィニッシュラインを通過する線分（点Aと点Bの座標）を指定します。
@@ -135,7 +135,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                   step="0.000001"
                   value={clLatA}
                   onChange={e => setClLatA(e.target.value)}
-                  className="w-full bg-[#181c26] border border-[#2d364c] rounded p-1.5 font-mono"
+                  className="w-full bg-surface-2 border border-line-3 rounded p-1.5 font-mono"
                 />
               </div>
               <div>
@@ -145,7 +145,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                   step="0.000001"
                   value={clLonA}
                   onChange={e => setClLonA(e.target.value)}
-                  className="w-full bg-[#181c26] border border-[#2d364c] rounded p-1.5 font-mono"
+                  className="w-full bg-surface-2 border border-line-3 rounded p-1.5 font-mono"
                 />
               </div>
               <div>
@@ -155,7 +155,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                   step="0.000001"
                   value={clLatB}
                   onChange={e => setClLatB(e.target.value)}
-                  className="w-full bg-[#181c26] border border-[#2d364c] rounded p-1.5 font-mono"
+                  className="w-full bg-surface-2 border border-line-3 rounded p-1.5 font-mono"
                 />
               </div>
               <div>
@@ -165,7 +165,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                   step="0.000001"
                   value={clLonB}
                   onChange={e => setClLonB(e.target.value)}
-                  className="w-full bg-[#181c26] border border-[#2d364c] rounded p-1.5 font-mono"
+                  className="w-full bg-surface-2 border border-line-3 rounded p-1.5 font-mono"
                 />
               </div>
             </div>
@@ -177,7 +177,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
               <span className="font-bold text-slate-300">セクターゲート設定</span>
               <button
                 onClick={handleAddSector}
-                className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#232b3d] hover:bg-[#2e3850] text-slate-200 border border-[#333d54] text-[11px]"
+                className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-slate-200 border border-line-4 text-[11px]"
               >
                 <Plus size={13} />
                 セクター追加
@@ -190,14 +190,14 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
               sectors.map((sec, idx) => (
                 <div
                   key={sec.id}
-                  className="bg-[#12151f] border border-[#272f42] rounded-lg p-3 space-y-2"
+                  className="bg-surface-1 border border-line-2 rounded-lg p-3 space-y-2"
                 >
                   <div className="flex items-center justify-between">
                     <input
                       type="text"
                       value={sec.name}
                       onChange={e => handleUpdateSector(idx, 'name', e.target.value)}
-                      className="bg-[#181c26] border border-[#2d364c] rounded px-2 py-0.5 text-xs font-bold text-amber-400"
+                      className="bg-surface-2 border border-line-3 rounded px-2 py-0.5 text-xs font-bold text-amber-400"
                     />
                     <button
                       onClick={() => handleRemoveSector(idx)}
@@ -213,7 +213,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                       value={sec.latA}
                       onChange={e => handleUpdateSector(idx, 'latA', parseFloat(e.target.value) || 0)}
                       placeholder="Lat A"
-                      className="bg-[#181c26] border border-[#2d364c] rounded p-1"
+                      className="bg-surface-2 border border-line-3 rounded p-1"
                     />
                     <input
                       type="number"
@@ -221,7 +221,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                       value={sec.lonA}
                       onChange={e => handleUpdateSector(idx, 'lonA', parseFloat(e.target.value) || 0)}
                       placeholder="Lon A"
-                      className="bg-[#181c26] border border-[#2d364c] rounded p-1"
+                      className="bg-surface-2 border border-line-3 rounded p-1"
                     />
                     <input
                       type="number"
@@ -229,7 +229,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                       value={sec.latB}
                       onChange={e => handleUpdateSector(idx, 'latB', parseFloat(e.target.value) || 0)}
                       placeholder="Lat B"
-                      className="bg-[#181c26] border border-[#2d364c] rounded p-1"
+                      className="bg-surface-2 border border-line-3 rounded p-1"
                     />
                     <input
                       type="number"
@@ -237,7 +237,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                       value={sec.lonB}
                       onChange={e => handleUpdateSector(idx, 'lonB', parseFloat(e.target.value) || 0)}
                       placeholder="Lon B"
-                      className="bg-[#181c26] border border-[#2d364c] rounded p-1"
+                      className="bg-surface-2 border border-line-3 rounded p-1"
                     />
                   </div>
                 </div>
@@ -247,11 +247,11 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
         </div>
 
         {/* フッター */}
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[#272f42] bg-[#141722]">
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-line-2 bg-surface-1">
           {saveError && <span className="mr-auto text-xs text-amber-400">{saveError}</span>}
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg border border-[#2d364c] text-xs text-slate-300 hover:bg-[#222838]"
+            className="px-4 py-1.5 rounded-lg border border-line-3 text-xs text-slate-300 hover:bg-surface-4"
           >
             キャンセル
           </button>

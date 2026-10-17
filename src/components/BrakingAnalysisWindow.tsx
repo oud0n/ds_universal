@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { canvasColors, useResolvedTheme } from '../utils/theme';
 import { OctagonAlert } from 'lucide-react';
 import { Lap, SelectedCarSlot } from '../types/telemetry';
 import { useLapGeometries } from '../hooks/useLapGeometries';
@@ -15,6 +16,8 @@ const CHART_MARGIN_BEFORE_M = 25;
 const CHART_MARGIN_AFTER_M = 25;
 
 export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ cars, currentDistance, onSeekDistance }) => {
+  // テーマを切り替えたら canvas を描き直す
+  const theme = useResolvedTheme();
   const analysed = useLapGeometries(cars);
   const base = analysed[0];
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -54,6 +57,8 @@ export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ ca
     if (!canvas || !result || !base || result.baseZones.length === 0) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    // テーマの色 (テーマを切り替えたら描き直す)
+    const C = canvasColors();
     const dpr = window.devicePixelRatio || 1;
     const width = canvas.parentElement?.clientWidth || 300;
     const height = canvas.parentElement?.clientHeight || 120;
@@ -62,7 +67,7 @@ export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ ca
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     ctx.scale(dpr, dpr);
-    ctx.fillStyle = '#11141d';
+    ctx.fillStyle = C.bg;
     ctx.fillRect(0, 0, width, height);
 
     const zone = result.baseZones[zoneIndex];
@@ -79,19 +84,19 @@ export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ ca
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     for (const gv of [-1, -0.5, 0, 0.5, 1]) {
-      ctx.strokeStyle = gv === 0 ? '#3b4866' : '#1f2533';
+      ctx.strokeStyle = gv === 0 ? C.gridStrong : C.grid;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(pad.l, yOf(gv));
       ctx.lineTo(width - pad.r, yOf(gv));
       ctx.stroke();
-      ctx.fillStyle = '#64748b';
+      ctx.fillStyle = C.axis;
       ctx.fillText(`${gv > 0 ? '+' : ''}${gv.toFixed(1)}G`, pad.l - 4, yOf(gv));
     }
     // 基準車の制動区間
     ctx.fillStyle = 'rgba(239, 68, 68, 0.08)';
     ctx.fillRect(xOf(g.s[zone.onsetIndex]), pad.t, xOf(g.s[zone.endIndex]) - xOf(g.s[zone.onsetIndex]), height - pad.t - pad.b);
-    ctx.fillStyle = '#64748b';
+    ctx.fillStyle = C.axis;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     ctx.fillText(`基準車の制動開始からの距離 (m)  実線: 前後G / 破線: 横G`, (pad.l + width - pad.r) / 2, height - 2);
@@ -125,25 +130,25 @@ export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ ca
 
     // 現在位置
     if (currentM >= from && currentM <= to) {
-      ctx.strokeStyle = '#facc15';
+      ctx.strokeStyle = C.sector;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(xOf(currentM), pad.t);
       ctx.lineTo(xOf(currentM), height - pad.b);
       ctx.stroke();
     }
-  }, [result, base, zoneIndex, currentM, resizeTick]);
+  }, [result, base, zoneIndex, currentM, resizeTick, theme]);
 
   if (!base || !result) {
-    return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-[#141722]">走行データを読み込むとブレーキングの診断を表示します</div>;
+    return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-surface-1">走行データを読み込むとブレーキングの診断を表示します</div>;
   }
   if (result.baseZones.length === 0) {
-    return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-[#141722]">このラップから制動区間 (0.3G 以上の減速) を検出できませんでした</div>;
+    return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-surface-1">このラップから制動区間 (0.3G 以上の減速) を検出できませんでした</div>;
   }
 
   return (
-    <div className="h-full flex flex-col bg-[#141722] text-slate-200 overflow-hidden" data-testid="braking-analysis">
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-[#22293a] text-[11px] shrink-0">
+    <div className="h-full flex flex-col bg-surface-1 text-slate-200 overflow-hidden" data-testid="braking-analysis">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-line-1 text-[11px] shrink-0">
         <span className="font-bold flex items-center gap-1.5">
           <OctagonAlert size={13} className="text-red-400" />
           ブレーキング診断 ({result.baseZones.length} 区間)
@@ -153,7 +158,7 @@ export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ ca
 
       <div className="flex-1 min-h-0 overflow-auto">
         <table className="w-full text-[11px] font-mono border-collapse">
-          <thead className="sticky top-0 bg-[#1b202d] text-slate-400">
+          <thead className="sticky top-0 bg-surface-3 text-slate-400">
             <tr>
               <th className="px-2 py-1 text-left font-medium">区間</th>
               <th className="px-2 py-1 text-left font-medium">車両</th>
@@ -173,7 +178,7 @@ export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ ca
                 <tr
                   key={`${i}-${car.slot.slot}`}
                   onClick={() => { setSelected(i); onSeekDistance(base.lap.points[bz.onsetIndex].distance); }}
-                  className={`cursor-pointer hover:bg-[#1f2636] ${ci === 0 ? 'border-t border-[#2a3245]' : ''} ${i === zoneIndex ? 'bg-[#232b3e]' : ''}`}
+                  className={`cursor-pointer hover:bg-surface-4 ${ci === 0 ? 'border-t border-line-2' : ''} ${i === zoneIndex ? 'bg-surface-4' : ''}`}
                 >
                   <td className="px-2 py-1 font-bold text-slate-100">{ci === 0 ? `B${bz.number}` : ''}</td>
                   <td className="px-2 py-1 whitespace-nowrap">
@@ -200,7 +205,7 @@ export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ ca
         </table>
       </div>
 
-      <div className="h-[38%] min-h-[90px] border-t border-[#22293a] shrink-0">
+      <div className="h-[38%] min-h-[90px] border-t border-line-1 shrink-0">
         <canvas ref={canvasRef} className="block w-full h-full" />
       </div>
     </div>

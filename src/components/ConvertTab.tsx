@@ -102,8 +102,8 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
     URL.revokeObjectURL(url);
   };
 
-  const inputCls = 'bg-[#10131a] border border-[#2d364c] text-xs text-slate-200 rounded-lg px-3 py-2 outline-none focus:border-red-500';
-  const btnCls = 'flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#222838] hover:bg-[#2c344a] text-xs text-slate-200 border border-[#333d54] transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
+  const inputCls = 'bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg px-3 py-2 outline-none focus:border-red-500';
+  const btnCls = 'flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-surface-4 hover:bg-surface-5 text-xs text-slate-200 border border-line-4 transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
   const disabled = points.length === 0;
 
   return (
@@ -118,7 +118,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
             setDragOver(false);
             if (e.dataTransfer.files.length > 0) onDropFiles(e.dataTransfer.files);
           }}
-          className={`bg-[#181c26] border rounded-xl p-5 flex flex-col sm:flex-row items-center gap-4 ${dragOver ? 'border-red-500' : 'border-[#272f42]'}`}
+          className={`bg-surface-2 border rounded-xl p-5 flex flex-col sm:flex-row items-center gap-4 ${dragOver ? 'border-red-500' : 'border-line-2'}`}
         >
           <div className="p-2.5 rounded-lg bg-red-500/10 text-red-400"><Repeat size={20} /></div>
           <div className="flex-1 text-center sm:text-left">
@@ -135,13 +135,13 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
         </div>
 
         {!session ? (
-          <div className="bg-[#181c26] border border-[#272f42] rounded-xl p-8 text-center text-xs text-slate-500">
+          <div className="bg-surface-2 border border-line-2 rounded-xl p-8 text-center text-xs text-slate-500">
             まだログが読み込まれていません。
           </div>
         ) : (
           <>
             {/* 設定 */}
-            <div className="bg-[#181c26] border border-[#272f42] rounded-xl p-4 space-y-3">
+            <div className="bg-surface-2 border border-line-2 rounded-xl p-4 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className="text-xs text-slate-400 space-y-1 block">
                   <span>対象のログ</span>
@@ -212,7 +212,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
             </div>
 
             {/* 概要 */}
-            <div className="bg-[#181c26] border border-[#272f42] rounded-xl p-4 text-xs text-slate-300 font-mono" data-testid="convert-summary">
+            <div className="bg-surface-2 border border-line-2 rounded-xl p-4 text-xs text-slate-300 font-mono" data-testid="convert-summary">
               {summary ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
                   <span>点数: {points.length}</span>
@@ -233,7 +233,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
             </div>
 
             {/* 書き出し */}
-            <div className="bg-[#181c26] border border-[#272f42] rounded-xl p-4">
+            <div className="bg-surface-2 border border-line-2 rounded-xl p-4">
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                 <button disabled={disabled} className={btnCls} data-testid="convert-nmea"
                   onClick={() => save('nmea', convertToNmea(points, talkerId, includeGga), 'text/plain')}>

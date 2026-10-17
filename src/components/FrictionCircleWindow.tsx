@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from 'react';
+import { canvasColors, useResolvedTheme } from '../utils/theme';
 import { CompareAxis, Lap, SelectedCarSlot } from '../types/telemetry';
 import { CircleDot, Disc } from 'lucide-react';
 import { findCarPoint } from '../utils/telemetrySearch';
@@ -19,6 +20,8 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
   currentTime,
   compareAxis
 }) => {
+  // テーマを切り替えたら canvas を描き直す
+  const theme = useResolvedTheme();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const baseCar = cars[0];
@@ -37,6 +40,8 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    // テーマの色 (テーマを切り替えたら描き直す)
+    const C = canvasColors();
 
     const dpr = window.devicePixelRatio || 1;
     const width = canvas.parentElement?.clientWidth || 300;
@@ -50,7 +55,7 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
     ctx.scale(dpr, dpr);
 
     // 背景
-    ctx.fillStyle = '#141722';
+    ctx.fillStyle = C.bg;
     ctx.fillRect(0, 0, width, height);
 
     const centerX = width / 2;
@@ -68,18 +73,18 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
 
     [0.5, 1.0, 1.5].forEach(g => {
       const r = toPx(g);
-      ctx.strokeStyle = g === 1.0 ? '#38bdf8' : '#273147';
+      ctx.strokeStyle = g === 1.0 ? '#38bdf8' : C.grid;
       ctx.lineWidth = g === 1.0 ? 1.5 : 1;
       ctx.beginPath();
       ctx.arc(centerX, centerY, r, 0, Math.PI * 2);
       ctx.stroke();
 
-      ctx.fillStyle = g === 1.0 ? '#38bdf8' : '#64748b';
+      ctx.fillStyle = g === 1.0 ? '#38bdf8' : C.axis;
       ctx.fillText(`${g.toFixed(1)}G`, centerX + r - 12, centerY - 3);
     });
 
     // 2. 十字軸 (X: コーナリングG, Y: 加減速G)
-    ctx.strokeStyle = '#2e384f';
+    ctx.strokeStyle = C.gridStrong;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(centerX - maxRadius - 10, centerY);
@@ -89,7 +94,7 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
     ctx.stroke();
 
     // 軸ラベル (モータースポーツG-Gダイアグラム標準: ブレーキング=上, 加速=下, 右旋回遠心G=左, 左旋回遠心G=右)
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = C.label;
     ctx.font = 'bold 9px sans-serif';
     ctx.fillText('減速 (ブレーキ)', centerX, centerY - maxRadius - 4);
     ctx.fillText('加速', centerX, centerY + maxRadius + 12);
@@ -135,12 +140,12 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
       ctx.arc(px, py, 2.5, 0, Math.PI * 2);
       ctx.fill();
     });
-  }, [cars, currentDistance, currentPoints]);
+  }, [cars, currentDistance, currentPoints, theme]);
 
   return (
-    <div className="flex flex-col h-full bg-[#161922] rounded-lg border border-[#262c3d] overflow-hidden select-none shadow-lg">
+    <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[#1b202d] border-b border-[#2a3245] text-xs">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs">
         <span className="font-bold text-slate-200 flex items-center gap-1.5">
           <Disc size={14} className="text-cyan-400" />
           フリクションサークル (GGダイアグラム)
@@ -157,8 +162,8 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
 
         {/* リアルタイム計測値パネル */}
         {basePoint && (
-          <div className="w-full md:w-36 bg-[#12141c] border border-[#262c3d] rounded p-2.5 flex flex-col gap-2 text-xs">
-            <div className="text-[11px] font-bold text-slate-400 border-b border-[#262c3d] pb-1">
+          <div className="w-full md:w-36 bg-surface-1 border border-line-2 rounded p-2.5 flex flex-col gap-2 text-xs">
+            <div className="text-[11px] font-bold text-slate-400 border-b border-line-2 pb-1">
               基準車 (Red) テレメトリ
             </div>
 
@@ -189,7 +194,7 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
             </div>
 
             {/* 縦横G比率バー (公式アプリ仕様) */}
-            <div className="flex flex-col gap-1 mt-1 pt-1 border-t border-[#262c3d]">
+            <div className="flex flex-col gap-1 mt-1 pt-1 border-t border-line-2">
               <span className="text-[10px] text-slate-400">縦横G比率:</span>
               <div className="w-full h-2 rounded bg-slate-800 overflow-hidden flex">
                 {basePoint.combinedG > 0.05 && (

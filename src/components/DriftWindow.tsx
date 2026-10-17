@@ -59,8 +59,8 @@ export const DriftWindow: React.FC<DriftWindowProps> = ({
   const absAngle = Math.abs(currentAngle);
 
   return (
-    <div className="flex flex-col h-full bg-[#161922] rounded-lg border border-[#262c3d] overflow-hidden select-none shadow-lg">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[#1b202d] border-b border-[#2a3245] text-xs">
+    <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs">
         <span className="font-bold text-slate-200 flex items-center gap-1.5">
           <Flame size={14} className="text-orange-500" />
           ドリフト評価機能
@@ -110,7 +110,7 @@ export const DriftWindow: React.FC<DriftWindowProps> = ({
         </div>
 
         {/* ドリフト分析統計 */}
-        <div className="grid grid-cols-3 gap-2 text-center bg-[#12141c] border border-[#262c3d] rounded p-2">
+        <div className="grid grid-cols-3 gap-2 text-center bg-surface-1 border border-line-2 rounded p-2">
           <div>
             <div className="text-[10px] text-slate-400">最大アングル</div>
             <div className="text-sm font-bold font-mono text-slate-100">{driftStats.maxAngle}°</div>
