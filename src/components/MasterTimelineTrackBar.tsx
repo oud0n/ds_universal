@@ -43,7 +43,8 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
     }
 
     if (activeTrack) {
-      const vidStart = activeTrack.syncOffsetSec || 0;
+      // チャプターに分かれた動画は、最初のチャプターの始めから全体の長さ (2 本目以降を選んでいても)
+      const vidStart = chapterGroup ? chapterGroup.baseSyncOffsetSec : (activeTrack.syncOffsetSec || 0);
       const vidDur = chapterGroup ? chapterGroup.totalDurationSec : (activeTrack.durationSec || 0);
       const vidEnd = vidStart + vidDur;
 
