@@ -27,7 +27,7 @@
 | 🟡 **中 (P2)** | BUG-12 | 物理計算 | G 値・旋回半径の微分ウィンドウがサンプル数固定（記録レートで値が変わる） | `src/services/physics.ts` | 修正済み（前後 0.1 秒の時間で決める） |
 | 🟡 **中 (P2)** | BUG-13 | 時刻フォーマット | 分・秒フォーマットの丸めによる `"1:60.000"` 繰り上がりバグ | `src/services/csvParser.ts`, `src/components/DataTab.tsx`, `src/services/videoSyncPinManager.ts`, `src/components/VideoSyncWindow.tsx` | 修正済み（020c5a4） |
 | 🟢 **低 (P3)** | BUG-14 | パフォーマンス | 高密度ログ再生時の毎フレーム全点 Canvas 再描画および $O(N)$ 線形探索 | `src/components/SpeedGraphWindow.tsx`, `src/components/TrackMapWindow.tsx`, `src/components/FrictionCircleWindow.tsx` | 未対応（UI 修正・BUG-09/10 の後に対応する） |
-| 🟢 **低 (P3)** | BUG-15 | コースデータ管理 | `.sci` 未使用・同名ファイル混在・保存失敗時の成功表示・隣接コース判定 | `src/services/userCircuitStorage.ts`, `src/services/circuitDatabase.ts` | 修正済み（ブランチ fix/bug15-course-data を dev に統合。内蔵の計測線の実走確認は残り） |
+| 🟢 **低 (P3)** | BUG-15 | コースデータ管理 | `.sci` 未使用・同名ファイル混在・保存失敗時の成功表示・隣接コース判定 | `src/services/userCircuitStorage.ts`, `src/services/circuitDatabase.ts` | 修正済み（ブランチ fix/bug15-course-data を dev に統合。内蔵の計測線は、手元にログのないコースは確かめようがないため、Issue・PR で報告を受けたら直す。オートポリスは PR #12 で修正） |
 | 🟢 **低 (P3)** | BUG-16 | ロガー設定 UI・通信 | 「解析 & 単位設定」が未接続のダミー UI・レート変更副作用の未明示・欠落ブロック再取得 | `src/components/LoggerTab.tsx`, `src/services/digspiceDevice.ts` | 対応済み（「解析 & 単位設定」の G のならし方はデータ管理タブに移してつないだ。速度単位は外した。レート変更の注意書きを追加。欠落ブロックの再取得は実装したが、実機未確認のため無効（TODO）） |
 
 ---
@@ -254,6 +254,7 @@
   1. **コースデータの登録不備**: セクタファイル（`.sci`）は件数だけ表示して中身をパースしていない / 別フォルダの同名ファイル（`control.ini` 等）を一括選択した際に混ざる / `localStorage` の容量超過等で保存に失敗しても「保存しました」と成功表示する。
   2. **隣接コースの自動判定（利用者が読み込んだコースデータ側）**: 内蔵プリセットは計測線を実際に通過しているコースを優先するように対応済みだが、利用者が読み込んだコースデータ側はログの先頭座標に近いものを選ぶだけのままになっている。
   3. **内蔵の計測線の実走ログ確認残り**: 航空写真から作成した 12 コースのうち、手元に実走ログがないコースの通過確認が未了。
+     → 2026-10-17 完了扱い。確かめようがないため、Issue・PR で報告を受けたら直す（オートポリスは PR #12 で修正）。
 
 ---
 
