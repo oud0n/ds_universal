@@ -119,7 +119,13 @@ export const App: React.FC = () => {
   });
   // 右の列 (全コースと GG など) を両方たたんでいるか
   const rightCollapsed = collapsed.map && collapsed.sub;
-  const toggleCollapsed = (key: 'anim' | 'map' | 'sub', value?: boolean) => {
+  // nextMode: タブを押して開くときの、そのタブ (まだ state に入っていないので渡してもらう)
+  const toggleCollapsed = (key: 'anim' | 'map' | 'sub', value?: boolean, nextMode?: string) => {
+    // たたんだ動画のウインドウを開くときは、再生を止める (開いた動画が再生の基準に切り替わり、続きから再生できないため)
+    const opening = collapsed[key] && value !== true;
+    const mode = nextMode ?? (key === 'anim' ? leftBottomMode : key === 'sub' ? subWindowMode : '');
+    const videoPane = key !== 'map' && mode === 'video';
+    if (opening && videoPane) setIsPlaying(false);
     setCollapsed(prev => {
       const next = { ...prev, [key]: value ?? !prev[key] };
       try {
@@ -1027,7 +1033,7 @@ export const App: React.FC = () => {
                     走行アニメーション
                   </button>
                   <button
-                    onClick={() => { setLeftBottomMode('video'); toggleCollapsed('anim', false); }}
+                    onClick={() => { setLeftBottomMode('video'); toggleCollapsed('anim', false, 'video'); }}
                     className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       leftBottomMode === 'video'
                         ? 'bg-red-600 text-white'
@@ -1039,8 +1045,9 @@ export const App: React.FC = () => {
                   <CollapseButton collapsed={collapsed.anim} onClick={() => toggleCollapsed('anim')} />
                 </div>
 
-                {!collapsed.anim && (
-                <div className="flex-1 min-h-0 overflow-hidden">
+                {/* たたんでも中身の設定 (拡大率など) が消えないよう、外さずに隠す。動画だけは隠したまま再生されないよう外す */}
+                {!(collapsed.anim && leftBottomMode === 'video') && (
+                <div className={`flex-1 min-h-0 overflow-hidden ${collapsed.anim ? 'hidden' : ''}`}>
                   {leftBottomMode === 'replay' ? (
                     replayEl
                   ) : (
@@ -1176,7 +1183,7 @@ export const App: React.FC = () => {
                     ブレーキング
                   </button>
                   <button
-                    onClick={() => { setSubWindowMode('video'); toggleCollapsed('sub', false); }}
+                    onClick={() => { setSubWindowMode('video'); toggleCollapsed('sub', false, 'video'); }}
                     className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       subWindowMode === 'video'
                         ? 'bg-red-600 text-white'
@@ -1189,8 +1196,9 @@ export const App: React.FC = () => {
                   <CollapseButton collapsed={collapsed.sub} onClick={() => toggleCollapsed('sub')} />
                 </div>
 
-                {!collapsed.sub && (
-                <div className="flex-1 min-h-0 overflow-hidden">
+                {/* たたんでも中身の設定が消えないよう、外さずに隠す。動画だけは隠したまま再生されないよう外す */}
+                {!(collapsed.sub && subWindowMode === 'video') && (
+                <div className={`flex-1 min-h-0 overflow-hidden ${collapsed.sub ? 'hidden' : ''}`}>
                   {subWindowMode === 'all' && (
                     frictionEl
                   )}

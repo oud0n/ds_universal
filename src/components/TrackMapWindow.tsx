@@ -187,8 +187,10 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     const C = canvasColors(background !== 'none');
 
     const dpr = window.devicePixelRatio || 1;
-    const width = canvas.parentElement?.clientWidth || 400;
-    const height = canvas.parentElement?.clientHeight || 400;
+    // 隠しているとき (たたんだウインドウ・切り替えで見えていないパネル) は描かない。見えたら大きさの変化で描き直す
+    const width = canvas.parentElement?.clientWidth ?? 0;
+    const height = canvas.parentElement?.clientHeight ?? 0;
+    if (width === 0 || height === 0) return;
 
     canvas.width = width * dpr;
     canvas.height = height * dpr;

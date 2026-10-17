@@ -60,8 +60,10 @@ export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ ca
     // テーマの色 (テーマを切り替えたら描き直す)
     const C = canvasColors();
     const dpr = window.devicePixelRatio || 1;
-    const width = canvas.parentElement?.clientWidth || 300;
-    const height = canvas.parentElement?.clientHeight || 120;
+    // 隠しているとき (たたんだウインドウ・切り替えで見えていないパネル) は描かない。見えたら大きさの変化で描き直す
+    const width = canvas.parentElement?.clientWidth ?? 0;
+    const height = canvas.parentElement?.clientHeight ?? 0;
+    if (width === 0 || height === 0) return;
     canvas.width = width * dpr;
     canvas.height = height * dpr;
     canvas.style.width = `${width}px`;
