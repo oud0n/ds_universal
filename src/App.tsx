@@ -123,7 +123,7 @@ export const App: React.FC = () => {
 
   // セクターの同時スタートの動作: base = 基準車をそのセクター線へ移すだけ / all = 全車がそのセクター線を同時に通るよう時刻をそろえる
   const [sectorStartMode, setSectorStartMode] = useState<'base' | 'all'>('base');
-  // all のときに時刻をそろえているセクター線 (sectors の添字)。周や車を選び直したら解除する
+  // all のときに時刻をそろえているセクター線 (sectors の添字。セクター k の始まりは線 k-1)。周や車を選び直したら解除する
   const [alignedSector, setAlignedSector] = useState<number | null>(null);
   const carsKey = selectedCars.map(c => `${c.slot}:${c.sessionId}:${c.lapNumber}`).join('|');
   useEffect(() => {
@@ -310,19 +310,20 @@ export const App: React.FC = () => {
   // セクター同時スタート
   const handleSyncSectorStart = (sectorIndex: number) => {
     if (!baseLap) return;
-    const sec = baseLap.sectors[sectorIndex];
-    if (sec) {
-      // 全車をそろえるモードでは、全車がこのセクター線を同時に通るよう時刻をそろえ、時間基準で比べる
-      if (sectorStartMode === 'all') {
-        setAlignedSector(sectorIndex);
-        setCompareAxis('time');
-      } else {
-        setAlignedSector(null);
-      }
-      // そのセクター線の位置 (計測線からの累積距離) から一斉スタートする
-      handleSeekDistance(sec.splitDistance);
-      setIsPlaying(true);
+    // セクター線 k は「セクター k の終わり」。セクター k の始まりは 1 つ前の線 (S1 は計測線 = 周の始め)
+    const startLine = sectorIndex > 0 ? baseLap.sectors[sectorIndex - 1] : undefined;
+    if (sectorIndex > 0 && !startLine) return;
+    // 全車をそろえるモードでは、全車がセクターの始まりの線を同時に通るよう時刻をそろえ、時間基準で比べる
+    // (S1 は計測線から始まるので、もともと全車がそろっている)
+    if (sectorStartMode === 'all') {
+      setAlignedSector(sectorIndex > 0 ? sectorIndex - 1 : null);
+      setCompareAxis('time');
+    } else {
+      setAlignedSector(null);
     }
+    // セクターの始まりの位置 (計測線からの累積距離) から一斉スタートする
+    handleSeekDistance(startLine ? startLine.splitDistance : 0);
+    setIsPlaying(true);
   };
 
   // ファイル読み込み処理
@@ -819,7 +820,7 @@ export const App: React.FC = () => {
                       setSectorStartMode(mode);
                       if (mode === 'base') setAlignedSector(null);
                     }}
-                    alignedSectorName={alignedSector !== null ? currentSectors[alignedSector]?.name || `S${alignedSector + 1}` : undefined}
+                    alignedSectorName={alignedSector !== null ? `S${alignedSector + 2}` : undefined}
                     onClearAlignedSector={() => setAlignedSector(null)}
                   />
                 ) : (

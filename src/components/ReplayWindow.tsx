@@ -21,7 +21,7 @@ interface ReplayWindowProps {
   // 同時スタートの動作 (base: 基準車に合わせる / all: 全車をそのセクター線にそろえる)
   sectorStartMode: 'base' | 'all';
   onChangeSectorStartMode: (mode: 'base' | 'all') => void;
-  // 時刻をそろえているセクター線の名前 (そろえていなければ undefined)
+  // 時刻をそろえているセクターの名前 (そのセクターの始まりでそろえる。そろえていなければ undefined)
   alignedSectorName?: string;
   onClearAlignedSector: () => void;
 }
@@ -228,11 +228,11 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
                     key={sec.id}
                     onClick={() => onSyncSectorStart(idx)}
                     title={sectorStartMode === 'all'
-                      ? `全車が ${sec.name} を同時に通るよう時刻をそろえて、そこから一斉スタート (時間基準)`
-                      : `${sec.name} から全車一斉スタート (基準車の位置に合わせる)`}
+                      ? `全車が S${idx + 1} の始まり (${idx === 0 ? '計測線' : `${sectors[idx - 1].name || `S${idx}`} の線`}) を同時に通るよう時刻をそろえて、そこから一斉スタート (時間基準)`
+                      : `S${idx + 1} の始まり (${idx === 0 ? '計測線' : `${sectors[idx - 1].name || `S${idx}`} の線`}) から一斉スタート (基準車の位置に合わせる)`}
                     className="px-1.5 py-0.5 rounded bg-[#232a3d] hover:bg-amber-600 hover:text-white text-slate-300 text-[10px] font-bold border border-[#343e59] transition-all"
                   >
-                    {sec.name || `S${idx + 1}`}
+                    {`S${idx + 1}`}
                   </button>
                 ))}
               </div>
