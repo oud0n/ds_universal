@@ -25,6 +25,7 @@ import { LoggerTab } from './components/LoggerTab';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
 import { DonateModal } from './components/DonateModal';
 import { useResizableSplit } from './hooks/useResizableSplit';
+import { isMobileDevice } from './utils/device';
 import { SplitResizer } from './components/SplitResizer';
 import { exportSessionToNmea, triggerFileDownload } from './services/nmeaExporter';
 import { interpolatePoint } from './utils/telemetrySearch';
@@ -63,6 +64,8 @@ export const App: React.FC = () => {
   // 公開ページでは URL の末尾 (#convert など) で最初に開くタブを指定できる
   const [currentTab, setCurrentTab] = useState<'graph' | 'data' | 'logger' | 'video' | 'convert'>(() => {
     const h = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : '';
+    // スマートフォン・タブレットではロガー設定を出さないので、#logger でもグラフ解析を開く
+    if (h === 'logger' && isMobileDevice) return 'graph';
     return h === 'convert' || h === 'data' || h === 'logger' || h === 'video' ? h : 'graph';
   });
   const currentTabRef = useRef(currentTab);
@@ -1113,13 +1116,15 @@ export const App: React.FC = () => {
           />
         )}
 
-        {/* ロガー設定タブ (マウント状態を維持し、USBシリアル切断を防止) */}
-        <div className={`h-full w-full overflow-hidden ${currentTab === 'logger' ? 'block' : 'hidden'}`}>
-          <LoggerTab
-            onLoadSession={(fileName, buffer) => loadFileData(fileName, buffer)}
-            onNavigateToGraph={() => setCurrentTab('graph')}
-          />
-        </div>
+        {/* ロガー設定タブ (マウント状態を維持し、USBシリアル切断を防止)。スマートフォン・タブレットでは出さない */}
+        {!isMobileDevice && (
+          <div className={`h-full w-full overflow-hidden ${currentTab === 'logger' ? 'block' : 'hidden'}`}>
+            <LoggerTab
+              onLoadSession={(fileName, buffer) => loadFileData(fileName, buffer)}
+              onNavigateToGraph={() => setCurrentTab('graph')}
+            />
+          </div>
+        )}
       </main>
 
       {/* コース編集モーダル */}
