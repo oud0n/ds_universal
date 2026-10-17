@@ -21,14 +21,14 @@
 | 🔴 **高 (P1)** | BUG-06 | 車載動画同期・書き出し | 動画画面の競合・手動同期の自動上書き・MP4 メタデータ誤検出・書き出し拡張子不一致など（計9件） | `src/components/VideoSyncWindow.tsx`, `src/services/videoSyncManager.ts`, `src/services/videoMetadataParser.ts`, `src/services/telemetryVideoExporter.ts` | 一部修正（1071c3e で 2〜5・7・9 を修正。1 動画画面の競合・6 再選択時の引き継ぎ・8 書き出しのキャンセル / 巻き戻しは未対応） |
 | 🟡 **中 (P2)** | BUG-07 | 比較解析・距離補正 | `distanceOffsetM` / `alignLapLength` のグラフ・Delta・コーナー診断との不整合 | `src/components/SpeedGraphWindow.tsx`, `src/services/lapCalculator.ts`, `src/services/drivingAnalysis.ts` | 修正済み（05b9427 / 3a99299。Delta の不連続は再現せず） |
 | 🟡 **中 (P2)** | BUG-08 | ラップ切り出し | 開始位置の違うログを重ねるとずれる問題の残り（計測線より後ろ開始など） | `src/services/lapCalculator.ts` | 一部実装済・確認待ち |
-| 🟡 **中 (P2)** | BUG-09 | 生バイナリ解析・通信 | `.bnx4` 複数セッション連結・重複時刻未除去・ミリ秒補間無効化・メタデータ負座標バグ | `src/services/rawBinaryParser.ts`, `src/services/digspiceDevice.ts` | 未対応 |
-| 🟡 **中 (P2)** | BUG-10 | NMEA 入出力 | 出力経路による GGA ダミー値混入・読み込み時の GGA 衛星数欠落・標高 `0 m` 未区別 | `src/services/nmeaParser.ts`, `src/services/nmeaExporter.ts`, `src/services/logConverter.ts` | 未対応 |
-| 🟡 **中 (P2)** | BUG-11 | CSV / GPX / VBO 入出力 | 拡張子固定判定・GPX ダイアログ漏れ・CSV 列ずれ/方位欠落・GPX 最終秒切り捨て | `src/App.tsx`, `electron/main.cjs`, `src/services/csvParser.ts`, `src/services/externalFormats.ts` | 一部修正（GPX は a8b630c / 3a99299 で修正。拡張子固定判定・CSV は未対応） |
-| 🟡 **中 (P2)** | BUG-12 | 物理計算 | G 値・旋回半径の微分ウィンドウがサンプル数固定（記録レートで値が変わる） | `src/services/physics.ts` | 未対応 |
-| 🟡 **中 (P2)** | BUG-13 | 時刻フォーマット | 分・秒フォーマットの丸めによる `"1:60.000"` 繰り上がりバグ | `src/services/csvParser.ts`, `src/components/DataTab.tsx`, `src/services/videoSyncPinManager.ts`, `src/components/VideoSyncWindow.tsx` | 未対応 |
-| 🟢 **低 (P3)** | BUG-14 | パフォーマンス | 高密度ログ再生時の毎フレーム全点 Canvas 再描画および $O(N)$ 線形探索 | `src/components/SpeedGraphWindow.tsx`, `src/components/TrackMapWindow.tsx`, `src/components/FrictionCircleWindow.tsx` | 未対応 |
+| 🟡 **中 (P2)** | BUG-09 | 生バイナリ解析・通信 | `.bnx4` 複数セッション連結・重複時刻未除去・ミリ秒補間無効化・メタデータ負座標バグ | `src/services/rawBinaryParser.ts`, `src/services/digspiceDevice.ts` | 未対応（UI 修正でページ構成を変えるときに BUG-10 と一緒に対応する） |
+| 🟡 **中 (P2)** | BUG-10 | NMEA 入出力 | 出力経路による GGA ダミー値混入・読み込み時の GGA 衛星数欠落・標高 `0 m` 未区別 | `src/services/nmeaParser.ts`, `src/services/nmeaExporter.ts`, `src/services/logConverter.ts` | 未対応（UI 修正でページ構成を変えるときに対応する） |
+| 🟡 **中 (P2)** | BUG-11 | CSV / GPX / VBO 入出力 | 拡張子固定判定・GPX ダイアログ漏れ・CSV 列ずれ/方位欠落・GPX 最終秒切り捨て | `src/App.tsx`, `electron/main.cjs`, `src/services/csvParser.ts`, `src/services/externalFormats.ts` | 修正済み（GPX は a8b630c / 3a99299、拡張子の判別と CSV は b390189） |
+| 🟡 **中 (P2)** | BUG-12 | 物理計算 | G 値・旋回半径の微分ウィンドウがサンプル数固定（記録レートで値が変わる） | `src/services/physics.ts` | 修正済み（前後 0.1 秒の時間で決める） |
+| 🟡 **中 (P2)** | BUG-13 | 時刻フォーマット | 分・秒フォーマットの丸めによる `"1:60.000"` 繰り上がりバグ | `src/services/csvParser.ts`, `src/components/DataTab.tsx`, `src/services/videoSyncPinManager.ts`, `src/components/VideoSyncWindow.tsx` | 修正済み（020c5a4） |
+| 🟢 **低 (P3)** | BUG-14 | パフォーマンス | 高密度ログ再生時の毎フレーム全点 Canvas 再描画および $O(N)$ 線形探索 | `src/components/SpeedGraphWindow.tsx`, `src/components/TrackMapWindow.tsx`, `src/components/FrictionCircleWindow.tsx` | 未対応（UI 修正・BUG-09/10 の後に対応する） |
 | 🟢 **低 (P3)** | BUG-15 | コースデータ管理 | `.sci` 未使用・同名ファイル混在・保存失敗時の成功表示・隣接コース判定 | `src/services/userCircuitStorage.ts`, `src/services/circuitDatabase.ts` | 修正済み（ブランチ fix/bug15-course-data を dev に統合。内蔵の計測線の実走確認は残り） |
-| 🟢 **低 (P3)** | BUG-16 | ロガー設定 UI・通信 | 「解析 & 単位設定」が未接続のダミー UI・レート変更副作用の未明示・欠落ブロック再取得 | `src/components/LoggerTab.tsx`, `src/services/digspiceDevice.ts` | 未対応 |
+| 🟢 **低 (P3)** | BUG-16 | ロガー設定 UI・通信 | 「解析 & 単位設定」が未接続のダミー UI・レート変更副作用の未明示・欠落ブロック再取得 | `src/components/LoggerTab.tsx`, `src/services/digspiceDevice.ts` | 未対応（つなぐか消すかは UI 修正のときに決める） |
 
 ---
 
