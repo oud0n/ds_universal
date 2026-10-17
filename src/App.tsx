@@ -666,16 +666,23 @@ export const App: React.FC = () => {
               s.id,
               s.points[0] ? findMatchingCircuit(s.points[0].latitude, s.points[0].longitude, s.points) : undefined
             ]));
+            // 反映するのは、ユーザーコースに当たったセッションだけ。内蔵のコースに当たったセッションは、
+            // 手で直した計測線・セクター・コース図を消さないよう変えない (コース図がまだなければ、読み込んだコース図を探す)
+            const isUser = (m?: CircuitPreset) => !!m && m.id.startsWith('user:');
             recalcSessions(s => {
               const m = matches.get(s.id);
-              return m ? { cl: m.controlLine ?? s.controlLine, sec: m.sectors, name: m.name } : null;
+              return isUser(m) ? { cl: m!.controlLine ?? s.controlLine, sec: m!.sectors, name: m!.name } : null;
             });
-            // 引き当てたコースのコース図も、そのセッションごとに読み込み直す。前のコース図は先に消す
-            // (同じ名前のコースでも、読み込み直したデータにコース図がなくなっていることがあるため)
             for (const [id, m] of matches) {
               if (!m) continue;
-              setSessionPolylines([id], undefined);
-              requestPolylines([id], m);
+              const s = latestRef.current.sessions.find(x => x.id === id);
+              if (isUser(m)) {
+                // 同じ名前のコースでも、読み込み直したデータにコース図がなくなっていることがあるので、前のコース図は先に消す
+                setSessionPolylines([id], undefined);
+                requestPolylines([id], m);
+              } else if (!s?.pathPolylines) {
+                requestPolylines([id], m);
+              }
             }
             setUserCircuitCount(userCircuitStorage.getCircuitCount());
           }

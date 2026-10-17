@@ -148,24 +148,42 @@ export function pairCourseFiles(
   const circuits: UserCircuitItem[] = [];
   const candidates: Array<Array<{ idx: number; nameScore: number; d: number }>> = [];
   const presetDist: number[] = []; // 表示名に使った内蔵のコースまでの距離 (同じ名前が並んだときの区別に使う)
+  const presetHasLine: boolean[] = []; // 表示名に使った内蔵のコースが計測線を持つか (名阪のように持たないと、施設の中心しか分からない)
 
-  for (const c of clns) {
+  // コース図の組み合わせ: コントロールラインの近く (300 m 以内) を通るもの。コース図 1 つにつきコースを 1 つとし、
+  // 名前が同じもの → 前方一致するもの → 近いもの、の順に優先する (近くの別のコースのコース図を先に取らないように)
+  const nameScoreOf = (a: string, b: string) => (a === b ? 0 : a.startsWith(b) || b.startsWith(a) ? 1 : 2);
+  const pthPairs = clns.flatMap((c, ci) => {
     const mid = lineMid(c.cl);
-
-    // コース図: コントロールラインの近くを通るもの。名前が同じものを優先し、その次は近いもの
-    let pthIdx = -1;
-    let pthScore = Infinity;
-    pths.forEach((p, i) => {
+    return pths.flatMap((p, pi) => {
       const d = distToPolylinesM(mid.lat, mid.lon, p.polylines);
-      if (d > PAIR_MAX_M) return;
-      const score = (p.key === c.key ? 0 : PAIR_MAX_M) + d;
-      if (score < pthScore) {
-        pthScore = score;
-        pthIdx = i;
-      }
+      return d <= PAIR_MAX_M ? [{ ci, pi, nameScore: nameScoreOf(p.key, c.key), d }] : [];
     });
+  }).sort((a, b) => a.nameScore - b.nameScore || a.d - b.d);
+  const pthOf = new Map<number, number>();
+  for (const pr of pthPairs) {
+    if (usedPth.has(pr.pi) || pthOf.has(pr.ci)) continue;
+    pthOf.set(pr.ci, pr.pi);
+    usedPth.add(pr.pi);
+  }
+  // 自分のコース図がないコース (鈴鹿の西コースなど) は、近くのコースのコース図を表示用に借りる。
+  // 借りたコース図は他のコースの形なので、セクターの組み合わせの判定には使わない
+  const sharedPthOf = new Map<number, number>();
+  clns.forEach((_, ci) => {
+    if (pthOf.has(ci)) return;
+    const pr = pthPairs.find(x => x.ci === ci);
+    if (pr) sharedPthOf.set(ci, pr.pi);
+  });
+
+  let ci = -1;
+  for (const c of clns) {
+    ci++;
+    const mid = lineMid(c.cl);
+    const ownPthIdx = pthOf.get(ci) ?? -1;
+    const pthIdx = ownPthIdx >= 0 ? ownPthIdx : sharedPthOf.get(ci) ?? -1;
     const polylines = pthIdx >= 0 ? pths[pthIdx].polylines : undefined;
-    if (pthIdx >= 0) usedPth.add(pthIdx);
+    // セクターの判定に使うコース図 (自分のもの)
+    const ownPolylines = ownPthIdx >= 0 ? pths[ownPthIdx].polylines : undefined;
 
     // セクターの候補: すべてのセクター線の中点がコース図の上 (コース図がなければコントロールラインの 3 km 以内) にあるもの。
     // 実際の組み合わせは、すべてのコースの候補がそろってから決める (下)
@@ -173,10 +191,10 @@ export function pairCourseFiles(
     scis.forEach((sc, i) => {
       const ok = sc.gates.every(g => {
         const m = lineMid(g);
-        return polylines ? distToPolylinesM(m.lat, m.lon, polylines) <= SECTOR_ON_TRACK_M : distM(m.lat, m.lon, mid.lat, mid.lon) <= 3000;
+        return ownPolylines ? distToPolylinesM(m.lat, m.lon, ownPolylines) <= SECTOR_ON_TRACK_M : distM(m.lat, m.lon, mid.lat, mid.lon) <= 3000;
       });
       if (!ok) return;
-      const nameScore = sc.key === c.key ? 0 : c.key.startsWith(sc.key) || sc.key.startsWith(c.key) ? 1 : 2;
+      const nameScore = nameScoreOf(sc.key, c.key);
       const d = Math.min(...sc.gates.map(g => { const m = lineMid(g); return distM(m.lat, m.lon, mid.lat, mid.lon); }));
       sciCands.push({ idx: i, nameScore, d });
     });
@@ -185,23 +203,26 @@ export function pairCourseFiles(
     // 表示名: 内蔵のコースの近くならその名前
     let name = c.key;
     let nearest = PRESET_NAME_MAX_M;
+    let hasLine = true;
     for (const p of presets) {
       const pm = p.controlLine ? lineMid(p.controlLine) : { lat: p.centerLat, lon: p.centerLon };
       const d = distM(pm.lat, pm.lon, mid.lat, mid.lon);
       if (d < nearest) {
         nearest = d;
         name = p.name;
+        hasLine = !!p.controlLine;
       }
     }
 
     presetDist.push(name === c.key ? Infinity : nearest);
+    presetHasLine.push(name === c.key || hasLine);
     circuits.push({
       id: c.path.toLowerCase(),
       name,
       controlLine: { ...c.cl, name },
       sectors: [],
       ...(polylines ? { polylines } : {}),
-      sources: { cln: c.path, ...(pthIdx >= 0 ? { pth: pths[pthIdx].path } : {}) }
+      sources: { cln: c.path, ...(ownPthIdx >= 0 ? { pth: pths[ownPthIdx].path } : {}) }
     });
   }
 
@@ -224,11 +245,16 @@ export function pairCourseFiles(
   circuits.forEach((c, i) => byName.set(c.name, [...(byName.get(c.name) ?? []), i]));
   for (const idxs of byName.values()) {
     if (idxs.length < 2) continue;
-    const keep = idxs.reduce((a, b) => (presetDist[b] < presetDist[a] ? b : a));
+    // 内蔵のコースが計測線を持つなら、その計測線に一番近いものはそのまま。名阪のように中心しか分からないときは、どれにも名前を添える
+    const keep = presetHasLine[idxs[0]] ? idxs.reduce((a, b) => (presetDist[b] < presetDist[a] ? b : a)) : -1;
     for (const i of idxs) {
       if (i === keep) continue;
       const c = circuits[i];
-      c.name = `${c.name} / ${normalizeCourseName(c.sources.cln)}`;
+      // 添える名前はファイル名から作る。同じになる (別のフォルダの同じ名前のファイル) ときはフォルダ名を添える
+      const key = normalizeCourseName(c.sources.cln);
+      const parts = c.sources.cln.split(/[\\/]/);
+      const suffix = key !== c.name ? key : parts.length > 1 ? parts[parts.length - 2] : key;
+      c.name = `${c.name} / ${suffix}`;
       c.controlLine = { ...c.controlLine, name: c.name };
     }
   }
@@ -380,9 +406,17 @@ class UserCircuitStorage {
     const { CIRCUIT_PRESETS } = await import('./circuitDatabase');
     // それまでに読み込んだファイルと合わせて組み合わせ直す。同じパスのファイルは新しいもので置き換える
     // 選んだフォルダによってパスの先頭が変わる (digspice/ControlLine/… と ControlLine/…) ので、ファイル名と中身が同じものも同じファイルとみなす
-    const newPaths = new Set(files.map(f => f.path));
-    const sameFile = (a: CourseFile, b: CourseFile) => (a.path.split(/[\\/]/).pop() || '').toLowerCase() === (b.path.split(/[\\/]/).pop() || '').toLowerCase() && a.text === b.text;
-    const all = [...this.files.filter(f => !newPaths.has(f.path) && !files.some(n => sameFile(f, n))), ...files];
+    // 同じファイルの判定: パスが同じ (大文字小文字は問わない)、一方のパスがもう一方のパスの末尾と一致する
+    // (digspice/ControlLine/cl_x.cln と ControlLine/cl_x.cln)、またはファイル名と中身が同じ。同じなら新しい方で置き換える
+    const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+    const sameFile = (a: CourseFile, b: CourseFile) => {
+      const pa = norm(a.path);
+      const pb = norm(b.path);
+      if (pa === pb || pa.endsWith('/' + pb) || pb.endsWith('/' + pa)) return true;
+      return pa.split('/').pop() === pb.split('/').pop() && a.text === b.text;
+    };
+    const newPaths = new Set(files.map(f => norm(f.path)));
+    const all = [...this.files.filter(f => !files.some(n => sameFile(f, n))), ...files];
     const r = pairCourseFiles(all, CIRCUIT_PRESETS);
     // 読み込めなかったファイルは残さない (次の読み込みのたびに失敗として出さないように)
     const failedPaths = new Set(r.failed.map(f => f.path));
@@ -407,7 +441,7 @@ class UserCircuitStorage {
       withSectors: r.circuits.filter(c => c.sectors.length > 0).length,
       loosePolylines: r.loose.length,
       unusedSectors: r.unusedSectors,
-      failed: r.failed.filter(f => newPaths.has(f.path)),
+      failed: r.failed.filter(f => newPaths.has(norm(f.path))),
       saved,
       saveError
     };
@@ -418,13 +452,19 @@ class UserCircuitStorage {
    * 候補が複数あるとき (筑波 2000 / 1000 など) は、走行データで計測線を通過して最も多く周回を区切れるものを選び、
    * 同数なら先頭位置に近いものを選ぶ
    */
-  public findNearCircuit(lat: number, lon: number, maxDistMeters = 15000, points?: TelemetryPoint[]): UserCircuitItem | null {
+  public findNearCircuit(
+    lat: number,
+    lon: number,
+    maxDistMeters = 15000,
+    points?: TelemetryPoint[]
+  ): { circuit: UserCircuitItem; crossings: number } | null {
     const near = this.circuits
       .map(c => ({ c, d: distM(lat, lon, lineMid(c.controlLine).lat, lineMid(c.controlLine).lon) }))
       .filter(x => x.d < maxDistMeters)
       .sort((a, b) => a.d - b.d);
     if (near.length === 0) return null;
-    if (!points || near.length === 1) return near[0].c;
+    // 走行データがなければ、通過したかは分からないので近いものを返す (crossings は -1)
+    if (!points) return { circuit: near[0].c, crossings: -1 };
     // 周回の数ではなく計測線を通過した回数で比べる (通過が 1 回で、通過より前の方が長いログは周回が「ログ全体」になり、0 周と区別できないため)
     let best = near[0].c;
     let bestCount = 0;
@@ -435,7 +475,7 @@ class UserCircuitStorage {
         best = c;
       }
     }
-    return best;
+    return { circuit: best, crossings: bestCount };
   }
 
   /** ユーザーコースの id からコース図 */
@@ -444,7 +484,13 @@ class UserCircuitStorage {
   }
 
   /** 内蔵のコースに使うコース図: コントロールライン (なければ中心) の近くを通る、読み込み済みのコース図 */
-  public findPolylinesNear(lat: number, lon: number, maxMeters = PAIR_MAX_M): Array<Array<[number, number]>> | undefined {
+  public findPolylinesNear(lat: number, lon: number, maxMeters = PAIR_MAX_M, preferName?: string): Array<Array<[number, number]>> | undefined {
+    // 同じ内蔵のコース名を付けたユーザーコース (施設の主なコース) のコース図があれば、それを使う。
+    // 近さだけで選ぶと、メインストレートを共有する部分コース (鈴鹿の東コースなど) のコース図を選ぶことがある
+    if (preferName) {
+      const own = this.circuits.find(c => c.name === preferName && c.polylines && distToPolylinesM(lat, lon, c.polylines) <= maxMeters);
+      if (own) return own.polylines;
+    }
     let best: Array<Array<[number, number]>> | undefined;
     let bestD = maxMeters;
     for (const p of [...this.circuits.filter(c => c.polylines).map(c => c.polylines!), ...this.loose.map(l => l.polylines)]) {
