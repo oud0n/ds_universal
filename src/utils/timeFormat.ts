@@ -3,6 +3,8 @@
  * (秒の部分だけを丸めると、119.9996 秒が「1:60.000」になる)
  */
 export function formatMinSec(sec: number, decimals: number, padMinutes = false): string {
+  // 数値でない時刻は「--:--.---」のように出す (NaN をそのまま計算すると「NaN:00NaN」になる)
+  if (!Number.isFinite(sec)) return `${padMinutes ? '--' : '-'}:--${decimals > 0 ? '.' + '-'.repeat(decimals) : ''}`;
   const unit = 10 ** decimals;
   const total = Math.round(Math.max(0, sec) * unit);
   const m = Math.floor(total / (60 * unit));

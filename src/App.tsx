@@ -6,7 +6,7 @@ import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
 import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
 import { parsePth, parseCln } from './services/pthParser';
-import { createVirtualControlLine, extractLaps, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
+import { createVirtualControlLine, extractLaps, firstGateCrossingTime, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
 import { ConvertTab } from './components/ConvertTab';
 import { CIRCUIT_PRESETS, ALL_CIRCUITS, findMatchingCircuit, resolveCircuitPolylines } from './services/circuitDatabase';
 import { userCircuitStorage } from './services/userCircuitStorage';
@@ -133,6 +133,15 @@ export const App: React.FC = () => {
   // 1 周の長さを基準車にそろえる (ロガーごとの距離の測り方の差を吸収する)
   const [alignLapLength, setAlignLapLength] = useState(false);
 
+  // セクターにそろえるときの、比較車両の時刻のずらし量 (秒)。そろえていなければ 0、線を通過していなければ undefined
+  const alignGate = alignedSector !== null ? currentSectors[alignedSector] : undefined;
+  const baseAlignTime = alignGate && baseLap ? firstGateCrossingTime(baseLap.points, alignGate) : undefined;
+  const alignShiftOf = (lap: Lap): number | undefined => {
+    if (!alignGate) return 0;
+    const t = firstGateCrossingTime(lap.points, alignGate);
+    return t !== undefined && baseAlignTime !== undefined ? t - baseAlignTime : undefined;
+  };
+
   // 有効な選択中車両一覧。比較車両には、距離の手動補正と 1 周の長さの伸縮をここで適用する
   const activeCars = useMemo(() => [...selectedCars]
     .sort((a, b) => a.slot - b.slot)
@@ -146,10 +155,10 @@ export const App: React.FC = () => {
       const isFullLap = (l: Lap) => !l.isWholeSession && !l.isPartialLap && l.distance > 0;
       const scale = alignLapLength && baseLap && isFullLap(baseLap) && isFullLap(lap) ? baseLap.distance / lap.distance : 1;
       const offsetKm = (slot.distanceOffsetM || 0) / 1000;
-      // セクターにそろえるときは、そのセクター線を通った時刻が基準車と同じになるよう時刻をずらす
-      const baseSplit = alignedSector !== null ? baseLap?.sectors[alignedSector]?.splitTime : undefined;
-      const carSplit = alignedSector !== null ? lap.sectors[alignedSector]?.splitTime : undefined;
-      const shiftSec = baseSplit !== undefined && carSplit !== undefined ? carSplit - baseSplit : 0;
+      // セクターにそろえるときは、そのセクター線を通った時刻が基準車と同じになるよう時刻をずらす。
+      // 線は基準車のセッションのもの (表示中のセクター) を使い、各車の軌跡が通った時刻を直接求める
+      // (比較車両のセッションに同じセクターがない・数が違う場合でもそろえられるように)
+      const shiftSec = alignShiftOf(lap) ?? 0;
       if (scale === 1 && offsetKm === 0 && shiftSec === 0) return { slot, lap };
       return {
         slot,
@@ -160,7 +169,13 @@ export const App: React.FC = () => {
         }
       };
     })
-    .filter(Boolean) as { slot: SelectedCarSlot; lap: Lap }[], [selectedCars, sessions, baseSelected?.slot, baseLap, alignLapLength, alignedSector]);
+    .filter(Boolean) as { slot: SelectedCarSlot; lap: Lap }[], [selectedCars, sessions, baseSelected?.slot, baseLap, alignLapLength, alignGate, baseAlignTime]);
+
+  // そろえていて、時刻をずらせなかった比較車両の数 (セクター線を通過していない周など)。表示に出す
+  const alignFailedCount = alignedSector === null ? 0 : [...selectedCars]
+    .filter(c => c.slot !== baseSelected?.slot)
+    .map(c => findLap(c))
+    .filter(l => l && alignShiftOf(l) === undefined).length;
 
   const handleSetDistanceOffset = (slotIndex: number, offsetM: number) => {
     setSelectedCars(prev => prev.map(c => (c.slot === slotIndex ? { ...c, distanceOffsetM: offsetM } : c)));
@@ -364,13 +379,18 @@ export const App: React.FC = () => {
       // テキストの形式は拡張子で決めつけず、中身の先頭で判別する (.txt の NMEA・VBO、.log の CSV なども読めるように)。
       // 判別できないときは拡張子に従う
       const text = new TextDecoder('utf-8').decode(buffer);
-      const head = text.slice(0, 4000);
+      // NMEA は受信機の起動時の文などの後から始まることがあるので、先頭から広めに (64 KB) 探す
+      const head = text.slice(0, 65536);
+      // CSV の見出し行 (緯度・経度の列がある行) があるか
+      const csvLike = isRaceChronoCsv(text) || isMotecCsv(text) ||
+        /^[^\n]*(lat|緯度)[^\n]*,[^\n]*(lon|lng|経度)/im.test(text.slice(0, 4000));
       const kind =
         isGpx(text) ? 'gpx'
         : isVbo(text) ? 'vbo'
         : /^\s*\$G[PNLAB][A-Z]{3},/m.test(head) ? 'nmea'
-        : ext === 'vbo' || ext === 'gpx' ? ext
-        : ext === 'nmea' ? 'nmea'
+        : csvLike ? 'csv'
+        : ext === 'vbo' || ext === 'gpx' || ext === 'nmea' ? ext
+        : ext === 'log' ? 'nmea'
         : 'csv';
       let parsed: { points: any[]; samplingRate: number; startDate?: Date };
       if (kind === 'gpx') parsed = parseGpx(text);
@@ -762,7 +782,7 @@ export const App: React.FC = () => {
                 onSeekDistance={handleSeekDistance}
                 xAxisMode={compareAxis}
                 onChangeXAxisMode={setCompareAxis}
-                alignStartTime={alignedSector !== null ? baseLap?.sectors[alignedSector]?.splitTime : undefined}
+                alignStartTime={baseAlignTime}
               />
             </div>
 
@@ -822,6 +842,7 @@ export const App: React.FC = () => {
                       if (mode === 'base') setAlignedSector(null);
                     }}
                     alignedSectorName={alignedSector !== null ? `S${alignedSector + 2}` : undefined}
+                    alignFailedCount={alignFailedCount}
                     onClearAlignedSector={() => setAlignedSector(null)}
                   />
                 ) : (

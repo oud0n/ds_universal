@@ -23,6 +23,8 @@ interface ReplayWindowProps {
   onChangeSectorStartMode: (mode: 'base' | 'all') => void;
   // 時刻をそろえているセクターの名前 (そのセクターの始まりでそろえる。そろえていなければ undefined)
   alignedSectorName?: string;
+  // そろえられなかった比較車両の数 (そのセクター線を通過していない周など)
+  alignFailedCount: number;
   onClearAlignedSector: () => void;
 }
 
@@ -41,6 +43,7 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
   sectorStartMode,
   onChangeSectorStartMode,
   alignedSectorName,
+  alignFailedCount,
   onClearAlignedSector
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -257,7 +260,7 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
                   title="セクターにそろえるのをやめる"
                   className="ml-1 px-1.5 py-0.5 rounded border border-amber-600/60 text-[10px] text-amber-300 hover:text-white hover:bg-amber-700/40"
                 >
-                  {alignedSectorName} にそろえ中 ✕
+                  {alignedSectorName} にそろえ中{alignFailedCount > 0 ? `（${alignFailedCount} 台はそろえられません）` : ''} ✕
                 </button>
               )}
             </div>

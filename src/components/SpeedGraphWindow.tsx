@@ -264,15 +264,20 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
       ctx.strokeStyle = slot.colorHex;
       ctx.lineWidth = slot.slot === 0 ? 2.5 : 2.0;
 
-      // 薄く描く部分 (dim) とふつうに描く部分を分けて描く。境目の点は両方に含めて線をつなぐ
+      // 薄く描く部分 (dim) とふつうに描く部分を分けて描く。境目をまたぐ 1 区間は両方に含めて、線が途切れないようにする
+      // (境目の時刻は記録点の間にあるので、境目の前後の記録点をそれぞれもう一方にも含める)
+      const xs = lap.points.map(p => (xAxisMode === 'distance' ? p.distance : p.time));
+      let firstAfter = xs.findIndex(v => v >= dimBefore);
+      if (firstAfter < 0) firstAfter = xs.length;
       for (const dim of [true, false]) {
         if (dim && dimBefore === -Infinity) continue;
         ctx.globalAlpha = dim ? 0.25 : 1;
         ctx.beginPath();
         let started = false;
-        for (const p of lap.points) {
-          const xVal = xAxisMode === 'distance' ? p.distance : p.time;
-          const inPart = dim ? xVal <= dimBefore : xVal >= dimBefore;
+        for (let i = 0; i < lap.points.length; i++) {
+          const p = lap.points[i];
+          const xVal = xs[i];
+          const inPart = dim ? i <= firstAfter : i >= firstAfter - 1;
           if (inPart && xVal >= activeDomainStart - 0.1 && xVal <= activeDomainEnd + 0.1) {
             const x = getX(xVal);
             const y = getSpeedY(p.speed);
@@ -337,9 +342,12 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
         ctx.beginPath();
 
         let started = false;
-        baseCar.lap.points.forEach((p, pIdx) => {
+        const bpts = baseCar.lap.points;
+        bpts.forEach((p, pIdx) => {
           const delta = dVals[pIdx] || 0;
-          if (p.distance >= activeDomainStart && p.distance <= activeDomainEnd) {
+          // 表示範囲の外側の 1 点ずつも含めて、線を枠の端まで届かせる (はみ出した分は枠で切れる)
+          const inView = (q?: { distance: number }) => !!q && q.distance >= activeDomainStart && q.distance <= activeDomainEnd;
+          if (inView(p) || inView(bpts[pIdx - 1]) || inView(bpts[pIdx + 1])) {
             const x = getX(p.distance);
             // delta > 0: 赤がリード (上方向)
             const y = yOf(delta);
@@ -481,9 +489,9 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     if (xAxisMode !== 'time' || maxDomain <= 0) return;
     const start = Math.max(0, Math.min(0.95, alignStartTime / maxDomain - 0.02));
     setViewRange([start, 1]);
-    // そろえ直したときだけ動かす (再生中の範囲の自動追従とは別)
+    // そろえ直したとき、横軸の長さが変わったとき (表示範囲は横軸全体に対する割合で持っているため) に計算し直す
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [alignStartTime, xAxisMode]);
+  }, [alignStartTime, xAxisMode, maxDomain]);
 
   // ルーラー: 枠のドラッグで表示範囲を動かし、枠の外をクリックするとそこを中心に表示する
   const rulerRef = useRef<HTMLDivElement | null>(null);
