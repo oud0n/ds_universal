@@ -87,26 +87,39 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
       return { x, y };
     };
 
+    // 軌跡のうち画面に入る部分だけを描く。画面の外に出たら線を切り、戻るときは画面の外の点から引き直す
+    // (画面に入っている点だけを 1 本につなぐと、出る直前の点と戻ってきた点が直線で結ばれ、コースを横切る線が出るため)
+    const traceVisible = (pts: typeof basePts, margin: number) => {
+      ctx.beginPath();
+      let drawing = false;
+      let prev: { x: number; y: number } | null = null;
+      for (const p of pts) {
+        const cur = toScreen(p.latitude, p.longitude);
+        const inside = cur.x >= -margin && cur.x <= width + margin && cur.y >= -margin && cur.y <= height + margin;
+        if (inside) {
+          if (!drawing) {
+            // 画面の外の 1 つ前の点から入る (画面の端で線が途切れないように)
+            if (prev) ctx.moveTo(prev.x, prev.y);
+            else ctx.moveTo(cur.x, cur.y);
+            drawing = true;
+          }
+          ctx.lineTo(cur.x, cur.y);
+        } else if (drawing) {
+          // 画面の外の最初の点まで引いて切る
+          ctx.lineTo(cur.x, cur.y);
+          drawing = false;
+        }
+        prev = cur;
+      }
+      ctx.stroke();
+    };
+
     // 1. 周辺トラック (アスファルト幅)
     ctx.strokeStyle = '#22283a';
     ctx.lineWidth = 32;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-
-    ctx.beginPath();
-    let started = false;
-    for (const p of basePts) {
-      const { x, y } = toScreen(p.latitude, p.longitude);
-      if (x >= -50 && x <= width + 50 && y >= -50 && y <= height + 50) {
-        if (!started) {
-          ctx.moveTo(x, y);
-          started = true;
-        } else {
-          ctx.lineTo(x, y);
-        }
-      }
-    }
-    ctx.stroke();
+    traceVisible(basePts, 50);
 
     // コース境界白線
     ctx.strokeStyle = '#384259';
@@ -118,21 +131,7 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
       const pts = car.lap.points;
       ctx.strokeStyle = car.slot.colorHex + '80'; // 透過
       ctx.lineWidth = 2;
-      ctx.beginPath();
-      let trackStarted = false;
-
-      for (const p of pts) {
-        const { x, y } = toScreen(p.latitude, p.longitude);
-        if (x >= -40 && x <= width + 40 && y >= -40 && y <= height + 40) {
-          if (!trackStarted) {
-            ctx.moveTo(x, y);
-            trackStarted = true;
-          } else {
-            ctx.lineTo(x, y);
-          }
-        }
-      }
-      ctx.stroke();
+      traceVisible(pts, 40);
     });
 
     // 3. 各車両のリアルタイムアニメーション描画 (車両ボディ & 進行方向)
