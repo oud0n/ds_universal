@@ -1412,7 +1412,15 @@ export const App: React.FC = () => {
             : undefined
         }
         sectors={currentSectors}
-        onSaveCircuit={(name, cl, sec) => {
+        onSavedCircuitsChange={() => setUserCircuitCount(userCircuitStorage.getCircuitCount())}
+        onSaveCircuit={(name, cl, sec, remember) => {
+          // アプリに保存して、次から同じ場所のログに使う (閉じても消えない)
+          if (remember) {
+            userCircuitStorage.saveEditedCircuit(name, cl, sec, sessions.find(s => s.pathPolylines && passesNearControlLine(s.points, cl))?.pathPolylines).then(r => {
+              if (!r.saved) alert(`コースを保存できませんでした (この画面には反映しています): ${r.saveError ?? ''}`);
+              setUserCircuitCount(userCircuitStorage.getCircuitCount());
+            });
+          }
           // 編集したコースは、その計測線の近くを走ったログに反映する。なければ基準車のセッションに反映する
           const ids = targetSessionIds(s => !!cl && passesNearControlLine(s.points, cl));
           // ログを読み込む前に保存したときも、画面と次に読み込むログに使う
