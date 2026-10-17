@@ -189,6 +189,8 @@ export const App: React.FC = () => {
         let nextTime = prevTime + dtSec;
         if (nextTime > baseLap.lapTime) {
           nextTime = 0; // ループ
+          // 周の始めに戻ったら、セクターにそろえるのをやめ、全車を計測線から同時に走らせる
+          setAlignedSector(null);
         }
 
         // タイムに対応する距離を計算 (O(log N) 二分探索)
