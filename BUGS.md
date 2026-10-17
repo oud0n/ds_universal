@@ -29,6 +29,8 @@
 | 🟢 **低 (P3)** | BUG-14 | パフォーマンス | 高密度ログ再生時の毎フレーム全点 Canvas 再描画および $O(N)$ 線形探索 | `src/components/SpeedGraphWindow.tsx`, `src/components/TrackMapWindow.tsx`, `src/components/FrictionCircleWindow.tsx` | 未対応（UI 修正・BUG-09/10 の後に対応する） |
 | 🟢 **低 (P3)** | BUG-15 | コースデータ管理 | `.sci` 未使用・同名ファイル混在・保存失敗時の成功表示・隣接コース判定 | `src/services/userCircuitStorage.ts`, `src/services/circuitDatabase.ts` | 修正済み（ブランチ fix/bug15-course-data を dev に統合。内蔵の計測線は、手元にログのないコースは確かめようがないため、Issue・PR で報告を受けたら直す。オートポリスは PR #12 で修正） |
 | 🟢 **低 (P3)** | BUG-16 | ロガー設定 UI・通信 | 「解析 & 単位設定」が未接続のダミー UI・レート変更副作用の未明示・欠落ブロック再取得 | `src/components/LoggerTab.tsx`, `src/services/digspiceDevice.ts` | 対応済み（「解析 & 単位設定」の G のならし方はデータ管理タブに移してつないだ。速度単位は外した。レート変更の注意書きを追加。欠落ブロックの再取得は実装したが、実機未確認のため無効（TODO）） |
+| 🟢 **低 (P3)** | BUG-17 | フリクションサークル | 再生中に現在の G の点が小刻みに跳ねる（G を記録点の間で補間していない） | `src/utils/telemetrySearch.ts`, `src/components/FrictionCircleWindow.tsx` | 一部対応（「なめらか」のトグルを追加。G の補間は未対応） |
+| 🟢 **低 (P3)** | BUG-18 | コースデータ管理 | 一括設置で読み込んだ、組み合わせ先のないコース図 (.pth) が、OSM のコース図を取得済みのログに反映されない | `src/App.tsx`, `src/services/userCircuitStorage.ts` | 未対応（BUG-15 から分けた） |
 
 ---
 
