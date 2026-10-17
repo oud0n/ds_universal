@@ -43,6 +43,10 @@ export function calculateGeoDistanceAndHeading(
 /**
  * テレメトリデータ全体の物理パラメータ（加減速G、コーナリングG、合算G、旋回半径、ドリフト角度）を算出・補正
  */
+// G・旋回半径の微分に使う範囲 (前後、秒)。コーナー・ブレーキングの判定のしきい値を合わせた 20Hz のログで、
+// 以前の「前後 2 点」と同じ範囲になる
+const DERIVATIVE_HALF_WINDOW_SEC = 0.1;
+
 export function calculatePhysics(points: TelemetryPoint[]): TelemetryPoint[] {
   if (points.length === 0) return [];
 
@@ -125,12 +129,16 @@ export function calculatePhysics(points: TelemetryPoint[]): TelemetryPoint[] {
   }
 
   // 加減速G (Longitudinal G), コーナリングG (Lateral G), 旋回半径 R
-  // 平滑化ウィンドウ (前後の点を使って微分)
-  const windowSize = 2; // ±2 points (10Hzで約0.4秒区間)
-
+  // 微分に使う範囲は点の数でなく時間で決める (前後 DERIVATIVE_HALF_WINDOW_SEC 秒、少なくとも前後 1 点)。
+  // 点の数で決めると、記録レートによって範囲の時間が変わり (前後 2 点なら 50Hz で 0.08 秒、1Hz で 4 秒)、同じ走りでも G の値が変わるため
+  let i1 = 0;
+  let i2 = 0;
   for (let i = 0; i < n; i++) {
-    const i1 = Math.max(0, i - windowSize);
-    const i2 = Math.min(n - 1, i + windowSize);
+    const t = result[i].time;
+    while (i1 < i - 1 && t - result[i1 + 1].time >= DERIVATIVE_HALF_WINDOW_SEC - 1e-6) i1++;
+    if (i1 > i - 1) i1 = Math.max(0, i - 1);
+    if (i2 < i + 1) i2 = Math.min(n - 1, i + 1);
+    while (i2 < n - 1 && result[i2].time - t < DERIVATIVE_HALF_WINDOW_SEC - 1e-6) i2++;
     const dt = result[i2].time - result[i1].time;
 
     if (dt > 0.001) {
