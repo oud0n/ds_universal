@@ -79,12 +79,14 @@ export const CIRCUIT_PRESETS: CircuitPreset[] = [
     country: 'JP',
     centerLat: 36.662164,
     centerLon: 139.862590,
+    // 管制塔から架かる計測ゲートの位置 (航空写真で確認、ピットロードまで含む)。2026-10-17 に見直し
+    // (以前の線は隣の直線に置いていたため、ベストラップが 0.08 秒短く出ていた)
     controlLine: {
       name: 'Start/Finish Line',
-      latA: 36.662535,
-      lonA: 139.862051,
-      latB: 36.662379,
-      lonB: 139.862236
+      latA: 36.662468,
+      lonA: 139.862454,
+      latB: 36.662254,
+      lonB: 139.862701
     },
     sectors: []
   },
