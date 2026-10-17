@@ -291,15 +291,32 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
       ctx.lineTo(width - paddingRight, zeroY);
       ctx.stroke();
 
+      // 縦の範囲は、表示している区間のタイム差の大きさに合わせる (きりのよい値に切り上げ、最小 ±0.5 秒)。
+      // 固定の範囲だと、大きな差の線が枠の外へ突き抜けていた
+      let peak = 0;
+      cars.slice(1).forEach((_, cIdx) => {
+        const dVals = deltaTimes[cIdx] || [];
+        baseCar.lap.points.forEach((p, pIdx) => {
+          if (p.distance >= activeDomainStart && p.distance <= activeDomainEnd) peak = Math.max(peak, Math.abs(dVals[pIdx] || 0));
+        });
+      });
+      const steps = [0.5, 1, 2, 5, 10, 20, 30, 60, 120];
+      const maxDelta = steps.find(v => v >= peak) ?? Math.ceil(peak / 60) * 60;
+      const yOf = (delta: number) => zeroY - (delta / maxDelta) * (deltaHeight * 0.45);
+
       ctx.fillStyle = '#64748b';
       ctx.font = '9px monospace';
       ctx.textAlign = 'right';
+      const label = (v: number) => `${v > 0 ? '+' : v < 0 ? '-' : ''}${Math.abs(v) < 10 ? Math.abs(v).toFixed(1) : Math.abs(v).toFixed(0)}s`;
       ctx.fillText('0.00s', paddingLeft - 6, zeroY + 3);
-      ctx.fillText('+1.0s', paddingLeft - 6, zeroY - deltaHeight * 0.35 + 3);
-      ctx.fillText('-1.0s', paddingLeft - 6, zeroY + deltaHeight * 0.35 + 3);
+      ctx.fillText(label(maxDelta), paddingLeft - 6, yOf(maxDelta) + 3);
+      ctx.fillText(label(-maxDelta), paddingLeft - 6, yOf(-maxDelta) + 3);
 
-      // 最大デルタレンジ (±2秒をデフォルト)
-      const maxDelta = 2.0;
+      // 線はタイム差の枠の中だけに描く
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(paddingLeft, deltaTop, plotWidth, deltaHeight);
+      ctx.clip();
 
       cars.slice(1).forEach((targetCar, cIdx) => {
         const dVals = deltaTimes[cIdx] || [];
@@ -313,7 +330,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
           if (p.distance >= activeDomainStart && p.distance <= activeDomainEnd) {
             const x = getX(p.distance);
             // delta > 0: 赤がリード (上方向)
-            const y = zeroY - (delta / maxDelta) * (deltaHeight * 0.45);
+            const y = yOf(delta);
             if (!started) {
               ctx.moveTo(x, y);
               started = true;
@@ -324,6 +341,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
         });
         ctx.stroke();
       });
+      ctx.restore();
     }
 
     // 現在シーク位置カーソル (赤ライン)
