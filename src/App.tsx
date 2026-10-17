@@ -7,7 +7,7 @@ import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
 import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
 import { parsePth, parseCln } from './services/pthParser';
-import { createVirtualControlLine, extractLaps, firstGateCrossingTime, gateDirection, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
+import { countGateCrossings, createVirtualControlLine, extractLaps, firstGateCrossingTime, gateDirection, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
 import { ConvertTab } from './components/ConvertTab';
 import { CIRCUIT_PRESETS, ALL_CIRCUITS, findMatchingCircuit, resolveCircuitPolylines } from './services/circuitDatabase';
 import { userCircuitStorage } from './services/userCircuitStorage';
@@ -1416,13 +1416,14 @@ export const App: React.FC = () => {
         onSaveCircuit={(name, cl, sec, remember) => {
           // アプリに保存して、次から同じ場所のログに使う (閉じても消えない)
           if (remember) {
-            userCircuitStorage.saveEditedCircuit(name, cl, sec, sessions.find(s => s.pathPolylines && passesNearControlLine(s.points, cl))?.pathPolylines).then(r => {
+            userCircuitStorage.saveEditedCircuit(name, cl, sec, baseSession && passesNearControlLine(baseSession.points, cl) ? baseSession.pathPolylines : undefined).then(r => {
               if (!r.saved) alert(`コースを保存できませんでした (この画面には反映しています): ${r.saveError ?? ''}`);
               setUserCircuitCount(userCircuitStorage.getCircuitCount());
             });
           }
-          // 編集したコースは、その計測線の近くを走ったログに反映する。なければ基準車のセッションに反映する
-          const ids = targetSessionIds(s => !!cl && passesNearControlLine(s.points, cl));
+          // 編集したコースは、その計測線を通過したログに反映する。なければ基準車のセッションに反映する
+          // (近くを走っただけのログ (筑波 2000 を直したときの 1000 のログなど) には反映しない)
+          const ids = targetSessionIds(s => !!cl && countGateCrossings(s.points, cl) > 0);
           // ログを読み込む前に保存したときも、画面と次に読み込むログに使う
           setCourseHint({ cl, sec, name, polylines: courseRef.current.polylines });
           recalcSessions(s => (ids.includes(s.id) ? { cl, sec, name } : null));
