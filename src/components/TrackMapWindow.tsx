@@ -5,7 +5,7 @@ import { usePinchPointers } from '../hooks/usePinchPointers';
 import { CompareAxis, Lap, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { findCarPoint } from '../utils/telemetrySearch';
 import { passesNearPoint } from '../services/lapCalculator';
-import { ZoomIn, ZoomOut, RotateCcw, Eye, Palette, Move, LocateFixed } from 'lucide-react';
+import { ChevronDown, ZoomIn, ZoomOut, RotateCcw, Eye, Palette, Move, LocateFixed } from 'lucide-react';
 import { getTileImage, MapBackground, TILE_ATTRIBUTION, TILE_SOURCES, tilesForView } from '../services/mapTiles';
 import { useLapGeometries } from '../hooks/useLapGeometries';
 import { computeCorrectedLineDelta, computeLineDelta, detectCorners } from '../services/drivingAnalysis';
@@ -52,6 +52,8 @@ interface TrackMapWindowProps {
   currentTime: number;
   compareAxis: CompareAxis;
   onSeekDistance: (distKm: number) => void;
+  // ウインドウをたたむ (パソコン表示。渡されたときだけ、ツールバーの右端にボタンを出す)
+  onCollapse?: () => void;
 }
 
 export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
@@ -62,7 +64,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   currentDistance,
   currentTime,
   compareAxis,
-  onSeekDistance
+  onSeekDistance,
+  onCollapse
 }) => {
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
@@ -714,6 +717,11 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
           >
             <RotateCcw size={13} />
           </button>
+          {onCollapse && (
+            <button onClick={onCollapse} title="たたむ" aria-expanded className="p-1 hover:bg-surface-5 rounded text-slate-400 hover:text-slate-200 transition-colors">
+              <ChevronDown size={14} />
+            </button>
+          )}
         </div>
       </div>
 

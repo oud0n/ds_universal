@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { CompareAxis, Lap, Session, TelemetryPoint, SelectedCarSlot, ControlLine, Sector, CircuitPreset } from './types/telemetry';
 import { parseDtb } from './services/dtbParser';
 import { parseDigispiceRawBinary } from './services/rawBinaryParser';
@@ -61,6 +62,21 @@ const COURSE_MATCH_RADIUS_M = 15000;
 const NO_SECTORS: Sector[] = [];
 const NO_POLYLINES: Array<Array<[number, number]>> = [];
 
+/** ウインドウをたたむ / 開くボタン (パソコン表示のウインドウの帯の右端に置く) */
+const CollapseButton: React.FC<{ collapsed: boolean; onClick: () => void }> = ({ collapsed, onClick }) => (
+  <button
+    onClick={onClick}
+    title={collapsed ? '開く' : 'たたむ'}
+    aria-expanded={!collapsed}
+    className="ml-auto shrink-0 p-0.5 rounded text-slate-400 hover:text-slate-200 hover:bg-surface-4 cursor-pointer"
+  >
+    {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+  </button>
+);
+
+// パソコン表示でたたんだウインドウを覚えておくキー
+const COLLAPSED_STORAGE_KEY = 'ds_collapsed_panes';
+
 // ドリフト採点・評価の表示 (2026-10-17 に表示をやめた。DriftWindow などのコードは残してあるので、true に戻せば出る)
 const SHOW_DRIFT = false;
 
@@ -91,6 +107,29 @@ export const App: React.FC = () => {
   const isCompact = useCompactLayout();
   const isLandscape = useLandscape();
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('map');
+
+  // パソコン表示で、たたんでいるウインドウ (anim: 左下のアニメーション / 動画、map: 全コース、sub: 右下の GG など)。端末に保存する
+  const [collapsed, setCollapsed] = useState<{ anim: boolean; map: boolean; sub: boolean }>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(COLLAPSED_STORAGE_KEY) || '{}');
+      return { anim: !!v.anim, map: !!v.map, sub: !!v.sub };
+    } catch {
+      return { anim: false, map: false, sub: false };
+    }
+  });
+  // 右の列 (全コースと GG など) を両方たたんでいるか
+  const rightCollapsed = collapsed.map && collapsed.sub;
+  const toggleCollapsed = (key: 'anim' | 'map' | 'sub', value?: boolean) => {
+    setCollapsed(prev => {
+      const next = { ...prev, [key]: value ?? !prev[key] };
+      try {
+        localStorage.setItem(COLLAPSED_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // 保存できなくても、この画面では切り替える
+      }
+      return next;
+    });
+  };
   useEffect(() => {
     if (isCompact && currentTab === 'video') setCurrentTab('graph');
   }, [isCompact, currentTab]);
@@ -258,7 +297,8 @@ export const App: React.FC = () => {
   useEffect(() => {
     // 動画表示時は <video> 要素が再生マスターとなるため、lapTimeでのrequestAnimationFrameループは停止する
     // (スマートフォンの配置では動画を出さないので、アニメーションループで再生する)
-    const isVideoModeActive = !isCompact && (currentTab === 'video' || (currentTab === 'graph' && (leftBottomMode === 'video' || subWindowMode === 'video')));
+    // (たたんだウインドウの動画は外れているので、再生の基準にしない)
+    const isVideoModeActive = !isCompact && (currentTab === 'video' || (currentTab === 'graph' && ((leftBottomMode === 'video' && !collapsed.anim) || (subWindowMode === 'video' && !collapsed.sub))));
     if (!isPlaying || !baseLap || isVideoModeActive) {
       if (animRef.current) cancelAnimationFrame(animRef.current);
       return;
@@ -298,7 +338,7 @@ export const App: React.FC = () => {
     return () => {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
-  }, [isPlaying, playbackSpeed, baseLap, playEndTime, currentTab, subWindowMode, leftBottomMode, isCompact]);
+  }, [isPlaying, playbackSpeed, baseLap, playEndTime, currentTab, subWindowMode, leftBottomMode, isCompact, collapsed.anim, collapsed.sub]);
 
   // キーボードショートカット (Space: 再生/停止, F / →: コマ送り, B / ←: コマ戻し, Shift で 1 秒単位)
   useEffect(() => {
@@ -766,6 +806,8 @@ export const App: React.FC = () => {
       currentTime={currentTimeSec}
       compareAxis={compareAxis}
       onSeekDistance={handleSeekDistance}
+      // パソコン表示では、ツールバーの右端にたたむボタンを出す
+      onCollapse={isCompact ? undefined : () => toggleCollapsed('map', true)}
     />
   );
   const frictionEl = (
@@ -948,33 +990,36 @@ export const App: React.FC = () => {
             {/* 左側 / メイン: 速度ウインドウ & アニメーション/動画 (上下分割) */}
             <div
               ref={leftVertSplit.containerRef}
-              style={{ width: `${horizSplit.ratio * 100}%` }}
-              className="flex flex-col h-full overflow-hidden min-w-[200px]"
+              // 右の列を両方たたんだときは、左の列を横いっぱいにする
+              style={rightCollapsed ? undefined : { width: `${horizSplit.ratio * 100}%` }}
+              className={`flex flex-col h-full overflow-hidden min-w-[200px] ${rightCollapsed ? 'flex-1' : ''}`}
             >
-              {/* 上部: 速度グラフ */}
+              {/* 上部: 速度グラフ (下をたたんだときは縦いっぱい) */}
               <div
-                style={{ height: `${leftVertSplit.ratio * 100}%` }}
-                className="min-h-[120px] overflow-hidden"
+                style={collapsed.anim ? undefined : { height: `${leftVertSplit.ratio * 100}%` }}
+                className={`min-h-[120px] overflow-hidden ${collapsed.anim ? 'flex-1 mb-2' : ''}`}
               >
                 {speedGraphEl}
               </div>
 
               {/* 左上下スプリッター */}
-              <SplitResizer
-                direction="vertical"
-                isDragging={leftVertSplit.isDragging}
-                {...leftVertSplit.resizerProps}
-              />
+              {!collapsed.anim && (
+                <SplitResizer
+                  direction="vertical"
+                  isDragging={leftVertSplit.isDragging}
+                  {...leftVertSplit.resizerProps}
+                />
+              )}
 
-              {/* 下部: 走行アニメーション or 車載動画 切替エリア (フラットデザイン) */}
+              {/* 下部: 走行アニメーション or 車載動画 切替エリア (たたむとタブの帯だけ残す) */}
               <div
-                style={{ height: `${(1 - leftVertSplit.ratio) * 100}%` }}
-                className="min-h-[120px] overflow-hidden flex flex-col bg-surface-1 rounded border border-line-1"
+                style={collapsed.anim ? undefined : { height: `${(1 - leftVertSplit.ratio) * 100}%` }}
+                className={`overflow-hidden flex flex-col bg-surface-1 rounded border border-line-1 ${collapsed.anim ? 'shrink-0' : 'min-h-[120px]'}`}
               >
                 {/* 左下タブバー */}
-                <div className="flex bg-surface-2 p-1 border-b border-line-1 text-[11px] gap-1 shrink-0">
+                <div className={`flex items-center bg-surface-2 p-1 text-[11px] gap-1 shrink-0 ${collapsed.anim ? '' : 'border-b border-line-1'}`}>
                   <button
-                    onClick={() => setLeftBottomMode('replay')}
+                    onClick={() => { setLeftBottomMode('replay'); toggleCollapsed('anim', false); }}
                     className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       leftBottomMode === 'replay'
                         ? 'bg-red-600 text-white'
@@ -984,7 +1029,7 @@ export const App: React.FC = () => {
                     走行アニメーション
                   </button>
                   <button
-                    onClick={() => setLeftBottomMode('video')}
+                    onClick={() => { setLeftBottomMode('video'); toggleCollapsed('anim', false); }}
                     className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       leftBottomMode === 'video'
                         ? 'bg-red-600 text-white'
@@ -993,8 +1038,10 @@ export const App: React.FC = () => {
                   >
                     車載動画 (GoPro/MP4)
                   </button>
+                  <CollapseButton collapsed={collapsed.anim} onClick={() => toggleCollapsed('anim')} />
                 </div>
 
+                {!collapsed.anim && (
                 <div className="flex-1 min-h-0 overflow-hidden">
                   {leftBottomMode === 'replay' ? (
                     replayEl
@@ -1014,45 +1061,75 @@ export const App: React.FC = () => {
                     />
                   )}
                 </div>
+                )}
               </div>
             </div>
 
             {/* 左右スプリッター */}
-            <SplitResizer
-              direction="horizontal"
-              isDragging={horizSplit.isDragging}
-              {...horizSplit.resizerProps}
-            />
+            {!rightCollapsed && (
+              <SplitResizer
+                direction="horizontal"
+                isDragging={horizSplit.isDragging}
+                {...horizSplit.resizerProps}
+              />
+            )}
+
+            {/* 右の列を両方たたんだとき: 細い縦の帯にして、押すと開く */}
+            {rightCollapsed && (
+              <div className="w-9 shrink-0 ml-2 flex flex-col gap-2">
+                {([['map', '全コース'], ['sub', 'GG・コーナー・ブレーキング']] as const).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => toggleCollapsed(key, false)}
+                    title={`${label}を開く`}
+                    className="flex-1 flex items-center justify-center rounded border border-line-1 bg-surface-2 hover:bg-surface-4 text-[11px] font-bold text-slate-400 hover:text-slate-200 [writing-mode:vertical-rl] tracking-wider cursor-pointer"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* 右側: 全コースウインドウ ＆ フリクションサークル / ドリフト */}
             <div
               ref={rightVertSplit.containerRef}
               style={{ width: `${(1 - horizSplit.ratio) * 100}%` }}
-              className="flex flex-col h-full overflow-hidden min-w-[200px]"
+              className={`flex-col h-full overflow-hidden min-w-[200px] ${rightCollapsed ? 'hidden' : 'flex'}`}
             >
-              {/* 右上: 全コースウインドウ */}
+              {/* 右上: 全コースウインドウ (たたむと名前の帯だけ残す。表示の設定を消さないよう、外さずに隠す) */}
+              {collapsed.map && (
+                <div className="shrink-0 mb-2 flex items-center justify-between bg-surface-2 border border-line-1 rounded px-2 py-1 text-[11px] font-bold text-slate-400">
+                  <button onClick={() => toggleCollapsed('map', false)} className="hover:text-slate-200 cursor-pointer">全コースウインドウ</button>
+                  <CollapseButton collapsed onClick={() => toggleCollapsed('map', false)} />
+                </div>
+              )}
               <div
-                style={{ height: `${rightVertSplit.ratio * 100}%` }}
-                className="min-h-[120px] overflow-hidden"
+                style={collapsed.map || collapsed.sub ? undefined : { height: `${rightVertSplit.ratio * 100}%` }}
+                className={`min-h-[120px] overflow-hidden ${collapsed.map ? 'hidden' : collapsed.sub ? 'flex-1' : ''}`}
               >
                 {trackMapEl}
               </div>
 
               {/* 右上下スプリッター */}
-              <SplitResizer
-                direction="vertical"
-                isDragging={rightVertSplit.isDragging}
-                {...rightVertSplit.resizerProps}
-              />
+              {!collapsed.map && !collapsed.sub && (
+                <SplitResizer
+                  direction="vertical"
+                  isDragging={rightVertSplit.isDragging}
+                  {...rightVertSplit.resizerProps}
+                />
+              )}
 
-              {/* 右下: サブウインドウ切替タブ (フラットデザイン) */}
+              {/* 右下: サブウインドウ切替タブ (たたむとタブの帯だけ残す) */}
               <div
-                style={{ height: `${(1 - rightVertSplit.ratio) * 100}%` }}
-                className="min-h-[120px] overflow-hidden flex flex-col bg-surface-1 rounded border border-line-1"
+                style={collapsed.map || collapsed.sub ? undefined : { height: `${(1 - rightVertSplit.ratio) * 100}%` }}
+                className={`overflow-hidden flex flex-col bg-surface-1 rounded border border-line-1 ${
+                  collapsed.sub ? `shrink-0 ${collapsed.map ? '' : 'mt-2'}` : collapsed.map ? 'flex-1 min-h-[120px]' : 'min-h-[120px]'
+                }`}
               >
-                <div className="flex bg-surface-2 p-1 border-b border-line-1 text-[11px] gap-1 shrink-0 overflow-x-auto whitespace-nowrap">
+                <div className={`flex items-center bg-surface-2 p-1 text-[11px] gap-1 shrink-0 whitespace-nowrap ${collapsed.sub ? '' : 'border-b border-line-1'}`}>
+                  <div className="flex gap-1 overflow-x-auto no-scrollbar min-w-0">
                   <button
-                    onClick={() => setSubWindowMode('all')}
+                    onClick={() => { setSubWindowMode('all'); toggleCollapsed('sub', false); }}
                     className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       subWindowMode === 'all'
                         ? 'bg-blue-600 text-white'
@@ -1063,7 +1140,7 @@ export const App: React.FC = () => {
                   </button>
                   {SHOW_DRIFT && (
                     <button
-                      onClick={() => setSubWindowMode('track_friction')}
+                      onClick={() => { setSubWindowMode('track_friction'); toggleCollapsed('sub', false); }}
                       className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                         subWindowMode === 'track_friction'
                           ? 'bg-orange-600 text-white'
@@ -1074,7 +1151,7 @@ export const App: React.FC = () => {
                     </button>
                   )}
                   <button
-                    onClick={() => setSubWindowMode('corner')}
+                    onClick={() => { setSubWindowMode('corner'); toggleCollapsed('sub', false); }}
                     className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       subWindowMode === 'corner'
                         ? 'bg-amber-600 text-white'
@@ -1084,7 +1161,7 @@ export const App: React.FC = () => {
                     コーナー解析
                   </button>
                   <button
-                    onClick={() => setSubWindowMode('braking')}
+                    onClick={() => { setSubWindowMode('braking'); toggleCollapsed('sub', false); }}
                     className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       subWindowMode === 'braking'
                         ? 'bg-rose-600 text-white'
@@ -1094,7 +1171,7 @@ export const App: React.FC = () => {
                     ブレーキング
                   </button>
                   <button
-                    onClick={() => setSubWindowMode('video')}
+                    onClick={() => { setSubWindowMode('video'); toggleCollapsed('sub', false); }}
                     className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       subWindowMode === 'video'
                         ? 'bg-red-600 text-white'
@@ -1103,8 +1180,11 @@ export const App: React.FC = () => {
                   >
                     車載動画同期
                   </button>
+                  </div>
+                  <CollapseButton collapsed={collapsed.sub} onClick={() => toggleCollapsed('sub')} />
                 </div>
 
+                {!collapsed.sub && (
                 <div className="flex-1 min-h-0 overflow-hidden">
                   {subWindowMode === 'all' && (
                     frictionEl
@@ -1134,6 +1214,7 @@ export const App: React.FC = () => {
                     />
                   )}
                 </div>
+                )}
               </div>
             </div>
           </div>
