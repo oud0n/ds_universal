@@ -915,12 +915,12 @@ export const App: React.FC = () => {
               {speedGraphEl}
             </div>
             <div className="flex-1 min-h-0 min-w-0 flex flex-col bg-surface-1 rounded border border-line-1 overflow-hidden">
-              <div className="flex gap-1 p-1 bg-surface-2 border-b border-line-1 overflow-x-auto whitespace-nowrap shrink-0 no-scrollbar">
+              <div className="flex gap-1 p-1 bg-surface-2 border-b border-line-1 whitespace-nowrap shrink-0">
                 {MOBILE_PANELS.map(p => (
                   <button
                     key={p.id}
                     onClick={() => setMobilePanel(p.id)}
-                    className={`px-3 py-1.5 rounded text-xs font-bold transition-colors ${
+                    className={`flex-1 px-1 py-1.5 rounded text-xs font-bold transition-colors ${
                       mobilePanel === p.id ? 'bg-red-600 text-white' : 'text-slate-400'
                     }`}
                   >

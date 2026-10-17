@@ -599,8 +599,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
-      <div className={compact ? 'flex items-center gap-2 px-2 py-1 bg-surface-3 border-b border-line-2 text-xs overflow-x-auto whitespace-nowrap shrink-0 no-scrollbar' : 'flex flex-wrap items-center justify-between gap-y-1 px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs'}>
-        <div className={compact ? 'flex items-center gap-2 shrink-0' : 'flex flex-wrap items-center gap-2'}>
+      <div className={compact ? 'flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2 py-1 bg-surface-3 border-b border-line-2 text-xs shrink-0' : 'flex flex-wrap items-center justify-between gap-y-1 px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs'}>
+        <div className={compact ? 'flex flex-wrap items-center gap-x-2 gap-y-1' : 'flex flex-wrap items-center gap-2'}>
           {!compact && (
             <span className="font-bold text-slate-200 flex items-center gap-1.5">
               <Map size={14} className="text-emerald-400" />
@@ -624,7 +624,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
                 colorMode === 'speed' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              車速ヒート
+              {compact ? '車速' : '車速ヒート'}
             </button>
             <button
               onClick={() => setColorMode('accel')}
@@ -641,7 +641,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
                 colorMode === 'line' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              ライン偏差
+              {compact ? 'ライン' : 'ライン偏差'}
             </button>
           </div>
           <button
@@ -651,7 +651,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
               showCorners ? 'border-amber-500/50 text-amber-300' : 'border-line-3 text-slate-500 hover:text-slate-300'
             }`}
           >
-            コーナー番号
+            {compact ? 'コーナー' : 'コーナー番号'}
           </button>
           <select
             value={background}
@@ -660,9 +660,9 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
             aria-label="背景地図"
             className="bg-surface-1 border border-line-3 text-[11px] text-slate-300 rounded px-1.5 py-0.5 outline-none"
           >
-            <option value="none">背景: なし</option>
-            <option value="photo">背景: {TILE_SOURCES.photo.label}</option>
-            <option value="standard">背景: {TILE_SOURCES.standard.label}</option>
+            <option value="none">{compact ? '地図なし' : '背景: なし'}</option>
+            <option value="photo">{compact ? '' : '背景: '}{TILE_SOURCES.photo.label}</option>
+            <option value="standard">{compact ? '' : '背景: '}{TILE_SOURCES.standard.label}</option>
           </select>
           {background !== 'none' && (
             <button
@@ -674,7 +674,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
               }`}
             >
               <Move size={11} />
-              地図の位置調整{isAdjustingMap ? ': ON' : ''}
+              {compact ? '位置調整' : '地図の位置調整'}{isAdjustingMap ? ': ON' : ''}
             </button>
           )}
         </div>

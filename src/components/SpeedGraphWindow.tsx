@@ -580,8 +580,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
-      <div className={compact ? 'flex items-center gap-2 px-2 py-1 bg-surface-3 border-b border-line-2 text-xs overflow-x-auto whitespace-nowrap shrink-0 no-scrollbar' : 'flex items-center justify-between px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs'}>
-        <div className={compact ? 'flex items-center gap-2 shrink-0' : 'flex items-center gap-2'}>
+      <div className={compact ? 'flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2 py-1 bg-surface-3 border-b border-line-2 text-xs shrink-0' : 'flex items-center justify-between px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs'}>
+        <div className={compact ? 'flex flex-wrap items-center gap-x-2 gap-y-1' : 'flex items-center gap-2'}>
           {!compact && (
             <span className="font-bold text-slate-200 flex items-center gap-1.5">
               <TrendingUp size={14} className="text-red-500" />
@@ -597,7 +597,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
                 xAxisMode === 'distance' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              距離 (km)
+              {compact ? '距離' : '距離 (km)'}
             </button>
             <button
               onClick={() => setXAxisMode('time')}
@@ -605,7 +605,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
                 xAxisMode === 'time' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              時間 (sec)
+              {compact ? '時間' : '時間 (sec)'}
             </button>
           </div>
 
@@ -619,21 +619,21 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
                   : 'border-line-4 text-slate-400 hover:text-slate-200'
               }`}
             >
-              タイム差 (Delta)
+              {compact ? 'タイム差' : 'タイム差 (Delta)'}
             </button>
           )}
 
           {/* Gフォースオーバーレイ切替 */}
           <div className="flex items-center gap-1">
-            <span className="text-slate-400 text-[11px] ml-1">G表示:</span>
+            <span className="text-slate-400 text-[11px] ml-1">{compact ? 'G:' : 'G表示:'}</span>
             <select
               value={showGOverlay}
               onChange={e => setShowGOverlay(e.target.value as any)}
               className="bg-surface-1 border border-line-3 text-[11px] text-slate-300 rounded px-1.5 py-0.5 outline-none"
             >
               <option value="none">OFF</option>
-              <option value="accel">加減速G (縦G)</option>
-              <option value="corner">横G (コーナリングG)</option>
+              <option value="accel">{compact ? '縦G' : '加減速G (縦G)'}</option>
+              <option value="corner">{compact ? '横G' : '横G (コーナリングG)'}</option>
               <option value="combined">合算G</option>
             </select>
           </div>

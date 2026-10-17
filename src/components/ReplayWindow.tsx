@@ -235,8 +235,8 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
-      <div className={compact ? 'flex items-center gap-2 px-2 py-1 bg-surface-3 border-b border-line-2 text-xs overflow-x-auto whitespace-nowrap shrink-0 no-scrollbar' : 'flex items-center justify-between px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs'}>
-        <div className={compact ? 'flex items-center gap-2 shrink-0' : 'flex items-center gap-2'}>
+      <div className={compact ? 'flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2 py-1 bg-surface-3 border-b border-line-2 text-xs shrink-0' : 'flex items-center justify-between px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs'}>
+        <div className={compact ? 'flex flex-wrap items-center gap-x-2 gap-y-1' : 'flex items-center gap-2'}>
           {!compact && (
             <span className="font-bold text-slate-200 flex items-center gap-1.5">
               <PlaySquare size={14} className="text-amber-400" />
@@ -246,8 +246,8 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
 
           {/* セクター同時スタートボタン */}
           {sectors.length > 0 && (
-            <div className="flex items-center gap-1 ml-2">
-              <span className="text-[10px] text-slate-400 font-medium">同時スタート:</span>
+            <div className={compact ? 'flex flex-wrap items-center gap-1' : 'flex items-center gap-1 ml-2'}>
+              <span className="text-[10px] text-slate-400 font-medium">{compact ? '同時:' : '同時スタート:'}</span>
               <div className="flex gap-1">
                 {sectors.map((sec, idx) => (
                   <button
@@ -273,7 +273,7 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
                     }`}
                     title={mode === 'base' ? '基準車 (Car 1) の位置に合わせる' : '全車がそのセクター線を同時に通るようにそろえる'}
                   >
-                    {mode === 'base' ? 'Car 1 に合わせる' : '全車をそろえる'}
+                    {mode === 'base' ? (compact ? 'Car 1' : 'Car 1 に合わせる') : (compact ? '全車' : '全車をそろえる')}
                   </button>
                 ))}
               </div>
@@ -284,8 +284,8 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
                   className="ml-1 px-1.5 py-0.5 rounded border border-amber-600/60 text-[10px] text-amber-300 hover:text-fg hover:bg-amber-700/40"
                 >
                   {alignBaseMissing
-                    ? `${alignedSectorName}: 基準車がこの線を通っていないため、そろえられません`
-                    : `${alignedSectorName} にそろえ中${alignFailedCount > 0 ? `（${alignFailedCount} 台はそろえられません）` : ''}`} ✕
+                    ? `${alignedSectorName}: ${compact ? 'そろえられません' : '基準車がこの線を通っていないため、そろえられません'}`
+                    : `${alignedSectorName} ${compact ? 'そろえ中' : 'にそろえ中'}${alignFailedCount > 0 ? `（${compact ? `${alignFailedCount} 台不可` : `${alignFailedCount} 台はそろえられません`}）` : ''}`} ✕
                 </button>
               )}
             </div>
@@ -294,7 +294,7 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
 
         {/* ズーム */}
         <div className="flex items-center gap-1">
-          <span className="text-[10px] text-slate-400">拡大率:</span>
+          {!compact && <span className="text-[10px] text-slate-400">拡大率:</span>}
           {[2, 3, 5].map(z => (
             <button
               key={z}
