@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, Repeat, BarChart2, List, Video, Download, Coffee, Sun, Moon, Monitor, MoreHorizontal } from 'lucide-react';
 import { SelectedCarSlot, Session } from '../types/telemetry';
 import { ThemeSetting, setThemeSetting, useThemeSetting } from '../utils/theme';
-import { isMobileDevice } from '../utils/device';
+import { canUseLoggerUsb } from '../utils/device';
 
 // テーマの切り替え (ライト / ダーク / システムに合わせる)
 const THEME_OPTIONS: { value: ThemeSetting; label: string; Icon: typeof Sun }[] = [
@@ -185,8 +185,8 @@ export const Header: React.FC<HeaderProps> = ({
           <Repeat size={14} />
           ログ変換
         </button>
-        {/* ロガー設定は USB でつなぐので、スマートフォン・タブレットでは出さない */}
-        {!isMobileDevice && (
+        {/* ロガー設定は USB でつなぐので、つなげない環境 (スマートフォン・タブレット・Safari など) では出さない */}
+        {canUseLoggerUsb && (
           <button
             onClick={() => setCurrentTab('logger')}
             className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${

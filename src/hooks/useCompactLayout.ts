@@ -1,25 +1,21 @@
 import { useSyncExternalStore } from 'react';
+import { isPhone } from '../utils/device';
 
-// スマートフォン向けの配置にする画面の大きさ: 幅が 768px 未満 (縦向き)、またはタッチ操作で高さが 500px 以下 (横向き)
-const COMPACT_QUERY = '(max-width: 767px), (max-height: 500px) and (pointer: coarse)';
+// スマートフォン向けの配置にするかは、画面の幅でなく機種 (スマートフォンか) で決める。
+// タブレットとパソコン (ウインドウを狭くしても) はパソコン向けの配置
 const LANDSCAPE_QUERY = '(orientation: landscape)';
 
 const media = (q: string) => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(q) : null);
-const compactMql = media(COMPACT_QUERY);
 const landscapeMql = media(LANDSCAPE_QUERY);
 
 const subscribe = (cb: () => void) => {
-  compactMql?.addEventListener('change', cb);
   landscapeMql?.addEventListener('change', cb);
-  return () => {
-    compactMql?.removeEventListener('change', cb);
-    landscapeMql?.removeEventListener('change', cb);
-  };
+  return () => landscapeMql?.removeEventListener('change', cb);
 };
 
 /** スマートフォン向けの配置にするか */
 export function useCompactLayout(): boolean {
-  return useSyncExternalStore(subscribe, () => !!compactMql?.matches);
+  return isPhone;
 }
 
 /** 横向きか (スマートフォンを横にしたときは、グラフとコース図を左右に並べる) */
