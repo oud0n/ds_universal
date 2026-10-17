@@ -28,6 +28,7 @@ import {
   VideoExportController 
 } from '../services/telemetryVideoExporter';
 import { MasterTimelineTrackBar } from './MasterTimelineTrackBar';
+import { formatMinSec } from '../utils/timeFormat';
 
 export type VideoViewMode = 'single' | 'split' | 'pip';
 export type PipPosition = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
@@ -183,11 +184,9 @@ export function drawTelemetryOverlayOnCanvas(
   ctx.textAlign = 'left';
   ctx.fillText(lapLabel, 12, 18);
 
-  const m = Math.floor(Math.max(0, lapDisplayTime) / 60);
-  const s = (Math.max(0, lapDisplayTime) % 60).toFixed(2).padStart(5, '0');
   ctx.fillStyle = '#f8fafc';
   ctx.font = 'bold 18px monospace';
-  ctx.fillText(`${m}:${s}`, 12, 42);
+  ctx.fillText(formatMinSec(lapDisplayTime, 2), 12, 42);
 
   ctx.restore();
 }

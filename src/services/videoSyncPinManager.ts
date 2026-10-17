@@ -3,6 +3,8 @@
  * GPSの特定地点（クリッピング・コントロールライン通過等）と動画の同一フレームを1クリックでピン留め固定
  */
 
+import { formatMinSec } from '../utils/timeFormat';
+
 export interface SyncPin {
   id: string;
   name: string;                // 例: "1コーナーAPEX", "コントロールライン通過", "ダンロップ進入"
@@ -44,10 +46,7 @@ export function applyPinToTrack(
 }
 
 export function formatPinTime(sec: number): string {
-  const sClamped = Math.max(0, sec);
-  const m = Math.floor(sClamped / 60);
-  const s = (sClamped % 60).toFixed(2).padStart(5, '0');
-  return `${String(m).padStart(2, '0')}:${s}`;
+  return formatMinSec(sec, 2, true);
 }
 
 const STORAGE_KEY_PREFIX = 'ds_universal_sync_pins_';

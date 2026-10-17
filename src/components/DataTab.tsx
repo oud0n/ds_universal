@@ -19,6 +19,7 @@ import {
   FolderOpen,
   Globe
 } from 'lucide-react';
+import { formatMinSec } from '../utils/timeFormat';
 
 interface DataTabProps {
   sessions: Session[];
@@ -59,9 +60,7 @@ export const DataTab: React.FC<DataTabProps> = ({
 }) => {
   const formatTime = (sec: number) => {
     if (!sec || isNaN(sec)) return '--:--.---';
-    const m = Math.floor(sec / 60);
-    const s = (sec % 60).toFixed(3).padStart(6, '0');
-    return `${m}:${s}`;
+    return formatMinSec(sec, 3);
   };
 
   const slotColors = [

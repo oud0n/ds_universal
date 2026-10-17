@@ -1,5 +1,6 @@
 import { TelemetryPoint, Lap } from '../types/telemetry';
 import { calculatePhysics } from './physics';
+import { formatMinSec } from '../utils/timeFormat';
 
 /**
  * CSV 文字列を解析して TelemetryPoint 配列に変換
@@ -150,9 +151,7 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
 export function exportDigispiceCsv(points: TelemetryPoint[]): string {
   const header = '秒,時間,緯度,経度,距離(km),標高(m),速度(km/h),旋回半径(m),コーナリングG,加減速G,合算G';
   const rows = points.map(p => {
-    const mins = Math.floor(p.time / 60);
-    const secs = (p.time % 60).toFixed(1).padStart(4, '0');
-    const timeStr = `${mins.toString().padStart(2, '0')}:${secs}`;
+    const timeStr = formatMinSec(p.time, 1, true);
 
     return [
       p.time.toFixed(3),
@@ -180,9 +179,7 @@ export function exportLapListCsv(laps: Lap[]): string {
   const header = `Lap,LapTime(s),LapTime(mm:ss.000),TopSpeed(km/h),MinSpeed(km/h),AvgSpeed(km/h),Distance(km)${sectorHeaders ? ',' + sectorHeaders : ''}`;
 
   const rows = laps.map(l => {
-    const mins = Math.floor(l.lapTime / 60);
-    const secs = (l.lapTime % 60).toFixed(3).padStart(6, '0');
-    const timeStr = `${mins.toString().padStart(2, '0')}:${secs}`;
+    const timeStr = formatMinSec(l.lapTime, 3, true);
     const sectorTimes = l.sectors.map(s => s.time.toFixed(3)).join(',');
 
     return [
