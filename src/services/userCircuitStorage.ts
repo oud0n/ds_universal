@@ -11,7 +11,7 @@ import { parsePth, parseCln } from './pthParser';
 import { countGateCrossings } from './lapCalculator';
 
 export interface UserCircuitItem {
-  id: string;            // 組み合わせの元になった .cln のパス (フォルダ込み) を小文字にしたもの
+  id: string;            // 組み合わせの元になった .cln のパス (フォルダ込み) を小文字にしたもの。コース編集で保存したものは `edited:<コース名>`
   name: string;          // 表示名 (内蔵のコースの近くならその名前、なければファイル名から接頭辞などを除いたもの)
   controlLine: ControlLine;
   sectors: Sector[];
@@ -91,6 +91,24 @@ function distToPolylinesM(lat: number, lon: number, polylines: Array<Array<[numb
   return best;
 }
 
+/**
+ * ログのほとんど (95%) が、コース図から 50 m 以内を走っているか (間引いて調べる)。
+ * ピット・パドックで止まっている間やピットロードは外れるので、40 km/h 以上で走っている点だけで調べる
+ */
+function runsOnPolylines(points: TelemetryPoint[], polylines: Array<Array<[number, number]>>): boolean {
+  if (polylines.length === 0) return false;
+  const moving = points.filter(p => p.speed >= 40);
+  if (moving.length === 0) return true;
+  const step = Math.max(1, Math.floor(moving.length / 200));
+  let total = 0;
+  let near = 0;
+  for (let i = 0; i < moving.length; i += step) {
+    total++;
+    if (distToPolylinesM(moving[i].latitude, moving[i].longitude, polylines) <= 50) near++;
+  }
+  return near / total >= 0.95;
+}
+
 /** ファイル名から比較用の名前を作る (cd_ / cl_ の接頭辞、_DS4 などの接尾辞、拡張子を除く) */
 export function normalizeCourseName(path: string): string {
   const file = path.split(/[\\/]/).pop() || path;
@@ -99,6 +117,20 @@ export function normalizeCourseName(path: string): string {
     .toLowerCase()
     .replace(/^(cd|cl)_/, '')
     .replace(/_ds\d*$/, '');
+}
+
+/**
+ * セクターを .sci (公式と同じ形: 1 行 1 本「緯度A,経度A,緯度B,経度B,1」、小数 6 桁、改行は CRLF) にする。
+ * 公式の .sci はフィニッシュ (計測線) を含まないので、計測線と同じ線は書かない
+ */
+export function exportSci(sectors: Sector[], controlLine?: ControlLine): string {
+  const same = (s: Sector) => !!controlLine &&
+    Math.abs(s.latA - controlLine.latA) < 1e-7 && Math.abs(s.lonA - controlLine.lonA) < 1e-7 &&
+    Math.abs(s.latB - controlLine.latB) < 1e-7 && Math.abs(s.lonB - controlLine.lonB) < 1e-7;
+  return sectors
+    .filter(s => !same(s))
+    .map(s => [s.latA, s.lonA, s.latB, s.lonB].map(v => v.toFixed(6)).join(',') + ',1\r\n')
+    .join('');
 }
 
 /** .sci (1 行 1 本: 緯度A,経度A,緯度B,経度B,…) を読む */
@@ -331,6 +363,8 @@ interface StoredData {
   // 組み合わせた結果 (起動のたびに組み合わせ直さないよう、一緒に保存する)
   circuits: UserCircuitItem[];
   loose: LoosePolyline[];
+  // コース編集で保存したコース (ファイルからではないので、組み合わせ直さない)
+  edited?: UserCircuitItem[];
 }
 
 // ---------------------------------------------------------------------------
@@ -341,6 +375,9 @@ class UserCircuitStorage {
   private files: CourseFile[] = [];
   private circuits: UserCircuitItem[] = [];
   private loose: LoosePolyline[] = [];
+  private edited: UserCircuitItem[] = [];
+  // 保存済みのデータを読めなかったか。読めなかったときは、保存済みのデータを空で上書きしないよう保存しない
+  private loadFailed = false;
   /** 保存済みのデータの読み込みが終わると解決する。コースの判定の前に待つ */
   public readonly ready: Promise<void>;
 
@@ -354,11 +391,13 @@ class UserCircuitStorage {
       data = await dbGet<StoredData>(DB_KEY);
     } catch (e) {
       console.warn('[UserCircuit] IndexedDB を開けません:', e);
+      this.loadFailed = true;
     }
     if (data) {
       this.files = data.files || [];
       this.circuits = data.circuits || [];
       this.loose = data.loose || [];
+      this.edited = data.edited || [];
     }
     // 以前 (localStorage) の保存分を移し替える。元の .pth / .cln / .sci の文字列を持っているので、組み合わせ直す
     try {
@@ -424,15 +463,7 @@ class UserCircuitStorage {
     this.circuits = r.circuits;
     this.loose = r.loose;
 
-    let saved = true;
-    let saveError: string | undefined;
-    try {
-      await dbPut(DB_KEY, { files: this.files, circuits: this.circuits, loose: this.loose } satisfies StoredData);
-    } catch (e) {
-      saved = false;
-      saveError = e instanceof Error ? e.message : String(e);
-      console.warn('[UserCircuit] 保存に失敗:', e);
-    }
+    const { saved, saveError } = await this.persist();
 
     // 件数は登録済みのもの全体 (今回の分と、それまでの分を合わせて組み合わせた結果)。読み込めなかったファイルは今回の分だけ
     return {
@@ -447,6 +478,71 @@ class UserCircuitStorage {
     };
   }
 
+  /** 今の内容を保存する */
+  private async persist(): Promise<{ saved: boolean; saveError?: string }> {
+    if (this.loadFailed) {
+      return { saved: false, saveError: '保存済みのコースを読み込めなかったため、消さないよう保存していません (アプリを開き直してください)' };
+    }
+    try {
+      await dbPut(DB_KEY, { files: this.files, circuits: this.circuits, loose: this.loose, edited: this.edited } satisfies StoredData);
+      return { saved: true };
+    } catch (e) {
+      console.warn('[UserCircuit] 保存に失敗:', e);
+      return { saved: false, saveError: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * コース編集で直した計測線・セクターを保存する (同じ名前のものは置き換える)。
+   * 次から、この計測線を通るログには、読み込んだコースデータや内蔵のコースより優先して使う
+   */
+  public async saveEditedCircuit(
+    name: string,
+    controlLine: ControlLine,
+    sectors: Sector[],
+    polylines?: Array<Array<[number, number]>>
+  ): Promise<{ saved: boolean; saveError?: string }> {
+    await this.ready.catch(() => undefined);
+    // コース図が今はないとき (取得中など) は、同じ名前で前に保存したコース図を (同じ場所なら) 引き継ぐ
+    const prev = this.edited.find(c => c.name === name);
+    const prevPolylines = prev?.polylines && distM(lineMid(prev.controlLine).lat, lineMid(prev.controlLine).lon, lineMid(controlLine).lat, lineMid(controlLine).lon) < 1000
+      ? prev.polylines
+      : undefined;
+    const keptPolylines = polylines ?? prevPolylines;
+    const item: UserCircuitItem = {
+      id: `edited:${name}`,
+      name,
+      controlLine: { ...controlLine, name },
+      sectors,
+      ...(keptPolylines ? { polylines: keptPolylines } : {}),
+      sources: { cln: 'edited' }
+    };
+    // 新しく保存したものを最後に置く (同じ場所に複数あるときは、後に保存したものを使う)
+    this.edited = [...this.edited.filter(c => c.name !== name), item];
+    return this.persist();
+  }
+
+  /** コース編集で保存したコース */
+  public getEditedCircuits(): UserCircuitItem[] {
+    return this.edited;
+  }
+
+  /** 同じ名前で保存したコースが、別の場所 (計測線が 1 km 以上離れている) にあるか */
+  public isEditedNameUsedElsewhere(name: string, controlLine: ControlLine): boolean {
+    const prev = this.edited.find(c => c.name === name);
+    if (!prev) return false;
+    const a = lineMid(prev.controlLine);
+    const b = lineMid(controlLine);
+    return distM(a.lat, a.lon, b.lat, b.lon) >= 1000;
+  }
+
+  /** コース編集で保存したコースを消す */
+  public async deleteEditedCircuit(name: string): Promise<{ saved: boolean; saveError?: string }> {
+    await this.ready.catch(() => undefined);
+    this.edited = this.edited.filter(c => c.name !== name);
+    return this.persist();
+  }
+
   /**
    * ログの近く (先頭位置から maxDistMeters 以内) のユーザーコース。
    * 候補が複数あるとき (筑波 2000 / 1000 など) は、走行データで計測線を通過して最も多く周回を区切れるものを選び、
@@ -458,18 +554,33 @@ class UserCircuitStorage {
     maxDistMeters = 15000,
     points?: TelemetryPoint[]
   ): { circuit: UserCircuitItem; crossings: number } | null {
-    const near = this.circuits
+    const near = [...this.edited, ...this.circuits]
       .map(c => ({ c, d: distM(lat, lon, lineMid(c.controlLine).lat, lineMid(c.controlLine).lon) }))
       .filter(x => x.d < maxDistMeters)
       .sort((a, b) => a.d - b.d);
+    const isEdited = (c: UserCircuitItem) => c.id.startsWith('edited:');
     if (near.length === 0) return null;
     // 走行データがなければ、通過したかは分からないので近いものを返す (crossings は -1)
     if (!points) return { circuit: near[0].c, crossings: -1 };
     // 周回の数ではなく計測線を通過した回数で比べる (通過が 1 回で、通過より前の方が長いログは周回が「ログ全体」になり、0 周と区別できないため)
-    let best = near[0].c;
+    const counted = near.map(({ c }) => ({ c, count: countGateCrossings(points, c.controlLine) }));
+    // コース編集で保存したコースの計測線を通過していれば、読み込んだコースデータより優先する (利用者が直した設定のため。
+    // 計測線を動かすと通過の回数が変わるので、回数では比べない)。保存したコースどうしは回数で比べ、同じなら後に保存したものを使う
+    const editedOrder = (c: UserCircuitItem) => this.edited.indexOf(c);
+    // 保存したコースにコース図があれば、ログがその上を走っていることも確かめる
+    // (鈴鹿のフルコースと東コースのように、計測線とストレートを共有する別のコースを取り違えないように)
+    const offTrack = new Set(counted.filter(x => isEdited(x.c) && x.count > 0 && x.c.polylines && !runsOnPolylines(points, x.c.polylines!)).map(x => x.c));
+    const crossedEdited = counted
+      .filter(x => isEdited(x.c) && x.count > 0 && !offTrack.has(x.c))
+      .sort((a, b) => b.count - a.count || editedOrder(b.c) - editedOrder(a.c));
+    if (crossedEdited.length > 0) return { circuit: crossedEdited[0].c, crossings: crossedEdited[0].count };
+    const candidates = near.filter(x => !offTrack.has(x.c));
+    if (candidates.length === 0) return null;
+    let best = candidates[0].c;
     let bestCount = 0;
-    for (const { c } of near) {
-      const count = countGateCrossings(points, c.controlLine);
+    for (const { c, count } of counted) {
+      // コース図から外れた保存したコースは使わない (別のコース)
+      if (offTrack.has(c)) continue;
       if (count > bestCount) {
         bestCount = count;
         best = c;
@@ -480,7 +591,7 @@ class UserCircuitStorage {
 
   /** ユーザーコースの id からコース図 */
   public getCircuitPolylines(id: string): Array<Array<[number, number]>> | undefined {
-    return this.circuits.find(c => c.id === id)?.polylines;
+    return [...this.edited, ...this.circuits].find(c => c.id === id)?.polylines;
   }
 
   /** 内蔵のコースに使うコース図: コントロールライン (なければ中心) の近くを通る、読み込み済みのコース図 */
@@ -488,12 +599,12 @@ class UserCircuitStorage {
     // 同じ内蔵のコース名を付けたユーザーコース (施設の主なコース) のコース図があれば、それを使う。
     // 近さだけで選ぶと、メインストレートを共有する部分コース (鈴鹿の東コースなど) のコース図を選ぶことがある
     if (preferName) {
-      const own = this.circuits.find(c => c.name === preferName && c.polylines && distToPolylinesM(lat, lon, c.polylines) <= maxMeters);
+      const own = [...this.edited, ...this.circuits].find(c => c.name === preferName && c.polylines && distToPolylinesM(lat, lon, c.polylines) <= maxMeters);
       if (own) return own.polylines;
     }
     let best: Array<Array<[number, number]>> | undefined;
     let bestD = maxMeters;
-    for (const p of [...this.circuits.filter(c => c.polylines).map(c => c.polylines!), ...this.loose.map(l => l.polylines)]) {
+    for (const p of [...this.edited, ...this.circuits].filter(c => c.polylines).map(c => c.polylines!).concat(this.loose.map(l => l.polylines))) {
       const d = distToPolylinesM(lat, lon, p);
       if (d <= bestD) {
         bestD = d;
@@ -504,18 +615,15 @@ class UserCircuitStorage {
   }
 
   public getCircuitCount(): number {
-    return this.circuits.length;
+    return this.circuits.length + this.edited.length;
   }
 
   public async clear(): Promise<void> {
     this.files = [];
     this.circuits = [];
     this.loose = [];
-    try {
-      await dbPut(DB_KEY, { files: [], circuits: [], loose: [] } satisfies StoredData);
-    } catch (e) {
-      console.warn('[UserCircuit] 削除に失敗:', e);
-    }
+    this.edited = [];
+    await this.persist();
   }
 }
 
