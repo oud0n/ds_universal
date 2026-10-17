@@ -16,6 +16,8 @@ interface SpeedGraphWindowProps {
   // 横軸 (距離 / 時間)。全コースウインドウなど他のウインドウの車両位置もこの基準に合わせるため、App 側で持つ
   xAxisMode: CompareAxis;
   onChangeXAxisMode: (mode: CompareAxis) => void;
+  // セクターにそろえているときの、そろえた位置の基準車の時刻 (秒)。時間基準ではそれより前を薄く描き、そこから表示する
+  alignStartTime?: number;
 }
 
 export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
@@ -26,7 +28,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
   onSeekTime,
   onSeekDistance,
   xAxisMode,
-  onChangeXAxisMode: setXAxisMode
+  onChangeXAxisMode: setXAxisMode,
+  alignStartTime
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -254,27 +257,36 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     }
 
     // 速度グラフ描画 (各車両)
+    // セクターにそろえているとき (時間基準) は、そろえた位置より前は時刻がずれていて比べられないので薄く描く
+    const dimBefore = xAxisMode === 'time' && alignStartTime !== undefined ? alignStartTime : -Infinity;
     cars.forEach(carItem => {
       const { slot, lap } = carItem;
       ctx.strokeStyle = slot.colorHex;
       ctx.lineWidth = slot.slot === 0 ? 2.5 : 2.0;
-      ctx.beginPath();
 
-      let started = false;
-      for (const p of lap.points) {
-        const xVal = xAxisMode === 'distance' ? p.distance : p.time;
-        if (xVal >= activeDomainStart - 0.1 && xVal <= activeDomainEnd + 0.1) {
-          const x = getX(xVal);
-          const y = getSpeedY(p.speed);
-          if (!started) {
-            ctx.moveTo(x, y);
-            started = true;
-          } else {
-            ctx.lineTo(x, y);
+      // 薄く描く部分 (dim) とふつうに描く部分を分けて描く。境目の点は両方に含めて線をつなぐ
+      for (const dim of [true, false]) {
+        if (dim && dimBefore === -Infinity) continue;
+        ctx.globalAlpha = dim ? 0.25 : 1;
+        ctx.beginPath();
+        let started = false;
+        for (const p of lap.points) {
+          const xVal = xAxisMode === 'distance' ? p.distance : p.time;
+          const inPart = dim ? xVal <= dimBefore : xVal >= dimBefore;
+          if (inPart && xVal >= activeDomainStart - 0.1 && xVal <= activeDomainEnd + 0.1) {
+            const x = getX(xVal);
+            const y = getSpeedY(p.speed);
+            if (!started) {
+              ctx.moveTo(x, y);
+              started = true;
+            } else {
+              ctx.lineTo(x, y);
+            }
           }
         }
+        ctx.stroke();
       }
-      ctx.stroke();
+      ctx.globalAlpha = 1;
     });
 
     // タイム差グラフ (Delta Time) 描画
@@ -369,6 +381,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     currentTime,
     currentDistance,
     xAxisMode,
+    alignStartTime,
     showDeltaTime,
     showGOverlay,
     showAltitude,
@@ -454,6 +467,23 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
       return clampRange(cursorRatio - span / 2, span);
     });
   }, [cursorRatio]);
+
+  // セクターにそろえたら (時間基準)、表示範囲をそろえた位置から周の終わりまでにする (前後はルーラーで見られる)
+  const wasAlignedRef = useRef(false);
+  useEffect(() => {
+    if (alignStartTime === undefined) {
+      // そろえるのをやめたら (ループ・解除)、全体の表示に戻す
+      if (wasAlignedRef.current) setViewRange([0, 1]);
+      wasAlignedRef.current = false;
+      return;
+    }
+    wasAlignedRef.current = true;
+    if (xAxisMode !== 'time' || maxDomain <= 0) return;
+    const start = Math.max(0, Math.min(0.95, alignStartTime / maxDomain - 0.02));
+    setViewRange([start, 1]);
+    // そろえ直したときだけ動かす (再生中の範囲の自動追従とは別)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alignStartTime, xAxisMode]);
 
   // ルーラー: 枠のドラッグで表示範囲を動かし、枠の外をクリックするとそこを中心に表示する
   const rulerRef = useRef<HTMLDivElement | null>(null);

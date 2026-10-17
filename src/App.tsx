@@ -762,6 +762,7 @@ export const App: React.FC = () => {
                 onSeekDistance={handleSeekDistance}
                 xAxisMode={compareAxis}
                 onChangeXAxisMode={setCompareAxis}
+                alignStartTime={alignedSector !== null ? baseLap?.sectors[alignedSector]?.splitTime : undefined}
               />
             </div>
 
