@@ -139,6 +139,12 @@ export type GFilterLevel = 'weak' | 'standard' | 'strong';
 const MAX_RADIUS_M = 9999.9;
 // strong で G を平均する範囲 (前後、秒)
 const STRONG_HALF_WINDOW_SEC = 0.25;
+// 円・車速の差に使う隣の点の最小の間隔。記録レートが高いログや、同じ位置・ほぼ同じ時刻の点が続くログでは、
+// すぐ隣の点では間隔が小さすぎて座標の丸め・GPS の揺れに埋もれるので、これ以上離れた点まで広げる
+const MIN_SPAN_SEC = 0.045;
+const MIN_SPAN_M = 0.3;
+// これより遅いとき (停止・ピットでの徐行) は旋回半径を求めない (位置の揺れで小さな円ができるため)
+const MIN_SPEED_KMH = 7.2;
 
 /** 5 個の中央値。中央の値が他の 4 個より小さい (急な頂点) ときはそのまま残す (keepSharpMin) */
 function median5(v: number[], keepSharpMin: boolean): number {
@@ -174,13 +180,23 @@ export function applyGFilter(points: TelemetryPoint[], level: GFilterLevel = get
   const xs = points.map(p => (p.longitude - points[0].longitude) * cosLat0 * M_PER_DEG);
   const ys = points.map(p => (p.latitude - lat0) * M_PER_DEG);
 
+  // i から前 (dir = -1) / 後 (dir = +1) へ、時間と距離の両方で十分に離れた点を探す (なければ端の点)
+  const farEnough = (i: number, dir: -1 | 1) => {
+    let j = i + dir;
+    while (j > 0 && j < n - 1 && (Math.abs(points[j].time - points[i].time) < MIN_SPAN_SEC || Math.hypot(xs[j] - xs[i], ys[j] - ys[i]) < MIN_SPAN_M)) j += dir;
+    return Math.max(0, Math.min(n - 1, j));
+  };
+
   // 生の旋回半径と曲がる向き (右旋回 +1 / 左旋回 -1)
   const rawR = new Array<number>(n).fill(MAX_RADIUS_M);
   const side = new Array<number>(n).fill(0);
   for (let i = 1; i < n - 1; i++) {
-    const ax = xs[i] - xs[i - 1], ay = ys[i] - ys[i - 1];
-    const bx = xs[i + 1] - xs[i], by = ys[i + 1] - ys[i];
-    const cx = xs[i + 1] - xs[i - 1], cy = ys[i + 1] - ys[i - 1];
+    if (points[i].speed < MIN_SPEED_KMH) continue;
+    const p = farEnough(i, -1), q = farEnough(i, 1);
+    if (p === i || q === i) continue;
+    const ax = xs[i] - xs[p], ay = ys[i] - ys[p];
+    const bx = xs[q] - xs[i], by = ys[q] - ys[i];
+    const cx = xs[q] - xs[p], cy = ys[q] - ys[p];
     const cross = ax * by - ay * bx; // 正なら左 (反時計回り) に曲がっている
     const a = Math.hypot(ax, ay), b = Math.hypot(bx, by), c = Math.hypot(cx, cy);
     if (Math.abs(cross) > 1e-9 && a > 0 && b > 0) {
@@ -188,21 +204,26 @@ export function applyGFilter(points: TelemetryPoint[], level: GFilterLevel = get
       side[i] = cross > 0 ? -1 : 1;
     }
   }
+  // 端の点は円が作れないので、隣の点と同じにする (ログが曲がっている途中で始まっても 0 G にならないように)
+  rawR[0] = rawR[1]; side[0] = side[1];
+  rawR[n - 1] = rawR[n - 2]; side[n - 1] = side[n - 2];
 
-  // 記録の間隔 (隣り合う点の時刻の差の最小値)
-  let dtMin = Infinity;
+  // 記録の間隔。隣り合う点の時刻の差の中央値 (間隔が極端に短い点が 1 組あっても、ログ全体の扱いが変わらないように)
+  const dts: number[] = [];
   for (let i = 1; i < n; i++) {
     const dt = points[i].time - points[i - 1].time;
-    if (dt > 1e-6 && dt < dtMin) dtMin = dt;
+    if (dt > 1e-6) dts.push(dt);
   }
-  const lowRate = !(dtMin <= 0.2); // 5Hz 以下
+  dts.sort((a, b) => a - b);
+  const dtTypical = dts.length > 0 ? dts[Math.floor(dts.length / 2)] : Infinity;
+  const lowRate = !(dtTypical <= 0.2); // 5Hz 以下
 
   // 旋回半径をならす
   let R = rawR.slice();
   if (level !== 'weak' && !lowRate && n >= 5) {
-    const highRate = dtMin <= 0.1; // 10Hz 以上
+    const highRate = dtTypical <= 0.1; // 10Hz 以上
     const med = rawR.slice();
-    for (let i = 2; i < n - 2; i++) med[i] = median5(rawR.slice(i - 2, i + 3), !highRate);
+    for (let i = 2; i < n - 2; i++) med[i] = median5([rawR[i - 2], rawR[i - 1], rawR[i], rawR[i + 1], rawR[i + 2]], !highRate);
     if (n > 3) {
       med[1] = (rawR[0] + rawR[1] + rawR[2]) / 3;
       med[n - 2] = (rawR[n - 3] + rawR[n - 2] + rawR[n - 1]) / 3;
@@ -219,19 +240,28 @@ export function applyGFilter(points: TelemetryPoint[], level: GFilterLevel = get
     }
   }
 
+  // 曲がる向きも前後 2 点を含めた多数決でならす (半径だけをならし、向きを 1 点の値のまま掛けると、
+  // GPS の揺れで向きが 1 点だけ反転したときに G の符号がそこだけ逆になるため)
+  const sideSm = side.map((_, i) => {
+    let sum = 0;
+    for (let k = Math.max(0, i - 2); k <= Math.min(n - 1, i + 2); k++) sum += side[k];
+    return sum > 0 ? 1 : sum < 0 ? -1 : side[i];
+  });
+
   // G
   const corner = new Array<number>(n).fill(0);
   const accel = new Array<number>(n).fill(0);
-  for (let i = 1; i < n - 1; i++) {
+  for (let i = 1; i < n; i++) {
     const r = Math.min(MAX_RADIUS_M, R[i]);
     const v = points[i].speed / 3.6;
-    corner[i] = r > 0 ? ((v * v) / r / GRAVITY) * side[i] : 0;
-    const dt = points[i].time - points[i - 1].time;
-    accel[i] = dt > 0 ? ((points[i].speed - points[i - 1].speed) / 3.6 / dt / GRAVITY) : 0;
+    corner[i] = r > 0 && points[i].speed >= MIN_SPEED_KMH ? ((v * v) / r / GRAVITY) * sideSm[i] : 0;
+    // 車速の差は、時間が十分に離れた前の点との差 (間隔が極端に短い点の組で値が跳ねないように)
+    let j = i - 1;
+    while (j > 0 && points[i].time - points[j].time < MIN_SPAN_SEC) j--;
+    const dt = points[i].time - points[j].time;
+    accel[i] = dt > 1e-6 ? (points[i].speed - points[j].speed) / 3.6 / dt / GRAVITY : 0;
   }
   corner[0] = corner[1]; accel[0] = accel[1];
-  corner[n - 1] = corner[n - 2]; accel[n - 1] = accel[n - 2];
-  R[0] = R[1]; R[n - 1] = R[n - 2];
 
   // 前後 1 点との平均 (5Hz 以下ではしない)
   const mean3 = (v: number[]) => v.map((x, i) => (i === 0 || i === n - 1 ? x : (v[i - 1] + x + v[i + 1]) / 3));
