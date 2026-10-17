@@ -1284,6 +1284,7 @@ export const App: React.FC = () => {
             }}
             onRemoveSession={id => {
               polylineRequestRef.current.delete(id);
+              setConvertSessionId(prev => (prev === id ? '' : prev));
               setSessions(prev => prev.filter(s => s.id !== id));
               setSelectedCars(prev => prev.filter(c => c.sessionId !== id));
             }}

@@ -302,7 +302,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
                 <h3 className="text-xs font-bold text-slate-300 mb-2">解析データ（G などの計算値を含む）</h3>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <button disabled={disabled} className={btnCls} data-testid="convert-dscsv"
-                    onClick={() => save('csv', exportDigispiceCsv(toTelemetryPoints(points)), 'text/csv;charset=utf-8')}
+                    onClick={() => triggerFileDownload(`${baseName}_telemetry.csv`, exportDigispiceCsv(toTelemetryPoints(points)), 'text/csv;charset=utf-8')}
                     title="デジスパイス公式ソフトと同じ列の CSV（旋回半径・G 付き）">
                     <Download size={13} /> 走行データCSV
                   </button>
@@ -316,7 +316,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
                     <Download size={13} /> DTB
                   </button>
                   {MOTEC_CSV_ENABLED && (
-                    <button className={btnCls} onClick={() => triggerFileDownload(`${session.sessionName}_motec.csv`, exportMotecCsv(session), 'text/csv;charset=utf-8')}
+                    <button disabled={disabled} className={btnCls} onClick={() => triggerFileDownload(`${session.sessionName.replace(/[\\/:*?"<>|]/g, '_')}_motec.csv`, exportMotecCsv(session), 'text/csv;charset=utf-8')}
                       title="MoTeC CSV 形式 (i2 の CSV エクスポートと同じ書式)。範囲によらずログ全体">
                       <Download size={13} /> MoTeC CSV
                     </button>

@@ -165,14 +165,16 @@ export function parseNmea(nmeaText: string): { points: TelemetryPoint[]; samplin
       };
       // GGA → RMC の順なら直前の GGA が同じ時刻。GGA の記録が RMC より粗いログでは、1 秒以内の直前の GGA の値を使う。
       // RMC → GGA の順では、後から来る同じ時刻の GGA で置き換わる
-      const ggaAge = lastGga ? tod - lastGga.tod : NaN;
+      // (0 時をまたぐときは 1 日分を足し引きして比べる)
+      const ggaAge = lastGga ? ((tod - lastGga.tod + 86400 + 43200) % 86400) - 43200 : NaN;
       applyGga(point, lastGga && ggaAge > -0.0005 && ggaAge < 1.0005 ? lastGga : null);
       points.push(point);
       if (absoluteSec !== null && startDate === undefined) startDate = new Date(absoluteSec * 1000);
     }
   }
 
-  if (points.length === 0 && ggaFixes.length >= 2) points = pointsFromGga(ggaFixes);
+  // 使える RMC が 1 点以下なら、GGA の測位から点列を作る
+  if (points.length < 2 && ggaFixes.length >= 2) points = pointsFromGga(ggaFixes);
 
   const enriched = calculatePhysics(points);
   // 記録レートは時刻の刻みから求める
