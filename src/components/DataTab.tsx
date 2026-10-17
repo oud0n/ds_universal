@@ -17,7 +17,8 @@ import {
   Layers,
   Edit3,
   FolderOpen,
-  Globe
+  Globe,
+  X
 } from 'lucide-react';
 import { formatMinSec } from '../utils/timeFormat';
 
@@ -25,6 +26,8 @@ interface DataTabProps {
   sessions: Session[];
   selectedCars: SelectedCarSlot[];
   onSelectCarSlot: (slotIndex: number, sessionId: string, lapNumber: number) => void;
+  // スロットの割り当てを解除する
+  onClearCarSlot: (slotIndex: number) => void;
   onSetDistanceOffset: (slotIndex: number, offsetM: number) => void;
   alignLapLength: boolean;
   onSetAlignLapLength: (value: boolean) => void;
@@ -45,6 +48,7 @@ export const DataTab: React.FC<DataTabProps> = ({
   sessions,
   selectedCars,
   onSelectCarSlot,
+  onClearCarSlot,
   onSetDistanceOffset,
   alignLapLength,
   onSetAlignLapLength,
@@ -250,6 +254,16 @@ export const DataTab: React.FC<DataTabProps> = ({
                     )}
                   </div>
                 </div>
+                {assigned && (
+                  <button
+                    onClick={() => onClearCarSlot(slot.slot)}
+                    title={`${slot.label} の割り当てを解除`}
+                    className="self-start flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-[#2e374c] text-[11px] text-slate-400 hover:text-slate-100 hover:border-slate-500 transition-colors"
+                  >
+                    <X size={11} />
+                    解除
+                  </button>
+                )}
               </div>
             );
           })}

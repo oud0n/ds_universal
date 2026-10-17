@@ -963,6 +963,7 @@ export const App: React.FC = () => {
             sessions={sessions}
             selectedCars={selectedCars}
             onSelectCarSlot={handleSelectCarSlot}
+            onClearCarSlot={slotIndex => setSelectedCars(prev => prev.filter(c => c.slot !== slotIndex))}
             onSetDistanceOffset={handleSetDistanceOffset}
             alignLapLength={alignLapLength}
             onSetAlignLapLength={setAlignLapLength}
