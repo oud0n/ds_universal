@@ -6,6 +6,7 @@ import {
 } from '../services/logConverter';
 import { exportDtb } from '../services/dtbParser';
 import { triggerFileDownload } from '../services/nmeaExporter';
+import { TrimPreview } from './TrimPreview';
 
 interface ConvertTabProps {
   sessions: Session[];
@@ -62,6 +63,28 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
     }
     return { kind: 'all' };
   }, [rangeKind, lapNumber, startSec, endSec, session, duration]);
+
+  // 切り出しのプレビューに出す範囲 (ログの先頭からの秒)。ラップ・ログ全体を選んでいるときは、その範囲を出す
+  const t0 = session?.points[0]?.time ?? 0;
+  const previewRange = useMemo((): [number, number] => {
+    if (rangeKind === 'time') return [range.kind === 'time' ? range.startSec - t0 : 0, range.kind === 'time' ? range.endSec - t0 : duration];
+    if (rangeKind === 'lap') {
+      const lap = session?.laps.find(l => l.lapNumber === lapNumber);
+      if (lap) return [Math.max(0, lap.startTime - t0), Math.min(duration, lap.endTime - t0)];
+    }
+    return [0, duration];
+  }, [rangeKind, range, lapNumber, session, t0, duration]);
+  // プレビューで範囲を動かしたら、時間での指定に切り替える
+  const handleTrimChange = (a: number, b: number) => {
+    setRangeKind('time');
+    setStartSec(a.toFixed(1));
+    setEndSec(b.toFixed(1));
+  };
+  const handleTrimReset = () => {
+    setRangeKind('all');
+    setStartSec('0');
+    setEndSec(duration.toFixed(1));
+  };
 
   const points = useMemo(
     () => (session ? selectConvertPoints(session, range, offsetHours) : []),
@@ -174,19 +197,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
                 </label>
               )}
 
-              {rangeKind === 'time' && (
-                <div className="flex items-end gap-2 flex-wrap">
-                  <label className="text-xs text-slate-400 space-y-1 block">
-                    <span>開始（先頭からの秒）</span>
-                    <input type="number" min={0} step={0.1} value={startSec} onChange={e => setStartSec(e.target.value)} className={`${inputCls} w-36`} data-testid="convert-start" />
-                  </label>
-                  <label className="text-xs text-slate-400 space-y-1 block">
-                    <span>終了（先頭からの秒）</span>
-                    <input type="number" min={0} step={0.1} value={endSec} onChange={e => setEndSec(e.target.value)} className={`${inputCls} w-36`} data-testid="convert-end" />
-                  </label>
-                  <span className="text-[11px] text-slate-500 pb-2">ログの長さ: {duration.toFixed(1)} 秒</span>
-                </div>
-              )}
+              {/* 時間で指定するときの範囲は、下の切り出しのプレビューで指定する */}
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <label className="text-xs text-slate-400 space-y-1 block">
@@ -210,6 +221,16 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
                 </label>
               </div>
             </div>
+
+            {/* 切り出し (範囲のプレビューと指定) */}
+            <TrimPreview
+              session={session}
+              startSec={previewRange[0]}
+              endSec={previewRange[1]}
+              onChange={handleTrimChange}
+              onReset={handleTrimReset}
+              offsetHours={offsetHours}
+            />
 
             {/* 概要 */}
             <div className="bg-surface-2 border border-line-2 rounded-xl p-4 text-xs text-slate-300 font-mono" data-testid="convert-summary">
