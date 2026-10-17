@@ -1,4 +1,4 @@
-# DS Universal Suite - バグ・不具合情報一覧（BUGS.md）
+# DS Universal - バグ・不具合情報一覧（BUGS.md）
 
 最終更新: 2026-10-16  
 対象ブランチ: `dev`

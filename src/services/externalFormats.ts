@@ -401,7 +401,7 @@ export function exportMotecCsv(session: Session): string {
     `${q('Venue')},${q(session.circuitName || '')},,,${q('Worksheet')},${q('')}`,
     `${q('Vehicle')},${q(session.vehicleName || '')},,,${q('Vehicle Desc')},${q('')}`,
     `${q('Driver')},${q(session.driverName || '')},,,${q('Engine ID')},${q('')}`,
-    `${q('Device')},${q('DS Universal Suite')}`,
+    `${q('Device')},${q('DS Universal')}`,
     `${q('Comment')},${q(session.sessionName)},,,${q('Session')},${q('')}`,
     `${q('Log Date')},${q(logDate)},,,${q('Origin Time')},${q('0.000')},${q('s')}`,
     `${q('Log Time')},${q(logTime)},,,${q('Start Time')},${q('0.000')},${q('s')}`,

@@ -1,4 +1,4 @@
-# DS Universal Suite (`ds_universal`)
+# DS Universal (`ds_universal`)
 
 **デジスパイスIV（DigSpice IV）USB通信・ログ吸い出し ＆ モータースポーツ・テレメトリ解析・車載動画同期スイート**
 
@@ -22,7 +22,7 @@
 
 ## 🏎️ 概要
 
-**DS Universal Suite (`ds_universal`)** は、サーキット走行用GPSデータロガー「デジスパイスIV」のデータ吸い出し・設定変更から、走行軌跡・車速・Gフォースの本格テレメトリ解析、さらにはGoPro車載動画とのミリ秒精度自動同期・2カメラPinP再生・メーター焼き込みMP4エクスポートまでを1つに統合した、ソースコード公開のデスクトップアプリケーションです。
+**DS Universal (`ds_universal`)** は、サーキット走行用GPSデータロガー「デジスパイスIV」のデータ吸い出し・設定変更から、走行軌跡・車速・Gフォースの本格テレメトリ解析、さらにはGoPro車載動画とのミリ秒精度自動同期・2カメラPinP再生・メーター焼き込みMP4エクスポートまでを1つに統合した、ソースコード公開のデスクトップアプリケーションです。
 
 ---
 
@@ -125,7 +125,7 @@
 
 ### 🍎 macOS 版ご利用時の注意事項（「壊れているため開けません」と表示される場合）
 
-macOS で DMG を展開してアプリを起動しようとした際、**「“DS Universal Suite”は壊れているため開けません。ゴミ箱に入れる必要があります。」** という警告ダイアログが表示される場合があります。
+macOS で DMG を展開してアプリを起動しようとした際、**「“DS Universal”は壊れているため開けません。ゴミ箱に入れる必要があります。」** という警告ダイアログが表示される場合があります。
 
 #### 💡 原因
 本アプリは有志による個人開発であり、有償の Apple Developer Program による公証（Notarization）および正規の開発者署名を付与していません。  
@@ -133,11 +133,11 @@ macOS のセキュリティ機能（Gatekeeper）は、Web ブラウザ等から
 
 #### 🚀 解決方法（ターミナルでの解除コマンド）
 
-1. DMG 内の `DS Universal Suite.app` を「**アプリケーション（/Applications）**」フォルダにコピーします。
+1. DMG 内の `DS Universal.app` を「**アプリケーション（/Applications）**」フォルダにコピーします。
 2. **ターミナル.app** を開き、以下のコマンドを実行します：
 
 ```bash
-xattr -cr "/Applications/DS Universal Suite.app"
+xattr -cr "/Applications/DS Universal.app"
 ```
 
 ##### 📖 コマンドの解説
@@ -151,7 +151,7 @@ xattr -cr "/Applications/DS Universal Suite.app"
 macOS のセキュリティポリシー（macOS Sequoia / Sonoma 等）によっては、未署名コードの実行が厳格に遮断される場合があります。その場合はターミナルで以下の自己署名コマンドを実行してください：
 
 ```bash
-codesign --force --deep --sign - "/Applications/DS Universal Suite.app"
+codesign --force --deep --sign - "/Applications/DS Universal.app"
 ```
 
 ##### 📖 コマンドの解説
@@ -275,7 +275,7 @@ npm run dist:mac   # macOS用 (.dmg, .zip / Apple Silicon arm64)
 
 ## ☕ 開発者を支援（Buy Me a Coffee）
 
-**DS Universal Suite (`ds_universal`)** は有志による個人開発のプロジェクトです（無料・ソースコード公開）。  
+**DS Universal (`ds_universal`)** は有志による個人開発のプロジェクトです（無料・ソースコード公開）。  
 サーキット走行費・ガソリン代・高速代、Mac 環境への対応・維持、GoPro車載動画とのミリ秒精度同期やテレメトリオーバーレイ機能の開発を継続するため、コーヒー1杯（$3〜）からの温かいご支援をいただけると大変励みになります！☕🏎️
 
 👉 **[Buy Me a Coffee で oud0n を支援する](https://buymeacoffee.com/oud0n)**

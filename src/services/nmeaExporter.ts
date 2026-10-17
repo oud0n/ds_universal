@@ -148,7 +148,7 @@ export function exportSessionToGpx(
   const trackName = escapeXml(`${session.sessionName}${lapLabel}`);
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="DS Universal Suite" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+<gpx version="1.1" creator="DS Universal" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
   <metadata>
     <name>${trackName}</name>
     <desc>Converted from DigiSpice GPS log file</desc>

@@ -139,7 +139,7 @@ export function convertToGpx(points: ConvertedPoint[], trackName: string): strin
     })
     .join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="DS Universal Suite" xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v2">
+<gpx version="1.1" creator="DS Universal" xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v2">
   <metadata>
     <name>${name}</name>
     <time>${new Date().toISOString()}</time>

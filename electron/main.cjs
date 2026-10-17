@@ -8,6 +8,13 @@ app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 
+// アプリ名を「DS Universal Suite」から「DS Universal」に変えたので、データ (保存したユーザーコース・設定など) の
+// 保存先は前の名前のフォルダを使い続ける (名前に合わせて変わると、更新した人のデータが引き継がれないため)。
+// 開発中 (npm run electron:dev など、パッケージしていないとき) は従来どおり
+if (app.isPackaged) {
+  app.setPath('userData', path.join(app.getPath('appData'), 'DS Universal Suite'));
+}
+
 let mainWindow = null;
 
 // デジスパイスIV の USB シリアル (VID 0x2DCF / PID 0x6002)
@@ -31,7 +38,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: 'DS Universal Suite - GPS Data Logger & Telemetry Analyser',
+    title: 'DS Universal - GPS Data Logger & Telemetry Analyser',
     // 画面が出るまでの背景。テーマ (システムに合わせる場合) と同じく OS の設定に合わせる
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#0f1117' : '#e9edf2',
     webPreferences: {
@@ -207,12 +214,12 @@ function createWindow() {
         },
         { type: 'separator' },
         {
-          label: 'DS Universal Suite について',
+          label: 'DS Universal について',
           click: () => {
             dialog.showMessageBox(mainWindow, {
               type: 'info',
               title: 'バージョン情報',
-              message: `DS Universal Suite v${app.getVersion()}`,
+              message: `DS Universal v${app.getVersion()}`,
               detail: 'デジスパイスIV USB直接通信・ダウンロード & オフライン走行解析ユニバーサルアプリケーション\n作者: oud0n (https://github.com/oud0n/ds_universal)'
             });
           }
