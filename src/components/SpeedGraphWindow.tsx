@@ -1,5 +1,7 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { canvasColors, useResolvedTheme } from '../utils/theme';
+import { useCompactLayout } from '../hooks/useCompactLayout';
+import { usePinchPointers } from '../hooks/usePinchPointers';
 import { CompareAxis, Lap, SelectedCarSlot, Sector } from '../types/telemetry';
 import { calculateDeltaTimes } from '../services/lapCalculator';
 import { ZoomIn, ZoomOut, RotateCcw, Activity, TrendingUp, Layers } from 'lucide-react';
@@ -34,6 +36,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
 }) => {
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
+  // スマートフォン向けの配置では、ツールバーを 1 行にして横にスクロールさせ、見出しを省く
+  const compact = useCompactLayout();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // 表示モード設定
@@ -76,6 +80,16 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     const top = Math.max(...cars.map(c => c.lap.topSpeed), 100);
     return Math.ceil((top + 10) / 20) * 20; // 20km/h単位
   }, [cars]);
+
+  // 表示領域の大きさが変わったら描き直す (スマートフォンを回したとき・ルーラーが出たときなど)
+  const [resizeTick, setResizeTick] = useState(0);
+  useEffect(() => {
+    const parent = canvasRef.current?.parentElement;
+    if (!parent || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => setResizeTick(t => t + 1));
+    observer.observe(parent);
+    return () => observer.disconnect();
+  }, []);
 
   // Canvas描画
   useEffect(() => {
@@ -264,6 +278,11 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     // 速度グラフ描画 (各車両)
     // セクターにそろえているとき (時間基準) は、そろえた位置より前は時刻がずれていて比べられないので薄く描く
     const dimBefore = xAxisMode === 'time' && alignStartTime !== undefined ? alignStartTime : -Infinity;
+    // 拡大したとき、表示範囲の少し外の点まで結ぶので、線が目盛りの所へはみ出さないよう描画領域で切り取る
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(paddingLeft, 0, plotWidth, height);
+    ctx.clip();
     cars.forEach(carItem => {
       const { slot, lap } = carItem;
       ctx.strokeStyle = slot.colorHex;
@@ -298,6 +317,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
       }
       ctx.globalAlpha = 1;
     });
+    ctx.restore();
 
     // タイム差グラフ (Delta Time) 描画
     if (hasDelta) {
@@ -403,7 +423,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     maxSpeedY,
     deltaTimes,
     baseCar,
-    theme
+    theme,
+    resizeTick
   ]);
 
   // クリック・ドラッグでシーク操作
@@ -436,6 +457,26 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
   const handleMouseUp = () => {
     setIsDragging(false);
   };
+
+  // 2 本指のピンチで拡大・縮小する (指の中点の位置を動かさない)
+  const handlePinch = (scale: number, centerX: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const plotWidth = rect.width - 55 - 45;
+    const r = plotWidth > 0 ? Math.max(0, Math.min(1, (centerX - rect.left - 55) / plotWidth)) : 0.5;
+    setViewRange(([min, max]) => {
+      const span = max - min;
+      const newSpan = Math.max(0.05, Math.min(1.0, span / scale));
+      return clampRange(min + r * span - r * newSpan, newSpan);
+    });
+  };
+  const pointerHandlers = usePinchPointers({
+    onDown: handleMouseDown,
+    onMove: handleMouseMove,
+    onUp: handleMouseUp,
+    onPinch: handlePinch
+  });
 
   const seekToX = (x: number, containerWidth: number) => {
     const paddingLeft = 55;
@@ -535,12 +576,14 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs">
-        <div className="flex items-center gap-2">
-          <span className="font-bold text-slate-200 flex items-center gap-1.5">
-            <TrendingUp size={14} className="text-red-500" />
-            速度ウインドウ
-          </span>
+      <div className={compact ? 'flex items-center gap-2 px-2 py-1 bg-surface-3 border-b border-line-2 text-xs overflow-x-auto whitespace-nowrap shrink-0 no-scrollbar' : 'flex items-center justify-between px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs'}>
+        <div className={compact ? 'flex items-center gap-2 shrink-0' : 'flex items-center gap-2'}>
+          {!compact && (
+            <span className="font-bold text-slate-200 flex items-center gap-1.5">
+              <TrendingUp size={14} className="text-red-500" />
+              速度ウインドウ
+            </span>
+          )}
 
           {/* 横軸切替 */}
           <div className="flex bg-surface-1 rounded p-0.5 border border-line-3">
@@ -635,15 +678,12 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
       <div className="relative flex-1 w-full h-full min-h-0">
         <canvas
           ref={canvasRef}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-          className="w-full h-full cursor-crosshair block"
+          {...pointerHandlers}
+          className="w-full h-full cursor-crosshair block touch-none"
         />
 
         {/* 右上リアルタイム数値インジケーター */}
-        <div className="absolute top-2 right-3 bg-surface-0/86 backdrop-blur-sm border border-line-2 rounded-md p-2 text-xs flex flex-col gap-1 shadow-md pointer-events-none min-w-[130px]">
+        <div className={`absolute bg-surface-0/86 backdrop-blur-sm border border-line-2 rounded-md flex flex-col gap-1 shadow-md pointer-events-none ${compact ? 'top-1 right-1 p-1 text-[10px]' : 'top-2 right-3 p-2 text-xs min-w-[130px]'}`}>
           {cars.map((c, idx) => {
             // 現在のポイント検索
             const pts = c.lap.points;

@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { canvasColors, useResolvedTheme } from '../utils/theme';
 import { CompareAxis, Lap, SelectedCarSlot } from '../types/telemetry';
 import { CircleDot, Disc } from 'lucide-react';
@@ -34,6 +34,16 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
   });
 
   const basePoint = currentPoints[0];
+
+  // 表示領域の大きさが変わったら描き直す (スマートフォンを回したとき・ルーラーが出たときなど)
+  const [resizeTick, setResizeTick] = useState(0);
+  useEffect(() => {
+    const parent = canvasRef.current?.parentElement;
+    if (!parent || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => setResizeTick(t => t + 1));
+    observer.observe(parent);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -140,7 +150,7 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
       ctx.arc(px, py, 2.5, 0, Math.PI * 2);
       ctx.fill();
     });
-  }, [cars, currentDistance, currentPoints, theme]);
+  }, [cars, currentDistance, currentPoints, theme, resizeTick]);
 
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">

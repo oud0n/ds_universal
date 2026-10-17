@@ -2,7 +2,7 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>DS Universal Suite - GPS Data Logger & Telemetry Analyser</title>
     <!-- アプリアイコン (build/icon.svg / icon.png から作成)。ブラウザ版はサブパスで公開するので相対パスで参照する -->
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
@@ -19,7 +19,7 @@
       }
     </script>
   </head>
-  <body class="bg-surface-0 text-slate-100 antialiased selection:bg-red-500 selection:text-white select-none overflow-hidden h-screen w-screen">
+  <body class="bg-surface-0 text-slate-100 antialiased selection:bg-red-500 selection:text-white select-none overflow-hidden h-dvh w-screen">
     <div id="root" class="h-full w-full"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

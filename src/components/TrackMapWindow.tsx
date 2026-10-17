@@ -1,5 +1,7 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { canvasColors, useResolvedTheme } from '../utils/theme';
+import { useCompactLayout } from '../hooks/useCompactLayout';
+import { usePinchPointers } from '../hooks/usePinchPointers';
 import { CompareAxis, Lap, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { findCarPoint } from '../utils/telemetrySearch';
 import { passesNearPoint } from '../services/lapCalculator';
@@ -64,6 +66,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 }) => {
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
+  // スマートフォン向けの配置では、ツールバーを 1 行にして横にスクロールさせ、見出しを省く
+  const compact = useCompactLayout();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [colorMode, setColorMode] = useState<'car' | 'speed' | 'accel' | 'line'>('car');
@@ -571,6 +575,14 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     store(offsetKey, { eastM: 0, northM: 0 });
   };
 
+  // 2 本指のピンチで拡大・縮小する
+  const pointerHandlers = usePinchPointers({
+    onDown: handleMouseDown,
+    onMove: handleMouseMove,
+    onUp: handleMouseUp,
+    onPinch: scale => setZoom(z => Math.max(0.4, Math.min(10.0, z * scale)))
+  });
+
   // ホイールズーム
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
@@ -587,12 +599,14 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
-      <div className="flex flex-wrap items-center justify-between gap-y-1 px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-bold text-slate-200 flex items-center gap-1.5">
-            <Map size={14} className="text-emerald-400" />
-            全コースウインドウ
-          </span>
+      <div className={compact ? 'flex items-center gap-2 px-2 py-1 bg-surface-3 border-b border-line-2 text-xs overflow-x-auto whitespace-nowrap shrink-0 no-scrollbar' : 'flex flex-wrap items-center justify-between gap-y-1 px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs'}>
+        <div className={compact ? 'flex items-center gap-2 shrink-0' : 'flex flex-wrap items-center gap-2'}>
+          {!compact && (
+            <span className="font-bold text-slate-200 flex items-center gap-1.5">
+              <Map size={14} className="text-emerald-400" />
+              全コースウインドウ
+            </span>
+          )}
 
           {/* カラーモード切替 */}
           <div className="flex items-center bg-surface-1 rounded p-0.5 border border-line-3">
@@ -710,12 +724,9 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       <div className="relative flex-1 w-full h-full min-h-[220px]">
         <canvas
           ref={canvasRef}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
+          {...pointerHandlers}
           onWheel={handleWheel}
-          className={`w-full h-full block ${isAdjustingMap ? 'cursor-move' : 'cursor-grab active:cursor-grabbing'}`}
+          className={`w-full h-full block touch-none ${isAdjustingMap ? 'cursor-move' : 'cursor-grab active:cursor-grabbing'}`}
         />
 
         {/* 地図の位置調整中の案内 */}

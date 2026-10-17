@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Session, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { exportDigispiceCsv, exportLapListCsv } from '../services/csvParser';
 import { exportNmea, exportGpx } from '../services/nmeaParser';
@@ -21,6 +21,7 @@ import {
   X
 } from 'lucide-react';
 import { formatMinSec } from '../utils/timeFormat';
+import { useCompactLayout } from '../hooks/useCompactLayout';
 
 interface DataTabProps {
   sessions: Session[];
@@ -62,6 +63,12 @@ export const DataTab: React.FC<DataTabProps> = ({
   onLoadClnFile,
   onLoadCircuitFolder
 }) => {
+  // スマートフォン向けの配置では、ラップ一覧を表でなく 1 周ずつのカードで出す
+  const compact = useCompactLayout();
+  // スマートフォンでは、コースの設定はたたんでおき、見出しをタップして開く (ラップ一覧を先に見せる)
+  const [courseOpen, setCourseOpen] = useState(false);
+  const showCourseTools = !compact || courseOpen;
+
   const formatTime = (sec: number) => {
     if (!sec || isNaN(sec)) return '--:--.---';
     return formatMinSec(sec, 3);
@@ -123,20 +130,25 @@ export const DataTab: React.FC<DataTabProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-surface-1 text-slate-200 overflow-y-auto p-4 space-y-6">
+    <div className={`flex flex-col h-full bg-surface-1 text-slate-200 overflow-y-auto overflow-x-hidden ${compact ? 'p-2 space-y-3' : 'p-4 space-y-6'}`}>
       {/* 上部: コース設定 & プリセット切り替えバー */}
-      <div className="bg-surface-2 border border-line-2 rounded-xl p-4 shadow-md flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className={`bg-surface-2 border border-line-2 rounded-xl shadow-md flex flex-wrap items-center justify-between ${compact ? 'p-3 gap-3' : 'p-4 gap-4'}`}>
+        <div
+          className={`flex items-center gap-3 ${compact ? 'w-full cursor-pointer' : ''}`}
+          onClick={compact ? () => setCourseOpen(o => !o) : undefined}
+          aria-expanded={compact ? courseOpen : undefined}
+        >
           <div className="p-2 bg-red-600/20 text-red-500 rounded-lg">
             <MapPin size={22} />
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <h2 className="text-sm font-bold text-slate-100">コース / コントロールライン設定</h2>
             <p className="text-xs text-slate-400">全国主要サーキットのプリセット、または独自コースの定義</p>
           </div>
+          {compact && <span className="text-slate-400 text-lg">{courseOpen ? '−' : '+'}</span>}
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className={`items-center gap-2 flex-wrap ${showCourseTools ? 'flex' : 'hidden'}`}>
           {/* サーキットプリセット選択 */}
           <select
             onChange={e => onSelectCircuitPreset(e.target.value)}
@@ -290,16 +302,16 @@ export const DataTab: React.FC<DataTabProps> = ({
         sessions.map(session => (
           <div
             key={session.id}
-            className="bg-surface-2 border border-line-2 rounded-xl p-4 shadow-md space-y-4"
+            className={`bg-surface-2 border border-line-2 rounded-xl shadow-md ${compact ? 'p-2 space-y-2' : 'p-4 space-y-4'}`}
           >
             {/* セッションヘッダー */}
             <div className="flex flex-wrap items-center justify-between border-b border-line-2 pb-3 gap-2">
-              <div className="flex items-center gap-3">
+              <div className={compact ? 'flex flex-wrap items-center gap-2 w-full' : 'flex items-center gap-3'}>
                 <input
                   type="text"
                   value={session.sessionName}
                   onChange={e => onEditSessionName(session.id, e.target.value)}
-                  className="bg-surface-1 border border-line-3 text-sm font-bold text-slate-100 rounded px-2.5 py-1 focus:border-red-500 outline-none"
+                  className={`bg-surface-1 border border-line-3 text-sm font-bold text-slate-100 rounded px-2.5 py-1 focus:border-red-500 outline-none min-w-0 ${compact ? 'w-full' : ''}`}
                   title="クリックして名前を変更"
                 />
                 <span className="text-xs bg-surface-4 text-slate-300 px-2.5 py-0.5 rounded font-mono">
@@ -388,136 +400,242 @@ export const DataTab: React.FC<DataTabProps> = ({
               </div>
             )}
 
-            {/* ラップ一覧テーブル */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-surface-1 text-slate-400 font-mono uppercase text-[11px] border-b border-line-2">
-                  <tr>
-                    <th className="py-2 px-3">Lap</th>
-                    <th className="py-2 px-3">ラップタイム</th>
-                    <th className="py-2 px-3">最高速</th>
-                    <th className="py-2 px-3">最低速</th>
-                    <th className="py-2 px-3">平均速度</th>
-                    <th className="py-2 px-3">距離</th>
-                    {session.sectors.map(sec => (
-                      <th key={sec.id} className="py-2 px-3 text-amber-400">
-                        {sec.name}
-                      </th>
-                    ))}
-                    <th className="py-2 px-3 text-center">スロット選択</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line-1 font-mono">
-                  {session.laps.map(lap => {
-                    const isSelectedAny = selectedCars.some(
-                      c => c.sessionId === session.id && c.lapNumber === lap.lapNumber
-                    );
+            {compact ? (
+              // ラップ一覧 (スマートフォン): 1 周ずつのカード。タイムの下にベストとの差、ベストには BEST を出す
+              <LapCards
+                session={session}
+                selectedCars={selectedCars}
+                slotColors={slotColors}
+                formatTime={formatTime}
+                onSelectCarSlot={onSelectCarSlot}
+              />
+            ) : (
+              // ラップ一覧テーブル
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-surface-1 text-slate-400 font-mono uppercase text-[11px] border-b border-line-2">
+                    <tr>
+                      <th className="py-2 px-3">Lap</th>
+                      <th className="py-2 px-3">ラップタイム</th>
+                      <th className="py-2 px-3">最高速</th>
+                      <th className="py-2 px-3">最低速</th>
+                      <th className="py-2 px-3">平均速度</th>
+                      <th className="py-2 px-3">距離</th>
+                      {session.sectors.map(sec => (
+                        <th key={sec.id} className="py-2 px-3 text-amber-400">
+                          {sec.name}
+                        </th>
+                      ))}
+                      <th className="py-2 px-3 text-center">スロット選択</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line-1 font-mono">
+                    {session.laps.map(lap => {
+                      const isSelectedAny = selectedCars.some(
+                        c => c.sessionId === session.id && c.lapNumber === lap.lapNumber
+                      );
 
-                    return (
-                      <tr
-                        key={lap.lapNumber}
-                        className={`transition-colors hover:bg-surface-4 ${
-                          lap.isBestLap ? 'bg-amber-950/20' : ''
-                        }`}
-                      >
-                        <td className="py-2.5 px-3 font-bold flex items-center gap-1.5">
-                          {lap.isBestLap && <Trophy size={13} className="text-amber-400" />}
-                          Lap {lap.lapNumber}
-                        </td>
-                        <td
-                          className={`py-2.5 px-3 font-bold ${
-                            lap.isBestLap ? 'text-amber-400 text-sm' : 'text-slate-100'
+                      return (
+                        <tr
+                          key={lap.lapNumber}
+                          className={`transition-colors hover:bg-surface-4 ${
+                            lap.isBestLap ? 'bg-amber-950/20' : ''
                           }`}
                         >
-                          {formatTime(lap.lapTime)}
-                          {lap.isPartialLap && (
-                            <span className="ml-1.5 text-[10px] text-amber-300" title="次の計測線の通過までログがないため、実際のラップタイムではありません">
-                              (途中まで)
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-200">{lap.topSpeed.toFixed(1)} km/h</td>
-                        <td className="py-2.5 px-3 text-slate-200">{lap.bottomSpeed.toFixed(1)} km/h</td>
-                        <td className="py-2.5 px-3 text-slate-300">{lap.avgSpeed.toFixed(1)} km/h</td>
-                        <td className="py-2.5 px-3 text-slate-400">{lap.distance.toFixed(3)} km</td>
-
-                        {/* セクタータイム */}
-                        {lap.sectors.map((secRes, sIdx) => (
+                          <td className="py-2.5 px-3 font-bold flex items-center gap-1.5">
+                            {lap.isBestLap && <Trophy size={13} className="text-amber-400" />}
+                            Lap {lap.lapNumber}
+                          </td>
                           <td
-                            key={sIdx}
-                            className={`py-2.5 px-3 ${
-                              secRes.isBest ? 'text-amber-400 font-bold' : secRes.isEstimated ? 'text-slate-500' : 'text-slate-300'
+                            className={`py-2.5 px-3 font-bold ${
+                              lap.isBestLap ? 'text-amber-400 text-sm' : 'text-slate-100'
                             }`}
-                            title={secRes.isEstimated ? 'セクター線の通過を検出できなかったため推定値です（セクターベスト・理論ベストには使いません）' : undefined}
                           >
-                            {secRes.isEstimated ? '~' : ''}{secRes.time.toFixed(3)}s
+                            {formatTime(lap.lapTime)}
+                            {lap.isPartialLap && (
+                              <span className="ml-1.5 text-[10px] text-amber-300" title="次の計測線の通過までログがないため、実際のラップタイムではありません">
+                                (途中まで)
+                              </span>
+                            )}
                           </td>
-                        ))}
+                          <td className="py-2.5 px-3 text-slate-200">{lap.topSpeed.toFixed(1)} km/h</td>
+                          <td className="py-2.5 px-3 text-slate-200">{lap.bottomSpeed.toFixed(1)} km/h</td>
+                          <td className="py-2.5 px-3 text-slate-300">{lap.avgSpeed.toFixed(1)} km/h</td>
+                          <td className="py-2.5 px-3 text-slate-400">{lap.distance.toFixed(3)} km</td>
 
-                        {/* 車両スロット割り当てボタン (Car 1..4) */}
-                        <td className="py-2.5 px-3 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            {slotColors.map(slot => {
-                              const isCurrentSlot = selectedCars.some(
-                                c =>
-                                  c.slot === slot.slot &&
-                                  c.sessionId === session.id &&
-                                  c.lapNumber === lap.lapNumber
-                              );
+                          {/* セクタータイム */}
+                          {lap.sectors.map((secRes, sIdx) => (
+                            <td
+                              key={sIdx}
+                              className={`py-2.5 px-3 ${
+                                secRes.isBest ? 'text-amber-400 font-bold' : secRes.isEstimated ? 'text-slate-500' : 'text-slate-300'
+                              }`}
+                              title={secRes.isEstimated ? 'セクター線の通過を検出できなかったため推定値です（セクターベスト・理論ベストには使いません）' : undefined}
+                            >
+                              {secRes.isEstimated ? '~' : ''}{secRes.time.toFixed(3)}s
+                            </td>
+                          ))}
 
-                              return (
-                                <button
-                                  key={slot.slot}
-                                  onClick={() => onSelectCarSlot(slot.slot, session.id, lap.lapNumber)}
-                                  title={`${slot.label} に割り当て`}
-                                  className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold transition-all ${
-                                    isCurrentSlot
-                                      ? `${slot.bg} text-white shadow`
-                                      : 'bg-surface-4 text-slate-400 hover:text-fg hover:bg-surface-5'
-                                  }`}
-                                >
-                                  {slot.slot + 1}
-                                </button>
-                              );
-                            })}
-                          </div>
+                          {/* 車両スロット割り当てボタン (Car 1..4) */}
+                          <td className="py-2.5 px-3 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              {slotColors.map(slot => {
+                                const isCurrentSlot = selectedCars.some(
+                                  c =>
+                                    c.slot === slot.slot &&
+                                    c.sessionId === session.id &&
+                                    c.lapNumber === lap.lapNumber
+                                );
+
+                                return (
+                                  <button
+                                    key={slot.slot}
+                                    onClick={() => onSelectCarSlot(slot.slot, session.id, lap.lapNumber)}
+                                    title={`${slot.label} に割り当て`}
+                                    className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold transition-all ${
+                                      isCurrentSlot
+                                        ? `${slot.bg} text-white shadow`
+                                        : 'bg-surface-4 text-slate-400 hover:text-fg hover:bg-surface-5'
+                                    }`}
+                                  >
+                                    {slot.slot + 1}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+
+                  {/* 仮想ベストラップ行 */}
+                  {session.theoreticalBestTime > 0 && session.sectors.length > 0 && (
+                    <tfoot className="bg-surface-1 text-amber-300 font-mono font-bold text-[11px] border-t-2 border-amber-500/40">
+                      <tr>
+                        <td className="py-2 px-3 flex items-center gap-1">
+                          <Trophy size={13} className="text-amber-400" />
+                          仮想ベスト
                         </td>
+                        <td className="py-2 px-3 text-amber-400 text-sm">
+                          {formatTime(session.theoreticalBestTime)}
+                        </td>
+                        <td colSpan={4} className="py-2 px-3 text-slate-400 font-normal">
+                          (各セクターのベストタイム合算値)
+                        </td>
+                        {session.sectors.map((sec, sIdx) => {
+                          // セクターベストの印 (isBest) が付いた実測値だけを出す
+                          const best = session.laps.map(l => l.sectors[sIdx]).find(r => r?.isBest);
+                          return (
+                            <td key={sec.id} className="py-2 px-3 text-amber-400">
+                              {best ? `${best.time.toFixed(3)}s` : '--'}
+                            </td>
+                          );
+                        })}
+                        <td></td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-
-                {/* 仮想ベストラップ行 */}
-                {session.theoreticalBestTime > 0 && session.sectors.length > 0 && (
-                  <tfoot className="bg-surface-1 text-amber-300 font-mono font-bold text-[11px] border-t-2 border-amber-500/40">
-                    <tr>
-                      <td className="py-2 px-3 flex items-center gap-1">
-                        <Trophy size={13} className="text-amber-400" />
-                        仮想ベスト
-                      </td>
-                      <td className="py-2 px-3 text-amber-400 text-sm">
-                        {formatTime(session.theoreticalBestTime)}
-                      </td>
-                      <td colSpan={4} className="py-2 px-3 text-slate-400 font-normal">
-                        (各セクターのベストタイム合算値)
-                      </td>
-                      {session.sectors.map((sec, sIdx) => {
-                        // セクターベストの印 (isBest) が付いた実測値だけを出す
-                        const best = session.laps.map(l => l.sectors[sIdx]).find(r => r?.isBest);
-                        return (
-                          <td key={sec.id} className="py-2 px-3 text-amber-400">
-                            {best ? `${best.time.toFixed(3)}s` : '--'}
-                          </td>
-                        );
-                      })}
-                      <td></td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-            </div>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            )}
           </div>
         ))
+      )}
+    </div>
+  );
+};
+
+/** スマートフォン向けのラップ一覧 (1 周ずつのカード) */
+const LapCards: React.FC<{
+  session: Session;
+  selectedCars: SelectedCarSlot[];
+  slotColors: { slot: number; label: string; bg: string }[];
+  formatTime: (sec: number) => string;
+  onSelectCarSlot: (slotIndex: number, sessionId: string, lapNumber: number) => void;
+}> = ({ session, selectedCars, slotColors, formatTime, onSelectCarSlot }) => {
+  const bestLap = session.laps[session.bestLapIndex];
+  // セクターごとのベスト (実測値のうち isBest が付いたもの)
+  const bestSectors = session.sectors.map((_, sIdx) => session.laps.map(l => l.sectors[sIdx]).find(r => r?.isBest)?.time);
+  const delta = (v: number, best?: number) => (best !== undefined ? `+${(v - best).toFixed(3)}` : '');
+
+  return (
+    <div className="p-2 flex flex-col gap-2">
+      {session.laps.map(lap => {
+        const isBest = !!lap.isBestLap;
+        return (
+          <div
+            key={lap.lapNumber}
+            className={`rounded-lg border px-3 py-2.5 ${isBest ? 'border-red-500 bg-red-500/10' : 'border-line-2 bg-surface-1'}`}
+          >
+            <div className="flex items-start gap-3">
+              <span className={`font-mono text-sm pt-1 w-8 shrink-0 ${isBest ? 'text-red-400 font-bold' : 'text-slate-500'}`}>
+                L{String(lap.lapNumber).padStart(2, '0')}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className={`font-mono text-xl font-bold leading-tight ${isBest ? 'text-emerald-400' : 'text-slate-100'}`}>
+                  {formatTime(lap.lapTime)}
+                </div>
+                <div className={`font-mono text-[11px] ${isBest ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>
+                  {isBest ? 'BEST' : lap.isPartialLap ? '途中まで' : bestLap ? delta(lap.lapTime, bestLap.lapTime) : ''}
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-[10px] font-bold text-slate-500 tracking-wider">MAX SPEED</div>
+                <div className="font-mono text-sm text-slate-200">
+                  {lap.topSpeed.toFixed(1)} <span className="text-[10px] text-slate-400">km/h</span>
+                </div>
+              </div>
+            </div>
+
+            {lap.sectors.length > 0 && (
+              <div className="grid grid-cols-4 gap-x-2 gap-y-1.5 mt-2 pl-11">
+                {lap.sectors.map((sec, sIdx) => (
+                  <div
+                    key={sIdx}
+                    title={sec.isEstimated ? 'セクター線の通過を検出できなかったため推定値です（セクターベスト・理論ベストには使いません）' : undefined}
+                  >
+                    <div className="text-[10px] font-bold text-slate-500">{session.sectors[sIdx]?.name ?? `S${sIdx + 1}`}</div>
+                    <div className={`font-mono text-sm leading-tight ${sec.isBest ? 'text-emerald-400' : sec.isEstimated ? 'text-slate-500' : 'text-slate-200'}`}>
+                      {sec.isEstimated ? '~' : ''}{sec.time.toFixed(3)}
+                    </div>
+                    <div className={`font-mono text-[10px] ${sec.isBest ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>
+                      {sec.isBest ? 'BEST' : sec.isEstimated ? '推定' : delta(sec.time, bestSectors[sIdx])}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 比較スロットへの割り当て (Car 1..4) */}
+            <div className="flex items-center justify-end gap-1.5 mt-2">
+              {slotColors.map(slot => {
+                const isCurrentSlot = selectedCars.some(
+                  c => c.slot === slot.slot && c.sessionId === session.id && c.lapNumber === lap.lapNumber
+                );
+                return (
+                  <button
+                    key={slot.slot}
+                    onClick={() => onSelectCarSlot(slot.slot, session.id, lap.lapNumber)}
+                    aria-label={`${slot.label} に割り当て`}
+                    className={`w-9 h-8 rounded text-xs font-bold ${
+                      isCurrentSlot ? `${slot.bg} text-white shadow` : 'bg-surface-4 text-slate-400'
+                    }`}
+                  >
+                    {slot.slot + 1}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+      {session.theoreticalBestTime > 0 && session.sectors.length > 0 && (
+        <div className="flex items-center justify-between border-t border-line-2 mt-1 pt-3 px-1">
+          <span className="text-xs font-bold text-slate-400 tracking-wider">理論ベスト</span>
+          <span className="font-mono text-lg font-bold text-emerald-400">{formatTime(session.theoreticalBestTime)}</span>
+        </div>
       )}
     </div>
   );
