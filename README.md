@@ -38,7 +38,7 @@
 
 ![コーナー解析画面](docs/images/corner_analysis.png)
 
-**ログ変換**: 読み込んだログを NMEA / GPX / CSV / DTB / 地図 HTML などに書き出し
+**ログ変換**: 読み込んだログの一部（ラップ・時間）を切り出して、NMEA / GPX / CSV / 地図 HTML、走行データCSV・ラップ一覧CSV・DTB に書き出し
 
 ![ログ変換画面](docs/images/convert.png)
 
@@ -46,7 +46,7 @@
 
 ![ロガー設定画面](docs/images/logger.png)
 
-※ グラフ解析とコーナー解析の画像は、ログ変換ページを追加する前の画面です。
+※ ロガー設定の画像は、表示テーマの切り替えなどを追加する前の画面です。
 
 ---
 
