@@ -57,10 +57,9 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
     const base = new Date(clockBaseMs + offsetHours * 3600 * 1000);
     const baseOfDay = base.getUTCHours() * 3600 + base.getUTCMinutes() * 60 + base.getUTCSeconds() + base.getUTCMilliseconds() / 1000;
     let diff = h * 3600 + m * 60 + s - baseOfDay;
-    // 日付をまたぐログ
-    if (diff < -43200) diff += 86400;
-    if (diff > 129600) diff -= 86400;
-    return diff;
+    // 先頭より前の時刻は、日付をまたいだ翌日とみなす (秒未満の切り捨ての分の差は除く)
+    if (diff < -1) diff += 86400;
+    return Math.max(0, diff);
   };
 
   const clampRange = (a: number, b: number): [number, number] => {
@@ -68,22 +67,26 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
     const end = Math.min(duration, Math.max(b, start + MIN_SPAN_SEC));
     return [start, end];
   };
-  const apply = (a: number, b: number) => {
+  const apply = (a: number, b: number): [number, number] => {
     const [s, e] = clampRange(a, b);
     onChange(s, e);
+    return [s, e];
   };
+
+  // 描ける点 (位置と車速が数値のもの)
+  const isValid = (p: Session['points'][number]) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude) && Number.isFinite(p.speed);
 
   // 描く点 (間引いたもの)
   const drawPts = useMemo(() => {
     const step = Math.max(1, Math.ceil(pts.length / MAX_DRAW_POINTS));
-    return pts.filter((p, i) => (i % step === 0 || i === pts.length - 1) && Number.isFinite(p.latitude) && Number.isFinite(p.longitude));
+    return pts.filter((p, i) => (i % step === 0 || i === pts.length - 1) && isValid(p));
   }, [pts]);
 
   // コース図: 緯度経度を平面に直して枠に収める
   const MAP_W = 1000;
   const MAP_H = 600;
-  const mapXY = useMemo(() => {
-    if (drawPts.length === 0) return [] as { x: number; y: number; t: number }[];
+  const projection = useMemo(() => {
+    if (drawPts.length === 0) return null;
     let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
     for (const p of drawPts) {
       minLat = Math.min(minLat, p.latitude); maxLat = Math.max(maxLat, p.latitude);
@@ -95,26 +98,41 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
     const scale = Math.min((MAP_W - 40) / w, (MAP_H - 40) / h);
     const ox = (MAP_W - w * scale) / 2;
     const oy = (MAP_H - h * scale) / 2;
-    return drawPts.map(p => ({ x: ox + (p.longitude - minLon) * cosLat * scale, y: MAP_H - (oy + (p.latitude - minLat) * scale), t: p.time - t0 }));
+    return (p: { latitude: number; longitude: number; time: number }) => ({
+      x: ox + (p.longitude - minLon) * cosLat * scale,
+      y: MAP_H - (oy + (p.latitude - minLat) * scale),
+      t: p.time - t0
+    });
   }, [drawPts, t0]);
+  const mapXY = useMemo(() => (projection ? drawPts.map(projection) : []), [projection, drawPts]);
+  // 範囲の部分は、全体を間引いた点でなく範囲の中の点から描く (短い範囲でも線が消えないように)
+  const rangeXY = useMemo(() => {
+    if (!projection) return [];
+    const inside = pts.filter(p => p.time - t0 >= startSec && p.time - t0 <= endSec && isValid(p));
+    const step = Math.max(1, Math.ceil(inside.length / MAX_DRAW_POINTS));
+    return inside.filter((_, i) => i % step === 0 || i === inside.length - 1).map(projection);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projection, pts, t0, startSec, endSec]);
 
   const pathOf = (list: { x: number; y: number }[]) => list.map((q, i) => `${i === 0 ? 'M' : 'L'}${q.x.toFixed(1)},${q.y.toFixed(1)}`).join('');
-  const inRange = (t: number) => t >= startSec && t <= endSec;
 
   // 車速のグラフ
   const CH_W = 1000;
   const CH_H = 160;
-  const maxSpeed = useMemo(() => Math.max(10, ...drawPts.map(p => p.speed)), [drawPts]);
+  const maxSpeed = useMemo(() => drawPts.reduce((m, p) => Math.max(m, p.speed), 10), [drawPts]);
   const xOf = (t: number) => (duration > 0 ? (t / duration) * CH_W : 0);
   const yOf = (v: number) => CH_H - (v / (maxSpeed * 1.1)) * CH_H;
   const speedPath = useMemo(() => {
     if (drawPts.length === 0) return '';
     const line = drawPts.map((p, i) => `${i === 0 ? 'M' : 'L'}${xOf(p.time - t0).toFixed(1)},${yOf(p.speed).toFixed(1)}`).join('');
-    return `${line}L${CH_W},${CH_H}L0,${CH_H}Z`;
+    // 塗りは、最初と最後の点の真下で閉じる
+    const xFirst = xOf(drawPts[0].time - t0).toFixed(1);
+    const xLast = xOf(drawPts[drawPts.length - 1].time - t0).toFixed(1);
+    return `${line}L${xLast},${CH_H}L${xFirst},${CH_H}Z`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawPts, t0, duration, maxSpeed]);
 
-  // グラフ上でなぞっている (タップした) 地点
+  // グラフ上でなぞっている (タップした) 地点 (ログの先頭からの秒。ラップの番号を押したときはその区切りちょうど)
   const [cursorSec, setCursorSec] = useState<number | null>(null);
   const cursorPt = useMemo(() => {
     if (cursorSec === null || drawPts.length === 0) return null;
@@ -150,15 +168,17 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
   const [endText, setEndText] = useState(formatSec(endSec));
   useEffect(() => setStartText(formatSec(startSec)), [startSec, clockBaseMs, offsetHours]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => setEndText(formatSec(endSec)), [endSec, clockBaseMs, offsetHours]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 入力を確定する。文字を変えていなければ何もしない (表示は秒未満を切り捨てているので、そのまま確定すると範囲がずれる。
+  // ラップ・全体の指定も時間指定に変わってしまう)。確定したら、丸めた後の値で表示し直す
   const commitStart = () => {
+    if (startText === formatSec(startSec)) return;
     const v = parseTime(startText);
-    if (v === null) setStartText(formatSec(startSec));
-    else apply(v, endSec);
+    setStartText(formatSec(v === null ? startSec : apply(v, endSec)[0]));
   };
   const commitEnd = () => {
+    if (endText === formatSec(endSec)) return;
     const v = parseTime(endText);
-    if (v === null) setEndText(formatSec(endSec));
-    else apply(startSec, v);
+    setEndText(formatSec(v === null ? endSec : apply(startSec, v)[1]));
   };
 
   const stepBtn = 'px-1.5 py-1 rounded bg-surface-4 hover:bg-surface-5 border border-line-4 text-[10px] font-mono text-slate-300';
@@ -197,7 +217,7 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
       {/* コース図: 書き出す範囲を赤、外した部分を灰色で描く */}
       <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} className="w-full h-48 sm:h-56 bg-surface-1 rounded-lg border border-line-1" preserveAspectRatio="xMidYMid meet">
         <path d={pathOf(mapXY)} fill="none" stroke="var(--ds-line-4)" strokeWidth={4} strokeLinejoin="round" />
-        <path d={pathOf(mapXY.filter(q => inRange(q.t)))} fill="none" stroke="#ef4444" strokeWidth={5} strokeLinejoin="round" />
+        <path d={pathOf(rangeXY)} fill="none" stroke="#ef4444" strokeWidth={5} strokeLinejoin="round" />
         {cursorMap && <circle cx={cursorMap.x} cy={cursorMap.y} r={10} fill="#facc15" stroke="#0f172a" strokeWidth={2} />}
       </svg>
 
@@ -241,17 +261,17 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400 min-h-[28px]">
           {cursorPt ? (
             <>
-              <span className="font-mono text-slate-200">{formatSec(cursorPt.time - t0)}</span>
+              <span className="font-mono text-slate-200">{formatSec(cursorSec ?? cursorPt.time - t0)}</span>
               <span className="font-mono">{cursorPt.speed.toFixed(1)} km/h</span>
               <button
-                onClick={() => apply(cursorPt.time - t0, endSec)}
+                onClick={() => cursorSec !== null && apply(cursorSec, endSec)}
                 className="flex items-center gap-1 px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
               >
                 <Flag size={11} />
                 ここを開始地に設定
               </button>
               <button
-                onClick={() => apply(startSec, cursorPt.time - t0)}
+                onClick={() => cursorSec !== null && apply(startSec, cursorSec)}
                 className="flex items-center gap-1 px-2 py-1 rounded bg-red-600 hover:bg-red-500 text-white font-bold"
               >
                 <Flag size={11} />

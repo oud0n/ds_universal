@@ -46,7 +46,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
     setRangeKind('all');
     setLapNumber(session.laps[session.bestLapIndex]?.lapNumber ?? session.laps[0]?.lapNumber ?? 1);
     setStartSec('0');
-    setEndSec(duration.toFixed(1));
+    setEndSec(String(duration));
   }, [session?.id]);
 
   const range: ConvertRange = useMemo(() => {
@@ -77,13 +77,14 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, onOpenFile, on
   // プレビューで範囲を動かしたら、時間での指定に切り替える
   const handleTrimChange = (a: number, b: number) => {
     setRangeKind('time');
-    setStartSec(a.toFixed(1));
-    setEndSec(b.toFixed(1));
+    // (丸めない。丸めると、選んだ地点や最後の点が範囲から外れるため)
+    setStartSec(String(a));
+    setEndSec(String(b));
   };
   const handleTrimReset = () => {
     setRangeKind('all');
     setStartSec('0');
-    setEndSec(duration.toFixed(1));
+    setEndSec(String(duration));
   };
 
   const points = useMemo(
