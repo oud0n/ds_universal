@@ -23,6 +23,7 @@ export interface ClockOffsetEstimate {
 const MIN_SPEED_KMH = 20;
 const SEARCH_RANGE_SEC = 10;
 const MIN_SAMPLES = 100;
+const MAX_GAP_SEC = 1.5;
 
 interface TimedPoint { t: number; lat: number; lon: number; speed: number }
 
@@ -39,7 +40,7 @@ function toTimed(points: TelemetryPoint[]): TimedPoint[] {
   return out;
 }
 
-/** 基準のログの、時刻 t の位置 (前後の点で直線補間)。範囲外・間が 1 秒より空いているときは null */
+/** 基準のログの、時刻 t の位置 (前後の点で直線補間)。範囲外・間が 1.5 秒より空いているときは null (1 Hz のログの記録の揺れは許す) */
 function positionAt(ref: TimedPoint[], t: number): [number, number] | null {
   let lo = 0, hi = ref.length - 1;
   if (t < ref[0].t || t > ref[hi].t) return null;
@@ -48,7 +49,7 @@ function positionAt(ref: TimedPoint[], t: number): [number, number] | null {
     if (ref[mid].t <= t) lo = mid; else hi = mid;
   }
   const a = ref[lo], b = ref[hi];
-  if (b.t - a.t > 1) return null;
+  if (b.t - a.t > MAX_GAP_SEC) return null;
   const f = b.t === a.t ? 0 : (t - a.t) / (b.t - a.t);
   return [a.lat + (b.lat - a.lat) * f, a.lon + (b.lon - a.lon) * f];
 }
@@ -81,8 +82,10 @@ export function estimateClockOffset(reference: TelemetryPoint[], other: Telemetr
   const ref = toTimed(reference);
   const all = toTimed(other);
   if (ref.length < 2 || all.length < 2) return null;
-  // 比べる点は走っている区間だけ。多すぎるときは間引く (見積もりの細かさは点の数より時刻の補間で決まる)
-  const moving = all.filter(p => p.speed >= MIN_SPEED_KMH);
+  // 比べる点は、基準のログと重なる (探す幅を含めて) 走っている区間だけ。多すぎるときは間引く
+  // (見積もりの細かさは点の数より時刻の補間で決まる)。長いログの一部だけが重なるとき、ログ全体で間引くと重なりに点が残らない
+  const t0 = ref[0].t - SEARCH_RANGE_SEC, t1 = ref[ref.length - 1].t + SEARCH_RANGE_SEC;
+  const moving = all.filter(p => p.speed >= MIN_SPEED_KMH && p.t >= t0 && p.t <= t1);
   const step = Math.max(1, Math.floor(moving.length / 3000));
   const sample = moving.filter((_, i) => i % step === 0);
   if (sample.length < MIN_SAMPLES) return null;
@@ -112,9 +115,16 @@ export function estimateClockOffset(reference: TelemetryPoint[], other: Telemetr
 
 /** ログの記録の時間 (ログの時刻のまま、ミリ秒)。時刻のないログは null */
 function sessionRange(s: Session): [number, number] | null {
-  const a = s.points[0]?.timestamp, b = s.points[s.points.length - 1]?.timestamp;
-  const ta = a ? Date.parse(a) : NaN, tb = b ? Date.parse(b) : NaN;
-  return Number.isFinite(ta) && Number.isFinite(tb) ? [ta, tb] : null;
+  const a = s.points[0]?.timestamp;
+  const ta = a ? Date.parse(a) : NaN;
+  if (!Number.isFinite(ta)) return null;
+  // 最後の点に時刻がないログ (NMEA の日付のない文で終わるものなど) は、時刻のある最後の点を使う
+  for (let i = s.points.length - 1; i > 0; i--) {
+    const b = s.points[i].timestamp;
+    const tb = b ? Date.parse(b) : NaN;
+    if (Number.isFinite(tb)) return [ta, tb];
+  }
+  return null;
 }
 
 /**
