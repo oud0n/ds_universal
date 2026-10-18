@@ -137,6 +137,11 @@ export function parseIbt(bytes: Uint8Array): IbtLog {
 
   // コースに出ていない間 (ガレージ・リプレイ) と、位置が (0, 0) の行 (リセットの瞬間) で区切る。
   // 1 回の記録の間に動ける距離を大きく超えて位置が飛んだ (ピットへの移動など) ときも区切る
+  // 記録の開始日時からの各行の日時。壊れたファイル (開始時刻が NaN・日時が範囲外) では日時を付けない
+  const dateOf = (t: number) => {
+    const ms = (startDateSec + (t - startSessionTime)) * 1000;
+    return startDateSec > 0 && Number.isFinite(ms) && Math.abs(ms) <= 8.64e15 ? new Date(ms) : undefined;
+  };
   const parts: RawSample[][] = [];
   let cur: RawSample[] = [];
   let prev: { t: number; la: number; lo: number } | null = null;
@@ -156,14 +161,18 @@ export function parseIbt(bytes: Uint8Array): IbtLog {
     const sp = speed ? speed(r) : NaN;
     if (prev) {
       const dt = t - prev.t;
+      // 同じ時刻の行 (一時停止中など) は、区切らずに読み飛ばす
+      if (dt === 0) continue;
       const d = calculateGeoDistanceAndHeading(prev.la, prev.lo, la, lo).distanceMeters;
       // 時刻が戻った (別のセッションに入った)・1 秒より長く途切れた・100 m/s を超える速さで飛んだときは区切る
-      if (dt <= 0 || dt > 1 || d > Math.max(5, dt * 100)) cut();
+      if (dt < 0 || dt > 1 || d > Math.max(5, dt * 100)) cut();
     }
     prev = { t, la, lo };
     const extra: RawSample['extra'] = {};
-    if (throttle) extra.throttle = Number((throttle(r) * 100).toFixed(1));
-    if (brake) extra.brake = Number((brake(r) * 100).toFixed(1));
+    const th = throttle ? throttle(r) : NaN;
+    const br = brake ? brake(r) : NaN;
+    if (Number.isFinite(th)) extra.throttle = Number((th * 100).toFixed(1));
+    if (Number.isFinite(br)) extra.brake = Number((br * 100).toFixed(1));
     // 右に切ったときを正にする (iRacing は左が正)
     if (steering) extra.steering = Number((-steering(r) * 180 / Math.PI).toFixed(1));
     if (rpm) extra.rpm = Math.round(rpm(r));
@@ -176,7 +185,7 @@ export function parseIbt(bytes: Uint8Array): IbtLog {
       altitude: alt ? alt(r) : NaN,
       // 進行方向は、実車の GPS と同じく前後の位置から求める (YawNorth は車体の向きで、滑っているときは進行方向と違う)
       heading: NaN,
-      timestamp: startDateSec > 0 ? new Date((startDateSec + (t - startSessionTime)) * 1000) : undefined,
+      timestamp: dateOf(t),
       extra
     });
   }
