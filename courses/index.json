@@ -355,5 +355,170 @@
       "controlLine": "スタートラインを航空写真で確かめられなかったため、ピットロードの中ほどに置いた仮の線 (OpenStreetMap のピットロードに直交)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 2414 m の上)。2026-10-18 作成"
     }
+  },
+  {
+    "id": "magny_cours",
+    "name": "Circuit de Nevers Magny-Cours",
+    "country": "FR",
+    "center": [
+      46.863762,
+      3.164658
+    ],
+    "cln": "magny_cours.cln",
+    "sci": "magny_cours.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートの白線の位置 (歩道橋の手前) (IGN BD ORTHO の航空写真 (Licence Ouverte 2.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4463 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "le_mans_bugatti",
+    "name": "Circuit Bugatti (Le Mans)",
+    "country": "FR",
+    "center": [
+      47.953591,
+      0.212991
+    ],
+    "cln": "le_mans_bugatti.cln",
+    "sci": "le_mans_bugatti.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタート / フィニッシュの白線の位置 (IGN BD ORTHO の航空写真 (Licence Ouverte 2.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4168 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "nogaro",
+    "name": "Circuit Paul Armagnac (Nogaro)",
+    "country": "FR",
+    "center": [
+      43.770058,
+      -0.040327
+    ],
+    "cln": "nogaro.cln",
+    "sci": "nogaro.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のチェッカー模様のスタートラインの位置 (IGN BD ORTHO の航空写真 (Licence Ouverte 2.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 3518 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "catalunya",
+    "name": "Circuit de Barcelona-Catalunya",
+    "country": "ES",
+    "center": [
+      41.569421,
+      2.257905
+    ],
+    "cln": "catalunya.cln",
+    "sci": "catalunya.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートの白線の位置 (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4656 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "jerez",
+    "name": "Circuito de Jerez - Ángel Nieto",
+    "country": "ES",
+    "center": [
+      36.708456,
+      -6.032593
+    ],
+    "cln": "jerez.cln",
+    "sci": "jerez.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートの白線の位置 (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4431 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "valencia",
+    "name": "Circuit Ricardo Tormo (Valencia)",
+    "country": "ES",
+    "center": [
+      39.485519,
+      -0.630614
+    ],
+    "cln": "valencia.cln",
+    "sci": "valencia.sci",
+    "notes": {
+      "controlLine": "メインストレートに架かるスタートのゲートの位置 (グリッドの先頭の前。路面の線は確かめられなかった) (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4004 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "jarama",
+    "name": "Circuito del Jarama",
+    "country": "ES",
+    "center": [
+      40.616044,
+      -3.586926
+    ],
+    "cln": "jarama.cln",
+    "sci": "jarama.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートの白線の位置 (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 3910 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "aragon",
+    "name": "MotorLand Aragón",
+    "country": "ES",
+    "center": [
+      41.078934,
+      -0.202874
+    ],
+    "cln": "aragon.cln",
+    "sci": "aragon.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートの白線の位置 (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 5339 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "road_america",
+    "name": "Road America",
+    "country": "US",
+    "center": [
+      43.798196,
+      -87.996411
+    ],
+    "cln": "road_america.cln",
+    "sci": "road_america.sci",
+    "notes": {
+      "controlLine": "メインストレートの管制塔の前の路面のスタート / フィニッシュの白線の位置 (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 6501 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "paul_ricard",
+    "name": "Circuit Paul Ricard",
+    "country": "FR",
+    "center": [
+      43.253857,
+      5.790918
+    ],
+    "cln": "paul_ricard.cln",
+    "sci": "paul_ricard.sci",
+    "notes": {
+      "controlLine": "メインストレートに架かるスタートのゲートの下の白線の位置 (IGN BD ORTHO の航空写真 (Licence Ouverte 2.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 5842 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "dijon",
+    "name": "Circuit Dijon-Prenois",
+    "country": "FR",
+    "center": [
+      47.362664,
+      4.89892
+    ],
+    "cln": "dijon.cln",
+    "sci": "dijon.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のチェッカー模様のスタートラインの位置 (IGN BD ORTHO の航空写真 (Licence Ouverte 2.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 3727 m の上)。2026-10-18 作成"
+    }
   }
 ]

@@ -19,7 +19,18 @@ const META = {
   road_atlanta: { name: 'Michelin Raceway Road Atlanta', line: 'メインストレートに架かる歩道橋の位置' },
   mid_ohio: { name: 'Mid-Ohio Sports Car Course' },
   barber: { name: 'Barber Motorsports Park', line: 'メインストレートの管制塔の前 (推定。路面の印は確かめられなかった)' },
-  lime_rock: { name: 'Lime Rock Park' }
+  lime_rock: { name: 'Lime Rock Park' },
+  magny_cours: { name: 'Circuit de Nevers Magny-Cours', line: 'メインストレートの路面のスタートの白線の位置 (歩道橋の手前)' },
+  le_mans_bugatti: { name: 'Circuit Bugatti (Le Mans)', line: 'メインストレートの路面のスタート / フィニッシュの白線の位置' },
+  nogaro: { name: 'Circuit Paul Armagnac (Nogaro)', line: 'メインストレートの路面のチェッカー模様のスタートラインの位置' },
+  catalunya: { name: 'Circuit de Barcelona-Catalunya', line: 'メインストレートの路面のスタートの白線の位置' },
+  jerez: { name: 'Circuito de Jerez - Ángel Nieto', line: 'メインストレートの路面のスタートの白線の位置' },
+  valencia: { name: 'Circuit Ricardo Tormo (Valencia)', line: 'メインストレートに架かるスタートのゲートの位置 (グリッドの先頭の前。路面の線は確かめられなかった)' },
+  jarama: { name: 'Circuito del Jarama', line: 'メインストレートの路面のスタートの白線の位置' },
+  aragon: { name: 'MotorLand Aragón', line: 'メインストレートの路面のスタートの白線の位置' },
+  road_america: { name: 'Road America', line: 'メインストレートの管制塔の前の路面のスタート / フィニッシュの白線の位置' },
+  paul_ricard: { name: 'Circuit Paul Ricard', line: 'メインストレートに架かるスタートのゲートの下の白線の位置' },
+  dijon: { name: 'Circuit Dijon-Prenois', line: 'メインストレートの路面のチェッカー模様のスタートラインの位置' }
 };
 const index = JSON.parse(fs.readFileSync(`${dir}/index.json`, 'utf8'));
 const f6 = v => (+v).toFixed(6);
