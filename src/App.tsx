@@ -5,6 +5,8 @@ import { parseDtb } from './services/dtbParser';
 import { parseDigispiceRawBinary } from './services/rawBinaryParser';
 import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
+import { blobByteSource, parseGoproGps } from './services/gpmfParser';
+import { videoSyncManager } from './services/videoSyncManager';
 import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
 import { parsePth, parseCln } from './services/pthParser';
 import { countGateCrossings, createVirtualControlLine, extractLaps, firstGateCrossingTime, gateDirection, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
@@ -431,6 +433,10 @@ export const App: React.FC = () => {
     if (nav.electronAPI?.onOpenFiles && nav.electronAPI?.readFileBuffer) {
       const off = nav.electronAPI.onOpenFiles(async (filePaths: string[]) => {
         for (const fp of filePaths) {
+          if (/\.(mp4|mov)$/i.test(fp)) {
+            alert('GoPro の動画は、画面の「ファイル読込」から開いてください');
+            continue;
+          }
           try {
             const res = await nav.electronAPI.readFileBuffer(fp);
             if (res.success) {
@@ -520,7 +526,7 @@ export const App: React.FC = () => {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       try {
-        await loadFileData(file.name, await file.arrayBuffer());
+        await loadAnyFile(file);
       } catch (err: any) {
         alert(`ファイル ${file.name} の読み込みに失敗しました: ${err.message}`);
       }
@@ -528,8 +534,34 @@ export const App: React.FC = () => {
     e.target.value = '';
   };
 
-  // データファイル読み込みロジック
-  const loadFileData = async (fileName: string, buffer: ArrayBuffer) => {
+  // GoPro の動画 (.mp4 / .mov) は数 GB あるので、全体を読み込まず、GPS の記録だけを読む
+  const isVideoFileName = (name: string) => /\.(mp4|mov)$/i.test(name);
+  const loadAnyFile = async (file: File) => {
+    if (isVideoFileName(file.name)) await loadGoproVideo(file);
+    else await loadFileData(file.name, await file.arrayBuffer());
+  };
+
+  // GoPro の動画の GPS を走行ログとして読み込み、同じ動画を動画同期にも登録する
+  // (GPS と映像は同じ時計なので、撮影時刻からの照合でなく、GPS の時刻から求めたずれで合わせる)
+  const loadGoproVideo = async (file: File) => {
+    const log = await parseGoproGps(blobByteSource(file));
+    const added = await loadFileData(file.name, null, log);
+    const session = added[0];
+    if (!session?.points[0]?.timestamp) return;
+    const tracks = await videoSyncManager.addVideoFiles([file], [...latestRef.current.sessions.filter(s => s.id !== session.id), session]);
+    const track = [...tracks].reverse().find(t => t.file === file);
+    if (!track) return;
+    videoSyncManager.setMatchedSession(track.id, session.id);
+    videoSyncManager.updateOffset(track.id, (log.videoStartUtcMs - Date.parse(session.points[0].timestamp)) / 1000);
+  };
+
+  // データファイル読み込みロジック。読み込んだログはセッションとして加え、加えたセッションを返す
+  // (parsedLog を渡したときは、ファイルを読まずにその点列を使う)
+  const loadFileData = async (
+    fileName: string,
+    buffer: ArrayBuffer | null,
+    parsedLog?: { points: any[]; samplingRate: number; startDate?: Date }
+  ): Promise<Session[]> => {
     let rawPoints: any[] = [];
     let samplingRate = 10;
     let startDate: Date | undefined;
@@ -537,8 +569,15 @@ export const App: React.FC = () => {
     let parts: { points: any[]; samplingRate: number; startDate?: Date }[] | null = null;
 
     const ext = fileName.split('.').pop()?.toLowerCase();
+    const added: Session[] = [];
 
-    if (ext === 'dtb') {
+    if (parsedLog) {
+      rawPoints = parsedLog.points;
+      samplingRate = parsedLog.samplingRate;
+      startDate = parsedLog.startDate;
+    } else if (!buffer) {
+      throw new Error('ファイルの中身がありません');
+    } else if (ext === 'dtb') {
       const parsed = parseDtb(buffer);
       rawPoints = parsed.points;
       samplingRate = parsed.samplingRate;
@@ -662,6 +701,7 @@ export const App: React.FC = () => {
       };
 
       setSessions(prev => [...prev, newSession]);
+      added.push(newSession);
       // コース図の自動読込 (ユーザー設置 → OpenStreetMap)。このセッションにだけ設定する。手で読み込んだコース図を付けたときは取りに行かない
       if (matchedCircuit && !hintPolylines) requestPolylines([newSession.id], matchedCircuit);
 
@@ -697,6 +737,7 @@ export const App: React.FC = () => {
 
     // 変換ページから読み込んだときは、そのまま変換ページに留まる
     if (currentTabRef.current !== 'convert') setCurrentTab('graph');
+    return added;
   };
 
   const loadFileDataRef = useRef(loadFileData);
@@ -899,7 +940,7 @@ export const App: React.FC = () => {
         ref={fileInputRef}
         onChange={handleFilesSelected}
         multiple
-        accept=".dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx"
+        accept=".dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx,.mp4,.mov"
         className="hidden"
       />
       <input
@@ -1384,7 +1425,7 @@ export const App: React.FC = () => {
             onDropFiles={async files => {
               for (let i = 0; i < files.length; i++) {
                 try {
-                  await loadFileData(files[i].name, await files[i].arrayBuffer());
+                  await loadAnyFile(files[i]);
                 } catch (err: any) {
                   alert(`ファイル ${files[i].name} の読み込みに失敗しました: ${err.message}`);
                 }

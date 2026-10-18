@@ -164,7 +164,7 @@ function createWindow() {
       label: 'ファイル',
       submenu: [
         {
-          label: 'ログファイルを開く (.bnx4, .dtb, .csv, .nmea, .vbo)...',
+          label: 'ログファイルを開く (.bnx4, .dtb, .csv, .nmea, .vbo)... (GoPro の動画は画面の「ファイル読込」から)',
           accelerator: 'CmdOrCtrl+O',
           click: async () => {
             const { filePaths } = await dialog.showOpenDialog(mainWindow, {
