@@ -22,10 +22,10 @@
   3. 区間の数だけ分かるもの: 1 周をその数で等分（もてぎ: 4）。
   4. どれも分からないもの: 1 周を 3 等分。等分の位置の近くにほかの直線が並んでいるときは、少しずらす。
 - **海外のコース**（2026-10-18 から）: 同じやり方で、航空写真はその国が自由に使えるとしているもの（アメリカ: USGS NAIP、オランダ: Beeldmateriaal Nederland、フランス: IGN BD ORTHO、スペイン: PNOA）を使う。写真でスタートラインが確かめられないコースは、ピットロードの中ほどに仮の線を置き、`notes.controlLine` にそう書く。セクターは 3 等分。スタートとフィニッシュで線が違うコースは、フィニッシュの線を使う。
-- Google マップ・Esri・Bing・Apple の航空写真や、他のアプリ・公式ソフトのコースデータは使わない（規約・権利のため）。
+- Google マップ・Esri・Bing・Apple の航空写真は使わず、他のアプリ・公式ソフトのコースデータは写して使わない（規約・権利のため）。
 - 写真で路面の線が見えないコース（Jerez・Laguna Seca・Adams）は、写真の路面に直交する線を推定で引いた（`notes.controlLine` に書いてある）。
 - OpenStreetMap にコースの線がないコース（フェスティカ）や、レイアウトが入り組んでいて 3 等分のセクター線が隣の路面までまたぐコース（Adams）は、セクター線を入れない。OpenStreetMap のコースの線が路面から大きくずれているコース（Navarra・Horse Thief Mile）は作らない。
-- **国内のカートコース・小さなサーキット**（2026-10-19 から、87 コース）: OpenStreetMap のコースの線の上に、コースの線に直交する計測線を置いた。線の長さは、ほかの路面（OpenStreetMap のコースの線）との中間までで、最大で片側 20 m。国土地理院の航空写真で 1 つずつ確かめ、ずれていれば路面のスタートラインやゲートの位置に引き直した。1 周の長さ・形を OpenStreetMap で確かめられ、3 等分のセクター線が隣の路面をまたがないコースだけセクター線を入れた（ほかは計測線だけ）。大きな施設の中のコースは、コース図を引く範囲（`mapRadius`）をそのコースの大きさに絞った。コース名は OpenStreetMap の施設の名前などから付け、確かめていないものは `notes.controlLine` に「コース名は仮」と書いた。OpenStreetMap にコースの線がないコースは作っていない。
+- **国内のカートコース・小さなサーキット**（2026-10-19 から、87 コース）: OpenStreetMap のコースの線の上に、コースの線に直交する計測線を置いた。線の長さは、ほかの路面（OpenStreetMap のコースの線）との中間までで、最大で片側 20 m。国土地理院の航空写真で 1 つずつ確かめ、路面のスタートラインやゲートが見えたコース（24）はその位置に引き直した。ほかは推定の位置（`notes.controlLine` に書いてある）。1 周の長さ・形を OpenStreetMap で確かめられ、3 等分のセクター線が隣の路面をまたがないコースだけセクター線を入れた（ほかは計測線だけ）。コース図を引く範囲（`mapRadius`）は、そのコースの大きさに合わせて絞った（大きな施設の中のカートコースで、本コースまで地図に入らないように）。コース名は OpenStreetMap の施設の名前などから付け、確かめていないものは `notes.controlLine` に「コース名は仮」と書いた。OpenStreetMap にコースの線がないコースは作っていない。
 - 作るための道具と手順は [`tools/courses/`](../tools/courses/README.md)。
 
 出典: © OpenStreetMap contributors（[Open Database License 1.0](https://www.openstreetmap.org/copyright)）、[国土地理院 シームレス空中写真](https://maps.gsi.go.jp/development/ichiran.html)、[スポーツランドSUGO レーシングコース図](https://www.sportsland-sugo.co.jp/assets/docs/course/c-racing/2026_racing-course_layout.pdf)（計測地点の距離）、[USGS NAIP](https://www.usgs.gov/centers/eros/science/usgs-eros-archive-aerial-photography-national-agriculture-imagery-program-naip)（パブリックドメイン）、[Beeldmateriaal Nederland](https://www.beeldmateriaal.nl/)（CC BY 4.0）、[IGN BD ORTHO](https://geoservices.ign.fr/bdortho)（Licence Ouverte 2.0）、[PNOA](https://pnoa.ign.es/)（IGN España、CC BY 4.0）
