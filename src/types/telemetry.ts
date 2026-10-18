@@ -92,7 +92,12 @@ export interface Session {
   sectors: Sector[];
   // コース図 (.pth や OpenStreetMap から取得した線)。セッションごとに持ち、表示は基準車のセッションのものを使う
   pathPolylines?: Array<Array<[number, number]>>;
+  // コース図の出どころ。auto: アプリが自動で取得したもの (読み込み済みのユーザーコース・OpenStreetMap)、manual: 利用者が .pth を読み込んだもの。
+  // コースデータを一括設置したとき、auto のコース図だけを読み込んだコース図に置き換える
+  pathPolylinesSource?: PolylineSource;
 }
+
+export type PolylineSource = 'auto' | 'manual';
 
 export type CarSlotColor = 'red' | 'blue' | 'green' | 'orange';
 
