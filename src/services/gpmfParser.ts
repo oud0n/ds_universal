@@ -316,6 +316,9 @@ function parseGpmfPayload(v: DataView, sample: MetaSample, out: GpsFix[], format
   walk(0, v.byteLength);
 }
 
+/** GPS (GPMF) の記録がない動画 (GoPro 以外の動画・GPS を切って撮った GoPro の動画) */
+export class NoGoproGpsError extends Error {}
+
 /** 1 本の動画から GPS の点を読む */
 async function readGpsFixes(src: ByteSource): Promise<{ fixes: GpsFix[]; formats: Set<string> }> {
   const moov = (await listBoxes(src, 0, src.size)).find(b => b.type === 'moov');
@@ -323,7 +326,7 @@ async function readGpsFixes(src: ByteSource): Promise<{ fixes: GpsFix[]; formats
   const moovView = await src.read(moov.start + moov.header, moov.size - moov.header);
   // ファイルの外を指すサンプル (途中で切れたファイルなど) は読まない
   const samples = gpmfSamplesFromMoov(moovView)?.filter(s => s.offset + s.size <= src.size);
-  if (!samples || samples.length === 0) throw new Error('GoPro の GPS (GPMF) の記録がない動画です');
+  if (!samples || samples.length === 0) throw new NoGoproGpsError('GoPro の GPS (GPMF) の記録がない動画です');
 
   const fixes: GpsFix[] = [];
   const formats = new Set<string>();
@@ -348,8 +351,18 @@ async function readGpsFixes(src: ByteSource): Promise<{ fixes: GpsFix[]; formats
  * 1 回の撮影が複数のファイル (チャプター) に分かれているときは、まとめて渡すと 1 つのログにつなげる
  */
 export async function parseGoproGps(sources: ByteSource[]): Promise<GoproLog> {
-  const perVideo = [];
-  for (const src of sources) perVideo.push(await readGpsFixes(src));
+  // 読めないチャプター (撮影中に電池が切れた最後のファイルなど) があっても、読めたものでログを作る
+  const perVideo: { fixes: GpsFix[]; formats: Set<string> }[] = [];
+  let firstError: unknown = null;
+  for (const src of sources) {
+    try {
+      perVideo.push(await readGpsFixes(src));
+    } catch (err) {
+      firstError ??= err;
+      perVideo.push({ fixes: [], formats: new Set() });
+    }
+  }
+  if (perVideo.every(v => v.fixes.length === 0) && firstError) throw firstError;
   // GPS9 と GPS5 の両方がある動画は GPS9 を使う (同じ点を二重に入れない)
   // (GPS5 は時刻をサンプルの中で等分して求めるので粗い)
   const gpsFormat: 'GPS9' | 'GPS5' = perVideo.some(v => v.formats.has('GPS9')) ? 'GPS9' : 'GPS5';
@@ -363,7 +376,7 @@ export async function parseGoproGps(sources: ByteSource[]): Promise<GoproLog> {
 
   const valid: GpsFix[] = [];
   for (const v of perVideo) for (const f of v.fixes) if (isValid(f)) valid.push(f);
-  if (valid.length < 2) throw new Error('GoPro の動画に、測位できた GPS の記録がありません');
+  if (valid.length < 2) throw new NoGoproGpsError('GoPro の動画に、測位できた GPS の記録がありません');
   valid.sort((a, b) => a.utcMs - b.utcMs);
   const raw: RawSample[] = valid.map((f, i) => {
     const a = valid[Math.max(0, i - 1)];

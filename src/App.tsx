@@ -5,7 +5,7 @@ import { parseDtb } from './services/dtbParser';
 import { parseDigispiceRawBinary } from './services/rawBinaryParser';
 import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
-import { blobByteSource, goproRecording, parseGoproGps } from './services/gpmfParser';
+import { blobByteSource, goproRecording, NoGoproGpsError, parseGoproGps } from './services/gpmfParser';
 import { videoSyncManager } from './services/videoSyncManager';
 import { inflateXrz, isAimCsv, isXrk, parseAimCsv, parseXrk } from './services/aimFormats';
 import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
@@ -562,15 +562,26 @@ export const App: React.FC = () => {
   // GoPro の動画 (1 回の撮影のチャプター、順に並べたもの) の GPS を走行ログとして読み込み、同じ動画を動画同期にも登録する。
   // GPS と映像は同じ時計なので、撮影時刻からの照合でなく、GPS の時刻から求めたずれで合わせる
   const loadGoproVideos = async (files: File[]) => {
-    const log = await parseGoproGps(files.map(blobByteSource));
+    let log;
+    try {
+      log = await parseGoproGps(files.map(blobByteSource));
+    } catch (err) {
+      // GPS の記録がない動画 (GoPro 以外の動画など) は、走行ログにはせず、動画同期に登録するだけにする (撮影時刻で照合)
+      if (!(err instanceof NoGoproGpsError)) throw err;
+      const existing = videoSyncManager.getTracks();
+      const toAdd = files.filter(f => !existing.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size));
+      if (toAdd.length > 0) await videoSyncManager.addVideoFiles(toAdd, latestRef.current.sessions);
+      return;
+    }
     const session = (await loadFileData(files[0].name, null, log))[0];
     if (!session?.points[0]?.timestamp) return;
     const t0 = Date.parse(session.points[0].timestamp);
 
-    // 動画同期に登録済みの同じ動画は、もう一度は登録しない (同期を二重にしない)
+    // 動画同期に登録済みの同じ動画は、もう一度は登録しない (同期を二重にしない)。
+    // 同じ撮影のチャプターが一部だけ登録済みのときも登録しない (登録済みのチャプターの同期と食い違うため)
     const existing = videoSyncManager.getTracks();
     const toAdd = files.filter(f => !existing.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size));
-    if (toAdd.length === 0) return;
+    if (toAdd.length < files.length) return;
     const before = new Set(existing.map(t => t.id));
     const tracks = await videoSyncManager.addVideoFiles(toAdd, [...latestRef.current.sessions.filter(s => s.id !== session.id), session]);
     // 新しく加わった動画だけを合わせる (同期プロジェクトから戻した動画は、保存した同期のまま)
