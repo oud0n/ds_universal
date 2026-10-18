@@ -316,7 +316,10 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
               </div>
               <div className="bg-surface-0 p-2.5 rounded-lg border border-line-1">
                 <span className="text-slate-500 block text-[10px]">{t('ステータス', 'Status')}</span>
-                <span className="text-emerald-400 font-semibold">{logInfo?.status || (isConnected ? t('正常', 'OK') : t('未接続', 'Not connected'))}</span>
+                <span className="text-emerald-400 font-semibold">{logInfo
+                    // 状態の文言は、表示するときに今の言語で作る (取得したときの言語のまま残らないように)
+                    ? (logInfo.usedBytes > 0 ? t(`記録あり (${Math.round(logInfo.usedBytes / 1024)} KB)`, `Logs present (${Math.round(logInfo.usedBytes / 1024)} KB)`) : t('ログ空', 'Empty'))
+                    : (isConnected ? t('正常', 'OK') : t('未接続', 'Not connected'))}</span>
               </div>
             </div>
           </div>
