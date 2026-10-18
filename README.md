@@ -8,7 +8,7 @@
 
 ![対応OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon-blue)
 ![検証状況](https://img.shields.io/badge/Verified-macOS%20Only-amber)
-![バージョン](https://img.shields.io/badge/Version-0.10.0-red)
+![バージョン](https://img.shields.io/badge/Version-0.11.0-red)
 ![デバイス](https://img.shields.io/badge/Device-DigSpice%20IV-red)
 ![ライセンス](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-oud0n-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/oud0n)
@@ -169,6 +169,26 @@ codesign --force --deep --sign - "/Applications/DS Universal.app"
 ---
 
 ## 📝 リリースノート
+
+### v0.11.0
+
+**追加**
+
+- **日本語 / 英語の切り替え**: 画面右上の JA / EN で、画面の言葉を切り替えられます。
+- **ハイコントラスト**: テーマに、屋外の直射日光の下で見やすいハイコントラストを足しました。
+- **iRacing のテレメトリ（.ibt）の読み込み**: ゲームで走ったログを、実車のログと同じ画面で比べられます。アクセル・ブレーキの記録がある車両では、速度グラフの下に重ねて表示できます。
+- **VBO（Racelogic）の書き出し**: ログ変換で VBO に書き出せます。
+- **内蔵のコースを増やしました**: 国内 101 コース（カートコース・小さなサーキットを含む）と海外 26 サーキット（アメリカ・オランダ・フランス・スペイン）の計測線を内蔵し、73 コースにはセクター線も入れています。データは [`courses/`](courses/) にデジスパイスと同じ形式のファイル（.cln・.sci）で置いています。
+  - 多くは推定の位置です。公式の計測位置とずれていることがあります。位置が違うときは [コースデータの Issue](https://github.com/oud0n/ds_universal/issues/new?template=course.yml) でお知らせください。
+- **1 周の短いコース**: 1 周が 15 秒より短いコース（ポケバイコースなど）でも、周回が区切れるようにしました。
+
+**修正**
+
+- **コース編集の書き出し**（#7）: アプリ版（Windows / Mac）で、.cln に続けて .sci が書き出されなかったのを直しました。
+- **iPhone / iPad**: ブラウザ版で、ファイルの選択画面から .bon4 などのログが選べなかったのを直しました（実機での確認はこれからです）。
+- 関係ないファイルや壊れたファイルを読み込んだときに、メッセージを出して止まるようにしました（以前は、でたらめな 1 点のログができることがありました）。
+- 計測線の上で止まっている間の GPS の揺れを、周と数えないようにしました。
+- 近くの別のコースのログに、通らない計測線を当てて周回が区切れなくなることがあったのを直しました。
 
 ### v0.10.0
 

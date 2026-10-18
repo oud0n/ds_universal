@@ -8,7 +8,7 @@
 
 ![Supported OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon-blue)
 ![Verification](https://img.shields.io/badge/Verified-macOS%20Only-amber)
-![Version](https://img.shields.io/badge/Version-0.10.0-red)
+![Version](https://img.shields.io/badge/Version-0.11.0-red)
 ![Device](https://img.shields.io/badge/Device-DigSpice%20IV-red)
 ![License](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-oud0n-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/oud0n)
@@ -169,6 +169,26 @@ Then double-click the app as usual, or **Control-click (right-click) it and choo
 ---
 
 ## 📝 Release notes
+
+### v0.11.0
+
+**Added**
+
+- **Japanese / English**: switch the interface language with JA / EN at the top right.
+- **High contrast**: a high-contrast theme for reading the screen in direct sunlight.
+- **iRacing telemetry (.ibt)**: compare laps driven in the game with real-car logs on the same screen. For cars that record them, throttle and brake can be overlaid at the bottom of the speed graph.
+- **VBO (Racelogic) export** in log conversion.
+- **More built-in courses**: timing lines for 101 courses in Japan (including kart tracks and small circuits) and 26 circuits abroad (USA, Netherlands, France and Spain); 73 of them also have sector lines. The data is in [`courses/`](courses/) as DigSpice-format files (.cln / .sci).
+  - Most lines are estimated positions and may not match the official timing position. If a line is in the wrong place, please open a [course data issue](https://github.com/oud0n/ds_universal/issues/new?template=course.yml).
+- **Short laps**: laps are now split on courses where a lap takes less than 15 seconds (pocket-bike tracks and the like).
+
+**Fixed**
+
+- **Course editor export** (#7): in the desktop app (Windows / Mac), the .sci file was not saved after the .cln.
+- **iPhone / iPad**: in the browser version, logs such as .bon4 could not be picked in the file chooser (not yet checked on a real device).
+- Loading an unrelated or broken file now stops with a message (it could previously add a meaningless one-point log).
+- GPS jitter while standing on the timing line is no longer counted as laps.
+- A log from a nearby course could get a timing line it never crosses, so laps were not split.
 
 ### v0.10.0
 
