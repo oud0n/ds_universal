@@ -8,7 +8,7 @@
 
 ```sh
 cd tools/courses
-node ov.mjs fetch <id> <緯度> <経度> <国>      # OpenStreetMap の raceway を取る。国は US / NL / FR / ES（航空写真の取り先）
+node ov.mjs fetch <id> <緯度> <経度> <国>      # OpenStreetMap の raceway を取る。国は US / NL / FR / ES / JP（航空写真の取り先）
 node ov.mjs crop <id> "" "" 450                # ピットロードの中ほどの航空写真に、OSM の線とマス目（100 px）を重ねる → crop_<id>.svg.png
 node ov.mjs zoom <id> <x> <y> <幅m>            # 直前の写真の画素 (x, y) を中心に撮り直す
 node ov.mjs line <id> <x1> <y1> <x2> <y2>      # 写真の画素で計測線を決める（ピットロードまで含める）
@@ -21,6 +21,7 @@ node add_courses.mjs ../../courses <id>...     # courses/ に .cln・.sci と in
 - `EXCL="short|kart"` を付けると、名前が合う道（短いコース・カートコースなど）を外して 1 周を探す。
 - 区切りは既定で 3 等分（`0.3333333,0.6666667`）。距離（m）でも指定できる。等分の位置の近くに並行する直線があるときは、±8% の範囲でずらす。
 - 走る向き（CW / CCW）を間違えても、アプリが周回の計算でセクターを並べ直す。
+- セクター線を入れないコースは、`add_courses.mjs` の META に `noSectors`（理由）を書く（.sci を書かず、`index.json` に `sci` を入れない）。
 
 ## 航空写真
 
@@ -32,4 +33,4 @@ node add_courses.mjs ../../courses <id>...     # courses/ に .cln・.sci と in
 | NL | Beeldmateriaal Nederland（PDOK） | CC BY 4.0 |
 | FR | IGN BD ORTHO（Géoplateforme） | Licence Ouverte 2.0 |
 | ES | PNOA（IGN España） | CC BY 4.0 |
-| JP | 国土地理院 シームレス空中写真 | （国内のコースで使用） |
+| JP | 国土地理院 シームレス空中写真（XYZ タイルを並べる） | 国土地理院の利用規約に従う（出典を書く） |

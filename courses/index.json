@@ -192,6 +192,20 @@
     }
   },
   {
+    "id": "festika",
+    "name": "フェスティカサーキット栃木 (Festika Circuit Tochigi)",
+    "country": "JP",
+    "center": [
+      36.393382,
+      139.641318
+    ],
+    "cln": "festika.cln",
+    "notes": {
+      "controlLine": "メインストレートに架かるゲートの位置 (国土地理院 シームレス空中写真で確認、ピットレーンまで含む)。2026-10-18 作成",
+      "sectors": "OpenStreetMap にコースの線がなく 1 周の中心線を作れないため、セクター線は入れていない。2026-10-18 作成"
+    }
+  },
+  {
     "id": "zandvoort",
     "name": "Circuit Zandvoort",
     "country": "NL",
@@ -217,7 +231,7 @@
     "cln": "assen.cln",
     "sci": "assen.sci",
     "notes": {
-      "controlLine": "メインストレートに架かるゲートの位置 (Beeldmateriaal Nederland の航空写真 (PDOK、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "controlLine": "メインストレートの路面のスタート / フィニッシュの白線の位置 (スタートのゲートの手前。ピットレーンまで続く線) (Beeldmateriaal Nederland の航空写真 (PDOK、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4541 m の上)。2026-10-18 作成"
     }
   },
@@ -247,7 +261,7 @@
     "cln": "laguna_seca.cln",
     "sci": "laguna_seca.sci",
     "notes": {
-      "controlLine": "メインストレートに架かる歩道橋の位置 (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "controlLine": "メインストレートの歩道橋の先の、路面の白線らしきものの位置 (写真の解像度が低いため推定) (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 3605 m の上)。2026-10-18 作成"
     }
   },
@@ -427,7 +441,7 @@
     "cln": "jerez.cln",
     "sci": "jerez.sci",
     "notes": {
-      "controlLine": "メインストレートの路面のスタートの白線の位置 (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "controlLine": "メインストレートに架かる円形の建物の下のフィニッシュの位置 (写真では建物に隠れて路面の線が見えないため推定) (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4431 m の上)。2026-10-18 作成"
     }
   },
@@ -442,7 +456,7 @@
     "cln": "valencia.cln",
     "sci": "valencia.sci",
     "notes": {
-      "controlLine": "メインストレートに架かるスタートのゲートの位置 (グリッドの先頭の前。路面の線は確かめられなかった) (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "controlLine": "メインストレートの路面のフィニッシュの線の位置 (スタートのゲートより 300 m ほど手前) (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4004 m の上)。2026-10-18 作成"
     }
   },
@@ -472,7 +486,7 @@
     "cln": "aragon.cln",
     "sci": "aragon.sci",
     "notes": {
-      "controlLine": "メインストレートの路面のスタートの白線の位置 (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "controlLine": "メインストレートの路面のフィニッシュの白線の位置 (スタートの線より 140 m ほど手前) (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 5339 m の上)。2026-10-18 作成"
     }
   },
@@ -502,7 +516,7 @@
     "cln": "paul_ricard.cln",
     "sci": "paul_ricard.sci",
     "notes": {
-      "controlLine": "メインストレートに架かるスタートのゲートの下の白線の位置 (IGN BD ORTHO の航空写真 (Licence Ouverte 2.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "controlLine": "メインストレートの路面のフィニッシュの白線の位置 (スタートのゲートの 40 m ほど先) (IGN BD ORTHO の航空写真 (Licence Ouverte 2.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 5842 m の上)。2026-10-18 作成"
     }
   },
@@ -519,6 +533,65 @@
     "notes": {
       "controlLine": "メインストレートの路面のチェッカー模様のスタートラインの位置 (IGN BD ORTHO の航空写真 (Licence Ouverte 2.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 3727 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "streets_of_willow",
+    "name": "Streets of Willow Springs",
+    "country": "US",
+    "center": [
+      34.878042,
+      -118.259812
+    ],
+    "cln": "streets_of_willow.cln",
+    "sci": "streets_of_willow.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面の白線の位置 (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 2555 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "adams_motorsports",
+    "name": "Adams Motorsports Park (カート)",
+    "country": "US",
+    "center": [
+      34.008145,
+      -117.38292
+    ],
+    "cln": "adams_motorsports.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (写真の解像度が低く、路面の線は見えない) (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "レイアウトが入り組んでいて、3 等分の位置では隣の路面までまたぐため、セクター線は入れていない。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "ppir",
+    "name": "Pikes Peak International Raceway (ロードコース)",
+    "country": "US",
+    "center": [
+      38.591652,
+      -104.676625
+    ],
+    "cln": "ppir.cln",
+    "sci": "ppir.sci",
+    "notes": {
+      "controlLine": "オーバルのメインストレートの路面のスタートの白線の延長 (インフィールドのロードコースの直線までまたぐ) (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 2090 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "monteblanco",
+    "name": "Circuito Monteblanco",
+    "country": "ES",
+    "center": [
+      37.360846,
+      -6.572809
+    ],
+    "cln": "monteblanco.cln",
+    "sci": "monteblanco.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のチェッカー模様のスタートラインの位置 (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4423 m の上)。2026-10-18 作成"
     }
   }
 ]

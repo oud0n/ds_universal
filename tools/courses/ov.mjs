@@ -67,15 +67,30 @@ if (cmd === 'zoom' || cmd === 'crop') {
   const W = 1000, H = 1000;
   let url;
   if (c === 'US') url = `https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer/exportImage?bbox=${bb.w},${bb.s},${bb.e},${bb.n}&bboxSR=4326&imageSR=4326&size=${W},${H}&format=jpg&f=image`;
-  else {
+  else if (c !== 'JP') {
     const base = { FR: 'https://data.geopf.fr/wms-r/wms?LAYERS=ORTHOIMAGERY.ORTHOPHOTOS', ES: 'https://www.ign.es/wms-inspire/pnoa-ma?LAYERS=OI.OrthoimageCoverage', NL: 'https://service.pdok.nl/hwh/luchtfotorgb/wms/v1_0?LAYERS=Actueel_orthoHR' }[c];
     url = `${base}&SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&STYLES=&CRS=EPSG:4326&BBOX=${bb.s},${bb.w},${bb.n},${bb.e}&WIDTH=${W}&HEIGHT=${H}&FORMAT=image/jpeg`;
   }
-  const r = await fetch(url);
-  if (!r.ok) { console.log('imagery', r.status); process.exit(1); }
-  const img = Buffer.from(await r.arrayBuffer());
   const X = lon => ((lon - bb.w) / (bb.e - bb.w) * W).toFixed(1), Y = lat => ((bb.n - lat) / (bb.n - bb.s) * H).toFixed(1);
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}"><image width="${W}" height="${H}" xlink:href="data:image/jpeg;base64,${img.toString('base64')}"/>`;
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}">`;
+  if (c === 'JP') {
+    // 国土地理院 シームレス空中写真 (XYZ タイル) を並べる。狭い範囲なので、緯度の向きのメルカトルのゆがみは無視する
+    const z = span > 1500 ? 16 : span > 600 ? 17 : 18, n = 2 ** z;
+    const tx = lon => (lon + 180) / 360 * n, ty = lat => (1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * n;
+    const lonOf = x => x / n * 360 - 180, latOf = y => Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI;
+    for (let x = Math.floor(tx(bb.w)); x <= Math.floor(tx(bb.e)); x++) for (let y = Math.floor(ty(bb.n)); y <= Math.floor(ty(bb.s)); y++) {
+      const r = await fetch(`https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/${z}/${x}/${y}.jpg`);
+      if (!r.ok) continue;
+      const img = Buffer.from(await r.arrayBuffer());
+      const x0 = +X(lonOf(x)), x1 = +X(lonOf(x + 1)), y0 = +Y(latOf(y)), y1 = +Y(latOf(y + 1));
+      svg += `<image x="${x0}" y="${y0}" width="${(x1 - x0).toFixed(1)}" height="${(y1 - y0).toFixed(1)}" preserveAspectRatio="none" xlink:href="data:image/jpeg;base64,${img.toString('base64')}"/>`;
+    }
+  } else {
+    const r = await fetch(url);
+    if (!r.ok) { console.log('imagery', r.status); process.exit(1); }
+    const img = Buffer.from(await r.arrayBuffer());
+    svg += `<image width="${W}" height="${H}" xlink:href="data:image/jpeg;base64,${img.toString('base64')}"/>`;
+  }
   for (const w of ways) svg += `<polyline fill="none" stroke="${isPit(w) ? '#0ff' : '#f0f'}" stroke-opacity="0.5" stroke-width="1.5" points="${w.nodes.map(n => nodes.get(n)).filter(Boolean).map(p => X(p[1]) + ',' + Y(p[0])).join(' ')}"/>`;
   for (let g = 100; g < W; g += 100) svg += `<line x1="${g}" y1="0" x2="${g}" y2="${H}" stroke="#ff0" stroke-opacity="0.35"/><line x1="0" y1="${g}" x2="${W}" y2="${g}" stroke="#ff0" stroke-opacity="0.35"/><text x="${g + 2}" y="12" font-size="12" fill="#ff0">${g}</text><text x="2" y="${g - 2}" font-size="12" fill="#ff0">${g}</text>`;
   if (j.preset.cl) { const l = j.preset.cl; svg += `<line x1="${X(l.lonA)}" y1="${Y(l.latA)}" x2="${X(l.lonB)}" y2="${Y(l.latB)}" stroke="#0f0" stroke-width="2"/>`; }
