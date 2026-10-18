@@ -18,8 +18,8 @@ export function blobByteSource(blob: Blob): ByteSource {
 }
 
 export interface GoproLog extends ImportedLog {
-  /** 動画の先頭 (0 秒) の UTC 時刻 (ミリ秒)。ログの先頭との差が、動画同期のオフセットになる */
-  videoStartUtcMs: number;
+  /** 動画ごとの先頭 (0 秒) の UTC 時刻 (ミリ秒)。読んだ順。ログの先頭との差が、動画同期のオフセットになる */
+  videoStartUtcMs: number[];
   /** GPS の形式 */
   gpsFormat: 'GPS9' | 'GPS5';
 }
@@ -70,6 +70,7 @@ function childBoxes(v: DataView, start: number, end: number): { type: string; bo
     const type = fourcc(v, pos + 4);
     let header = 8;
     if (size === 1) {
+      if (pos + 16 > end) break;
       size = Number(v.getBigUint64(pos + 8));
       header = 16;
     } else if (size === 0) {
@@ -256,7 +257,6 @@ function parseGpmfPayload(v: DataView, sample: MetaSample, out: GpsFix[], format
       } else if (key === 'GPSP') {
         gpsDop = (readNumbers(v, body, type, structSize, repeat)[0] ?? 0) / 100;
       } else if (key === 'GPS9') {
-        formats.add('GPS9');
         // lat, lon, alt, 2D 速度, 3D 速度, 2000 年からの日数, 0 時からの秒, DOP, 測位 (0 / 2 / 3)
         const types = type === '?' ? complexType.replace(/\0/g, '') : type.repeat(9);
         if (types.length < 9) { pos = next; continue; }
@@ -271,6 +271,7 @@ function parseGpmfPayload(v: DataView, sample: MetaSample, out: GpsFix[], format
           const fix = val(8);
           const dop = val(7);
           if (fix < 2 || dop > MAX_DOP) continue;
+          formats.add('GPS9');
           const days = val(5);
           const secs = val(6);
           out.push({
@@ -284,11 +285,11 @@ function parseGpmfPayload(v: DataView, sample: MetaSample, out: GpsFix[], format
           });
         }
       } else if (key === 'GPS5') {
-        formats.add('GPS5');
         // lat, lon, alt, 2D 速度, 3D 速度。時刻は GPSU (このサンプルの最初の点) から等間隔
         const size = TYPE_SIZE[type];
         if (!size || structSize !== size * 5 || gpsFix < 2 || gpsDop > MAX_DOP || !Number.isFinite(gpsuMs)) { pos = next; continue; }
         const sc = (i: number) => scal.length >= 5 ? scal[i] || 1 : scal[0] || 1;
+        if (repeat > 0) formats.add('GPS5');
         for (let r = 0; r < repeat; r++) {
           const base = body + r * structSize;
           const val = (i: number) => readValue(v, base + i * size, type) / sc(i);
@@ -309,17 +310,18 @@ function parseGpmfPayload(v: DataView, sample: MetaSample, out: GpsFix[], format
   walk(0, v.byteLength);
 }
 
-/** GoPro の動画から GPS の走行ログを読む */
-export async function parseGoproGps(src: ByteSource): Promise<GoproLog> {
+/** 1 本の動画から GPS の点を読む */
+async function readGpsFixes(src: ByteSource): Promise<{ fixes: GpsFix[]; formats: Set<string> }> {
   const moov = (await listBoxes(src, 0, src.size)).find(b => b.type === 'moov');
-  if (!moov) throw new Error('MP4 の構造 (moov) が見つかりません');
+  if (!moov || moov.start + moov.size > src.size) throw new Error('MP4 の構造 (moov) が見つかりません');
   const moovView = await src.read(moov.start + moov.header, moov.size - moov.header);
-  const samples = gpmfSamplesFromMoov(moovView);
+  // ファイルの外を指すサンプル (途中で切れたファイルなど) は読まない
+  const samples = gpmfSamplesFromMoov(moovView)?.filter(s => s.offset + s.size <= src.size);
   if (!samples || samples.length === 0) throw new Error('GoPro の GPS (GPMF) の記録がない動画です');
 
   const fixes: GpsFix[] = [];
   const formats = new Set<string>();
-  // サンプルは 1 秒に 1 つで数 KB。まとめて読む (近いものは 1 回で)
+  // サンプルは 1 秒に 1 つで数 KB。まとめて読む (続いているものは 4 MB まで 1 回で)
   for (let i = 0; i < samples.length; ) {
     let j = i + 1;
     while (j < samples.length && samples[j].offset === samples[j - 1].offset + samples[j - 1].size && samples[j].offset + samples[j].size - samples[i].offset < 4 << 20) j++;
@@ -327,21 +329,35 @@ export async function parseGoproGps(src: ByteSource): Promise<GoproLog> {
     const block = await src.read(start, samples[j - 1].offset + samples[j - 1].size - start);
     for (let k = i; k < j; k++) {
       const s = samples[k];
-      if (s.size < 8) continue;
+      if (s.size < 8 || s.offset - start + s.size > block.byteLength) continue;
       parseGpmfPayload(new DataView(block.buffer, block.byteOffset + s.offset - start, s.size), s, fixes, formats);
     }
     i = j;
   }
+  return { fixes, formats };
+}
+
+/**
+ * GoPro の動画から GPS の走行ログを読む。
+ * 1 回の撮影が複数のファイル (チャプター) に分かれているときは、まとめて渡すと 1 つのログにつなげる
+ */
+export async function parseGoproGps(sources: ByteSource[]): Promise<GoproLog> {
+  const perVideo = [];
+  for (const src of sources) perVideo.push(await readGpsFixes(src));
   // GPS9 と GPS5 の両方がある動画は GPS9 を使う (同じ点を二重に入れない)
   // (GPS5 は時刻をサンプルの中で等分して求めるので粗い)
-  const gpsFormat: 'GPS9' | 'GPS5' = formats.has('GPS9') ? 'GPS9' : 'GPS5';
-  const valid = fixes.filter(f => f.format === gpsFormat && Number.isFinite(f.utcMs) && Number.isFinite(f.lat) && Number.isFinite(f.lon) && !(f.lat === 0 && f.lon === 0));
+  const gpsFormat: 'GPS9' | 'GPS5' = perVideo.some(v => v.formats.has('GPS9')) ? 'GPS9' : 'GPS5';
+  const isValid = (f: GpsFix) => f.format === gpsFormat && Number.isFinite(f.utcMs) && Number.isFinite(f.lat) && Number.isFinite(f.lon) && !(f.lat === 0 && f.lon === 0);
+
+  // 動画ごとの先頭の UTC 時刻: 各点の (UTC 時刻 − 動画の中の時刻) の中央値。測位できた点がない動画は NaN
+  const videoStartUtcMs = perVideo.map(v => {
+    const diffs = v.fixes.filter(isValid).map(f => f.utcMs - f.movieSec * 1000).sort((a, b) => a - b);
+    return diffs.length ? diffs[Math.floor(diffs.length / 2)] : NaN;
+  });
+
+  const valid: GpsFix[] = [];
+  for (const v of perVideo) for (const f of v.fixes) if (isValid(f)) valid.push(f);
   if (valid.length < 2) throw new Error('GoPro の動画に、測位できた GPS の記録がありません');
-
-  // 動画の先頭の UTC 時刻: 各点の (UTC 時刻 − 動画の中の時刻) の中央値
-  const diffs = valid.map(f => f.utcMs - f.movieSec * 1000).sort((a, b) => a - b);
-  const videoStartUtcMs = diffs[Math.floor(diffs.length / 2)];
-
   valid.sort((a, b) => a.utcMs - b.utcMs);
   const raw: RawSample[] = valid.map((f, i) => {
     const a = valid[Math.max(0, i - 1)];
@@ -359,4 +375,20 @@ export async function parseGoproGps(src: ByteSource): Promise<GoproLog> {
   });
   const log = finalizeImportedSamples(raw, 'GoPro の動画');
   return { ...log, videoStartUtcMs, gpsFormat };
+}
+
+/**
+ * GoPro のファイル名から、撮影の番号とチャプターを読む (1 回の撮影は約 4 GB ごとに別のファイルになる)。
+ * GX / GH + チャプター 2 桁 + 撮影番号 4 桁 (HERO6 以降)、GOPR + 撮影番号 (古い機種の最初のチャプター)、
+ * GP + チャプター 2 桁 + 撮影番号 (古い機種の 2 つ目以降)。GoPro の名前でなければ null
+ */
+export function goproRecording(fileName: string): { id: string; chapter: number } | null {
+  const name = fileName.replace(/^.*[\\/]/, '').toUpperCase();
+  let m = /^G([XH])(\d{2})(\d{4})\.(MP4|MOV)$/.exec(name);
+  if (m) return { id: `G${m[1]}${m[3]}`, chapter: +m[2] };
+  m = /^GOPR(\d{4})\.(MP4|MOV)$/.exec(name);
+  if (m) return { id: `GP${m[1]}`, chapter: 0 };
+  m = /^GP(\d{2})(\d{4})\.(MP4|MOV)$/.exec(name);
+  if (m) return { id: `GP${m[2]}`, chapter: +m[1] };
+  return null;
 }
