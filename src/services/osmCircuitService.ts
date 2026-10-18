@@ -93,7 +93,18 @@ export async function fetchOsmCircuitPolylines(
             const pt = nodes.get(nid);
             if (pt) line.push(pt);
           }
-          if (line.length > 1) {
+          // 範囲を狭めたときは、範囲の外の部分を切る (Overpass は範囲にかかった道を丸ごと返すので、
+          // 大きな施設の中のカートコースで、本コースまで地図に入ってしまう)
+          if (radiusMeters < 2000) {
+            const cosLat = Math.cos((lat * Math.PI) / 180);
+            const inside = (p: [number, number]) => Math.hypot((p[0] - lon) * cosLat * 111320, (p[1] - lat) * 111320) <= radiusMeters;
+            let part: Array<[number, number]> = [];
+            for (const pt of line) {
+              if (inside(pt)) part.push(pt);
+              else { if (part.length > 1) polylines.push(part); part = []; }
+            }
+            if (part.length > 1) polylines.push(part);
+          } else if (line.length > 1) {
             polylines.push(line);
           }
         }
