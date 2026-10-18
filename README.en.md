@@ -1,0 +1,276 @@
+<p align="center"><img src="build/icon.svg" width="128" height="128" alt="DS Universal icon"></p>
+
+# DS Universal (`ds_universal`)
+
+[日本語](README.md) | **English**
+
+**DigSpice IV USB communication and log download, motorsport telemetry analysis, and onboard video sync**
+
+![Supported OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon-blue)
+![Verification](https://img.shields.io/badge/Verified-macOS%20Only-amber)
+![Version](https://img.shields.io/badge/Version-0.10.0-red)
+![Device](https://img.shields.io/badge/Device-DigSpice%20IV-red)
+![License](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-oud0n-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/oud0n)
+
+> [!WARNING]
+> ### ⚠️ Testing status (important)
+> This software has so far **only been tested on macOS (Apple Silicon)**.  
+> GitHub Actions also builds and publishes a Windows (x64) installer and ZIP, but they have not been tested on real Windows machines.  
+> Reports and bug feedback (issues / pull requests) from Windows users are very welcome.
+>
+> **Supported platforms**: Windows (x64) / macOS (Apple Silicon, arm64).  
+> Linux and Intel Macs (including running under Rosetta 2) are not supported, and no builds are provided for them.
+
+The app's screens are in Japanese. An English user interface is planned.
+
+---
+
+## 🏎️ Overview
+
+**DS Universal (`ds_universal`)** is a source-available desktop application for the DigSpice IV, a GPS data logger for circuit driving. It brings together downloading logs from the logger and changing its settings, telemetry analysis of the driving line, speed and G-forces, and onboard video: automatic synchronisation with GoPro footage to the millisecond, two-camera picture-in-picture playback, and exporting MP4 video with the gauges burned in.
+
+---
+
+## 📸 Screenshots
+
+**Graph analysis**: speed graph, track map (with GSI aerial photos as the background), driving animation, friction circle
+
+![Graph analysis](docs/images/analysis.png)
+
+**Corner analysis and lap comparison**: speed, time delta and line difference between two laps; entry, minimum and exit speed for each corner
+
+![Corner analysis](docs/images/corner_analysis.png)
+
+**Log conversion**: cut out part of a log (a lap or a time range) and export it to NMEA / GPX / CSV / map HTML, telemetry CSV, lap list CSV or DTB
+
+![Log conversion](docs/images/convert.png)
+
+**Logger settings**: connect the logger over USB to change the sampling rate and the logging start speed, and to download logs
+
+![Logger settings](docs/images/logger.png)
+
+---
+
+## ✨ Features
+
+### 1. DigSpice IV USB communication and logger settings (`LoggerTab`)
+- **Direct connection with the Web Serial API**: no native driver to build; one USB cable is enough.
+- **Fast log download**: streams all driving data off the logger and saves it in the official-compatible `.bnx4` format.
+- **Settings**: change the GPS rate (`20Hz` / `10Hz` / `5Hz`) and the logging start/stop speed (5–100 km/h), and confirm the change by reading the values back from the logger.
+- **Erase logger memory**: erase the whole flash memory before your next session (with a lock against erasing by mistake).
+
+### 2. Motorsport telemetry analysis (`Graph / DataTab`)
+- **Speed graph comparison**: overlay the speed and distance of up to 4 cars (or 4 laps).
+- **Track map and driving line**: plots the course using OpenStreetMap or your own circuit definitions. GSI (Geospatial Information Authority of Japan) aerial photos or maps can be shown as the background (internet connection required), and the map position can be nudged to match the GPS trace.
+- **G-forces and friction circle**: distribution of acceleration, braking and cornering G, shown as a friction circle.
+- **Corner analysis**: detects corners automatically and compares entry, minimum and exit speed between cars (laps).
+- **Braking analysis**: braking point, peak deceleration, build-up, release and trail braking, as numbers and graphs (estimated from GPS speed).
+- **Line difference heat map**: colours the track map by how far the driving line is left or right of the reference lap. GPS position offsets between laps are corrected automatically.
+- **Other formats**: Racelogic VBO, RaceChrono CSV, GPX, MoTeC CSV (exported from i2) and AiM (Race Studio CSV, and the GPS in logger files `.xrk` / `.xrz`).
+  - MoTeC and AiM support has only been checked with sample files published on the internet, not with logs recorded on the developer's own hardware. If a file does not load correctly, please let us know in an issue.
+- **GPS from GoPro videos**: open a video (.MP4) shot with a GoPro that records GPS (HERO5 and later) with "ファイル読込" (Open file), and the GPS recorded in the video is loaded as a driving log. The same video is added to video sync and plays already aligned by GPS time. When one recording is split into several files (chapters), select them together to get one log. (The video is read on your device and is never loaded into memory as a whole.)
+- **Log conversion page**: export a loaded log to NMEA (GGA + RMC), GPX, CSV, TXT (space-separated), KML (for Google Earth, line coloured by speed), DTB, map HTML (hover for time and speed) or MoTeC CSV, plus DigSpice-style telemetry CSV (with G) and a lap list CSV. You choose the range (the whole log, one lap, or a time range cut out on the graph) and the time offset (time zone). All exports live on this page; open it from "変換画面で開く" (Open in converter) for each log on the data tab.
+
+#### Course data (timing lines)
+- **Built-in presets**: names and centre coordinates of 13 circuits in Japan, with start/finish timing lines for 12 of them. All of this is the app's own data: centre coordinates come from the course shapes in OpenStreetMap, and timing lines were placed by checking the start line area on GSI aerial photos. They work for splitting laps but may not match each circuit's official timing position (if the line is in a different place, lap times for the same session change slightly). If a line is in the wrong place, please let us know in an issue. No sector lines are built in.
+- **Using your own course data**: if you own the official DigSpice software, load the course folder on your PC (the folder containing `Circuit` / `ControlLine` / `Sector`) with "コースフォルダ一括設置" (Install course folder) on the data tab. Loaded data takes priority over the built-in presets. This app does not bundle or distribute the official course data.
+- **Courses without a timing line**: enter the two points (latitude and longitude) of the line in "コース編集" (Course editor) on the data tab, or load a `.cln` file. If no line is set or the car never crossed it, the data tab shows a hint.
+- Sources: the built-in coordinates are based on data from [© OpenStreetMap contributors](https://www.openstreetmap.org/copyright) ([Open Database License (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/)) and on the seamless aerial photos of [GSI](https://maps.gsi.go.jp/development/ichiran.html). The data is `CIRCUIT_PRESETS` in `src/services/circuitDatabase.ts`.
+
+### 3. Onboard video (GoPro / DJI / generic MP4) sync (`VideoSyncWindow`)
+- **Automatic time zone detection and 9-hour offset scan**: detects the time difference from the GPS position (JST inside Japan) and the video metadata (UTC/JST) and corrects the offset to the millisecond.
+- **Seamless playback of GoPro 4 GB chapter files**:
+  - Detects split files such as `GX010017.MP4` → `GX020017.MP4` → `GX030017.MP4` and joins them in order.
+  - Plays seamlessly across chapter boundaries.
+- **NLE-style multi-track timeline**:
+  - Shows at a glance where the GPS log (each lap) and the onboard video (each chapter clip) sit on the session's absolute time.
+  - Click or drag on the timeline to scrub.
+- **Two-way seek sync with the speed window**:
+  - The seek bar follows the selected lap (or the whole session).
+- **Two cameras / picture-in-picture**:
+  - Play a front camera and a rear camera (or a pedal camera, etc.) side by side (1:1) or as picture-in-picture, fully synchronised.
+- **Manual keyframe sync (Sync Pin)**:
+  - Press "ピン留め同期" (Pin sync) on a frame such as a kerb clipping point or the timing line crossing to lock the offset in one click.
+- **Telemetry burn-in export**:
+  - Renders and exports MP4 video with the speedometer, G-ball and lap time composited, using only standard browser features.
+- **Flat design**:
+  - A crisp, high-visibility UI without unnecessary shadows or rounded corners, as befits a professional motorsport analysis tool.
+
+---
+
+## 🌐 Browser version
+
+Use it straight from your browser without installing anything. Logs are loaded, analysed and converted on your device and are never sent to a server.
+
+The app only talks to outside services to show maps (map tiles), to fetch course definitions automatically (the course centre coordinates are sent to the OpenStreetMap Overpass API), and when you open an exported map HTML file (the display script comes from unpkg.com and the map tiles from OpenStreetMap). The browser version also uses [GoatCounter](https://www.goatcounter.com/) to count visits (it sends the page opened, the referrer and similar; no cookies are used and no log contents are sent). The desktop version does not include it.
+
+- Analysis: <https://oud0n.github.io/ds_universal/>
+- Log conversion: <https://oud0n.github.io/ds_universal/#convert>
+
+USB communication with the logger (the logger settings tab) uses the Web Serial API, so it **only works in Chrome / Edge on a PC**. In Safari, Firefox or on smartphones you can still load, analyse and convert logs.
+
+## 📥 Download and installation
+
+Download the latest installer / ZIP for your OS from [GitHub Releases](https://github.com/oud0n/ds_universal/releases).
+
+| OS | Package (installer / ZIP) | Status |
+| :--- | :--- | :--- |
+| **Windows** | `.exe` (installer) / `.zip` (portable) | Built and published (not yet tested on real machines; see the warning above) |
+| **macOS** | `.dmg` (installer) / `.zip` (Apple Silicon `arm64` only) | **Tested** |
+
+---
+
+### 🍎 macOS requirements
+
+- **Macs with Apple Silicon (M1 or later) only**. Only native `arm64` binaries are provided; Rosetta 2 is not used.
+- **Does not run on Intel Macs** (no `x64` build is provided).
+- To confirm it runs natively: the "Kind" column in Activity Monitor shows **Apple** (it shows Intel under Rosetta).
+
+### 🍎 macOS: if you see "is damaged and can't be opened"
+
+When you open the app from the DMG, macOS may show the warning **"“DS Universal” is damaged and can't be opened. You should move it to the Trash."**
+
+#### 💡 Cause
+This app is developed by an individual and is not notarized or signed through the paid Apple Developer Program.  
+macOS Gatekeeper adds a quarantine flag (`com.apple.quarantine`) to unsigned, unnotarized apps downloaded from a browser, reports them as "damaged" (a BundleIntegrity warning) and kills them (SIGKILL) for protection. **The file is not actually damaged.**
+
+#### 🚀 Fix (run in Terminal)
+
+1. Copy `DS Universal.app` from the DMG to your **Applications (/Applications)** folder.
+2. Open **Terminal.app** and run:
+
+```bash
+xattr -cr "/Applications/DS Universal.app"
+```
+
+##### 📖 What the command does
+* `xattr`: the standard macOS command for showing and changing extended file attributes.
+* `-c` (`--clear`): removes all extended attributes from the file. Removing the **quarantine attribute (`com.apple.quarantine`)** added when the browser saved the file stops Gatekeeper from blocking the launch.
+* `-r` (`--recursive`): applies this to every binary, library and resource inside the app bundle (.app).
+
+---
+
+##### ⚠️ If it still won't open (ad-hoc signing)
+Depending on the macOS security policy (macOS Sequoia / Sonoma, etc.), unsigned code may be blocked strictly. In that case, run this ad-hoc signing command in Terminal:
+
+```bash
+codesign --force --deep --sign - "/Applications/DS Universal.app"
+```
+
+##### 📖 What the command does
+* `codesign`: the macOS tool for creating and checking code signatures.
+* `--force`: overwrites any existing incomplete signature.
+* `--deep`: signs all embedded frameworks in the bundle (Electron Framework / Chromium, etc.) recursively.
+* `--sign -`: uses an ad-hoc signature (the hyphen `-`) instead of an Apple Developer ID certificate, which allows the app to run locally.
+
+Then double-click the app as usual, or **Control-click (right-click) it and choose "Open"**.
+
+---
+
+## 📝 Release notes
+
+### v0.10.0
+
+**Added**
+
+- **GPS from GoPro videos**: open a video (.MP4) shot with a GoPro that records GPS (HERO5 and later) with "ファイル読込" (Open file), and the GPS recorded in the video is loaded as a driving log. The same video is added to video sync and plays already aligned by GPS time. When one recording is split into several files (chapters), select them together to get one log. If a DigSpice (or other) log of the same session is the reference car, the video is aligned by converting via the recorded times. Videos without GPS are only added to video sync.
+- **AiM logs**: reads the CSV exported by Race Studio and the GPS in logger files (.xrk / .xrz).
+- **MoTeC CSV**: reading the CSV exported by i2 and exporting to MoTeC CSV are now enabled.
+  - MoTeC and AiM support has only been checked with sample files published on the internet, not with logs recorded on real hardware. If a file does not load correctly, please let us know in an issue.
+- **Saving and loading edited courses** (#7): timing lines and sectors fixed in the course editor are saved in the app and used for later logs that cross the same timing line. Timing lines (.cln) and sectors (.sci) can also be loaded and exported.
+- **Log conversion exports**:
+  - Added KML (for Google Earth, line coloured by speed) and TXT (space-separated).
+  - Map HTML shows time, speed, heading and position when you hover.
+  - Added UTC / JST buttons for the time offset; files with times in them get `_UTC` / `_JST` and so on in their names. GPX, CSV and KML times carry the offset (such as `+09:00`).
+  - The summary shows average speed and the start and end positions.
+- **Friction circle**: draws a trail of the last second behind the current G point, fading towards the past.
+
+**Fixed**
+
+- **Onboard video** (#10, #11, #13):
+  - With the bottom-left window set to "車載動画" (Onboard video), playback did not advance when no video was loaded.
+  - While a video was shown, the speed and track map windows dropped to 2–3 frames per second.
+  - The onboard video in the bottom-left of graph analysis sometimes did not appear.
+  - The video tab and the graph screen now share the selected video and display settings instead of fighting over them.
+  - After loading a sync project and choosing the video again, the saved offset is kept.
+  - A video export could not be stopped right after starting.
+- **Playback performance**: with logs that have many points, the parts of the graphs that do not move are no longer redrawn during playback (a 200,000-point log went from about 37 to 120 frames per second).
+- GPX and binary logs with many points could not be loaded.
+- The current point in the friction circle jumped at every recorded sample (G is now interpolated between samples too).
+- Installing a course folder now also updates the track maps of logs already loaded.
+- Built-in timing lines: Fuji, Suzuka, SUGO and Honjo were checked again on aerial photos and moved. Autopolis now uses the position suggested in #12. Because the lines moved, lap times for the same log may differ slightly from the previous version.
+
+**Changed**
+
+- The browser version (GitHub Pages) uses GoatCounter to count visits (no cookies, no log contents sent). The desktop version does not include it.
+
+For earlier versions, see the [Japanese README](README.md#-リリースノート) or [GitHub Releases](https://github.com/oud0n/ds_universal/releases).
+
+---
+
+## 🛠️ Developer setup
+
+### Requirements
+- Node.js 20 or later
+- npm 9 or later
+
+```bash
+# Clone the repository
+git clone https://github.com/oud0n/ds_universal.git
+cd ds_universal
+
+# Install dependencies
+npm install
+
+# Start the dev server (browser version)
+npm run dev
+
+# Run as the Electron desktop app
+npm start
+
+# Build (type check + Vite bundle)
+npm run build
+
+# Package for each OS
+npm run dist:win   # Windows (.exe, .zip)
+npm run dist:mac   # macOS (.dmg, .zip / Apple Silicon arm64)
+```
+
+---
+
+## ☕ Support the developer (Buy Me a Coffee)
+
+**DS Universal (`ds_universal`)** is a personal project (free and source-available).  
+Your support, from the price of a coffee ($3 and up), helps cover track days, fuel and highway tolls, keeping up the Mac version, and further work on millisecond-accurate GoPro sync and telemetry overlays. ☕🏎️
+
+👉 **[Support oud0n on Buy Me a Coffee](https://buymeacoffee.com/oud0n)**
+
+---
+
+## 🚫 Features not implemented
+
+- **The official software's drift scoring**: not implemented, because it could infringe the copyright of DigSpice Co., Ltd. (and there are no plans to implement it).
+  The app used to have its own simple "drift" display, but it was removed on 2026-10-17.
+- Reading and converting the logger's log data deals with the recorded data itself (position, time, speed, etc.) and the file's accompanying information; this is general analysis and is distinct from the above.
+
+---
+
+## ⚖️ Trademarks and disclaimer
+
+- **Trademarks**: "デジスパイス" and "DigSpice" are trademarks or registered trademarks of DigSpice Co., Ltd. Other product and company names are trademarks or registered trademarks of their respective owners.
+- **Unofficial compatible software**: this software (`ds_universal`) is an unofficial, third-party compatible tool developed by an individual. It has no relationship, partnership or endorsement of any kind with DigSpice Co., Ltd.
+- **Disclaimer**: the developer accepts no responsibility for any damage or device malfunction caused by using, or being unable to use, this software. Use it at your own risk.
+
+---
+
+## 📜 License
+
+[PolyForm Noncommercial License 1.0.0](LICENSE) (Copyright 2026 oud0n)
+
+- **Free for non-commercial use**: personal use (hobby, study, research and other uses not leading to commercial gain) and use by non-profit organisations, educational institutions, public research organisations and government bodies is free, including modification and redistribution. When you redistribute, pass on `LICENSE` (or the license URL) and the `Required Notice:` line with it.
+- **Commercial use requires prior permission**: if you want to use it at work, include it in a paid product or service, or sell it, please contact [caliber.trivia66@icloud.com](mailto:caliber.trivia66@icloud.com).
+- **If you publish or distribute a modified version**, please make its origin clear:
+  - State, somewhere users will see it such as the README, that it is based on this software ([oud0n/ds_universal](https://github.com/oud0n/ds_universal)) and that you modified it.
+  - Give the modified version a different name, and do not use names or wording that could be mistaken for the official or an endorsed version.
+- Versions up to v0.7.1 were published under the MIT License. Copies of v0.7.1 and earlier that you already have are not affected.
