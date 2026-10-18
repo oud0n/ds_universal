@@ -2,7 +2,7 @@
 // .xrk は AiM の独自形式。ここでは GPS の記録 (<hGPS の枠に入った u-blox の NAV-SOL、56 バイト) だけを読む。
 // 形式の手がかり: libxrk (MIT, https://github.com/m3rlin45/libxrk) の spec/xrk_format.py
 import { calculateGeoDistanceAndHeading } from './physics';
-import { finalizeImportedSamples, splitCsvLine, type ImportedLog, type RawSample } from './externalFormats';
+import { detectDecimalComma, finalizeImportedSamples, splitCsvLine, type ImportedLog, type RawSample } from './externalFormats';
 
 // ============================================================================
 // Race Studio の CSV ("Format","AiM CSV File")
@@ -42,8 +42,7 @@ export function parseAimCsv(text: string): ImportedLog {
   // 記録の開始時刻 (ロガーの時計。タイムゾーンは記録されていないので、この端末の時刻として読む)
   const start = parseAimDateTime(meta.get('Date'), meta.get('Time'));
   // ヨーロッパの設定で書き出した CSV は小数点がカンマ ("35,37349471")。ファイル全体で決める
-  const decimalComma = /^-?\d+,\d+$/.test(meta.get('Sample Rate') ?? '') ||
-    lines.slice(headerIdx + 1, headerIdx + 20).some(l => /^"?-?\d+,\d+"?(,|$)/.test(l));
+  const decimalComma = detectDecimalComma(lines, headerIdx + 2);
   const num = (v: string | undefined) => parseFloat(decimalComma ? (v ?? '').replace(',', '.') : (v ?? ''));
   // 衛星数の列が全部 0 (記録していない) なら、衛星数では選ばない
   const useSat = cSat >= 0 && lines.slice(headerIdx + 1).some(l => num(splitCsvLine(l)[cSat]) > 0);
