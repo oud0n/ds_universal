@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Session, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { CIRCUIT_PRESETS } from '../services/circuitDatabase';
 import {
@@ -65,6 +65,12 @@ const ClockOffsetControl: React.FC<{
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
   const value = session.clockOffsetSec ?? 0;
+  // 入力中の文字はそのまま持つ (「-」や「0.」を打った途中で 0 に戻さないため)。外から値が変わったら入れ直す
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => {
+    if (parseFloat(draft) !== value) setDraft(String(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
   return (
     <span
       className="flex items-center gap-1 text-[11px] text-slate-400"
@@ -74,12 +80,14 @@ const ClockOffsetControl: React.FC<{
       <input
         type="number"
         step={0.01}
-        value={value}
+        value={draft}
         onChange={e => {
+          setDraft(e.target.value);
           const v = parseFloat(e.target.value);
-          onSet(session.id, Number.isFinite(v) ? v : 0);
+          if (Number.isFinite(v)) onSet(session.id, v);
           setNote('');
         }}
+        onBlur={() => setDraft(String(value))}
         className="w-16 bg-surface-0 border border-line-3 rounded px-1 text-right font-mono text-slate-200"
       />
       <span>{t('秒', 's')}</span>

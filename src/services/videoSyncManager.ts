@@ -672,10 +672,12 @@ export function trackStartUtcMs(track: VideoTrack, sessions: Session[]): number 
  * 動画を付けるログの候補 (LATER-12)
  */
 export function overlappingSessions(track: VideoTrack, sessions: Session[], manager: VideoSyncManager = videoSyncManager): Session[] {
-  const start = trackStartUtcMs(track, sessions);
-  if (start === null) return [];
+  // チャプターに分かれた動画は、最初のチャプターの頭から全部のチャプターの長さで見る (どのチャプターを渡されても同じ範囲)
   const group = manager.getChapterGroupForTrack(track.id);
-  const dur = group && group.tracks.length > 1 ? group.totalDurationSec : track.durationSec;
+  const lead = group && group.tracks.length > 1 ? group.tracks[0].track : track;
+  const start = trackStartUtcMs(lead, sessions);
+  if (start === null) return [];
+  const dur = lead !== track || (group && group.tracks.length > 1) ? group!.totalDurationSec : track.durationSec;
   const end = start + Math.max(0, dur || 0) * 1000;
   const scored: Array<{ s: Session; overlap: number }> = [];
   for (const s of sessions) {

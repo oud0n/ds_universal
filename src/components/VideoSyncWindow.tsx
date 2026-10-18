@@ -430,6 +430,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     if (!isVisible || isAnyExporting || !activeTrack || !baseSession) return;
     const fromId = activeTrack.matchedSessionId;
     if (!fromId || fromId === baseSession.id) return;
+    // 利用者が「動画に合わせるログ」を選んだ動画は付け替えない (再生は別のログの時刻からの換算で合う)
+    if (activeTrack.isSessionChosenManually) return;
     if (tracks.some(t => t.matchedSessionId === baseSession.id)) return;
     const from = sessions.find(s => s.id === fromId);
     const range = (s: Session | undefined) => {
@@ -765,7 +767,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     if (pipRef.current) ro.observe(pipRef.current);
     video.addEventListener('loadedmetadata', update);
     return () => { ro.disconnect(); video.removeEventListener('loadedmetadata', update); };
-  }, [viewMode, activeTrack?.id, activeTrack?.objectUrl, pipPosition, subTrack?.id]);
+  }, [viewMode, activeTrack?.id, activeTrack?.objectUrl, pipPosition, subTrack?.id, subTrack?.objectUrl]);
 
   const getPipPosClass = (pos: PipPosition) => {
     switch (pos) {
