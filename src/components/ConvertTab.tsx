@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Download, FolderOpen, Repeat } from 'lucide-react';
 import { Session } from '../types/telemetry';
 import {
-  ConvertRange, selectConvertPoints, toTelemetryPoints, hasRecordedClock, convertToNmea, convertToGpx, convertToCsv, convertToHtmlMap, convertToKml, convertToTxt
+  ConvertRange, selectConvertPoints, toTelemetryPoints, hasRecordedClock, convertToNmea, convertToGpx, convertToCsv, convertToHtmlMap, convertToKml, convertToTxt, convertToVbo
 } from '../services/logConverter';
 import { exportDtb } from '../services/dtbParser';
 import { triggerFileDownload } from '../services/nmeaExporter';
@@ -313,6 +313,11 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
                   <button disabled={disabled} className={btnCls} data-testid="convert-csv"
                     onClick={() => save('csv', convertToCsv(points, offsetHours), 'text/csv')}>
                     <Download size={13} /> CSV
+                  </button>
+                  <button disabled={disabled} className={btnCls} data-testid="convert-vbo"
+                    onClick={() => save('vbo', convertToVbo(points), 'text/plain')}
+                    title={t('Racelogic の VBO 形式（Circuit Tools・RaceChrono などで読めます）', 'Racelogic VBO (opens in Circuit Tools, RaceChrono and others)')}>
+                    <Download size={13} /> VBO
                   </button>
                   <button disabled={disabled} className={btnCls} data-testid="convert-txt"
                     onClick={() => save('txt', convertToTxt(points), 'text/plain')}
