@@ -2,6 +2,8 @@
 
 # DS Universal (`ds_universal`)
 
+**日本語** | [English](README.en.md)
+
 **デジスパイスIV（DigSpice IV）USB通信・ログ吸い出し ＆ モータースポーツ・テレメトリ解析・車載動画同期スイート**
 
 ![対応OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon-blue)
