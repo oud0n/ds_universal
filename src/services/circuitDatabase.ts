@@ -106,6 +106,13 @@ function findMatchingPreset(lat: number, lon: number, points?: TelemetryPoint[])
     if (best) return best;
   }
 
+  // 計測線を持つコースは、ログがその線を通るか、すぐ近く (50 m 以内) まで来たときだけ使う。
+  // 同じ施設の隣のコース (Willow Springs の Big Willow と Streets など) のログに、通らない計測線を当てて周回が 0 になるのを防ぐ。
+  // 使わないときはコースが分からない扱いになり、走り始めに仮の計測線が置かれる
+  if (points && closest?.controlLine && countGateCrossings(points, closest.controlLine) === 0 && !passesNearControlLine(points, closest.controlLine, 50)) {
+    return undefined;
+  }
+
   return closest;
 }
 
