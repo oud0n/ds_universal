@@ -101,7 +101,9 @@ export function tilesForView(
   return [];
 }
 
-type CacheEntry = { image: HTMLImageElement; state: 'loading' | 'ready' | 'error' };
+// 読み込み中のタイルを求めたウインドウは、全部 listeners に覚えて、届いたら全部に知らせる
+// (最初の 1 つだけに知らせると、作り直したウインドウなど後から求めたほうが描き直されない)
+type CacheEntry = { image: HTMLImageElement; state: 'loading' | 'ready' | 'error'; listeners: Set<() => void> };
 const cache = new Map<string, CacheEntry>();
 
 /**
@@ -113,20 +115,24 @@ export function getTileImage(tile: TilePlacement, onLoad: () => void): HTMLImage
     // 最近使ったものを末尾へ移す (古いものから捨てるため)
     cache.delete(tile.key);
     cache.set(tile.key, hit);
+    if (hit.state === 'loading') hit.listeners.add(onLoad);
     return hit.state === 'ready' ? hit.image : null;
   }
 
   const image = new Image();
   // 動画書き出し等で canvas を読み出せるよう、CORS 付きで取得する
   image.crossOrigin = 'anonymous';
-  const entry: CacheEntry = { image, state: 'loading' };
+  const entry: CacheEntry = { image, state: 'loading', listeners: new Set([onLoad]) };
   image.onload = () => {
     entry.state = 'ready';
-    onLoad();
+    const listeners = [...entry.listeners];
+    entry.listeners.clear();
+    for (const notify of listeners) notify();
   };
   image.onerror = () => {
     // 圏外や未整備の範囲。再取得を繰り返さないよう失敗として覚えておく
     entry.state = 'error';
+    entry.listeners.clear();
   };
   image.src = tile.url;
   cache.set(tile.key, entry);
