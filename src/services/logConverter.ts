@@ -214,6 +214,21 @@ ${last ? mark('END', last) : ''}
 `;
 }
 
+/** 時差を調整した時刻を "YYYY-MM-DD HH:mm:ss.SSS" で (Z を付けない。調整後の時刻は UTC の欄に入っている) */
+export function formatAdjustedTime(d: Date, sep = ' '): string {
+  const p = (n: number, w = 2) => String(n).padStart(w, '0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}${sep}${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}.${p(d.getUTCMilliseconds(), 3)}`;
+}
+
+/** 空白区切りのテキスト (ds4_convert の RAW GPS TXT と同じ形) */
+export function convertToTxt(points: ConvertedPoint[]): string {
+  const lines = ['Timestamp Latitude Longitude Speed(km/h) Heading(deg)'];
+  for (const p of points) {
+    lines.push(`${formatAdjustedTime(p.time, 'T')} ${p.latitude.toFixed(7)} ${p.longitude.toFixed(7)} ${p.speed.toFixed(2)} ${p.heading.toFixed(2)}`);
+  }
+  return lines.join('\r\n') + '\r\n';
+}
+
 export function convertToCsv(points: ConvertedPoint[]): string {
   const rows = ['time_utc,elapsed_s,latitude,longitude,altitude_m,speed_kmh,heading_deg,satellites,distance_km'];
   for (const p of points) {
@@ -252,10 +267,16 @@ export function convertToHtmlMap(points: ConvertedPoint[], title: string): strin
   const first = points[0];
   const last = points[points.length - 1];
   const info = first && last
-    ? `${first.time.toISOString()} 〜 ${last.time.toISOString()} / ${points.length} 点 / 最高 ${maxSpeed.toFixed(1)} km/h`
+    ? `${formatAdjustedTime(first.time)} 〜 ${formatAdjustedTime(last.time)} / ${points.length} 点 / 最高 ${maxSpeed.toFixed(1)} km/h`
     : '';
   // </script> などが紛れ込まないよう、埋め込む JSON の < をエスケープする
   const json = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c');
+  // カーソルを乗せると時刻・車速・方位・緯度経度を出す印 (多すぎると重いので 300 点まで間引く)
+  const marks = decimate(points, 300).map(p => [
+    Number(p.latitude.toFixed(6)),
+    Number(p.longitude.toFixed(6)),
+    `${formatAdjustedTime(p.time)}<br>${p.speed.toFixed(1)} km/h / ${p.heading.toFixed(0)}°<br>${p.latitude.toFixed(6)}, ${p.longitude.toFixed(6)}`
+  ]);
   return `<!doctype html>
 <html lang="ja">
 <head>
@@ -271,10 +292,14 @@ export function convertToHtmlMap(points: ConvertedPoint[], title: string): strin
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 var line = ${json(line)};
+var marks = ${json(marks)};
 var map = L.map('map', { preferCanvas: true });
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
 if (line.length > 0) {
   var track = L.polyline(line, { color: '#e11d48', weight: 3 }).addTo(map);
+  marks.forEach(function (m) {
+    L.circleMarker([m[0], m[1]], { radius: 3, color: '#e11d48', weight: 1, fillOpacity: 0.6 }).bindTooltip(m[2]).addTo(map);
+  });
   L.circleMarker(line[0], { radius: 6, color: '#16a34a' }).bindTooltip('START').addTo(map);
   L.circleMarker(line[line.length - 1], { radius: 6, color: '#2563eb' }).bindTooltip('END').addTo(map);
   map.fitBounds(track.getBounds());

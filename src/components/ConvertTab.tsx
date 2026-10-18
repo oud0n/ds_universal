@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Download, FolderOpen, Repeat } from 'lucide-react';
 import { Session } from '../types/telemetry';
 import {
-  ConvertRange, selectConvertPoints, toTelemetryPoints, hasRecordedClock, convertToNmea, convertToGpx, convertToCsv, convertToHtmlMap, convertToKml
+  ConvertRange, selectConvertPoints, toTelemetryPoints, hasRecordedClock, convertToNmea, convertToGpx, convertToCsv, convertToHtmlMap, convertToKml, convertToTxt
 } from '../services/logConverter';
 import { exportDtb } from '../services/dtbParser';
 import { triggerFileDownload } from '../services/nmeaExporter';
@@ -112,6 +112,10 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
       seconds: (last.time.getTime() - first.time.getTime()) / 1000,
       distance: last.distance,
       maxSpeed,
+      // 平均車速: 距離 ÷ 時間 (止まっていた時間も含む)
+      avgSpeed: last.time.getTime() > first.time.getTime() ? (last.distance / ((last.time.getTime() - first.time.getTime()) / 3600000)) : 0,
+      startPos: `${first.latitude.toFixed(6)}, ${first.longitude.toFixed(6)}`,
+      endPos: `${last.latitude.toFixed(6)}, ${last.longitude.toFixed(6)}`,
       hasSatellites: points.some(p => p.satellites != null)
     };
   }, [points]);
@@ -120,7 +124,9 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
     ? session.sessionName.replace(/[\\/:*?"<>|]/g, '_') + (rangeKind === 'lap' ? `_L${lapNumber}` : rangeKind === 'time' ? '_trim' : '')
     : 'log';
 
-  const save = (ext: string, content: string, mime: string) => triggerFileDownload(`${baseName}.${ext}`, content, mime);
+  // 時刻の入った書き出しは、ファイル名に時差を付ける (_UTC / _JST / _UTC+5 など)
+  const tzSuffix = offsetHours === 9 ? '_JST' : offsetHours === 0 ? '_UTC' : `_UTC${offsetHours > 0 ? '+' : ''}${offsetHours}`;
+  const save = (ext: string, content: string, mime: string) => triggerFileDownload(`${baseName}${tzSuffix}.${ext}`, content, mime);
 
   const saveDtb = () => {
     if (!session || points.length === 0) return;
@@ -129,7 +135,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${baseName}.dtb`;
+    a.download = `${baseName}${tzSuffix}.dtb`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -219,7 +225,17 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <label className="text-xs text-slate-400 space-y-1 block">
-                  <span>時刻の調整（時間）</span>
+                  <span className="flex items-center justify-between gap-2">
+                    <span>時刻の調整（時間）</span>
+                    <span className="flex gap-1">
+                      {[{ h: 0, label: 'UTC' }, { h: 9, label: 'JST (+9)' }].map(o => (
+                        <button key={o.h} type="button" onClick={() => setOffsetHours(o.h)} data-testid={`convert-tz-${o.h}`}
+                          className={`px-1.5 py-0.5 rounded border text-[10px] ${offsetHours === o.h ? 'bg-red-600 border-red-500 text-white' : 'border-line-3 text-slate-400 hover:text-slate-200'}`}>
+                          {o.label}
+                        </button>
+                      ))}
+                    </span>
+                  </span>
                   <select value={offsetHours} onChange={e => setOffsetHours(Number(e.target.value))} className={`${inputCls} w-full`} data-testid="convert-offset">
                     {Array.from({ length: 27 }, (_, i) => i - 12).map(h => (
                       <option key={h} value={h}>{h === 0 ? '調整しない（UTC のまま）' : `${h > 0 ? '+' : ''}${h} 時間`}</option>
@@ -258,8 +274,10 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
                   <span>長さ: {summary.seconds.toFixed(1)} 秒 / {summary.distance.toFixed(2)} km</span>
                   <span>開始: {summary.start}</span>
                   <span>終了: {summary.end}</span>
-                  <span>最高速度: {summary.maxSpeed.toFixed(1)} km/h</span>
+                  <span>最高速度: {summary.maxSpeed.toFixed(1)} km/h / 平均: {summary.avgSpeed.toFixed(1)} km/h</span>
                   <span>衛星数の記録: {summary.hasSatellites ? 'あり' : 'なし（NMEA では空欄）'}</span>
+                  <span>開始位置: {summary.startPos}</span>
+                  <span>終了位置: {summary.endPos}</span>
                 </div>
               ) : (
                 <span className="text-amber-400">この範囲に書き出せる点がありません。</span>
@@ -275,7 +293,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
             <div className="bg-surface-2 border border-line-2 rounded-xl p-4 space-y-4">
               <div>
                 <h3 className="text-xs font-bold text-slate-300 mb-2">位置のログ</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   <button disabled={disabled} className={btnCls} data-testid="convert-nmea"
                     onClick={() => save('nmea', convertToNmea(points, talkerId, includeGga), 'text/plain')}>
                     <Download size={13} /> NMEA
@@ -288,6 +306,11 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
                     onClick={() => save('csv', convertToCsv(points), 'text/csv')}>
                     <Download size={13} /> CSV
                   </button>
+                  <button disabled={disabled} className={btnCls} data-testid="convert-txt"
+                    onClick={() => save('txt', convertToTxt(points), 'text/plain')}
+                    title="時刻・緯度・経度・車速・方位の空白区切りのテキスト（ds4_convert の RAW GPS TXT と同じ形）">
+                    <Download size={13} /> TXT
+                  </button>
                   <button disabled={disabled} className={btnCls} data-testid="convert-kml"
                     onClick={() => save('kml', convertToKml(points, baseName), 'application/vnd.google-earth.kml+xml')}
                     title="Google Earth で開ける KML（線の色は車速）">
@@ -299,7 +322,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-500 mt-2">
-                  NMEA / GPX は RaceChrono などの解析アプリに読み込めます。CSV は位置・速度・方位・衛星数の表です。記録されていない項目（標高・衛星数）は空欄にします。
+                  NMEA / GPX は RaceChrono などの解析アプリに読み込めます。CSV は位置・速度・方位・衛星数の表、TXT は同じ内容の空白区切りです。ファイル名の末尾は時刻の調整（_UTC / _JST など）です。記録されていない項目（標高・衛星数）は空欄にします。
                   KML は Google Earth で開けます（線の色は車速）。地図 HTML は開くときにインターネット接続が必要です（地図は OpenStreetMap、表示用のスクリプトは unpkg.com から読み込みます）。
                 </p>
               </div>
@@ -307,7 +330,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
                 <h3 className="text-xs font-bold text-slate-300 mb-2">解析データ（G などの計算値を含む）</h3>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <button disabled={disabled} className={btnCls} data-testid="convert-dscsv"
-                    onClick={() => triggerFileDownload(`${baseName}_telemetry.csv`, exportDigispiceCsv(toTelemetryPoints(points)), 'text/csv;charset=utf-8')}
+                    onClick={() => triggerFileDownload(`${baseName}${tzSuffix}_telemetry.csv`, exportDigispiceCsv(toTelemetryPoints(points)), 'text/csv;charset=utf-8')}
                     title="デジスパイス公式ソフトと同じ列の CSV（旋回半径・G 付き）">
                     <Download size={13} /> 走行データCSV
                   </button>
