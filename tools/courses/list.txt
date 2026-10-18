@@ -21,3 +21,10 @@ valencia 39.4889 -0.6283 ES
 aragon 41.0786 -0.2058 ES
 jarama 40.6172 -3.5856 ES
 navarra 42.5583 -2.1683 ES
+streets_of_willow 34.8730 -118.2650 US
+horse_thief_mile 34.8700 -118.2600 US
+adams_motorsports 34.0081 -117.3829 US
+ppir 38.5876 -104.6797 US
+auto_club_speedway 34.0889 -117.5000 US
+monteblanco 37.3588 -6.5713 ES
+festika 36.39338 139.64132 JP
