@@ -43,7 +43,8 @@ function segX(p, q) {
   if (Math.abs(d) < 1e-9) return null;
   const t = ((px - A[0]) * (qy - py) - (py - A[1]) * (qx - px)) / d;
   const u = ((px - A[0]) * (B[1] - A[1]) - (py - A[1]) * (B[0] - A[0])) / d;
-  return t >= -0.2 && t <= 1.2 && u >= 0 && u <= 1 ? u : null;
+  // t: 計測線の上の位置。線の外 (端の先) での交差は数えない (アプリでも周回が区切れないため)
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? u : null;
 }
 const crossEdges = [];
 edges.forEach((e, i) => { for (let k = 0; k + 1 < e.chain.length; k++) { const u = segX(nodes.get(e.chain[k]), nodes.get(e.chain[k + 1])); if (u != null) crossEdges.push({ i, k, u }); } });

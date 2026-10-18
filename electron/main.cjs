@@ -42,7 +42,7 @@ function buildMenu() {
       label: L('ファイル', 'File'),
       submenu: [
         {
-          label: L('ログファイルを開く (.bnx4, .dtb, .csv, .nmea, .vbo)... (GoPro の動画は画面の「ファイル読込」から)', 'Open log file (.bnx4, .dtb, .csv, .nmea, .vbo)... (open GoPro videos with "Open file" in the window)'),
+          label: L('ログファイルを開く (.bnx4, .dtb, .csv, .nmea, .vbo, .xrk, .ibt)... (GoPro の動画は画面の「ファイル読込」から)', 'Open log file (.bnx4, .dtb, .csv, .nmea, .vbo, .xrk, .ibt)... (open GoPro videos with "Open file" in the window)'),
           accelerator: 'CmdOrCtrl+O',
           click: async () => {
             const { filePaths } = await dialog.showOpenDialog(mainWindow, {
