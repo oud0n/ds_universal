@@ -114,7 +114,8 @@ export const DataTab: React.FC<DataTabProps> = ({
           {/* サーキットプリセット選択 */}
           <select
             onChange={e => onSelectCircuitPreset(e.target.value)}
-            className="bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg px-3 py-2 outline-none focus:border-red-500 transition-colors"
+            // 選択肢の名前が長いと、選択肢に合わせて広がって画面からはみ出すので、幅を枠に収める
+            className="w-full sm:w-auto max-w-full min-w-0 truncate bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg px-3 py-2 outline-none focus:border-red-500 transition-colors"
           >
             <option value="">{t('-- サーキットプリセット選択 --', '-- Select a circuit preset --')}</option>
             {/* 国内と海外に分ける (数が多いので) */}
