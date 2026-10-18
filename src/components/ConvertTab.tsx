@@ -113,7 +113,8 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
       distance: last.distance,
       maxSpeed,
       // 平均車速: 距離 ÷ 時間 (止まっていた時間も含む)
-      avgSpeed: last.time.getTime() > first.time.getTime() ? (last.distance / ((last.time.getTime() - first.time.getTime()) / 3600000)) : 0,
+      // (時間は経過秒数から求める。記録の時刻が秒単位までのログでも 0 にならないように)
+      avgSpeed: last.elapsed > first.elapsed ? last.distance / ((last.elapsed - first.elapsed) / 3600) : 0,
       startPos: `${first.latitude.toFixed(6)}, ${first.longitude.toFixed(6)}`,
       endPos: `${last.latitude.toFixed(6)}, ${last.longitude.toFixed(6)}`,
       hasSatellites: points.some(p => p.satellites != null)
