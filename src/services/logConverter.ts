@@ -155,9 +155,6 @@ ${body}
 `;
 }
 
-/**
- * 汎用 CSV (1 行 1 点)
- */
 // KML の線の色 (車速の低い方から: 青 → 水色 → 緑 → 黄 → 橙 → 赤)。KML の色は aabbggrr
 const KML_SPEED_COLORS = ['ffff4d2e', 'ffffc22e', 'ff3ecf4c', 'ff2ee6f2', 'ff1f8cff', 'ff3030e8'];
 
@@ -167,9 +164,15 @@ const KML_SPEED_COLORS = ['ffff4d2e', 'ffffc22e', 'ff3ecf4c', 'ff2ee6f2', 'ff1f8
  */
 export function convertToKml(points: ConvertedPoint[], title: string): string {
   const name = escapeXml(title);
-  const speeds = points.map(p => p.speed).filter(Number.isFinite);
-  const min = speeds.length ? Math.min(...speeds) : 0;
-  const max = speeds.length ? Math.max(...speeds) : 0;
+  // 点の多いログで引数の上限を超えないよう、Math.min(...) は使わない
+  let min = Infinity;
+  let max = -Infinity;
+  for (const p of points) {
+    if (!Number.isFinite(p.speed)) continue;
+    if (p.speed < min) min = p.speed;
+    if (p.speed > max) max = p.speed;
+  }
+  if (!Number.isFinite(min)) { min = 0; max = 0; }
   const bin = (v: number) => (max > min ? Math.min(KML_SPEED_COLORS.length - 1, Math.floor(((v - min) / (max - min)) * KML_SPEED_COLORS.length)) : 0);
   const coord = (p: ConvertedPoint) => `${p.longitude.toFixed(7)},${p.latitude.toFixed(7)},0`;
 
@@ -229,6 +232,9 @@ export function convertToTxt(points: ConvertedPoint[]): string {
   return lines.join('\r\n') + '\r\n';
 }
 
+/**
+ * 汎用 CSV (1 行 1 点)
+ */
 export function convertToCsv(points: ConvertedPoint[]): string {
   const rows = ['time_utc,elapsed_s,latitude,longitude,altitude_m,speed_kmh,heading_deg,satellites,distance_km'];
   for (const p of points) {
