@@ -379,7 +379,15 @@ export function parseMotecCsv(text: string): ImportedLog {
   // 日付は dd/mm/yyyy か dd.mm.yyyy。タイムゾーンは記録されていないので、この端末の時刻として読む
   const dm = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(meta.get('Log Date') || '');
   const tm = /^(\d{1,2}):(\d{2}):(\d{2})/.exec(meta.get('Log Time') || '');
-  if (dm) start = new Date(Number(dm[3]), Number(dm[2]) - 1, Number(dm[1]), tm ? Number(tm[1]) : 0, tm ? Number(tm[2]) : 0, tm ? Number(tm[3]) : 0).getTime();
+  if (dm) {
+    // 日 / 月 の順。月が 12 を超えるときは 月 / 日 の順 (米国の設定) とみなす。どちらでも読めないときは日時なし
+    let day = Number(dm[1]);
+    let month = Number(dm[2]);
+    if (month > 12 && day <= 12) [day, month] = [month, day];
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      start = new Date(Number(dm[3]), month - 1, day, tm ? Number(tm[1]) : 0, tm ? Number(tm[2]) : 0, tm ? Number(tm[3]) : 0).getTime();
+    }
+  }
   // ヨーロッパの設定の i2 は小数点がカンマ ("47,2207022")
   const num = (v: string | undefined) => parseFloat((v ?? '').replace(/^(-?\d+),(\d+)$/, '$1.$2'));
 
