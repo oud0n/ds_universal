@@ -4,6 +4,8 @@ import { useCompactLayout } from '../hooks/useCompactLayout';
 import { usePinchPointers } from '../hooks/usePinchPointers';
 import { CompareAxis, Lap, SelectedCarSlot, Sector } from '../types/telemetry';
 import { calculateDeltaTimes } from '../services/lapCalculator';
+import { findClosestPointByDistance, findClosestPointByTime } from '../utils/telemetrySearch';
+import { prepareCanvas } from '../utils/canvasLayer';
 import { ZoomIn, ZoomOut, RotateCcw, Activity, Layers } from 'lucide-react';
 
 interface SpeedGraphWindowProps {
@@ -39,6 +41,13 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
   // スマートフォン向けの配置では、ツールバーを 1 行にして横にスクロールさせ、見出しを省く
   const compact = useCompactLayout();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // 現在位置のカーソルだけを描く、上に重ねた canvas (再生中はこちらだけを描き直す)
+  const cursorCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // 下の canvas を描いたときの配置 (カーソルの位置の計算に使う)
+  const layoutRef = useRef<{
+    width: number; height: number; paddingLeft: number; paddingRight: number; paddingTop: number; paddingBottom: number;
+    domainStart: number; domainRange: number; plotWidth: number;
+  } | null>(null);
 
   // 表示モード設定
   const [showDeltaTime, setShowDeltaTime] = useState(true);
@@ -93,28 +102,61 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  // Canvas描画
+  // 現在位置のカーソルを、上に重ねた canvas に描く (下の canvas を描いた配置を使う)
+  const cursorValueRef = useRef(0);
+  cursorValueRef.current = xAxisMode === 'distance' ? currentDistance : currentTime;
+  const drawCursor = () => {
+    const layout = layoutRef.current;
+    const canvas = cursorCanvasRef.current;
+    if (!canvas) return;
+    if (!layout) {
+      // 下の canvas を描いていないとき (車両がない・隠れている) は何も出さない
+      const w = canvas.parentElement?.clientWidth ?? 0;
+      const h = canvas.parentElement?.clientHeight ?? 0;
+      if (w > 0 && h > 0) prepareCanvas(canvas, w, h);
+      return;
+    }
+    const { width, height, paddingLeft, paddingRight, paddingTop, paddingBottom, domainStart, domainRange, plotWidth } = layout;
+    const ctx = prepareCanvas(canvas, width, height);
+    if (!ctx) return;
+    const currentCursorX = paddingLeft + ((cursorValueRef.current - domainStart) / domainRange) * plotWidth;
+    if (currentCursorX >= paddingLeft && currentCursorX <= width - paddingRight) {
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(currentCursorX, paddingTop - 5);
+      ctx.lineTo(currentCursorX, height - paddingBottom);
+      ctx.stroke();
+
+      // 三角マーカー (公式アプリ準拠)
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.moveTo(currentCursorX - 5, paddingTop - 5);
+      ctx.lineTo(currentCursorX + 5, paddingTop - 5);
+      ctx.lineTo(currentCursorX, paddingTop + 2);
+      ctx.closePath();
+      ctx.fill();
+    }
+  };
+  // 再生中はカーソルだけを描き直す
+  useEffect(() => {
+    drawCursor();
+  }, [currentTime, currentDistance, xAxisMode]);
+
+  // Canvas描画 (現在位置のカーソル以外。再生では描き直さない)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
     // テーマの色 (テーマを切り替えたら描き直す)
     const C = canvasColors();
 
-    // Retina対応
-    const dpr = window.devicePixelRatio || 1;
     // 隠しているとき (たたんだウインドウ・切り替えで見えていないパネル) は描かない。見えたら大きさの変化で描き直す
     const width = canvas.parentElement?.clientWidth ?? 0;
     const height = canvas.parentElement?.clientHeight ?? 0;
+    layoutRef.current = null;
     if (width === 0 || height === 0) return;
-
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-
-    ctx.scale(dpr, dpr);
+    const ctx = prepareCanvas(canvas, width, height);
+    if (!ctx) return;
 
     // 背景
     ctx.fillStyle = C.bg;
@@ -125,6 +167,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
       ctx.font = '13px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('走行データが選択されていません', width / 2, height / 2);
+      drawCursor();
       return;
     }
 
@@ -394,30 +437,11 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
       ctx.restore();
     }
 
-    // 現在シーク位置カーソル (赤ライン)
-    const currentCursorX = getX(xAxisMode === 'distance' ? currentDistance : currentTime);
-    if (currentCursorX >= paddingLeft && currentCursorX <= width - paddingRight) {
-      ctx.strokeStyle = '#ef4444';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(currentCursorX, paddingTop - 5);
-      ctx.lineTo(currentCursorX, height - paddingBottom);
-      ctx.stroke();
-
-      // 三角マーカー (公式アプリ準拠)
-      ctx.fillStyle = '#ef4444';
-      ctx.beginPath();
-      ctx.moveTo(currentCursorX - 5, paddingTop - 5);
-      ctx.lineTo(currentCursorX + 5, paddingTop - 5);
-      ctx.lineTo(currentCursorX, paddingTop + 2);
-      ctx.closePath();
-      ctx.fill();
-    }
+    layoutRef.current = { width, height, paddingLeft, paddingRight, paddingTop, paddingBottom, domainStart: activeDomainStart, domainRange: activeDomainRange, plotWidth };
+    drawCursor();
   }, [
     cars,
     sectors,
-    currentTime,
-    currentDistance,
     xAxisMode,
     alignStartTime,
     showDeltaTime,
@@ -523,8 +547,10 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
 
   // 再生・コマ送り・他ウインドウからのシークでカーソルが表示範囲の外に出たら、カーソルを中心に表示し直す
   useEffect(() => {
-    setViewRange(([min, max]) => {
-      if (cursorRatio >= min && cursorRatio <= max) return [min, max];
+    // 表示範囲の中にあれば同じ配列を返す (新しい配列を返すと、グラフ全体を毎コマ描き直してしまう)
+    setViewRange(range => {
+      const [min, max] = range;
+      if (cursorRatio >= min && cursorRatio <= max) return range;
       const span = max - min;
       return clampRange(cursorRatio - span / 2, span);
     });
@@ -683,6 +709,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
           {...pointerHandlers}
           className="w-full h-full cursor-crosshair block touch-none"
         />
+        {/* 現在位置のカーソル (操作は下の canvas が受ける) */}
+        <canvas ref={cursorCanvasRef} className="absolute inset-0 pointer-events-none block" />
 
         {/* 右上リアルタイム数値インジケーター (車両がないときは出さない) */}
         {cars.length > 0 && (
@@ -690,15 +718,10 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
             {cars.map((c, idx) => {
               // 現在のポイント検索
               const pts = c.lap.points;
-              let curPt = pts[0];
-              if (pts.length > 0) {
-                const targetVal = xAxisMode === 'distance' ? currentDistance : currentTime;
-                curPt = pts.reduce((prev, curr) => {
-                  const prevDiff = Math.abs((xAxisMode === 'distance' ? prev.distance : prev.time) - targetVal);
-                  const currDiff = Math.abs((xAxisMode === 'distance' ? curr.distance : curr.time) - targetVal);
-                  return currDiff < prevDiff ? curr : prev;
-                }, pts[0]);
-              }
+              // 二分探索で探す (先頭から全部の点を見ると、点の多いログで毎コマ重い)
+              const curPt = xAxisMode === 'distance'
+                ? findClosestPointByDistance(pts, currentDistance)
+                : findClosestPointByTime(pts, currentTime);
 
               return (
                 <div key={idx} className="flex items-center justify-between font-mono">

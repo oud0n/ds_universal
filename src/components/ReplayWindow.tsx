@@ -4,6 +4,8 @@ import { useCompactLayout } from '../hooks/useCompactLayout';
 import { Lap, SelectedCarSlot, Sector, CompareAxis } from '../types/telemetry';
 import { Play, Pause, SkipBack, SkipForward, PlaySquare, Compass, Eye } from 'lucide-react';
 import { findCarPoint } from '../utils/telemetrySearch';
+import { getPointGrid, pointsInBounds } from '../utils/pointGrid';
+import { prepareCanvas } from '../utils/canvasLayer';
 
 interface ReplayWindowProps {
   cars: {
@@ -74,23 +76,16 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
     // テーマの色 (テーマを切り替えたら描き直す)
     const C = canvasColors();
 
-    const dpr = window.devicePixelRatio || 1;
     // 隠しているとき (たたんだウインドウ・切り替えで見えていないパネル) は描かない。見えたら大きさの変化で描き直す
     const width = canvas.parentElement?.clientWidth ?? 0;
     const height = canvas.parentElement?.clientHeight ?? 0;
     if (width === 0 || height === 0) return;
-
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-
-    ctx.scale(dpr, dpr);
+    // 車両を追いかけて毎コマ描き直すので、canvas は大きさが変わったときだけ作り直す
+    const ctx = prepareCanvas(canvas, width, height);
+    if (!ctx) return;
 
     // 背景 (ダークサーキット)
     ctx.fillStyle = C.bg;
@@ -123,29 +118,27 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
       return { x, y };
     };
 
-    // 軌跡のうち画面に入る部分だけを描く。画面の外に出たら線を切り、戻るときは画面の外の点から引き直す
-    // (画面に入っている点だけを 1 本につなぐと、出る直前の点と戻ってきた点が直線で結ばれ、コースを横切る線が出るため)
+    // 軌跡のうち画面の近くの部分だけを描く。点の索引で画面の近くの点だけを調べる (点の多いログで毎コマ全部の点を見ると重いため)。
+    // 続いた点の並びごとに線を引き、前後の 1 点まで含めて画面の端まで届かせる
+    // (離れた並びを 1 本につなぐと、出る直前の点と戻ってきた点が直線で結ばれ、コースを横切る線が出るため)
     const traceVisible = (pts: typeof basePts, margin: number) => {
+      const halfLat = (height / 2 + margin) / scale;
+      const halfLon = (width / 2 + margin) / (cosLat * scale);
+      const idx = pointsInBounds(getPointGrid(pts), centerLat - halfLat, centerLat + halfLat, centerLon - halfLon, centerLon + halfLon);
       ctx.beginPath();
-      let drawing = false;
-      let prev: { x: number; y: number } | null = null;
-      for (const p of pts) {
-        const cur = toScreen(p.latitude, p.longitude);
-        const inside = cur.x >= -margin && cur.x <= width + margin && cur.y >= -margin && cur.y <= height + margin;
-        if (inside) {
-          if (!drawing) {
-            // 画面の外の 1 つ前の点から入る (画面の端で線が途切れないように)
-            if (prev) ctx.moveTo(prev.x, prev.y);
-            else ctx.moveTo(cur.x, cur.y);
-            drawing = true;
-          }
+      let k = 0;
+      while (k < idx.length) {
+        let end = k;
+        while (end + 1 < idx.length && idx[end + 1] === idx[end] + 1) end++;
+        const from = Math.max(0, idx[k] - 1);
+        const to = Math.min(pts.length - 1, idx[end] + 1);
+        const start = toScreen(pts[from].latitude, pts[from].longitude);
+        ctx.moveTo(start.x, start.y);
+        for (let i = from + 1; i <= to; i++) {
+          const cur = toScreen(pts[i].latitude, pts[i].longitude);
           ctx.lineTo(cur.x, cur.y);
-        } else if (drawing) {
-          // 画面の外の最初の点まで引いて切る
-          ctx.lineTo(cur.x, cur.y);
-          drawing = false;
         }
-        prev = cur;
+        k = end + 1;
       }
       ctx.stroke();
     };
