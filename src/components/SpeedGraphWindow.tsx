@@ -5,7 +5,7 @@ import { usePinchPointers } from '../hooks/usePinchPointers';
 import { CompareAxis, Lap, SelectedCarSlot, Sector } from '../types/telemetry';
 import { calculateDeltaTimes } from '../services/lapCalculator';
 import { findClosestPointByDistance, findClosestPointByTime } from '../utils/telemetrySearch';
-import { prepareCanvas } from '../utils/canvasLayer';
+import { prepareCanvas, useDevicePixelRatio } from '../utils/canvasLayer';
 import { ZoomIn, ZoomOut, RotateCcw, Activity, Layers } from 'lucide-react';
 
 interface SpeedGraphWindowProps {
@@ -38,6 +38,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
 }) => {
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
+  // 解像度の違うディスプレイへ移したら描き直す
+  const dpr = useDevicePixelRatio();
   // スマートフォン向けの配置では、ツールバーを 1 行にして横にスクロールさせ、見出しを省く
   const compact = useCompactLayout();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -453,7 +455,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     deltaTimes,
     baseCar,
     theme,
-    resizeTick
+    resizeTick,
+    dpr
   ]);
 
   // クリック・ドラッグでシーク操作

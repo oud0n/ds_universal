@@ -4,7 +4,7 @@ import { useCompactLayout } from '../hooks/useCompactLayout';
 import { usePinchPointers } from '../hooks/usePinchPointers';
 import { CompareAxis, Lap, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { findCarPoint } from '../utils/telemetrySearch';
-import { prepareCanvas } from '../utils/canvasLayer';
+import { prepareCanvas, useDevicePixelRatio } from '../utils/canvasLayer';
 import { passesNearPoint } from '../services/lapCalculator';
 import { ZoomIn, ZoomOut, RotateCcw, Eye, Palette, Move, LocateFixed } from 'lucide-react';
 import { getTileImage, MapBackground, TILE_ATTRIBUTION, TILE_SOURCES, tilesForView } from '../services/mapTiles';
@@ -67,6 +67,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 }) => {
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
+  // 解像度の違うディスプレイへ移したら描き直す
+  const dpr = useDevicePixelRatio();
   // スマートフォン向けの配置では、ツールバーを 1 行にして横にスクロールさせ、見出しを省く
   const compact = useCompactLayout();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -96,6 +98,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   // GPS 軌跡に対する背景地図の位置補正 (m)。東・北が正
   const [mapOffset, setMapOffset] = useState<{ eastM: number; northM: number }>({ eastM: 0, northM: 0 });
   const [tileTick, setTileTick] = useState(0);
+  // タイルが届いたら描き直す。同じ関数を渡して、読み込み中のタイルに同じウインドウが何度も登録されないようにする
+  const onTileLoadRef = useRef(() => setTileTick(t => t + 1));
   // 表示領域の大きさが変わったら描き直す
   const [resizeTick, setResizeTick] = useState(0);
   useEffect(() => {
@@ -345,7 +349,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       // 走行ラインが見やすいよう、少し暗くして敷く
       ctx.globalAlpha = background === 'photo' ? 0.8 : 0.7;
       for (const tile of tiles) {
-        const image = getTileImage(tile, () => setTileTick(t => t + 1));
+        const image = getTileImage(tile, onTileLoadRef.current);
         if (!image) continue;
         const nw = toScreen(tile.north + dLat, tile.west + dLon);
         const se = toScreen(tile.south + dLat, tile.east + dLon);
@@ -553,7 +557,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 
     layoutRef.current = { width, height, latMid, lonMid, cosLat, baseScale, pan };
     drawCars();
-  }, [cars, controlLine, sectors, pathPolylines, followPosition, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick, theme]);
+  }, [cars, controlLine, sectors, pathPolylines, followPosition, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick, dpr, theme]);
 
   // パン操作 (ドラッグ)
   // ドラッグの状態は、同じイベントの中で続けて読めるよう ref で持つ (タッチは動かしたときに押下と移動が続けて届くため)

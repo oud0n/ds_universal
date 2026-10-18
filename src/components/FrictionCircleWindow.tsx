@@ -4,7 +4,7 @@ import { useCompactLayout } from '../hooks/useCompactLayout';
 import { CompareAxis, Lap, SelectedCarSlot } from '../types/telemetry';
 import { CircleDot, Disc } from 'lucide-react';
 import { findCarPoint } from '../utils/telemetrySearch';
-import { prepareCanvas } from '../utils/canvasLayer';
+import { prepareCanvas, useDevicePixelRatio } from '../utils/canvasLayer';
 
 interface FrictionCircleWindowProps {
   cars: {
@@ -29,6 +29,8 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
 }) => {
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
+  // 解像度の違うディスプレイへ移したら描き直す
+  const dpr = useDevicePixelRatio();
   // スマートフォンでは高さが足りず数値の欄が切れるので、ウインドウの中をスクロールできるようにする
   const compact = useCompactLayout();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -189,7 +191,7 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
     });
 
     drawDots();
-  }, [cars, theme, resizeTick]);
+  }, [cars, theme, resizeTick, dpr]);
 
   return (
     <div className={`flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 select-none shadow-lg ${compact ? 'overflow-y-auto' : 'overflow-hidden'}`}>
