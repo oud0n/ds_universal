@@ -18,7 +18,7 @@
 | 🔴 **高 (P1)** | BUG-03 | コース・複数セッション | 複数セッション読み込み時のコース設定・計測線・ポリラインの混線 | `src/App.tsx` | 修正済み（ブランチ fix/bug03-per-session-course を f45e432 で dev に統合） |
 | 🔴 **高 (P1)** | BUG-04 | 再生・状態管理 | 基準車スロット（Car 1）未割り当て・削除時に再生とシークが完全停止する | `src/App.tsx` | 修正済み（0f2644c） |
 | 🔴 **高 (P1)** | BUG-05 | 計測線・セクター判定 | ゲート交差判定に進行方向（通過向き）のチェックがない | `src/services/lapCalculator.ts` | 修正済み（c67967f。ログの中で多い方の向きを進行方向とする） |
-| 🔴 **高 (P1)** | BUG-06 | 車載動画同期・書き出し | 動画画面の競合・手動同期の自動上書き・MP4 メタデータ誤検出・書き出し拡張子不一致など（計9件） | `src/components/VideoSyncWindow.tsx`, `src/services/videoSyncManager.ts`, `src/services/videoMetadataParser.ts`, `src/services/telemetryVideoExporter.ts` | 一部修正（1071c3e で 2〜5・7・9 を修正。1 動画画面の競合・6 再選択時の引き継ぎ・8 書き出しのキャンセル / 巻き戻しは未対応） |
+| 🔴 **高 (P1)** | BUG-06 | 車載動画同期・書き出し | 動画画面の競合・手動同期の自動上書き・MP4 メタデータ誤検出・書き出し拡張子不一致など（計9件） | `src/components/VideoSyncWindow.tsx`, `src/services/videoSyncManager.ts`, `src/services/videoMetadataParser.ts`, `src/services/telemetryVideoExporter.ts` | 修正済み（1071c3e で 2〜5・7・9、c69c286 / cdb1492 / 0ba3fac / c2b93de で 1・6・8 と issue #10・#11。ブランチ feat/bug06-video を dev に統合） |
 | 🟡 **中 (P2)** | BUG-07 | 比較解析・距離補正 | `distanceOffsetM` / `alignLapLength` のグラフ・Delta・コーナー診断との不整合 | `src/components/SpeedGraphWindow.tsx`, `src/services/lapCalculator.ts`, `src/services/drivingAnalysis.ts` | 修正済み（05b9427 / 3a99299。Delta の不連続は再現せず） |
 | 🟡 **中 (P2)** | BUG-08 | ラップ切り出し | 開始位置の違うログを重ねるとずれる問題の残り（計測線より後ろ開始など） | `src/services/lapCalculator.ts` | 一部実装済・確認待ち |
 | 🟡 **中 (P2)** | BUG-09 | 生バイナリ解析・通信 | `.bnx4` 複数セッション連結・重複時刻未除去・ミリ秒補間無効化・メタデータ負座標バグ | `src/services/rawBinaryParser.ts`, `src/services/digspiceDevice.ts` | ✅ 対応済み（2026-10-17。記録の空き 10 分で別セッションに分ける、重複の除去、ミリ秒補間は秒ごとに判定、メタデータのチェックサム・負の座標。※ `_private/re_report/samples/dtb/DS4_202605181303.bnx4` のメタデータは修正前から一致しない（仮数の下位が違う）。もう 1 つのサンプルは一致） |
@@ -26,9 +26,16 @@
 | 🟡 **中 (P2)** | BUG-11 | CSV / GPX / VBO 入出力 | 拡張子固定判定・GPX ダイアログ漏れ・CSV 列ずれ/方位欠落・GPX 最終秒切り捨て | `src/App.tsx`, `electron/main.cjs`, `src/services/csvParser.ts`, `src/services/externalFormats.ts` | 修正済み（GPX は a8b630c / 3a99299、拡張子の判別と CSV は b390189） |
 | 🟡 **中 (P2)** | BUG-12 | 物理計算 | G 値・旋回半径の微分ウィンドウがサンプル数固定（記録レートで値が変わる） | `src/services/physics.ts` | 修正済み（前後 0.1 秒の時間で決める） |
 | 🟡 **中 (P2)** | BUG-13 | 時刻フォーマット | 分・秒フォーマットの丸めによる `"1:60.000"` 繰り上がりバグ | `src/services/csvParser.ts`, `src/components/DataTab.tsx`, `src/services/videoSyncPinManager.ts`, `src/components/VideoSyncWindow.tsx` | 修正済み（020c5a4） |
-| 🟢 **低 (P3)** | BUG-14 | パフォーマンス | 高密度ログ再生時の毎フレーム全点 Canvas 再描画および $O(N)$ 線形探索 | `src/components/SpeedGraphWindow.tsx`, `src/components/TrackMapWindow.tsx`, `src/components/FrictionCircleWindow.tsx` | 未対応（UI 修正・BUG-09/10 の後に対応する） |
-| 🟢 **低 (P3)** | BUG-15 | コースデータ管理 | `.sci` 未使用・同名ファイル混在・保存失敗時の成功表示・隣接コース判定 | `src/services/userCircuitStorage.ts`, `src/services/circuitDatabase.ts` | 修正済み（ブランチ fix/bug15-course-data を dev に統合。内蔵の計測線の実走確認は残り） |
+| 🟢 **低 (P3)** | BUG-14 | パフォーマンス | 高密度ログ再生時の毎フレーム全点 Canvas 再描画および $O(N)$ 線形探索 | `src/components/SpeedGraphWindow.tsx`, `src/components/TrackMapWindow.tsx`, `src/components/FrictionCircleWindow.tsx` | 修正済み（0910c35 / aec5c6b / 80ba1fd。速度グラフ・全コース・フリクションサークルを動かない部分と動く部分の 2 枚の canvas に分け、走行アニメーションは画面の近くの点だけを描く。20 万点のログで 36.8 → 120 コマ/秒。20 万点の GPX が読み込めなかったのも直した。issue #15） |
+| 🟢 **低 (P3)** | BUG-15 | コースデータ管理 | `.sci` 未使用・同名ファイル混在・保存失敗時の成功表示・隣接コース判定 | `src/services/userCircuitStorage.ts`, `src/services/circuitDatabase.ts` | 修正済み（ブランチ fix/bug15-course-data を dev に統合。内蔵の計測線は、手元にログのないコースは確かめようがないため、Issue・PR で報告を受けたら直す。オートポリスは PR #12 で修正） |
 | 🟢 **低 (P3)** | BUG-16 | ロガー設定 UI・通信 | 「解析 & 単位設定」が未接続のダミー UI・レート変更副作用の未明示・欠落ブロック再取得 | `src/components/LoggerTab.tsx`, `src/services/digspiceDevice.ts` | 対応済み（「解析 & 単位設定」の G のならし方はデータ管理タブに移してつないだ。速度単位は外した。レート変更の注意書きを追加。欠落ブロックの再取得は実装したが、実機未確認のため無効（TODO）） |
+| 🟢 **低 (P3)** | BUG-17 | フリクションサークル | 再生中に現在の G の点が小刻みに跳ねる（G を記録点の間で補間していない） | `src/utils/telemetrySearch.ts`, `src/components/FrictionCircleWindow.tsx` | 修正済み（「なめらか」のトグル、G の記録点の間の補間、直近 1 秒の軌跡） |
+| 🟢 **低 (P3)** | BUG-18 | コースデータ管理 | 一括設置で読み込んだ、組み合わせ先のないコース図 (.pth) が、OSM のコース図を取得済みのログに反映されない | `src/App.tsx`, `src/services/userCircuitStorage.ts` | 修正済み（acd174b / fe0c332 / 1619492。セッションにコース図の出どころを持たせ、自動で取得したコース図だけを置き換える。手で読み込んだ .pth は変えない） |
+| 🟢 **低 (P3)** | BUG-19 | 車載動画の表示 | グラフ解析の左下を「車載動画」にすると、ウインドウが小さいとき操作の段が場所を使い切り、動画の映る部分の高さが 0 になる（BUG-06 の確認で判明。修正前から） | `src/components/VideoSyncWindow.tsx` | 修正済み（6b42592 / e1e807c / df9d139。グラフ解析ではタイムゾーン・再同期の段とタイムラインを「同期の調整」で開くまで隠し、動画の映る部分を 150px 以上にする。issue #13） |
+| 🟡 **中 (P2)** | BUG-20 | 車載動画の表示 | グラフ解析で上の再生ボタンで再生すると、車載動画のコマが 5 秒に 2〜10 コマ抜ける（4K 60fps で測定。動画同期の画面・動画だけの再生では抜けない。グラフを隠すと抜けない。再生中にグラフを毎コマまるごと描き直す負荷が原因。動かない部分を一度だけ描き、現在位置の線と車両だけを描き直す方針） | `src/components/SpeedGraphWindow.tsx`, `src/components/TrackMapWindow.tsx`, `src/components/FrictionCircleWindow.tsx`, `src/App.tsx` | BUG-14 の修正で改善（5 秒に 2〜10 コマ → 0〜1 コマ）。M2 の実機で確かめてから閉じる（issue #14） |
+| 🟡 **中 (P2)** | BUG-21 | 車載動画同期 | 撮影時刻の全く違う動画を 2 本読み込むと（袖ヶ浦と TC2000 など）、sub が main 側に引っ張られて同期してしまう。撮影時刻（メタデータ）のある動画は、その時刻でログに合わせたい（利用者の報告、2026-10-18） | `src/components/VideoSyncWindow.tsx`, `src/services/videoSyncManager.ts` | 未対応 |
+| 🟢 **低 (P3)** | BUG-22 | 車載動画同期 | sub の動画を消して 1 本になると、単一 / 2画面 / PinP の切り替えボタンが消える（2 本以上のときだけ出す作り）。表示は 2画面のまま残り、右の空欄を消せない（利用者の報告、2026-10-18） | `src/components/VideoSyncWindow.tsx`, `src/services/videoViewStore.ts` | 修正済み（6b42592。sub の動画がないときは 1 画面で出す） |
+| 🟢 **低 (P3)** | BUG-23 | 車載動画の表示 | 2画面・PinP のとき、メーターのオーバーレイが main の動画ではなく表示の枠全体に合わせて描かれる（2画面では速度計が main の右端に、G メーターが sub の上に出る。PinP では小窓が G メーターに重なる）。BUG-19 のレビューで判明、前から | `src/components/VideoSyncWindow.tsx` | 未対応 |
 
 ---
 
@@ -254,6 +261,7 @@
   1. **コースデータの登録不備**: セクタファイル（`.sci`）は件数だけ表示して中身をパースしていない / 別フォルダの同名ファイル（`control.ini` 等）を一括選択した際に混ざる / `localStorage` の容量超過等で保存に失敗しても「保存しました」と成功表示する。
   2. **隣接コースの自動判定（利用者が読み込んだコースデータ側）**: 内蔵プリセットは計測線を実際に通過しているコースを優先するように対応済みだが、利用者が読み込んだコースデータ側はログの先頭座標に近いものを選ぶだけのままになっている。
   3. **内蔵の計測線の実走ログ確認残り**: 航空写真から作成した 12 コースのうち、手元に実走ログがないコースの通過確認が未了。
+     → 2026-10-17 完了扱い。確かめようがないため、Issue・PR で報告を受けたら直す（オートポリスは PR #12 で修正）。
 
 ---
 

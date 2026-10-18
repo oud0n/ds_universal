@@ -1,16 +1,19 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { CompareAxis, Lap, Session, TelemetryPoint, SelectedCarSlot, ControlLine, Sector, CircuitPreset } from './types/telemetry';
+import { CompareAxis, Lap, Session, TelemetryPoint, SelectedCarSlot, ControlLine, Sector, CircuitPreset, PolylineSource } from './types/telemetry';
 import { parseDtb } from './services/dtbParser';
 import { parseDigispiceRawBinary } from './services/rawBinaryParser';
 import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
+import { blobByteSource, goproRecording, NoGoproGpsError, parseGoproGps } from './services/gpmfParser';
+import { videoSyncManager } from './services/videoSyncManager';
+import { inflateXrz, isAimCsv, isXrk, parseAimCsv, parseXrk } from './services/aimFormats';
 import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
 import { parsePth, parseCln } from './services/pthParser';
-import { createVirtualControlLine, extractLaps, firstGateCrossingTime, gateDirection, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
+import { countGateCrossings, createVirtualControlLine, extractLaps, firstGateCrossingTime, gateDirection, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
 import { ConvertTab } from './components/ConvertTab';
-import { CIRCUIT_PRESETS, ALL_CIRCUITS, findMatchingCircuit, resolveCircuitPolylines } from './services/circuitDatabase';
-import { userCircuitStorage } from './services/userCircuitStorage';
+import { CIRCUIT_PRESETS, ALL_CIRCUITS, findMatchingCircuit, resolveCircuitPolylines, findUserPolylines } from './services/circuitDatabase';
+import { userCircuitStorage, runsOnPolylines } from './services/userCircuitStorage';
 
 import { Header } from './components/Header';
 import { SpeedGraphWindow } from './components/SpeedGraphWindow';
@@ -21,6 +24,7 @@ import { DriftWindow } from './components/DriftWindow';
 import { CornerAnalysisWindow } from './components/CornerAnalysisWindow';
 import { BrakingAnalysisWindow } from './components/BrakingAnalysisWindow';
 import { VideoSyncWindow } from './components/VideoSyncWindow';
+import { useVideoTracks, useVideoView, videoEndSessionSec } from './services/videoViewStore';
 import { DataTab } from './components/DataTab';
 import { LoggerTab } from './components/LoggerTab';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
@@ -163,7 +167,7 @@ export const App: React.FC = () => {
   // ログを読み込むかコースを選ぶまでは未設定
   // 直前に決まったコースの設定 (計測線・セクター・コース名)。次に読み込むログのコース判定の手がかりにする。
   // コースの設定はセッションごとに持ち、画面には基準車のセッションのものを表示する (アプリ全体で 1 つにはしない)
-  type CourseHint = { cl?: ControlLine; sec: Sector[]; name: string; polylines?: Array<Array<[number, number]>> };
+  type CourseHint = { cl?: ControlLine; sec: Sector[]; name: string; polylines?: Array<Array<[number, number]>>; polylinesSource?: PolylineSource };
   const courseRef = useRef<CourseHint>({ sec: [], name: '' });
   // ログを 1 本も読み込んでいないときに画面に出すコース (先にコース編集・プリセット・コース図を設定したとき)
   const [idleCourse, setIdleCourse] = useState<CourseHint>({ sec: [], name: '' });
@@ -316,12 +320,44 @@ export const App: React.FC = () => {
   const animRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(performance.now());
 
+  // 再生の基準はこのループだけにする。動画のウインドウは、この時刻に合わせて動画を再生する (動画の有無にかかわらず時刻が進む)
+  // 時刻の基準: グラフ画面では選んでいる周の中の時刻 ('lap')、動画同期タブではセッション全体の時刻 ('session')。
+  // データ管理などほかのタブでは直前の基準のままにする (行って戻っても再生位置が変わらないように)
+  // 動画同期タブでは、ログがなくても (動画だけでも) 再生できるよう、表示している動画の終わりまで進める
+  const isVideoTab = !isCompact && currentTab === 'video';
+  const videoTracks = useVideoTracks();
+  const videoView = useVideoView();
+  const shownVideoIds = [videoView.selectedTrackId, videoView.viewMode !== 'single' ? videoView.subTrackId : null];
+  const sessionEndTime = Math.max(
+    baseSession?.points.length ? baseSession.points[baseSession.points.length - 1].time : 0,
+    ...videoTracks.filter(t => shownVideoIds.includes(t.id)).map(videoEndSessionSec)
+  );
+  const [clockBase, setClockBase] = useState<'lap' | 'session'>(() => (isVideoTab ? 'session' : 'lap'));
+  const wantClockBase: 'lap' | 'session' = isVideoTab ? 'session' : currentTab === 'graph' ? 'lap' : clockBase;
+  if (wantClockBase !== clockBase) {
+    // 基準が変わったら、時刻と距離を読み替える。描画の途中で直し、ウインドウが古い基準の時刻を受け取らないようにする
+    setClockBase(wantClockBase);
+    const lapStart = baseLap?.startTime ?? 0;
+    // 周の外のセッション時刻からグラフ画面に戻ったときは、周の始め・終わりに寄せる
+    const next = wantClockBase === 'session' ? currentTimeSec + lapStart : Math.max(0, Math.min(playEndTime, currentTimeSec - lapStart));
+    setCurrentTimeSec(next);
+    const pts = wantClockBase === 'session' ? baseSession?.points : baseLap?.points;
+    if (pts && pts.length > 0) {
+      const curPt = interpolatePoint(pts, 'time', next);
+      if (curPt) setCurrentDistanceKm(curPt.distance);
+    }
+  }
+  const isSessionClock = wantClockBase === 'session';
+
+  // セッション全体の時刻で、終わりまで再生したあとに再生を押したら、始めから再生する
   useEffect(() => {
-    // 動画表示時は <video> 要素が再生マスターとなるため、lapTimeでのrequestAnimationFrameループは停止する
-    // (スマートフォンの配置では動画を出さないので、アニメーションループで再生する)
-    // (たたんだウインドウの動画は外れているので、再生の基準にしない)
-    const isVideoModeActive = !isCompact && (currentTab === 'video' || (currentTab === 'graph' && ((leftBottomMode === 'video' && !collapsed.anim) || (subWindowMode === 'video' && !collapsed.sub))));
-    if (!isPlaying || !baseLap || isVideoModeActive) {
+    if (isPlaying && isSessionClock) setCurrentTimeSec(t => (t >= sessionEndTime - 1e-3 ? 0 : t));
+  }, [isPlaying]);
+
+  useEffect(() => {
+    const pts = isSessionClock ? baseSession?.points : baseLap?.points;
+    const endTime = isSessionClock ? sessionEndTime : playEndTime;
+    if (!isPlaying || (!isSessionClock && (!pts || pts.length === 0)) || !(endTime > 0)) {
       if (animRef.current) cancelAnimationFrame(animRef.current);
       return;
     }
@@ -335,15 +371,20 @@ export const App: React.FC = () => {
 
       setCurrentTimeSec(prevTime => {
         let nextTime = prevTime + dtSec;
-        if (nextTime > playEndTime) {
-          nextTime = 0; // ループ
-          // 周の始めに戻ったら、セクターにそろえるのをやめ、全車を計測線から同時に走らせる
-          setAlignedSector(null);
+        if (nextTime > endTime) {
+          if (isSessionClock) {
+            // セッション全体の時刻では、終わりで止める
+            nextTime = endTime;
+            setIsPlaying(false);
+          } else {
+            nextTime = 0; // ループ
+            // 周の始めに戻ったら、セクターにそろえるのをやめ、全車を計測線から同時に走らせる
+            setAlignedSector(null);
+          }
         }
 
         // タイムに対応する距離を計算 (O(log N) 二分探索)
-        const pts = baseLap.points;
-        const curPt = interpolatePoint(pts, 'time', nextTime);
+        const curPt = pts && pts.length > 0 ? interpolatePoint(pts, 'time', nextTime) : null;
 
         if (curPt) {
           setCurrentDistanceKm(curPt.distance);
@@ -360,7 +401,7 @@ export const App: React.FC = () => {
     return () => {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
-  }, [isPlaying, playbackSpeed, baseLap, playEndTime, currentTab, subWindowMode, leftBottomMode, isCompact, collapsed.anim, collapsed.sub]);
+  }, [isPlaying, playbackSpeed, baseLap, baseSession, playEndTime, sessionEndTime, isSessionClock]);
 
   // キーボードショートカット (Space: 再生/停止, F / →: コマ送り, B / ←: コマ戻し, Shift で 1 秒単位)
   useEffect(() => {
@@ -384,7 +425,7 @@ export const App: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [baseLap, baseSession, currentTab, playEndTime]);
+  }, [baseLap, baseSession, isSessionClock, playEndTime, sessionEndTime]);
 
   // Electron ネイティブメニューからのファイルオープン受信
   useEffect(() => {
@@ -393,6 +434,10 @@ export const App: React.FC = () => {
     if (nav.electronAPI?.onOpenFiles && nav.electronAPI?.readFileBuffer) {
       const off = nav.electronAPI.onOpenFiles(async (filePaths: string[]) => {
         for (const fp of filePaths) {
+          if (/\.(mp4|mov)$/i.test(fp)) {
+            alert('GoPro の動画は、画面の「ファイル読込」から開いてください');
+            continue;
+          }
           try {
             const res = await nav.electronAPI.readFileBuffer(fp);
             if (res.success) {
@@ -421,14 +466,14 @@ export const App: React.FC = () => {
   }, []);
 
   const handleStep = (stepSec: number) => {
-    if (!baseLap) return;
+    // 動画同期タブでは、ログがなくても (動画だけでも) コマ送りできる
+    if (isSessionClock ? !(sessionEndTime > 0) : !baseLap) return;
     setIsPlaying(false);
     setCurrentTimeSec(prev => {
-      // 動画タブではセッション全体の時間、それ以外では選択中ラップの時間が上限
-      const sessionEnd = baseSession?.points.length ? baseSession.points[baseSession.points.length - 1].time : 99999;
-      const maxLimit = currentTab === 'video' ? sessionEnd : playEndTime;
+      // 動画タブではセッション全体の時間 (動画の終わりまで)、それ以外では選択中ラップの時間が上限
+      const maxLimit = isSessionClock ? sessionEndTime : playEndTime;
       const next = Math.max(0, Math.min(maxLimit, prev + stepSec));
-      const pts = (currentTab === 'video' ? baseSession?.points : baseLap?.points) || baseSession?.points;
+      const pts = (isSessionClock ? baseSession?.points : baseLap?.points) || baseSession?.points;
       if (pts && pts.length > 0) {
         const curPt = interpolatePoint(pts, 'time', next);
         if (curPt) setCurrentDistanceKm(curPt.distance);
@@ -440,7 +485,7 @@ export const App: React.FC = () => {
   // シーク操作 (動画タブ時はセッション全体のタイムラインを参照)
   const handleSeekTime = (timeSec: number) => {
     setCurrentTimeSec(timeSec);
-    const pts = (currentTab === 'video' ? baseSession?.points : baseLap?.points) || baseSession?.points;
+    const pts = (isSessionClock ? baseSession?.points : baseLap?.points) || baseSession?.points;
     if (pts && pts.length > 0) {
       const curPt = interpolatePoint(pts, 'time', timeSec);
       if (curPt) setCurrentDistanceKm(curPt.distance);
@@ -479,19 +524,84 @@ export const App: React.FC = () => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      try {
-        await loadFileData(file.name, await file.arrayBuffer());
-      } catch (err: any) {
-        alert(`ファイル ${file.name} の読み込みに失敗しました: ${err.message}`);
-      }
-    }
+    // 読み込みの間に選び直せるよう、先に一覧を写してから入力を空にする
+    const list = Array.from(files);
     e.target.value = '';
+    await loadFiles(list);
   };
 
-  // データファイル読み込みロジック
-  const loadFileData = async (fileName: string, buffer: ArrayBuffer) => {
+  // GoPro の動画 (.mp4 / .mov) は数 GB あるので、全体を読み込まず、GPS の記録だけを読む
+  const isVideoFileName = (name: string) => /\.(mp4|mov)$/i.test(name);
+
+  // 選んだファイルを読み込む。動画は 1 回の撮影ごと (チャプターをまとめて) に 1 つのログにする。失敗したファイルは知らせて続ける
+  const loadFiles = async (files: File[]) => {
+    const groups = new Map<string, File[]>();
+    for (const file of files) {
+      if (!isVideoFileName(file.name)) {
+        try {
+          await loadFileData(file.name, await file.arrayBuffer());
+        } catch (err: any) {
+          alert(`ファイル ${file.name} の読み込みに失敗しました: ${err.message}`);
+        }
+        continue;
+      }
+      const rec = goproRecording(file.name);
+      const key = rec ? `rec:${rec.id}` : `file:${file.name}`;
+      groups.set(key, [...(groups.get(key) ?? []), file]);
+    }
+    for (const group of groups.values()) {
+      group.sort((a, b) => (goproRecording(a.name)?.chapter ?? 0) - (goproRecording(b.name)?.chapter ?? 0));
+      try {
+        await loadGoproVideos(group);
+      } catch (err: any) {
+        alert(`ファイル ${group.map(f => f.name).join('・')} の読み込みに失敗しました: ${err.message}`);
+      }
+    }
+  };
+
+  // GoPro の動画 (1 回の撮影のチャプター、順に並べたもの) の GPS を走行ログとして読み込み、同じ動画を動画同期にも登録する。
+  // GPS と映像は同じ時計なので、撮影時刻からの照合でなく、GPS の時刻から求めたずれで合わせる
+  const loadGoproVideos = async (files: File[]) => {
+    let log;
+    try {
+      log = await parseGoproGps(files.map(blobByteSource));
+    } catch (err) {
+      // GPS の記録がない動画 (GoPro 以外の動画など) は、走行ログにはせず、動画同期に登録するだけにする (撮影時刻で照合)
+      if (!(err instanceof NoGoproGpsError)) throw err;
+      const existing = videoSyncManager.getTracks();
+      const toAdd = files.filter(f => !existing.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size));
+      if (toAdd.length > 0) await videoSyncManager.addVideoFiles(toAdd, latestRef.current.sessions);
+      return;
+    }
+    const session = (await loadFileData(files[0].name, null, log))[0];
+    if (!session?.points[0]?.timestamp) return;
+    const t0 = Date.parse(session.points[0].timestamp);
+
+    // 動画同期に登録済みの同じ動画は、もう一度は登録しない (同期を二重にしない)。
+    // 同じ撮影のチャプターが一部だけ登録済みのときも登録しない (登録済みのチャプターの同期と食い違うため)
+    const existing = videoSyncManager.getTracks();
+    const toAdd = files.filter(f => !existing.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size));
+    if (toAdd.length < files.length) return;
+    const before = new Set(existing.map(t => t.id));
+    const tracks = await videoSyncManager.addVideoFiles(toAdd, [...latestRef.current.sessions.filter(s => s.id !== session.id), session]);
+    // 新しく加わった動画だけを合わせる (同期プロジェクトから戻した動画は、保存した同期のまま)
+    const added = files
+      .map((f, i) => ({ track: tracks.find(t => !before.has(t.id) && t.file === f), startMs: log.videoStartUtcMs[i] }))
+      .filter((a): a is { track: NonNullable<typeof a.track>; startMs: number } => !!a.track);
+    if (added.length === 0) return;
+    for (const a of added) videoSyncManager.setMatchedSession(a.track.id, session.id);
+    // チャプターのずれは動画の長さでそろうので、測位できた最初の動画で合わせる
+    const first = added.find(a => Number.isFinite(a.startMs));
+    if (first) videoSyncManager.updateOffset(first.track.id, (first.startMs - t0) / 1000);
+  };
+
+  // データファイル読み込みロジック。読み込んだログはセッションとして加え、加えたセッションを返す
+  // (parsedLog を渡したときは、ファイルを読まずにその点列を使う)
+  const loadFileData = async (
+    fileName: string,
+    buffer: ArrayBuffer | null,
+    parsedLog?: { points: any[]; samplingRate: number; startDate?: Date }
+  ): Promise<Session[]> => {
     let rawPoints: any[] = [];
     let samplingRate = 10;
     let startDate: Date | undefined;
@@ -499,14 +609,29 @@ export const App: React.FC = () => {
     let parts: { points: any[]; samplingRate: number; startDate?: Date }[] | null = null;
 
     const ext = fileName.split('.').pop()?.toLowerCase();
+    const added: Session[] = [];
 
-    if (ext === 'dtb') {
+    if (parsedLog) {
+      rawPoints = parsedLog.points;
+      samplingRate = parsedLog.samplingRate;
+      startDate = parsedLog.startDate;
+    } else if (!buffer) {
+      throw new Error('ファイルの中身がありません');
+    } else if (ext === 'dtb') {
       const parsed = parseDtb(buffer);
       rawPoints = parsed.points;
       samplingRate = parsed.samplingRate;
       startDate = parsed.startDate;
     } else if (ext === 'bnx4' || ext === 'bon4' || ext === 'binx' || ext === 'bon') {
       parts = parseDigispiceRawBinary(fileName, buffer);
+    } else if (ext === 'xrk' || ext === 'xrz') {
+      // AiM のロガーのファイル (.xrz は圧縮したもの)
+      const bytes = await inflateXrz(new Uint8Array(buffer));
+      if (!isXrk(bytes)) throw new Error('AiM の .xrk / .xrz として読めませんでした');
+      const parsed = parseXrk(bytes);
+      rawPoints = parsed.points;
+      samplingRate = parsed.samplingRate;
+      startDate = parsed.startDate;
     } else if (['vbo', 'csv', 'txt', 'gpx', 'nmea', 'log'].includes(ext || '')) {
       // テキストの形式は拡張子で決めつけず、中身の先頭で判別する (.txt の NMEA・VBO、.log の CSV なども読めるように)。
       // 判別できないときは拡張子に従う
@@ -514,7 +639,7 @@ export const App: React.FC = () => {
       // NMEA は受信機の起動時の文などの後から始まることがあるので、先頭から広めに (64 KB) 探す
       const head = text.slice(0, 65536);
       // CSV の見出し行 (緯度・経度の列がある行) があるか
-      const csvLike = isRaceChronoCsv(text) || isMotecCsv(text) ||
+      const csvLike = isRaceChronoCsv(text) || isMotecCsv(text) || isAimCsv(text) ||
         /^(?=[^\n]*(lat|緯度))(?=[^\n]*(lon|lng|経度))[^\n]*,/im.test(text.slice(0, 4000));
       const kind =
         isGpx(text) ? 'gpx'
@@ -535,6 +660,7 @@ export const App: React.FC = () => {
           throw new Error('MoTeC CSV の読み込みには現在対応していません');
         }
         parsed = isRaceChronoCsv(text) ? parseRaceChronoCsv(text)
+          : isAimCsv(text) ? parseAimCsv(text)
           : isMotecCsv(text) ? parseMotecCsv(text)
           : parseCsv(text);
       }
@@ -569,7 +695,7 @@ export const App: React.FC = () => {
       const samePlace = [...(courseSession ? [courseSession] : []), ...loaded]
         .find(s => s.controlLine && passesNearControlLine(rawPoints, s.controlLine));
       const hint: CourseHint = samePlace
-        ? { cl: samePlace.controlLine, sec: samePlace.sectors, name: samePlace.circuitName, polylines: samePlace.pathPolylines }
+        ? { cl: samePlace.controlLine, sec: samePlace.sectors, name: samePlace.circuitName, polylines: samePlace.pathPolylines, polylinesSource: samePlace.pathPolylinesSource }
         : prev;
       let cl = hint.cl;
       let sec = hint.sec;
@@ -599,7 +725,9 @@ export const App: React.FC = () => {
       // コースが分からず計測線もないときは、このログの走り始めに仮の計測線を置く。
       // 後から読み込むログもこの線の通過点を 0 m にそろえるので、開始位置の違うログを重ねてもずれない
       if (!cl) cl = createVirtualControlLine(rawPoints);
-      courseRef.current = { cl, sec, name: circName, polylines: hintPolylines };
+      // 出どころの分からない手がかりのコース図は、手で読み込んだものとして扱う (一括設置で置き換えないように)
+      const hintSource: PolylineSource | undefined = hintPolylines ? (hint.polylinesSource ?? 'manual') : undefined;
+      courseRef.current = { cl, sec, name: circName, polylines: hintPolylines, polylinesSource: hintSource };
 
       // ラップ分割とセクタータイム計算
       const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(rawPoints, cl, sec);
@@ -618,10 +746,11 @@ export const App: React.FC = () => {
         theoreticalBestTime,
         controlLine: cl,
         sectors: sec,
-        ...(hintPolylines ? { pathPolylines: hintPolylines } : {})
+        ...(hintPolylines ? { pathPolylines: hintPolylines, pathPolylinesSource: hintSource } : {})
       };
 
       setSessions(prev => [...prev, newSession]);
+      added.push(newSession);
       // コース図の自動読込 (ユーザー設置 → OpenStreetMap)。このセッションにだけ設定する。手で読み込んだコース図を付けたときは取りに行かない
       if (matchedCircuit && !hintPolylines) requestPolylines([newSession.id], matchedCircuit);
 
@@ -657,6 +786,7 @@ export const App: React.FC = () => {
 
     // 変換ページから読み込んだときは、そのまま変換ページに留まる
     if (currentTabRef.current !== 'convert') setCurrentTab('graph');
+    return added;
   };
 
   const loadFileDataRef = useRef(loadFileData);
@@ -682,7 +812,7 @@ export const App: React.FC = () => {
     // コース図は非同期に届くので、その間に設定されたものを消さないよう、今の値を引き継ぐ
     setSessions(prev => prev.map(p => {
       const u = byId.get(p.id);
-      return u ? { ...u, pathPolylines: p.pathPolylines } : p;
+      return u ? { ...u, pathPolylines: p.pathPolylines, pathPolylinesSource: p.pathPolylinesSource } : p;
     }));
     setSelectedCars(prev =>
       prev.map(c => {
@@ -712,7 +842,7 @@ export const App: React.FC = () => {
     if (ids.length === 0) {
       resolveCircuitPolylines(p).then(polylines => {
         if (polylines && polylines.length > 0 && courseRef.current.name === p.name && !courseRef.current.polylines) {
-          setCourseHint({ ...courseRef.current, polylines });
+          setCourseHint({ ...courseRef.current, polylines, polylinesSource: 'auto' });
         }
       }).catch(console.warn);
     }
@@ -742,9 +872,9 @@ export const App: React.FC = () => {
   };
 
   // セッションのコース図を設定する。受付番号を進めるので、取得中の古いコース図は後から届いても使わない
-  const setSessionPolylines = (ids: string[], polylines: Array<Array<[number, number]>> | undefined) => {
+  const setSessionPolylines = (ids: string[], polylines: Array<Array<[number, number]>> | undefined, source?: PolylineSource) => {
     for (const id of ids) polylineRequestRef.current.set(id, (polylineRequestRef.current.get(id) ?? 0) + 1);
-    setSessions(prev => prev.map(s => (ids.includes(s.id) ? { ...s, pathPolylines: polylines } : s)));
+    setSessions(prev => prev.map(s => (ids.includes(s.id) ? { ...s, pathPolylines: polylines, pathPolylinesSource: polylines ? source : undefined } : s)));
   };
 
   // コースのコース図を取得して、指定のセッションに設定する (取得の間に別のコース図を設定したセッションには使わない)
@@ -757,7 +887,7 @@ export const App: React.FC = () => {
     resolveCircuitPolylines(circuit).then(polylines => {
       if (!polylines || polylines.length === 0) return;
       setSessions(prev => prev.map(s =>
-        tokens.has(s.id) && polylineRequestRef.current.get(s.id) === tokens.get(s.id) ? { ...s, pathPolylines: polylines } : s
+        tokens.has(s.id) && polylineRequestRef.current.get(s.id) === tokens.get(s.id) ? { ...s, pathPolylines: polylines, pathPolylinesSource: 'auto' } : s
       ));
     }).catch(console.warn);
   };
@@ -859,7 +989,7 @@ export const App: React.FC = () => {
         ref={fileInputRef}
         onChange={handleFilesSelected}
         multiple
-        accept=".dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx"
+        accept=".dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx,.xrk,.xrz,.mp4,.mov"
         className="hidden"
       />
       <input
@@ -873,10 +1003,10 @@ export const App: React.FC = () => {
             // コース図の近く (2 km 以内) を走ったログだけに設定する (別のコースのログのコース図を置き換えないように)
             const ids = latestRef.current.sessions.filter(s => passesNearPolylines(s, polylines, 2000)).map(s => s.id);
             // 手動で読み込んだコース図を、遅れて届いた自動取得の結果で上書きしない
-            setSessionPolylines(ids, polylines);
+            setSessionPolylines(ids, polylines, 'manual');
             // 近くのログがなければ、次に読み込む近くのログに付けるよう覚えておく (ログを読み込む前なら画面にもそのまま出す)
             if (ids.length === 0) {
-              setCourseHint({ ...courseRef.current, polylines });
+              setCourseHint({ ...courseRef.current, polylines, polylinesSource: 'manual' });
               if (latestRef.current.sessions.length > 0) alert('このコース図の近くを走ったログがないため、次に読み込む近くのログに使います。');
             }
           }
@@ -898,7 +1028,7 @@ export const App: React.FC = () => {
             const ids = latestRef.current.sessions.filter(s => passesNearControlLine(s.points, cl)).map(s => s.id);
             // 次に読むログの手がかりも、計測線を反映したセッションのコースにそろえる (別のコースのセクター・コース名と混ぜない)
             const target = latestRef.current.sessions.find(s => s.id === ids[0]);
-            setCourseHint({ cl, sec: target?.sectors ?? [], name: target?.circuitName ?? '', polylines: target ? target.pathPolylines : courseRef.current.polylines });
+            setCourseHint({ cl, sec: target?.sectors ?? [], name: target?.circuitName ?? '', polylines: target ? target.pathPolylines : courseRef.current.polylines, polylinesSource: target ? target.pathPolylinesSource : courseRef.current.polylinesSource });
             recalcSessions(s => (ids.includes(s.id) ? { cl, sec: s.sectors || [] } : null));
           }
           e.target.value = '';
@@ -928,7 +1058,7 @@ export const App: React.FC = () => {
               s.points[0] ? findMatchingCircuit(s.points[0].latitude, s.points[0].longitude, s.points) : undefined
             ]));
             // 反映するのは、ユーザーコースに当たったセッションだけ。内蔵のコースに当たったセッションは、
-            // 手で直した計測線・セクター・コース図を消さないよう変えない (コース図がまだなければ、読み込んだコース図を探す)
+            // 手で直した計測線・セクターを消さないよう変えない
             const isUser = (m?: CircuitPreset) => !!m && m.id.startsWith('user:');
             recalcSessions(s => {
               const m = matches.get(s.id);
@@ -937,13 +1067,25 @@ export const App: React.FC = () => {
             for (const [id, m] of matches) {
               if (!m) continue;
               const s = latestRef.current.sessions.find(x => x.id === id);
-              if (isUser(m)) {
-                // 同じ名前のコースでも、読み込み直したデータにコース図がなくなっていることがあるので、前のコース図は先に消す
-                setSessionPolylines([id], undefined);
+              if (!s) continue;
+              // 利用者が読み込んだコース図 (.pth) は変えない
+              if (s.pathPolylinesSource === 'manual') continue;
+              if (isUser(m) || (!s.pathPolylines && s.circuitName === m.name)) {
+                // コース図を取り直す。見つからなければ (通信できないときなど) 今のコース図を残す
                 requestPolylines([id], m);
-              } else if (!s?.pathPolylines) {
-                requestPolylines([id], m);
+              } else if (s.pathPolylinesSource === 'auto' && s.circuitName === m.name) {
+                // アプリが自動で取得したコース図 (OpenStreetMap など) は、読み込んだコース図にこのログが乗っていれば置き換える。
+                // (利用者が別のコースを選んだセッション・メインストレートを共有する別のコースのコース図には置き換えない。通信もしない)
+                const p = findUserPolylines(m);
+                if (p && p !== s.pathPolylines && runsOnPolylines(s.points, p)) setSessionPolylines([id], p, 'auto');
               }
+            }
+            // 次に読み込むログの手がかり (ログを読み込む前なら画面にも出す) のコース図も、自動で取得したものなら読み込んだコース図に置き換える
+            const hint = courseRef.current;
+            const hintCircuit = hint.name ? ALL_CIRCUITS.find(c => c.name === hint.name) : undefined;
+            if (hintCircuit && hint.polylinesSource !== 'manual') {
+              const p = findUserPolylines(hintCircuit);
+              if (p && p !== hint.polylines) setCourseHint({ ...hint, polylines: p, polylinesSource: 'auto' });
             }
             setUserCircuitCount(userCircuitStorage.getCircuitCount());
           }
@@ -1086,6 +1228,9 @@ export const App: React.FC = () => {
                       targetSessionId={baseSession?.id}
                       targetLap={baseLap}
                       isGraphEmbedded={true}
+                      isVisible={currentTab === 'graph'}
+                      playbackSpeed={playbackSpeed}
+                      onChangePlaybackSpeed={setPlaybackSpeed}
                     />
                   )}
                 </div>
@@ -1247,6 +1392,9 @@ export const App: React.FC = () => {
                       targetSessionId={baseSession?.id}
                       targetLap={baseLap}
                       isGraphEmbedded={true}
+                      isVisible={currentTab === 'graph'}
+                      playbackSpeed={playbackSpeed}
+                      onChangePlaybackSpeed={setPlaybackSpeed}
                     />
                   )}
                 </div>
@@ -1271,6 +1419,9 @@ export const App: React.FC = () => {
               targetSessionId={baseSession?.id}
               targetLap={baseLap}
               isGraphEmbedded={false}
+              isVisible={currentTab === 'video'}
+              playbackSpeed={playbackSpeed}
+              onChangePlaybackSpeed={setPlaybackSpeed}
             />
           </div>
         )}
@@ -1320,15 +1471,7 @@ export const App: React.FC = () => {
             onSelectSession={setConvertSessionId}
             gFilterLevel={gFilterLevel}
             onOpenFile={() => fileInputRef.current?.click()}
-            onDropFiles={async files => {
-              for (let i = 0; i < files.length; i++) {
-                try {
-                  await loadFileData(files[i].name, await files[i].arrayBuffer());
-                } catch (err: any) {
-                  alert(`ファイル ${files[i].name} の読み込みに失敗しました: ${err.message}`);
-                }
-              }
-            }}
+            onDropFiles={files => loadFiles(Array.from(files))}
           />
         )}
 
@@ -1365,11 +1508,21 @@ export const App: React.FC = () => {
             : undefined
         }
         sectors={currentSectors}
-        onSaveCircuit={(name, cl, sec) => {
-          // 編集したコースは、その計測線の近くを走ったログに反映する。なければ基準車のセッションに反映する
-          const ids = targetSessionIds(s => !!cl && passesNearControlLine(s.points, cl));
-          // ログを読み込む前に保存したときも、画面と次に読み込むログに使う
-          setCourseHint({ cl, sec, name, polylines: courseRef.current.polylines });
+        onSavedCircuitsChange={() => setUserCircuitCount(userCircuitStorage.getCircuitCount())}
+        onSaveCircuit={(name, cl, sec, remember) => {
+          // アプリに保存して、次から同じ場所のログに使う (閉じても消えない)
+          if (remember) {
+            userCircuitStorage.saveEditedCircuit(name, cl, sec, baseSession && passesNearControlLine(baseSession.points, cl) ? baseSession.pathPolylines : undefined).then(r => {
+              if (!r.saved) alert(`コースを保存できませんでした (この画面には反映しています): ${r.saveError ?? ''}`);
+              setUserCircuitCount(userCircuitStorage.getCircuitCount());
+            });
+          }
+          // 編集したコースは、その計測線を通過したログに反映する。なければ基準車のセッションに反映する
+          // (近くを走っただけのログ (筑波 2000 を直したときの 1000 のログなど) には反映しない)
+          const ids = targetSessionIds(s => !!cl && countGateCrossings(s.points, cl) > 0);
+          // ログを読み込む前に保存したときも、画面と次に読み込むログに使う (コース図は反映したセッションのものを引き継ぐ)
+          const target = latestRef.current.sessions.find(s => s.id === ids[0]);
+          setCourseHint({ cl, sec, name, polylines: target ? target.pathPolylines : courseRef.current.polylines, polylinesSource: target ? target.pathPolylinesSource : courseRef.current.polylinesSource });
           recalcSessions(s => (ids.includes(s.id) ? { cl, sec, name } : null));
         }}
       />

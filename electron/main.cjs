@@ -164,7 +164,7 @@ function createWindow() {
       label: 'ファイル',
       submenu: [
         {
-          label: 'ログファイルを開く (.bnx4, .dtb, .csv, .nmea, .vbo)...',
+          label: 'ログファイルを開く (.bnx4, .dtb, .csv, .nmea, .vbo)... (GoPro の動画は画面の「ファイル読込」から)',
           accelerator: 'CmdOrCtrl+O',
           click: async () => {
             const { filePaths } = await dialog.showOpenDialog(mainWindow, {
@@ -173,6 +173,7 @@ function createWindow() {
                 { name: 'デジスパイス生ログファイル', extensions: ['bnx4', 'bon4', 'binx', 'bon'] },
                 { name: 'デジスパイス独自バイナリ (.dtb)', extensions: ['dtb'] },
                 { name: 'CSV / NMEA / VBO / GPX ログ', extensions: ['csv', 'txt', 'nmea', 'log', 'vbo', 'gpx'] },
+                { name: 'AiM (.xrk / .xrz)', extensions: ['xrk', 'xrz'] },
                 { name: 'すべてのファイル', extensions: ['*'] }
               ]
             });

@@ -9,7 +9,6 @@ import { fetchOsmCircuitPolylines } from './osmCircuitService';
 //   スタートライン付近の位置を確認し、OpenStreetMap のコース中心線に直交する線分として作成
 //   (周回の区切りには使えるが、各サーキットの公式計測位置と一致するとは限らない)
 // - セクター線は持たない (コース編集、または利用者が読み込んだコースデータで設定する)
-//   本庄はスタートラインを写真から特定できなかったため、直線の中ほどに置いた仮の位置
 // 出典: © OpenStreetMap contributors (Open Database License 1.0, https://www.openstreetmap.org/copyright)
 //       国土地理院 シームレス空中写真 (https://maps.gsi.go.jp/development/ichiran.html)
 export const CIRCUIT_PRESETS: CircuitPreset[] = [
@@ -19,12 +18,14 @@ export const CIRCUIT_PRESETS: CircuitPreset[] = [
     country: 'JP',
     centerLat: 35.370533,
     centerLon: 138.926908,
+    // 管制塔の前の路面のコントロールライン (航空写真で確認、ピットロードまで含む)。2026-10-17 に見直し
+    // (以前の線はピットの建物の端に置いており、約 300 m ずれていた)
     controlLine: {
       name: 'Start/Finish Line',
-      latA: 35.374012,
-      lonA: 138.929525,
-      latB: 35.373732,
-      lonB: 138.929801
+      latA: 35.372217,
+      lonA: 138.926976,
+      latB: 35.371954,
+      lonB: 138.927313
     },
     sectors: []
   },
@@ -34,12 +35,14 @@ export const CIRCUIT_PRESETS: CircuitPreset[] = [
     country: 'JP',
     centerLat: 34.843668,
     centerLon: 136.532668,
+    // メインストレートに架かるスタートの信号のゲートの位置 (航空写真で確認、ピットロードまで含む)。2026-10-17 に見直し
+    // (以前の線はピットの建物の端に置いており、約 290 m ずれていた)
     controlLine: {
       name: 'Start/Finish Line',
-      latA: 34.842904,
-      lonA: 136.541016,
-      latB: 34.842676,
-      lonB: 136.540678
+      latA: 34.844812,
+      lonA: 136.539025,
+      latB: 34.844564,
+      lonB: 136.538649
     },
     sectors: []
   },
@@ -111,12 +114,14 @@ export const CIRCUIT_PRESETS: CircuitPreset[] = [
     country: 'JP',
     centerLat: 38.140417,
     centerLon: 140.776664,
+    // 管制塔の前の路面のコントロールライン (航空写真で確認)。2026-10-17 に見直し
+    // (以前の線はメインストレートの東の端に置いており、約 220 m ずれていた)
     controlLine: {
       name: 'Start/Finish Line',
-      latA: 38.142202,
-      lonA: 140.780249,
-      latB: 38.141880,
-      lonB: 140.780208
+      latA: 38.142431,
+      lonA: 140.777708,
+      latB: 38.142193,
+      lonB: 140.777678
     },
     sectors: []
   },
@@ -171,12 +176,14 @@ export const CIRCUIT_PRESETS: CircuitPreset[] = [
     country: 'JP',
     centerLat: 36.171078,
     centerLon: 139.107479,
+    // パドックの横でコースを横切る線 (航空写真で確認)。2026-10-17 に見直し
+    // (以前は写真から特定できず、直線の中ほどの仮の位置に置いていた)
     controlLine: {
       name: 'Start/Finish Line',
-      latA: 36.170682,
-      lonA: 139.107542,
-      latB: 36.170503,
-      lonB: 139.107543
+      latA: 36.170933,
+      lonA: 139.108741,
+      latB: 36.170845,
+      lonB: 139.108881
     },
     sectors: []
   },
@@ -286,17 +293,22 @@ function findMatchingPreset(lat: number, lon: number, points?: TelemetryPoint[])
  * 1. ユーザーが設置したデータ内のポリライン
  * 2. OpenStreetMap (OSM) から動的取得
  */
+/** 読み込み済みのコースデータにある、このコースのコース図: ユーザーコースならそのコース図、内蔵のコースなら計測線 (なければ中心) の近くを通るコース図 */
+export function findUserPolylines(circuit: CircuitPreset): Array<Array<[number, number]>> | undefined {
+  return circuit.id.startsWith('user:')
+    ? userCircuitStorage.getCircuitPolylines(circuit.id.slice(5))
+    : circuit.controlLine
+      ? userCircuitStorage.findPolylinesNear((circuit.controlLine.latA + circuit.controlLine.latB) / 2, (circuit.controlLine.lonA + circuit.controlLine.lonB) / 2, undefined, circuit.name)
+      : userCircuitStorage.findPolylinesNear(circuit.centerLat, circuit.centerLon, 1500, circuit.name);
+}
+
 export async function resolveCircuitPolylines(
   circuit: CircuitPreset,
   sourcePreference: 'osm' | 'user' = 'osm'
 ): Promise<Array<Array<[number, number]>> | undefined> {
   // 1. ユーザー設置データ確認: ユーザーコースならそのコース図、内蔵のコースなら計測線 (なければ中心) の近くを通る読み込み済みのコース図
   await userCircuitStorage.ready;
-  const userPolylines = circuit.id.startsWith('user:')
-    ? userCircuitStorage.getCircuitPolylines(circuit.id.slice(5))
-    : circuit.controlLine
-      ? userCircuitStorage.findPolylinesNear((circuit.controlLine.latA + circuit.controlLine.latB) / 2, (circuit.controlLine.lonA + circuit.controlLine.lonB) / 2, undefined, circuit.name)
-      : userCircuitStorage.findPolylinesNear(circuit.centerLat, circuit.centerLon, 1500, circuit.name);
+  const userPolylines = findUserPolylines(circuit);
   if (userPolylines && userPolylines.length > 0) {
     console.log('[Circuit] ユーザー設置コース図を使用:', circuit.id);
     return userPolylines;

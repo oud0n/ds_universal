@@ -9,9 +9,9 @@
 import { Session, TelemetryPoint } from '../types/telemetry';
 import { calculatePhysics, calculateGeoDistanceAndHeading } from './physics';
 
-// MoTeC CSV の読み込み・書き出しは試験機能。実物の i2 エクスポートで確認できるまで、
-// 画面には出さず (書き出しボタンなし)、読み込み時の自動判別も行わない。有効にするには true にする
-export const MOTEC_CSV_ENABLED = false;
+// MoTeC CSV の読み込み・書き出し。実物の i2 の書き出し (小数点がカンマのもの) で確かめて有効にした (2026-10-18)。
+// false にすると、書き出しボタンと読み込み時の自動判別を止める
+export const MOTEC_CSV_ENABLED = true;
 
 export interface ImportedLog {
   points: TelemetryPoint[];
@@ -19,7 +19,7 @@ export interface ImportedLog {
   startDate?: Date;
 }
 
-interface RawSample {
+export interface RawSample {
   time: number;       // 先頭からの秒
   latitude: number;
   longitude: number;
@@ -27,6 +27,26 @@ interface RawSample {
   altitude: number;
   heading: number;
   timestamp?: Date;
+}
+
+/**
+ * データの行の値から、小数点がカンマか (ヨーロッパの設定で書き出した CSV) を決める。
+ * "47,2207022" のような値があればカンマ、"47.22" のような値があればピリオド。
+ * カンマの後ろがちょうど 3 桁の値 ("1,000") は桁区切りかもしれないので、決め手にしない
+ */
+export function detectDecimalComma(lines: string[], start: number, maxRows = 30): boolean {
+  let rows = 0;
+  for (let i = start; i < lines.length && rows < maxRows; i++) {
+    if (lines[i].trim() === '') continue;
+    rows++;
+    for (const cell of splitCsvLine(lines[i])) {
+      const v = cell.trim();
+      if (/^-?\d+\.\d+$/.test(v)) return false;
+      const m = /^-?\d+,(\d+)$/.exec(v);
+      if (m && m[1].length !== 3) return true;
+    }
+  }
+  return false;
 }
 
 /** 引用符付きフィールドに対応した CSV 1 行の分割 */
@@ -58,8 +78,11 @@ function speedFactorToKmh(unit: string): number {
 }
 
 /** 時刻順に並んだ有効なサンプルだけを残し、TelemetryPoint へ変換して物理量を付与する */
-function finalize(samples: RawSample[], formatName: string): ImportedLog {
+export function finalizeImportedSamples(samples: RawSample[], formatName: string): ImportedLog {
   const points: TelemetryPoint[] = [];
+  // 速度・方位の記録がない点 (速度の列がないログなど)。後で前後の点の位置と時刻から求める
+  const noSpeed: number[] = [];
+  const noHeading: number[] = [];
   let lastTime = -Infinity;
   let t0: number | null = null;
   let startDate: Date | undefined;
@@ -75,6 +98,8 @@ function finalize(samples: RawSample[], formatName: string): ImportedLog {
       t0 = s.time;
       startDate = s.timestamp;
     }
+    if (!Number.isFinite(s.speedKmh)) noSpeed.push(points.length);
+    if (!Number.isFinite(s.heading)) noHeading.push(points.length);
     points.push({
       index: points.length,
       time: Number((s.time - t0).toFixed(3)),
@@ -95,6 +120,19 @@ function finalize(samples: RawSample[], formatName: string): ImportedLog {
   }
   if (points.length < 2) {
     throw new Error(`${formatName} から有効な GPS 位置データを読み取れませんでした`);
+  }
+  const fromNeighbours = (i: number) => {
+    const a = points[Math.max(0, i - 1)];
+    const b = points[Math.min(points.length - 1, i + 1)];
+    return { ...calculateGeoDistanceAndHeading(a.latitude, a.longitude, b.latitude, b.longitude), dt: b.time - a.time };
+  };
+  for (const i of noSpeed) {
+    const { distanceMeters, dt } = fromNeighbours(i);
+    if (dt > 0) points[i].speed = Number(((distanceMeters / dt) * 3.6).toFixed(2));
+  }
+  for (const i of noHeading) {
+    const { distanceMeters, headingDeg } = fromNeighbours(i);
+    if (distanceMeters > 0) points[i].heading = headingDeg;
   }
   const enriched = calculatePhysics(points);
   const duration = enriched[enriched.length - 1].time - enriched[0].time;
@@ -161,7 +199,7 @@ export function parseVbo(text: string): ImportedLog {
       timestamp: baseDate !== null ? new Date(baseDate + t * 1000) : undefined
     });
   }
-  return finalize(samples, 'VBO ファイル');
+  return finalizeImportedSamples(samples, 'VBO ファイル');
 }
 
 // ============================================================================
@@ -226,7 +264,7 @@ export function parseRaceChronoCsv(text: string): ImportedLog {
       timestamp: unix > 1e8 ? new Date(unix * 1000) : undefined
     });
   }
-  return finalize(samples, 'RaceChrono CSV');
+  return finalizeImportedSamples(samples, 'RaceChrono CSV');
 }
 
 // ============================================================================
@@ -272,7 +310,8 @@ export function parseGpx(text: string): ImportedLog {
   const valid = raw.filter(p => Number.isFinite(p.t) && Number.isFinite(p.lat) && Number.isFinite(p.lon) && !(p.lat === 0 && p.lon === 0));
   if (valid.length === 0) throw new Error('GPX ファイルに時刻 (time) と位置のある点がないため読み込めません');
   raw.length = 0;
-  raw.push(...valid);
+  // 点の多いログで引数の上限を超えないよう、1 つずつ入れる (push(...valid) は十数万点で失敗する)
+  for (const p of valid) raw.push(p);
 
   // 時刻が秒単位までしかない GPX では同じ時刻の点が続く。次の時刻までを等間隔に割り振って間引かれないようにする
   // 次の時刻が 1 秒より先 (測位の途切れ・区間の切れ目) や、末尾で次の時刻がないときは、1 秒の中に割り振る
@@ -306,7 +345,7 @@ export function parseGpx(text: string): ImportedLog {
       timestamp: new Date(p.t * 1000)
     };
   });
-  return finalize(samples, 'GPX ファイル');
+  return finalizeImportedSamples(samples, 'GPX ファイル');
 }
 
 // ============================================================================
@@ -314,7 +353,7 @@ export function parseGpx(text: string): ImportedLog {
 // ============================================================================
 
 export function isMotecCsv(text: string): boolean {
-  const first = splitCsvLine(text.split(/\r?\n/, 1)[0] || '');
+  const first = splitCsvLine(text.trimStart().split(/\r?\n/, 1)[0] || '');
   return first[0] === 'Format' && first[1] === 'MoTeC CSV File';
 }
 
@@ -327,7 +366,7 @@ export function parseMotecCsv(text: string): ImportedLog {
     if (splitCsvLine(lines[i])[0] !== 'Time') continue;
     let j = i + 1;
     while (j < lines.length && lines[j].trim() === '') j++;
-    if (splitCsvLine(lines[j] || '')[0] === 's') { headerIdx = i; unitIdx = j; }
+    if (/^s(ec(onds?)?)?$/i.test(splitCsvLine(lines[j] || '')[0] ?? '')) { headerIdx = i; unitIdx = j; }
   }
   if (headerIdx < 0) throw new Error('MoTeC CSV のチャンネル見出し (Time / s) が見つかりません');
 
@@ -357,27 +396,39 @@ export function parseMotecCsv(text: string): ImportedLog {
     const c = splitCsvLine(lines[i]);
     for (let k = 0; k + 1 < c.length; k++) if (c[k] && !meta.has(c[k])) meta.set(c[k], c[k + 1]);
   }
-  const dm = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(meta.get('Log Date') || '');
+  // 日付は dd/mm/yyyy か dd.mm.yyyy。タイムゾーンは記録されていないので、この端末の時刻として読む
+  const dm = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(meta.get('Log Date') || '');
   const tm = /^(\d{1,2}):(\d{2}):(\d{2})/.exec(meta.get('Log Time') || '');
-  if (dm) start = Date.UTC(Number(dm[3]), Number(dm[2]) - 1, Number(dm[1]), tm ? Number(tm[1]) : 0, tm ? Number(tm[2]) : 0, tm ? Number(tm[3]) : 0);
+  if (dm) {
+    // 日 / 月 の順。月が 12 を超えるときは 月 / 日 の順 (米国の設定) とみなす。どちらでも読めないときは日時なし
+    let day = Number(dm[1]);
+    let month = Number(dm[2]);
+    if (month > 12 && day <= 12) [day, month] = [month, day];
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      start = new Date(Number(dm[3]), month - 1, day, tm ? Number(tm[1]) : 0, tm ? Number(tm[2]) : 0, tm ? Number(tm[3]) : 0).getTime();
+    }
+  }
+  // ヨーロッパの設定の i2 は小数点がカンマ ("47,2207022")。ファイル全体で決める (英語の設定の "1,000" を 1 にしない)
+  const decimalComma = detectDecimalComma(lines, unitIdx + 1);
+  const num = (v: string | undefined) => parseFloat(decimalComma ? (v ?? '').replace(/\./g, '').replace(',', '.') : (v ?? '').replace(/,/g, ''));
 
   const samples: RawSample[] = [];
   for (let i = unitIdx + 1; i < lines.length; i++) {
     if (lines[i].trim() === '') continue;
     const c = splitCsvLine(lines[i]);
-    const t = parseFloat(c[0]);
+    const t = num(c[0]);
     if (!Number.isFinite(t)) continue;
     samples.push({
       time: t,
-      latitude: parseFloat(c[cLat]),
-      longitude: parseFloat(c[cLon]),
-      speedKmh: cSpeed >= 0 ? parseFloat(c[cSpeed]) * speedFactor : NaN,
-      altitude: cAlt >= 0 ? parseFloat(c[cAlt]) : NaN,
-      heading: cHeading >= 0 ? parseFloat(c[cHeading]) : NaN,
+      latitude: num(c[cLat]),
+      longitude: num(c[cLon]),
+      speedKmh: cSpeed >= 0 ? num(c[cSpeed]) * speedFactor : NaN,
+      altitude: cAlt >= 0 ? num(c[cAlt]) : NaN,
+      heading: cHeading >= 0 ? num(c[cHeading]) : NaN,
       timestamp: start !== null ? new Date(start + t * 1000) : undefined
     });
   }
-  return finalize(samples, 'MoTeC CSV');
+  return finalizeImportedSamples(samples, 'MoTeC CSV');
 }
 
 /** セッション全体を MoTeC CSV 形式で書き出す。ラップの区切りは Beacon Markers に記録する */
@@ -391,8 +442,9 @@ export function exportMotecCsv(session: Session): string {
 
   const startDate = pts[0]?.timestamp ? new Date(pts[0].timestamp) : null;
   const pad = (n: number) => String(n).padStart(2, '0');
-  const logDate = startDate ? `${pad(startDate.getUTCDate())}/${pad(startDate.getUTCMonth() + 1)}/${startDate.getUTCFullYear()}` : '';
-  const logTime = startDate ? `${pad(startDate.getUTCHours())}:${pad(startDate.getUTCMinutes())}:${pad(startDate.getUTCSeconds())}` : '';
+  // MoTeC の記録日時はロガーの時計 (タイムゾーンなし)。この端末の時刻で書く (読み込みと同じ)
+  const logDate = startDate ? `${pad(startDate.getDate())}/${pad(startDate.getMonth() + 1)}/${startDate.getFullYear()}` : '';
+  const logTime = startDate ? `${pad(startDate.getHours())}:${pad(startDate.getMinutes())}:${pad(startDate.getSeconds())}` : '';
 
   // ラップの終了時刻 (セッション先頭からの秒)。ラップが 1 つだけ (区切りなし) の場合は出力しない
   const beacons = session.laps.length > 1 ? session.laps.map(l => (l.endTime - t0).toFixed(3)).join(' ') : '';
