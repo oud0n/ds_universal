@@ -15,5 +15,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveBinaryFile: (options) => ipcRenderer.invoke('save-binary-file', options),
   readFileBuffer: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  // 画面の言語をメニューに知らせる
+  setLanguage: (lang) => ipcRenderer.send('set-language', lang),
   isElectron: true
 });

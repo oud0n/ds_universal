@@ -22,7 +22,7 @@
 > **Supported platforms**: Windows (x64) / macOS (Apple Silicon, arm64).  
 > Linux and Intel Macs (including running under Rosetta 2) are not supported, and no builds are provided for them.
 
-The app's screens are in Japanese. An English user interface is planned.
+The app's screens can be switched between Japanese and English ("JA / EN" at the top right). The first time, it follows your browser's language.
 
 ---
 

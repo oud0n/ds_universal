@@ -4,6 +4,7 @@ import { Session } from '../types/telemetry';
 import { VideoTrack } from '../services/videoSyncManager';
 import { VideoChapterGroup } from '../services/videoChapterManager';
 import { SyncPin, formatPinTime } from '../services/videoSyncPinManager';
+import { useT } from '../utils/i18n';
 
 export interface MasterTimelineTrackBarProps {
   session: Session | undefined;
@@ -28,6 +29,7 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
   onSeekSessionTime,
   formatDuration
 }) => {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
   const [isScrubbing, setIsScrubbing] = useState<boolean>(false);
@@ -117,21 +119,21 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
         <div className="flex items-center gap-2 min-w-0 overflow-hidden">
           <span className="font-bold text-slate-300 flex items-center gap-1">
             <Layers size={11} className="text-red-400" />
-            タイムライン
+            {t('タイムライン', 'Timeline')}
           </span>
           <span className="text-slate-500">|</span>
-          <span className="truncate">範囲: {formatDuration(minTime)} 〜 {formatDuration(maxTime)} ({formatDuration(totalDuration)})</span>
+          <span className="truncate">{t('範囲', 'Range')}: {formatDuration(minTime)} 〜 {formatDuration(maxTime)} ({formatDuration(totalDuration)})</span>
         </div>
 
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5 font-mono">
-            <span className="text-red-400">現在位置:</span>
+            <span className="text-red-400">{t('現在位置:', 'Position:')}</span>
             <strong className="text-slate-200">{formatDuration(currentSessionTimeSec)}</strong>
           </div>
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
             className="p-0.5 hover:text-slate-200 text-slate-500 cursor-pointer"
-            title={isCollapsed ? 'タイムラインを展開' : 'タイムラインを折りたたむ'}
+            title={isCollapsed ? t('タイムラインを展開', 'Expand timeline') : t('タイムラインを折りたたむ', 'Collapse timeline')}
           >
             {isCollapsed ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </button>
@@ -183,7 +185,7 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
                       ? 'bg-emerald-900/80 border-t-2 border-t-emerald-400'
                       : 'bg-emerald-950/40 hover:bg-emerald-950/70'
                   }`}
-                  title={`Lap ${lap.lapNumber}: ${formatDuration(lap.lapTime)} (開始: ${formatDuration(lap.startTime)})`}
+                  title={`Lap ${lap.lapNumber}: ${formatDuration(lap.lapTime)} (${t('開始', 'start')}: ${formatDuration(lap.startTime)})`}
                 >
                   <span className={`text-[8px] font-mono truncate ${isSelected ? 'text-emerald-200 font-bold' : 'text-slate-400'}`}>
                     L{lap.lapNumber}
@@ -217,7 +219,7 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
                         ? 'bg-red-800/90 border-t-2 border-t-red-400'
                         : 'bg-red-950/60 hover:bg-red-950/80'
                     }`}
-                    title={`${ct.track.fileName} (Ch ${ct.chapterIndex}, 長さ: ${formatDuration(ct.durationSec)})`}
+                    title={`${ct.track.fileName} (Ch ${ct.chapterIndex}, ${t('長さ', 'length')}: ${formatDuration(ct.durationSec)})`}
                   >
                     <span className="text-[8px] font-mono text-slate-200 truncate font-semibold">
                       Ch{ct.chapterIndex} ({formatDuration(ct.durationSec)})
@@ -246,7 +248,7 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
                 );
               })()
             ) : (
-              <span className="text-[8px] text-slate-600 pl-14">動画ファイル未ロード</span>
+              <span className="text-[8px] text-slate-600 pl-14">{t('動画ファイル未ロード', 'No video loaded')}</span>
             )}
           </div>
 
@@ -288,7 +290,7 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
               >
                 <div
                   className="absolute -top-2 -translate-x-1/2 bg-amber-500 text-slate-950 p-0.5 rounded shadow pointer-events-auto cursor-pointer"
-                  title={`ピン: ${pin.name} (${formatPinTime(pin.sessionTimeSec)})`}
+                  title={`${t('ピン', 'Pin')}: ${pin.name} (${formatPinTime(pin.sessionTimeSec)})`}
                   onClick={(e) => {
                     e.stopPropagation();
                     onSeekSessionTime(pin.sessionTimeSec);

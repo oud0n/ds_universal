@@ -32,6 +32,84 @@ function isLoggerPort(port) {
   return vendorId === LOGGER_VENDOR_ID && productId === LOGGER_PRODUCT_ID;
 }
 
+// メニューバー。言語は画面で選んだものに合わせる (最初は OS の言語。画面から set-language で知らせる)
+// (OS の言語は起動の準備ができてからでないと読めないので、使うときに読む)
+let menuLang = null;
+const L = (ja, en) => ((menuLang ?? (/^ja/i.test(app.getLocale()) ? 'ja' : 'en')) === 'en' ? en : ja);
+function buildMenu() {
+  const template = [
+    {
+      label: L('ファイル', 'File'),
+      submenu: [
+        {
+          label: L('ログファイルを開く (.bnx4, .dtb, .csv, .nmea, .vbo)... (GoPro の動画は画面の「ファイル読込」から)', 'Open log file (.bnx4, .dtb, .csv, .nmea, .vbo)... (open GoPro videos with "Open file" in the window)'),
+          accelerator: 'CmdOrCtrl+O',
+          click: async () => {
+            const { filePaths } = await dialog.showOpenDialog(mainWindow, {
+              properties: ['openFile', 'multiSelections'],
+              filters: [
+                { name: L('デジスパイス生ログファイル', 'DigSpice raw logs'), extensions: ['bnx4', 'bon4', 'binx', 'bon'] },
+                { name: L('デジスパイス独自バイナリ (.dtb)', 'DigSpice binary (.dtb)'), extensions: ['dtb'] },
+                { name: L('CSV / NMEA / VBO / GPX ログ', 'CSV / NMEA / VBO / GPX logs'), extensions: ['csv', 'txt', 'nmea', 'log', 'vbo', 'gpx'] },
+                { name: 'AiM (.xrk / .xrz)', extensions: ['xrk', 'xrz'] },
+                { name: L('すべてのファイル', 'All files'), extensions: ['*'] }
+              ]
+            });
+            if (filePaths && filePaths.length > 0) {
+              filePaths.forEach(p => approvedReadPaths.add(p));
+              mainWindow.webContents.send('open-files', filePaths);
+            }
+          }
+        },
+        { type: 'separator' },
+        {
+          label: L('終了', 'Quit'),
+          accelerator: process.platform === 'darwin' ? 'Cmd+Q' : 'Ctrl+Q',
+          click: () => app.quit()
+        }
+      ]
+    },
+    {
+      label: L('表示', 'View'),
+      submenu: [
+        { label: L('再読み込み', 'Reload'), accelerator: 'CmdOrCtrl+R', click: () => mainWindow.reload() },
+        { label: L('フルスクリーン切り替え', 'Toggle full screen'), accelerator: 'F11', click: () => mainWindow.setFullScreen(!mainWindow.isFullScreen()) },
+        { type: 'separator' },
+        { label: L('開発者ツール', 'Developer tools'), accelerator: 'CmdOrCtrl+Shift+I', click: () => mainWindow.webContents.toggleDevTools() }
+      ]
+    },
+    {
+      label: L('ヘルプ', 'Help'),
+      submenu: [
+        {
+          label: L('開発者を支援 (Buy Me a Coffee)...', 'Support the developer (Buy Me a Coffee)...'),
+          click: () => {
+            if (mainWindow) {
+              mainWindow.webContents.send('open-donate-modal');
+            } else {
+              shell.openExternal('https://buymeacoffee.com/oud0n');
+            }
+          }
+        },
+        { type: 'separator' },
+        {
+          label: L('DS Universal について', 'About DS Universal'),
+          click: () => {
+            dialog.showMessageBox(mainWindow, {
+              type: 'info',
+              title: L('バージョン情報', 'About'),
+              message: `DS Universal v${app.getVersion()}`,
+              detail: L('デジスパイスIV USB直接通信・ダウンロード & オフライン走行解析ユニバーサルアプリケーション\n作者: oud0n (https://github.com/oud0n/ds_universal)', 'DigSpice IV USB communication and download, and offline driving analysis\nAuthor: oud0n (https://github.com/oud0n/ds_universal)')
+            });
+          }
+        }
+      ]
+    }
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -159,83 +237,20 @@ function createWindow() {
   loadApp();
 
   // メニューバー設定
-  const template = [
-    {
-      label: 'ファイル',
-      submenu: [
-        {
-          label: 'ログファイルを開く (.bnx4, .dtb, .csv, .nmea, .vbo)... (GoPro の動画は画面の「ファイル読込」から)',
-          accelerator: 'CmdOrCtrl+O',
-          click: async () => {
-            const { filePaths } = await dialog.showOpenDialog(mainWindow, {
-              properties: ['openFile', 'multiSelections'],
-              filters: [
-                { name: 'デジスパイス生ログファイル', extensions: ['bnx4', 'bon4', 'binx', 'bon'] },
-                { name: 'デジスパイス独自バイナリ (.dtb)', extensions: ['dtb'] },
-                { name: 'CSV / NMEA / VBO / GPX ログ', extensions: ['csv', 'txt', 'nmea', 'log', 'vbo', 'gpx'] },
-                { name: 'AiM (.xrk / .xrz)', extensions: ['xrk', 'xrz'] },
-                { name: 'すべてのファイル', extensions: ['*'] }
-              ]
-            });
-            if (filePaths && filePaths.length > 0) {
-              filePaths.forEach(p => approvedReadPaths.add(p));
-              mainWindow.webContents.send('open-files', filePaths);
-            }
-          }
-        },
-        { type: 'separator' },
-        {
-          label: '終了',
-          accelerator: process.platform === 'darwin' ? 'Cmd+Q' : 'Ctrl+Q',
-          click: () => app.quit()
-        }
-      ]
-    },
-    {
-      label: '表示',
-      submenu: [
-        { label: '再読み込み', accelerator: 'CmdOrCtrl+R', click: () => mainWindow.reload() },
-        { label: 'フルスクリーン切り替え', accelerator: 'F11', click: () => mainWindow.setFullScreen(!mainWindow.isFullScreen()) },
-        { type: 'separator' },
-        { label: '開発者ツール', accelerator: 'CmdOrCtrl+Shift+I', click: () => mainWindow.webContents.toggleDevTools() }
-      ]
-    },
-    {
-      label: 'ヘルプ',
-      submenu: [
-        {
-          label: '開発者を支援 (Buy Me a Coffee)...',
-          click: () => {
-            if (mainWindow) {
-              mainWindow.webContents.send('open-donate-modal');
-            } else {
-              shell.openExternal('https://buymeacoffee.com/oud0n');
-            }
-          }
-        },
-        { type: 'separator' },
-        {
-          label: 'DS Universal について',
-          click: () => {
-            dialog.showMessageBox(mainWindow, {
-              type: 'info',
-              title: 'バージョン情報',
-              message: `DS Universal v${app.getVersion()}`,
-              detail: 'デジスパイスIV USB直接通信・ダウンロード & オフライン走行解析ユニバーサルアプリケーション\n作者: oud0n (https://github.com/oud0n/ds_universal)'
-            });
-          }
-        }
-      ]
-    }
-  ];
-
-  const menu = Menu.buildFromTemplate(template);
-  Menu.setApplicationMenu(menu);
+  buildMenu();
 
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 }
+
+// 画面で言語を切り替えたら、メニューもその言語で作り直す
+ipcMain.on('set-language', (_event, lang) => {
+  if ((lang === 'ja' || lang === 'en') && lang !== menuLang) {
+    menuLang = lang;
+    if (mainWindow) buildMenu();
+  }
+});
 
 // 外部URL起動 IPC ハンドラ
 ipcMain.handle('open-external', async (_event, url) => {
@@ -249,17 +264,17 @@ ipcMain.handle('open-external', async (_event, url) => {
 // バイナリファイル保存 IPC ハンドラ
 ipcMain.handle('save-binary-file', async (event, { defaultName, dataArray }) => {
   const { canceled, filePath } = await dialog.showSaveDialog({
-    title: 'デジスパイスIV 走行ログデータの保存',
+    title: L('デジスパイスIV 走行ログデータの保存', 'Save DigSpice IV driving log'),
     defaultPath: defaultName || 'DS4_log.bnx4',
     filters: [
-      { name: 'デジスパイスIV ログファイル (*.bnx4)', extensions: ['bnx4'] },
-      { name: 'バイナリログファイル (*.bin)', extensions: ['bin'] },
-      { name: 'すべてのファイル (*.*)', extensions: ['*'] }
+      { name: L('デジスパイスIV ログファイル (*.bnx4)', 'DigSpice IV log (*.bnx4)'), extensions: ['bnx4'] },
+      { name: L('バイナリログファイル (*.bin)', 'Binary log (*.bin)'), extensions: ['bin'] },
+      { name: L('すべてのファイル (*.*)', 'All files (*.*)'), extensions: ['*'] }
     ]
   });
 
   if (canceled || !filePath) {
-    return { success: false, error: '保存がキャンセルされました' };
+    return { success: false, error: L('保存がキャンセルされました', 'Save cancelled') };
   }
 
   try {

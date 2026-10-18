@@ -3,6 +3,7 @@
 // 形式の手がかり: libxrk (MIT, https://github.com/m3rlin45/libxrk) の spec/xrk_format.py
 import { calculateGeoDistanceAndHeading } from './physics';
 import { detectDecimalComma, finalizeImportedSamples, splitCsvLine, type ImportedLog, type RawSample } from './externalFormats';
+import { tr } from '../utils/i18n';
 
 // ============================================================================
 // Race Studio の CSV ("Format","AiM CSV File")
@@ -23,7 +24,7 @@ export function parseAimCsv(text: string): ImportedLog {
     if (c[0] === 'Time' && c.some(h => /latitude/i.test(h))) { headerIdx = i; break; }
     if (c.length >= 2) meta.set(c[0], c[1]);
   }
-  if (headerIdx < 0) throw new Error('AiM の CSV の列見出しが見つかりません');
+  if (headerIdx < 0) throw new Error(tr('AiM の CSV の列見出しが見つかりません', 'Column headers were not found in the AiM CSV'));
   const header = splitCsvLine(lines[headerIdx]);
   const col = (name: string) => header.findIndex(h => h.trim().toLowerCase() === name.toLowerCase());
   const cTime = 0;
@@ -33,7 +34,7 @@ export function parseAimCsv(text: string): ImportedLog {
   const cAlt = col('GPS Altitude');
   const cHeading = col('GPS Heading');
   const cSat = col('GPS Nsat');
-  if (cLat < 0 || cLon < 0) throw new Error('AiM の CSV に GPS Latitude / GPS Longitude の列がありません');
+  if (cLat < 0 || cLon < 0) throw new Error(tr('AiM の CSV に GPS Latitude / GPS Longitude の列がありません', 'The AiM CSV has no GPS Latitude / GPS Longitude columns'));
   // 単位の行 (見出しの次)。速度が km/h でなければ直す
   const units = splitCsvLine(lines[headerIdx + 1] || '');
   const speedUnit = (units[cSpeed] || 'km/h').toLowerCase();
@@ -67,7 +68,7 @@ export function parseAimCsv(text: string): ImportedLog {
       timestamp: start ? new Date(start.getTime() + t * 1000) : undefined
     });
   }
-  return finalizeImportedSamples(samples, 'AiM の CSV');
+  return finalizeImportedSamples(samples, tr('AiM の CSV', 'the AiM CSV'));
 }
 
 function parseAimDateTime(date?: string, time?: string): Date | undefined {
@@ -205,7 +206,7 @@ export function parseXrk(bytes: Uint8Array): ImportedLog {
     }
     pos = end + 7;
   }
-  if (fixes.length < 2) throw new Error('AiM のファイルに、測位できた GPS の記録がありません');
+  if (fixes.length < 2) throw new Error(tr('AiM のファイルに、測位できた GPS の記録がありません', 'The AiM file has no GPS records with a position fix'));
   fixes.sort((a, b) => a.utcMs - b.utcMs);
   const samples: RawSample[] = fixes.map((f, i) => {
     // 止まっているときは速度の向きがあてにならないので、前後の位置から求める
@@ -227,5 +228,5 @@ export function parseXrk(bytes: Uint8Array): ImportedLog {
       timestamp: new Date(f.utcMs)
     };
   });
-  return finalizeImportedSamples(samples, 'AiM のファイル');
+  return finalizeImportedSamples(samples, tr('AiM のファイル', 'the AiM file'));
 }
