@@ -132,9 +132,21 @@ function distanceToGateMeters(p: TelemetryPoint, gate: Gate): number {
   return Math.hypot(ax + dx * t, ay + dy * t);
 }
 
+/**
+ * 周回の区切りとして数える、計測線の通過の最短の間隔 (秒)。ふつうは 15 秒 (GPS の揺れで同じ通過を 2 回数えないように)。
+ * 1 周が 15 秒より短いコース (小さなカートコース・ポケバイコース) では、通過の間隔の中央値の半分まで縮める (最短 4 秒)
+ */
+function lapMinInterval(points: TelemetryPoint[], gate: Gate): number {
+  const c = findGateCrossings(points, gate, 4);
+  if (c.length < 3) return 15;
+  const gaps = c.slice(1).map((x, i) => x.time - c[i].time).sort((a, b) => a - b);
+  const median = gaps[Math.floor(gaps.length / 2)];
+  return median < 30 ? Math.max(4, Math.min(15, median / 2)) : 15;
+}
+
 /** 計測線 (ゲート) を進行方向に通過した回数 (コースの自動判定で、どのコースの計測線を走ったかを比べるのに使う) */
 export function countGateCrossings(points: TelemetryPoint[], gate: Gate): number {
-  return findGateCrossings(points, gate, 15).length;
+  return findGateCrossings(points, gate, lapMinInterval(points, gate)).length;
 }
 
 /** 点列がゲートを最初に通過した時刻 (点列の時刻の基準のまま)。通過しなければ undefined */
@@ -389,7 +401,7 @@ export function extractLaps(
 
   // コントロールラインがある場合は交差検出でラップ分割
   if (controlLine) {
-    const crossings = findGateCrossings(points, controlLine, 15); // 最低15秒間隔
+    const crossings = findGateCrossings(points, controlLine, lapMinInterval(points, controlLine)); // ふつうは最低 15 秒間隔
     if (crossings.length >= 2) {
       for (let c = 0; c < crossings.length - 1; c++) {
         const c1 = crossings[c];
