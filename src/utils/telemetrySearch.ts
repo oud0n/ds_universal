@@ -112,7 +112,11 @@ export function interpolatePoint(
     altitude: lerp(a.altitude, b.altitude),
     altitudeMissing: a.altitudeMissing || b.altitudeMissing ? true : undefined,
     speed: lerp(a.speed, b.speed),
-    heading: (a.heading + dh * r + 360) % 360
+    heading: (a.heading + dh * r + 360) % 360,
+    // G も記録点の間で補間する (手前の点の値のままだと、記録の間隔ごとに段差で跳ぶ)
+    accelG: lerp(a.accelG, b.accelG),
+    corneringG: lerp(a.corneringG, b.corneringG),
+    combinedG: lerp(a.combinedG, b.combinedG)
   };
 }
 

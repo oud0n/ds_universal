@@ -6,6 +6,21 @@ import { CircleDot, Disc } from 'lucide-react';
 import { findCarPoint } from '../utils/telemetrySearch';
 import { prepareCanvas, useDevicePixelRatio } from '../utils/canvasLayer';
 
+// 現在の G の点の後ろに描く軌跡の長さ (秒)
+const GG_TRAIL_SEC = 1.0;
+
+/** time が t 以上になる最初の点の位置 (点は時刻順) */
+function lowerBoundByTime(points: { time: number }[], t: number): number {
+  let lo = 0;
+  let hi = points.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid].time < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
 interface FrictionCircleWindowProps {
   cars: {
     slot: SelectedCarSlot;
@@ -79,7 +94,6 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
     const { cars, currentPoints } = curRef.current;
     const maxG = 1.6;
     const toPx = (gVal: number) => (gVal / maxG) * maxRadius;
-    // 現在値プロット (大きなサークル & グロー)
     cars.forEach((car, idx) => {
       const pt = currentPoints[idx];
       if (!pt) return;
@@ -87,19 +101,40 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
       const px = centerX - toPx(pt.corneringG);
       const py = centerY + toPx(pt.accelG);
 
-      // グロー
+      // 直近 GG_TRAIL_SEC 秒の G の軌跡。前のものほど薄く、細く描く
+      const pts = car.lap.points;
+      let i = lowerBoundByTime(pts, pt.time - GG_TRAIL_SEC);
+      const trail: { x: number; y: number }[] = [];
+      for (; i < pts.length && pts[i].time < pt.time; i++) {
+        trail.push({ x: centerX - toPx(pts[i].corneringG), y: centerY + toPx(pts[i].accelG) });
+      }
+      trail.push({ x: px, y: py });
+      ctx.strokeStyle = car.slot.colorHex;
+      ctx.lineCap = 'round';
+      for (let k = 1; k < trail.length; k++) {
+        const f = k / (trail.length - 1);
+        ctx.globalAlpha = 0.08 + 0.82 * f;
+        ctx.lineWidth = 1 + 1.5 * f;
+        ctx.beginPath();
+        ctx.moveTo(trail[k - 1].x, trail[k - 1].y);
+        ctx.lineTo(trail[k].x, trail[k].y);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+
+      // 現在の G (少し小さめの点 & グロー)
       ctx.shadowColor = car.slot.colorHex;
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = 8;
       ctx.fillStyle = car.slot.colorHex;
       ctx.beginPath();
-      ctx.arc(px, py, 6, 0, Math.PI * 2);
+      ctx.arc(px, py, 4.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
 
       // 中心白点
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+      ctx.arc(px, py, 1.8, 0, Math.PI * 2);
       ctx.fill();
     });
   };
