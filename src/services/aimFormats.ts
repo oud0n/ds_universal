@@ -41,23 +41,30 @@ export function parseAimCsv(text: string): ImportedLog {
 
   // 記録の開始時刻 (ロガーの時計。タイムゾーンは記録されていないので、この端末の時刻として読む)
   const start = parseAimDateTime(meta.get('Date'), meta.get('Time'));
+  // ヨーロッパの設定で書き出した CSV は小数点がカンマ ("35,37349471")。ファイル全体で決める
+  const decimalComma = /^-?\d+,\d+$/.test(meta.get('Sample Rate') ?? '') ||
+    lines.slice(headerIdx + 1, headerIdx + 20).some(l => /^"?-?\d+,\d+"?(,|$)/.test(l));
+  const num = (v: string | undefined) => parseFloat(decimalComma ? (v ?? '').replace(',', '.') : (v ?? ''));
+  // 衛星数の列が全部 0 (記録していない) なら、衛星数では選ばない
+  const useSat = cSat >= 0 && lines.slice(headerIdx + 1).some(l => num(splitCsvLine(l)[cSat]) > 0);
 
   const samples: RawSample[] = [];
   for (let i = headerIdx + 1; i < lines.length; i++) {
     if (lines[i].trim() === '') continue;
     const c = splitCsvLine(lines[i]);
-    const t = parseFloat(c[cTime]);
+    const t = num(c[cTime]);
     if (!Number.isFinite(t)) continue; // 単位の行など
-    // 衛星が 4 つ未満の行は位置が止まっているので使わない
-    if (cSat >= 0 && parseFloat(c[cSat]) < 4) continue;
+    // 衛星が 3 つ未満 (測位できていない) の行は使わない
+    if (useSat && !(num(c[cSat]) >= 3)) continue;
+    const h = cHeading >= 0 ? num(c[cHeading]) : NaN;
     samples.push({
       time: t,
-      latitude: parseFloat(c[cLat]),
-      longitude: parseFloat(c[cLon]),
-      speedKmh: cSpeed >= 0 ? parseFloat(c[cSpeed]) * speedFactor : NaN,
-      altitude: cAlt >= 0 ? parseFloat(c[cAlt]) : NaN,
+      latitude: num(c[cLat]),
+      longitude: num(c[cLon]),
+      speedKmh: cSpeed >= 0 ? num(c[cSpeed]) * speedFactor : NaN,
+      altitude: cAlt >= 0 ? num(c[cAlt]) : NaN,
       // AiM の方位は -180〜180 度
-      heading: cHeading >= 0 ? (parseFloat(c[cHeading]) + 360) % 360 : NaN,
+      heading: Number.isFinite(h) ? ((h % 360) + 360) % 360 : NaN,
       timestamp: start ? new Date(start.getTime() + t * 1000) : undefined
     });
   }
@@ -66,6 +73,19 @@ export function parseAimCsv(text: string): ImportedLog {
 
 function parseAimDateTime(date?: string, time?: string): Date | undefined {
   if (!date) return undefined;
+  // 数字の日付 (16/12/2025・16.12.2025・12/16/2025) は 日 / 月 の順、月が 12 を超えれば 月 / 日 の順として読む
+  const dm = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(date.trim());
+  if (dm) {
+    let day = Number(dm[1]);
+    let month = Number(dm[2]);
+    if (month > 12 && day <= 12) [day, month] = [month, day];
+    const tm = /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]M)?/i.exec((time ?? '').trim());
+    let hour = tm ? Number(tm[1]) : 0;
+    if (tm?.[4]) hour = (hour % 12) + (/p/i.test(tm[4]) ? 12 : 0);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
+    return new Date(Number(dm[3]), month - 1, day, hour, tm ? Number(tm[2]) : 0, tm?.[3] ? Number(tm[3]) : 0);
+  }
+  // "Tuesday, December 16, 2025" と "11:49 AM"
   const d = new Date(`${date.replace(/^[A-Za-z]+,\s*/, '')} ${time ?? ''}`);
   return Number.isFinite(d.getTime()) ? d : undefined;
 }
@@ -104,9 +124,16 @@ export function isXrk(bytes: Uint8Array): boolean {
   return bytes.length > 12 && bytes[0] === 0x3c && bytes[1] === 0x68;
 }
 
-// GPS 時刻と UTC の差 (うるう秒、2017 年から 18 秒)
-const GPS_LEAP_SECONDS = 18;
+// GPS 時刻と UTC の差 (うるう秒)。GPS 時刻でその日以降に適用される秒数
 const GPS_EPOCH_MS = Date.UTC(1980, 0, 6);
+const LEAP_SECONDS: [number, number][] = [
+  [Date.UTC(2017, 0, 1), 18],
+  [Date.UTC(2015, 6, 1), 17],
+  [Date.UTC(2012, 6, 1), 16],
+  [Date.UTC(2009, 0, 1), 15],
+  [Date.UTC(2006, 0, 1), 14]
+];
+const gpsToUtcMs = (gpsMs: number) => gpsMs - 1000 * (LEAP_SECONDS.find(([since, s]) => gpsMs - s * 1000 >= since)?.[1] ?? 13);
 
 /** WGS84 の地心直交座標 (m) から緯度・経度 (度)・楕円体高 (m) */
 function ecefToLla(x: number, y: number, z: number): { lat: number; lon: number; alt: number } {
@@ -169,7 +196,7 @@ export function parseXrk(bytes: Uint8Array): ImportedLog {
       const east = -Math.sin(lo) * vx + Math.cos(lo) * vy;
       const north = -Math.sin(la) * Math.cos(lo) * vx - Math.sin(la) * Math.sin(lo) * vy + Math.cos(la) * vz;
       fixes.push({
-        utcMs: GPS_EPOCH_MS + week * 604800000 + iTow + fTowNs / 1e6 - GPS_LEAP_SECONDS * 1000,
+        utcMs: gpsToUtcMs(GPS_EPOCH_MS + week * 604800000 + iTow + fTowNs / 1e6),
         lat,
         lon,
         alt,
@@ -187,7 +214,9 @@ export function parseXrk(bytes: Uint8Array): ImportedLog {
     if (f.speedMs < 1) {
       const a = fixes[Math.max(0, i - 1)];
       const b = fixes[Math.min(fixes.length - 1, i + 1)];
-      if (a !== b) heading = calculateGeoDistanceAndHeading(a.lat, a.lon, b.lat, b.lon).headingDeg;
+      const d = calculateGeoDistanceAndHeading(a.lat, a.lon, b.lat, b.lon);
+      // 前後で位置が変わらないときは、速度の向きのまま (北にしない)
+      if (d.distanceMeters > 0) heading = d.headingDeg;
     }
     return {
       time: f.utcMs / 1000,

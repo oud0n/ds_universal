@@ -333,7 +333,7 @@ export function parseGpx(text: string): ImportedLog {
 // ============================================================================
 
 export function isMotecCsv(text: string): boolean {
-  const first = splitCsvLine(text.split(/\r?\n/, 1)[0] || '');
+  const first = splitCsvLine(text.trimStart().split(/\r?\n/, 1)[0] || '');
   return first[0] === 'Format' && first[1] === 'MoTeC CSV File';
 }
 
@@ -346,7 +346,7 @@ export function parseMotecCsv(text: string): ImportedLog {
     if (splitCsvLine(lines[i])[0] !== 'Time') continue;
     let j = i + 1;
     while (j < lines.length && lines[j].trim() === '') j++;
-    if (splitCsvLine(lines[j] || '')[0] === 's') { headerIdx = i; unitIdx = j; }
+    if (/^s(ec(onds?)?)?$/i.test(splitCsvLine(lines[j] || '')[0] ?? '')) { headerIdx = i; unitIdx = j; }
   }
   if (headerIdx < 0) throw new Error('MoTeC CSV のチャンネル見出し (Time / s) が見つかりません');
 
@@ -388,8 +388,10 @@ export function parseMotecCsv(text: string): ImportedLog {
       start = new Date(Number(dm[3]), month - 1, day, tm ? Number(tm[1]) : 0, tm ? Number(tm[2]) : 0, tm ? Number(tm[3]) : 0).getTime();
     }
   }
-  // ヨーロッパの設定の i2 は小数点がカンマ ("47,2207022")
-  const num = (v: string | undefined) => parseFloat((v ?? '').replace(/^(-?\d+),(\d+)$/, '$1.$2'));
+  // ヨーロッパの設定の i2 は小数点がカンマ ("47,2207022")。ファイル全体で決める (英語の設定の "1,000" を 1 にしない)
+  const decimalComma = /^-?\d+,\d+$/.test(meta.get('Sample Rate') ?? '') ||
+    /^-?\d+,\d+$/.test(splitCsvLine(lines.slice(unitIdx + 1).find(l => l.trim() !== '') ?? '')[0] ?? '');
+  const num = (v: string | undefined) => parseFloat(decimalComma ? (v ?? '').replace(/\./g, '').replace(',', '.') : (v ?? '').replace(/,/g, ''));
 
   const samples: RawSample[] = [];
   for (let i = unitIdx + 1; i < lines.length; i++) {
