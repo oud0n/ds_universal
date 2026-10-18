@@ -3,6 +3,7 @@
 // 形式: https://github.com/gopro/gpmf-parser (GPMF の KLV。GPS9 は HERO11 以降、GPS5 は HERO5〜10)
 import { calculateGeoDistanceAndHeading } from './physics';
 import { finalizeImportedSamples, type ImportedLog, type RawSample } from './externalFormats';
+import { tr } from '../utils/i18n';
 
 /** 動画のバイト列の一部を読む口 (ブラウザでは File、テストでは Node のファイル) */
 export interface ByteSource {
@@ -322,11 +323,11 @@ export class NoGoproGpsError extends Error {}
 /** 1 本の動画から GPS の点を読む */
 async function readGpsFixes(src: ByteSource): Promise<{ fixes: GpsFix[]; formats: Set<string> }> {
   const moov = (await listBoxes(src, 0, src.size)).find(b => b.type === 'moov');
-  if (!moov || moov.start + moov.size > src.size) throw new Error('MP4 の構造 (moov) が見つかりません');
+  if (!moov || moov.start + moov.size > src.size) throw new Error(tr('MP4 の構造 (moov) が見つかりません', 'The MP4 structure (moov) was not found'));
   const moovView = await src.read(moov.start + moov.header, moov.size - moov.header);
   // ファイルの外を指すサンプル (途中で切れたファイルなど) は読まない
   const samples = gpmfSamplesFromMoov(moovView)?.filter(s => s.offset + s.size <= src.size);
-  if (!samples || samples.length === 0) throw new NoGoproGpsError('GoPro の GPS (GPMF) の記録がない動画です');
+  if (!samples || samples.length === 0) throw new NoGoproGpsError(tr('GoPro の GPS (GPMF) の記録がない動画です', 'This video has no GoPro GPS (GPMF) data'));
 
   const fixes: GpsFix[] = [];
   const formats = new Set<string>();
@@ -376,7 +377,7 @@ export async function parseGoproGps(sources: ByteSource[]): Promise<GoproLog> {
 
   const valid: GpsFix[] = [];
   for (const v of perVideo) for (const f of v.fixes) if (isValid(f)) valid.push(f);
-  if (valid.length < 2) throw new NoGoproGpsError('GoPro の動画に、測位できた GPS の記録がありません');
+  if (valid.length < 2) throw new NoGoproGpsError(tr('GoPro の動画に、測位できた GPS の記録がありません', 'The GoPro video has no GPS records with a position fix'));
   valid.sort((a, b) => a.utcMs - b.utcMs);
   const raw: RawSample[] = valid.map((f, i) => {
     const a = valid[Math.max(0, i - 1)];
@@ -392,7 +393,7 @@ export async function parseGoproGps(sources: ByteSource[]): Promise<GoproLog> {
       timestamp: new Date(f.utcMs)
     };
   });
-  const log = finalizeImportedSamples(raw, 'GoPro の動画');
+  const log = finalizeImportedSamples(raw, tr('GoPro の動画', 'the GoPro video'));
   return { ...log, videoStartUtcMs, gpsFormat };
 }
 

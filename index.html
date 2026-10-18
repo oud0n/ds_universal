@@ -12,8 +12,9 @@
       // 画面が描かれる前にテーマを決める (保存した設定、なければ OS の設定)。src/utils/theme.ts と同じ決め方
       try {
         var t = localStorage.getItem('ds_theme');
-        var dark = t === 'dark' || (t !== 'light' && !window.matchMedia('(prefers-color-scheme: light)').matches);
+        var dark = t === 'dark' || (t !== 'light' && t !== 'contrast' && !window.matchMedia('(prefers-color-scheme: light)').matches);
         document.documentElement.classList.add(dark ? 'dark' : 'light');
+        if (t === 'contrast') document.documentElement.classList.add('contrast');
       } catch (e) {
         document.documentElement.classList.add('dark');
       }

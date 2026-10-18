@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from 'react';
 
 // 画面のテーマ。system は OS の設定 (ライト / ダーク) に合わせる
-export type ThemeSetting = 'light' | 'dark' | 'system';
+// contrast は屋外の直射日光の下で見やすい、明暗差の大きいライトモード
+export type ThemeSetting = 'light' | 'dark' | 'system' | 'contrast';
 export type ResolvedTheme = 'light' | 'dark';
 
 // 選んだテーマはこの端末のブラウザに保存する (index.html の最初のスクリプトも同じキーを読む)
@@ -13,7 +14,7 @@ const lightQuery = typeof window !== 'undefined' && window.matchMedia ? window.m
 function loadSetting(): ThemeSetting {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
-    if (v === 'light' || v === 'dark' || v === 'system') return v;
+    if (v === 'light' || v === 'dark' || v === 'system' || v === 'contrast') return v;
   } catch {
     // 保存先が使えない (プライベートウインドウなど) ときは既定のまま
   }
@@ -26,6 +27,7 @@ const listeners = new Set<() => void>();
 
 function resolve(s: ThemeSetting): ResolvedTheme {
   if (s === 'system') return lightQuery?.matches ? 'light' : 'dark';
+  if (s === 'contrast') return 'light';
   return s;
 }
 
@@ -34,6 +36,7 @@ function apply() {
   const root = document.documentElement;
   root.classList.toggle('light', resolved === 'light');
   root.classList.toggle('dark', resolved === 'dark');
+  root.classList.toggle('contrast', setting === 'contrast');
   listeners.forEach(l => l());
 }
 

@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { canvasColors, useResolvedTheme } from '../utils/theme';
+import { tr, useLang, useT } from '../utils/i18n';
 import { useCompactLayout } from '../hooks/useCompactLayout';
 import { usePinchPointers } from '../hooks/usePinchPointers';
 import { CompareAxis, Lap, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
@@ -7,7 +8,7 @@ import { findCarPoint } from '../utils/telemetrySearch';
 import { prepareCanvas, useDevicePixelRatio } from '../utils/canvasLayer';
 import { passesNearPoint } from '../services/lapCalculator';
 import { ZoomIn, ZoomOut, RotateCcw, Eye, Palette, Move, LocateFixed } from 'lucide-react';
-import { getTileImage, MapBackground, TILE_ATTRIBUTION, TILE_SOURCES, tilesForView } from '../services/mapTiles';
+import { getTileImage, MapBackground, TILE_ATTRIBUTION, tilesForView } from '../services/mapTiles';
 import { useLapGeometries } from '../hooks/useLapGeometries';
 import { computeCorrectedLineDelta, computeLineDelta, detectCorners } from '../services/drivingAnalysis';
 
@@ -67,6 +68,9 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 }) => {
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
+  const t = useT();
+  // 言語を切り替えたら canvas の文字も描き直す
+  const lang = useLang();
   // 解像度の違うディスプレイへ移したら描き直す
   const dpr = useDevicePixelRatio();
   // スマートフォン向けの配置では、ツールバーを 1 行にして横にスクロールさせ、見出しを省く
@@ -296,7 +300,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       ctx.fillStyle = C.axis;
       ctx.font = '13px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('コースデータがありません', width / 2, height / 2);
+      ctx.fillText(tr('コースデータがありません', 'No course data'), width / 2, height / 2);
       drawCars();
       return;
     }
@@ -557,7 +561,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 
     layoutRef.current = { width, height, latMid, lonMid, cosLat, baseScale, pan };
     drawCars();
-  }, [cars, controlLine, sectors, pathPolylines, followPosition, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick, dpr, theme]);
+  }, [cars, controlLine, sectors, pathPolylines, followPosition, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick, dpr, theme, lang]);
 
   // パン操作 (ドラッグ)
   // ドラッグの状態は、同じイベントの中で続けて読めるよう ref で持つ (タッチは動かしたときに押下と移動が続けて届くため)
@@ -648,7 +652,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
                 colorMode === 'car' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              車両色
+              {t('車両色', 'Car colour')}
             </button>
             <button
               onClick={() => setColorMode('speed')}
@@ -656,7 +660,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
                 colorMode === 'speed' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              {compact ? '車速' : '車速ヒート'}
+              {compact ? t('車速', 'Speed') : t('車速ヒート', 'Speed heat')}
             </button>
             <button
               onClick={() => setColorMode('accel')}
@@ -664,49 +668,49 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
                 colorMode === 'accel' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              加減速
+              {t('加減速', 'Accel')}
             </button>
             <button
               onClick={() => setColorMode('line')}
-              title="基準車 (Car 1) の走行ラインに対する、他の車両の左右のズレを色分け表示"
+              title={t('基準車 (Car 1) の走行ラインに対する、他の車両の左右のズレを色分け表示', 'Colours how far left or right the other cars are from the reference car (Car 1) line')}
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
                 colorMode === 'line' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              {compact ? 'ライン' : 'ライン偏差'}
+              {compact ? t('ライン', 'Line') : t('ライン偏差', 'Line delta')}
             </button>
           </div>
           <button
             onClick={() => setShowCorners(v => !v)}
-            title="コーナー番号の表示切替"
+            title={t('コーナー番号の表示切替', 'Show or hide corner numbers')}
             className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-all ${
               showCorners ? 'border-amber-500/50 text-amber-300' : 'border-line-3 text-slate-500 hover:text-slate-300'
             }`}
           >
-            {compact ? 'コーナー' : 'コーナー番号'}
+            {compact ? t('コーナー', 'Corners') : t('コーナー番号', 'Corner numbers')}
           </button>
           <select
             value={background}
             onChange={e => handleSelectBackground(e.target.value as MapBackground)}
-            title="コース図の背景に地図を表示します (国土地理院タイル。表示にはインターネット接続が必要です)"
-            aria-label="背景地図"
+            title={t('コース図の背景に地図を表示します (国土地理院タイル。表示にはインターネット接続が必要です)', 'Shows a map behind the track (GSI tiles; needs an internet connection)')}
+            aria-label={t('背景地図', 'Background map')}
             className="bg-surface-1 border border-line-3 text-[11px] text-slate-300 rounded px-1.5 py-0.5 outline-none"
           >
-            <option value="none">{compact ? '地図なし' : '背景: なし'}</option>
-            <option value="photo">{compact ? '' : '背景: '}{TILE_SOURCES.photo.label}</option>
-            <option value="standard">{compact ? '' : '背景: '}{TILE_SOURCES.standard.label}</option>
+            <option value="none">{compact ? t('地図なし', 'No map') : t('背景: なし', 'Background: none')}</option>
+            <option value="photo">{compact ? '' : t('背景: ', 'Background: ')}{t('航空写真', 'Aerial photo')}</option>
+            <option value="standard">{compact ? '' : t('背景: ', 'Background: ')}{t('地図', 'Map')}</option>
           </select>
           {background !== 'none' && (
             <button
               onClick={() => setIsAdjustingMap(v => !v)}
               aria-pressed={isAdjustingMap}
-              title="ON の間は、ドラッグで背景地図だけを動かして GPS 軌跡に合わせます。OFF にすると通常の移動・拡大操作に戻ります"
+              title={t('ON の間は、ドラッグで背景地図だけを動かして GPS 軌跡に合わせます。OFF にすると通常の移動・拡大操作に戻ります', 'While ON, dragging moves only the background map so it lines up with the GPS trace. Turn OFF to return to normal pan and zoom')}
               className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border transition-all ${
                 isAdjustingMap ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-line-3 text-slate-400 hover:text-slate-200'
               }`}
             >
               <Move size={11} />
-              {compact ? '位置調整' : '地図の位置調整'}{isAdjustingMap ? ': ON' : ''}
+              {compact ? t('位置調整', 'Align') : t('地図の位置調整', 'Align map')}{isAdjustingMap ? ': ON' : ''}
             </button>
           )}
         </div>
@@ -719,32 +723,32 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
               if (isFollowing) setPanOffset(drawnPanRef.current);
               setIsFollowing(!isFollowing);
             }}
-            title="車両追従 (基準車を常に中央に表示)"
+            title={t('車両追従 (基準車を常に中央に表示)', 'Follow car (keep the reference car centred)')}
             aria-pressed={isFollowing}
             className={`flex items-center gap-1 px-1.5 py-0.5 mr-1 rounded border text-[11px] transition-colors ${
               isFollowing ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-line-3 text-slate-400 hover:text-slate-200'
             }`}
           >
             <LocateFixed size={13} />
-            追従
+            {t('追従', 'Follow')}
           </button>
           <button
             onClick={() => setZoom(z => Math.min(10, z * 1.25))}
-            title="拡大"
+            title={t('拡大', 'Zoom in')}
             className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
           >
             <ZoomIn size={14} />
           </button>
           <button
             onClick={() => setZoom(z => Math.max(0.4, z * 0.8))}
-            title="縮小"
+            title={t('縮小', 'Zoom out')}
             className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
           >
             <ZoomOut size={14} />
           </button>
           <button
             onClick={handleReset}
-            title="コース全体を表示"
+            title={t('コース全体を表示', 'Show the whole course')}
             className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
           >
             <RotateCcw size={13} />
@@ -766,12 +770,12 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         {/* 地図の位置調整中の案内 */}
         {isAdjustingMap && (
           <div className="absolute top-2 left-2 bg-emerald-950/90 border border-emerald-500/60 rounded px-2 py-1 text-[10px] text-emerald-100 flex items-center gap-2" data-testid="map-adjust-panel">
-            <span>ドラッグで地図を移動 (ホイールで拡大縮小)</span>
+            <span>{t('ドラッグで地図を移動 (ホイールで拡大縮小)', 'Drag to move the map (wheel to zoom)')}</span>
             <span className="font-mono" data-testid="map-offset">
-              東 {mapOffset.eastM >= 0 ? '+' : ''}{mapOffset.eastM.toFixed(1)}m / 北 {mapOffset.northM >= 0 ? '+' : ''}{mapOffset.northM.toFixed(1)}m
+              {t('東', 'E')} {mapOffset.eastM >= 0 ? '+' : ''}{mapOffset.eastM.toFixed(1)}m / {t('北', 'N')} {mapOffset.northM >= 0 ? '+' : ''}{mapOffset.northM.toFixed(1)}m
             </span>
-            <button onClick={handleResetMapOffset} className="px-1.5 py-0.5 rounded border border-emerald-500/60 hover:bg-emerald-800/60">リセット</button>
-            <button onClick={() => setIsAdjustingMap(false)} className="px-1.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold">完了</button>
+            <button onClick={handleResetMapOffset} className="px-1.5 py-0.5 rounded border border-emerald-500/60 hover:bg-emerald-800/60">{t('リセット', 'Reset')}</button>
+            <button onClick={() => setIsAdjustingMap(false)} className="px-1.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold">{t('完了', 'Done')}</button>
           </div>
         )}
 
@@ -783,37 +787,37 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
             rel="noreferrer"
             className="absolute bottom-1 right-1 bg-surface-1/82 rounded px-1.5 py-0.5 text-[9px] text-slate-300 hover:text-fg"
           >
-            {TILE_ATTRIBUTION.text}
+            {t(TILE_ATTRIBUTION.text, 'Source: GSI Japan')}
           </a>
         )}
 
         {/* 凡例 / ガイド */}
         {colorMode === 'speed' && (
           <div className="absolute bottom-2 left-2 bg-surface-1/88 border border-line-3 rounded px-2 py-1 text-[10px] text-slate-300 flex items-center gap-2">
-            <span>低速 (青)</span>
+            <span>{t('低速 (青)', 'Slow (blue)')}</span>
             <div className="w-16 h-2 rounded bg-gradient-to-r from-blue-600 via-green-500 to-red-500"></div>
-            <span>高速 (赤)</span>
+            <span>{t('高速 (赤)', 'Fast (red)')}</span>
           </div>
         )}
         {colorMode === 'line' && (
           <div className="absolute bottom-2 left-2 bg-surface-1/88 border border-line-3 rounded px-2 py-1 text-[10px] text-slate-300 flex items-center gap-2" data-testid="line-delta-legend">
             {lineDeltas.length === 0 ? (
-              <span className="text-amber-300">比較する車両 (Car 2 以降) を「データ管理」で選択してください</span>
+              <span className="text-amber-300">{t('比較する車両 (Car 2 以降) を「データ管理」で選択してください', 'Select cars to compare (Car 2 and later) on the data tab')}</span>
             ) : (
               <>
-                <span className="text-sky-400">左 {LINE_DELTA_FULL_SCALE_M}m</span>
+                <span className="text-sky-400">{t('左', 'Left')} {LINE_DELTA_FULL_SCALE_M}m</span>
                 <div className="w-20 h-2 rounded bg-gradient-to-r from-sky-400 via-slate-700 to-orange-400"></div>
-                <span className="text-orange-400">右 {LINE_DELTA_FULL_SCALE_M}m</span>
-                <span className="text-slate-500">{theme === 'light' && background === 'none' ? '濃い線' : '白線'}: 基準車 / 進行方向に対する左右</span>
-                <label className="flex items-center gap-1 text-slate-300 cursor-pointer" title="ラップ間の GPS の位置ずれ (ほぼ一定の平行移動として現れる誤差) を推定して差し引きます。周回コースでのみ有効です">
+                <span className="text-orange-400">{t('右', 'Right')} {LINE_DELTA_FULL_SCALE_M}m</span>
+                <span className="text-slate-500">{theme === 'light' && background === 'none' ? t('濃い線', 'Dark line') : t('白線', 'White line')}{t(': 基準車 / 進行方向に対する左右', ': reference car / left-right relative to direction of travel')}</span>
+                <label className="flex items-center gap-1 text-slate-300 cursor-pointer" title={t('ラップ間の GPS の位置ずれ (ほぼ一定の平行移動として現れる誤差) を推定して差し引きます。周回コースでのみ有効です', 'Estimates and removes the GPS position offset between laps (an error that appears as a roughly constant shift). Only works on circuits')}>
                   <input type="checkbox" checked={correctGpsShift} onChange={e => setCorrectGpsShift(e.target.checked)} className="accent-red-500" />
-                  GPS ずれ補正
+                  {t('GPS ずれ補正', 'GPS offset correction')}
                 </label>
                 {correctGpsShift && (
                   <span className="text-slate-500" data-testid="gps-shift-amount">
                     {lineDeltas.map(d => {
                       const amount = Math.hypot(d.delta.shiftEastM, d.delta.shiftNorthM);
-                      return amount > 0 ? `${amount.toFixed(1)}m` : '推定不可';
+                      return amount > 0 ? `${amount.toFixed(1)}m` : t('推定不可', 'n/a');
                     }).join(' / ')}
                   </span>
                 )}
@@ -823,9 +827,9 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         )}
         {colorMode === 'accel' && (
           <div className="absolute bottom-2 left-2 bg-surface-1/88 border border-line-3 rounded px-2 py-1 text-[10px] text-slate-300 flex items-center gap-2">
-            <span className="text-red-400">減速G (赤)</span>
+            <span className="text-red-400">{t('減速G (赤)', 'Braking G (red)')}</span>
             <div className="w-16 h-2 rounded bg-gradient-to-r from-red-500 via-slate-600 to-cyan-400"></div>
-            <span className="text-cyan-400">加速G (青)</span>
+            <span className="text-cyan-400">{t('加速G (青)', 'Accel G (blue)')}</span>
           </div>
         )}
       </div>

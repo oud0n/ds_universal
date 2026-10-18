@@ -8,7 +8,7 @@
 
 ![Supported OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon-blue)
 ![Verification](https://img.shields.io/badge/Verified-macOS%20Only-amber)
-![Version](https://img.shields.io/badge/Version-0.10.0-red)
+![Version](https://img.shields.io/badge/Version-0.11.0-red)
 ![Device](https://img.shields.io/badge/Device-DigSpice%20IV-red)
 ![License](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-oud0n-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/oud0n)
@@ -22,7 +22,7 @@
 > **Supported platforms**: Windows (x64) / macOS (Apple Silicon, arm64).  
 > Linux and Intel Macs (including running under Rosetta 2) are not supported, and no builds are provided for them.
 
-The app's screens are in Japanese. An English user interface is planned.
+The app's screens can be switched between Japanese and English ("JA / EN" at the top right). The first time, it follows your browser's language.
 
 ---
 
@@ -70,13 +70,13 @@ The app's screens are in Japanese. An English user interface is planned.
 - **Other formats**: Racelogic VBO, RaceChrono CSV, GPX, MoTeC CSV (exported from i2) and AiM (Race Studio CSV, and the GPS in logger files `.xrk` / `.xrz`).
   - MoTeC and AiM support has only been checked with sample files published on the internet, not with logs recorded on the developer's own hardware. If a file does not load correctly, please let us know in an issue.
 - **GPS from GoPro videos**: open a video (.MP4) shot with a GoPro that records GPS (HERO5 and later) with "ファイル読込" (Open file), and the GPS recorded in the video is loaded as a driving log. The same video is added to video sync and plays already aligned by GPS time. When one recording is split into several files (chapters), select them together to get one log. (The video is read on your device and is never loaded into memory as a whole.)
-- **Log conversion page**: export a loaded log to NMEA (GGA + RMC), GPX, CSV, TXT (space-separated), KML (for Google Earth, line coloured by speed), DTB, map HTML (hover for time and speed) or MoTeC CSV, plus DigSpice-style telemetry CSV (with G) and a lap list CSV. You choose the range (the whole log, one lap, or a time range cut out on the graph) and the time offset (time zone). All exports live on this page; open it from "変換画面で開く" (Open in converter) for each log on the data tab.
+- **Log conversion page**: export a loaded log to NMEA (GGA + RMC), GPX, VBO, CSV, TXT (space-separated), KML (for Google Earth, line coloured by speed), DTB, map HTML (hover for time and speed) or MoTeC CSV, plus DigSpice-style telemetry CSV (with G) and a lap list CSV. You choose the range (the whole log, one lap, or a time range cut out on the graph) and the time offset (time zone). All exports live on this page; open it from "変換画面で開く" (Open in converter) for each log on the data tab.
 
 #### Course data (timing lines)
-- **Built-in presets**: names and centre coordinates of 13 circuits in Japan, with start/finish timing lines for 12 of them. All of this is the app's own data: centre coordinates come from the course shapes in OpenStreetMap, and timing lines were placed by checking the start line area on GSI aerial photos. They work for splitting laps but may not match each circuit's official timing position (if the line is in a different place, lap times for the same session change slightly). If a line is in the wrong place, please let us know in an issue. No sector lines are built in.
+- **Built-in presets**: names and centre coordinates of 101 courses in Japan (circuits and kart tracks) and 26 circuits abroad (USA, Netherlands, France and Spain), with start/finish timing lines for 126 of them. All of this is the app's own data: centre coordinates come from the course shapes in OpenStreetMap, and timing lines were placed by checking the start line area on aerial photos (GSI in Japan; abroad, imagery each country allows to be used freely). For 3 circuits abroad the start line could not be confirmed on the photos, so the line is a placeholder in the middle of the pit lane; for 3 more, where no line was visible on the photos, the position is an estimate. Most of the kart tracks and small circuits in Japan use an estimated line perpendicular to the OpenStreetMap track, checked on the photos only to make sure it crosses the track surface. They work for splitting laps but may not match each circuit's official timing position (if the line is in a different place, lap times for the same session change slightly). 73 of them also have sector lines (SUGO uses the timing points on the official course map, Suzuka and Fuji are estimated from how races split the lap, Motegi is split into 4 equal parts, and the others into 3 equal parts as placeholders). The data is bundled as files in the DigSpice format (.cln / .sci) in [`courses/`](courses/). If a line is in the wrong place, please open a [course data issue](https://github.com/oud0n/ds_universal/issues/new?template=course.yml) (a .cln / .sci exported from the course editor helps).
 - **Using your own course data**: if you own the official DigSpice software, load the course folder on your PC (the folder containing `Circuit` / `ControlLine` / `Sector`) with "コースフォルダ一括設置" (Install course folder) on the data tab. Loaded data takes priority over the built-in presets. This app does not bundle or distribute the official course data.
 - **Courses without a timing line**: enter the two points (latitude and longitude) of the line in "コース編集" (Course editor) on the data tab, or load a `.cln` file. If no line is set or the car never crossed it, the data tab shows a hint.
-- Sources: the built-in coordinates are based on data from [© OpenStreetMap contributors](https://www.openstreetmap.org/copyright) ([Open Database License (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/)) and on the seamless aerial photos of [GSI](https://maps.gsi.go.jp/development/ichiran.html). The data is `CIRCUIT_PRESETS` in `src/services/circuitDatabase.ts`.
+- Sources: the built-in coordinates are based on data from [© OpenStreetMap contributors](https://www.openstreetmap.org/copyright) ([Open Database License (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/)) and on the seamless aerial photos of [GSI](https://maps.gsi.go.jp/development/ichiran.html). The data is the files in [`courses/`](courses/) (see [`courses/README.md`](courses/README.md) for how they were made). The SUGO sector positions use the distances of the timing points on [SUGO's course map](https://www.sportsland-sugo.co.jp/assets/docs/course/c-racing/2026_racing-course_layout.pdf).
 
 ### 3. Onboard video (GoPro / DJI / generic MP4) sync (`VideoSyncWindow`)
 - **Automatic time zone detection and 9-hour offset scan**: detects the time difference from the GPS position (JST inside Japan) and the video metadata (UTC/JST) and corrects the offset to the millisecond.
@@ -169,6 +169,26 @@ Then double-click the app as usual, or **Control-click (right-click) it and choo
 ---
 
 ## 📝 Release notes
+
+### v0.11.0
+
+**Added**
+
+- **Japanese / English**: switch the interface language with JA / EN at the top right.
+- **High contrast**: a high-contrast theme for reading the screen in direct sunlight.
+- **iRacing telemetry (.ibt)**: compare laps driven in the game with real-car logs on the same screen. For cars that record them, throttle and brake can be overlaid at the bottom of the speed graph.
+- **VBO (Racelogic) export** in log conversion.
+- **More built-in courses**: timing lines for 101 courses in Japan (including kart tracks and small circuits) and 26 circuits abroad (USA, Netherlands, France and Spain); 73 of them also have sector lines. The data is in [`courses/`](courses/) as DigSpice-format files (.cln / .sci).
+  - Most lines are estimated positions and may not match the official timing position. If a line is in the wrong place, please open a [course data issue](https://github.com/oud0n/ds_universal/issues/new?template=course.yml).
+- **Short laps**: laps are now split on courses where a lap takes less than 15 seconds (pocket-bike tracks and the like).
+
+**Fixed**
+
+- **Course editor export** (#7): in the desktop app (Windows / Mac), the .sci file was not saved after the .cln.
+- **iPhone / iPad**: in the browser version, logs such as .bon4 could not be picked in the file chooser (not yet checked on a real device).
+- Loading an unrelated or broken file now stops with a message (it could previously add a meaningless one-point log).
+- GPS jitter while standing on the timing line is no longer counted as laps.
+- A log from a nearby course could get a timing line it never crosses, so laps were not split.
 
 ### v0.10.0
 

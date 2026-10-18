@@ -1,5 +1,6 @@
 import { TelemetryPoint } from '../types/telemetry';
 import { calculatePhysics } from './physics';
+import { tr } from '../utils/i18n';
 
 /**
  * デジスパイス3 / 4 の生ログファイル (.bnx4, .bon4, .binx, .bon) を解析
@@ -320,7 +321,7 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
   }
 
   if (rawPoints.length === 0) {
-    throw new Error(`${fileName} から有効なGPSログレコードを抽出できませんでした`);
+    throw new Error(tr(`${fileName} から有効なGPSログレコードを抽出できませんでした`, `No valid GPS log records could be read from ${fileName}`));
   }
 
   // 時間順にソートする (同じ時刻のレコードは記録順のまま)

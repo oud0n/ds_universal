@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Flag, RotateCcw } from 'lucide-react';
 import { Session } from '../types/telemetry';
+import { useLang, useT } from '../utils/i18n';
 
 interface TrimPreviewProps {
   session: Session;
@@ -26,6 +27,8 @@ const pad2 = (n: number) => String(n).padStart(2, '0');
  * グラフをなぞる (タップする) と、その地点を開始・終了に設定できる
  */
 export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, endSec, onChange, onReset, offsetHours }) => {
+  const t = useT();
+  const lang = useLang();
   const pts = session.points;
   const t0 = pts[0]?.time ?? 0;
   const duration = pts.length > 0 ? pts[pts.length - 1].time - t0 : 0;
@@ -150,12 +153,12 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
   // ラップの区切り (各ラップの始まりと最後のラップの終わり。ログの先頭からの秒)。グラフに目盛りとして出す
   const lapMarks = useMemo(() => {
     const laps = session.laps.filter(l => !l.isWholeSession);
-    const marks = laps.map(l => ({ sec: l.startTime - t0, label: `L${l.lapNumber}` }));
+    const marks = laps.map(l => ({ sec: l.startTime - t0, label: `L${l.lapNumber}`, end: false }));
     const last = laps[laps.length - 1];
     // 最後のラップの終わりも選べるようにする
-    if (last) marks.push({ sec: last.endTime - t0, label: '終' });
+    if (last) marks.push({ sec: last.endTime - t0, label: t('終', 'End'), end: true });
     return marks.filter(m => m.sec >= 0 && m.sec <= duration);
-  }, [session.laps, t0, duration]);
+  }, [session.laps, t0, duration, lang]);
 
   const secFromPointer = (e: React.PointerEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -187,18 +190,18 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
   const timeControl = (label: string, text: string, setText: (v: string) => void, commit: () => void, adjust: (d: number) => void) => (
     <div className="flex flex-wrap items-center gap-1.5">
       <span className="text-xs text-slate-400 w-8">{label}</span>
-      <button className={stepBtn} onClick={() => adjust(-60)}>-1分</button>
-      <button className={stepBtn} onClick={() => adjust(-10)}>-10秒</button>
+      <button className={stepBtn} onClick={() => adjust(-60)}>{t('-1分', '-1 min')}</button>
+      <button className={stepBtn} onClick={() => adjust(-10)}>{t('-10秒', '-10 s')}</button>
       <input
         value={text}
         onChange={e => setText(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
         className={timeInput}
-        aria-label={`${label}の時刻`}
+        aria-label={t(`${label}の時刻`, `${label} time`)}
       />
-      <button className={stepBtn} onClick={() => adjust(10)}>+10秒</button>
-      <button className={stepBtn} onClick={() => adjust(60)}>+1分</button>
+      <button className={stepBtn} onClick={() => adjust(10)}>{t('+10秒', '+10 s')}</button>
+      <button className={stepBtn} onClick={() => adjust(60)}>{t('+1分', '+1 min')}</button>
     </div>
   );
 
@@ -207,10 +210,10 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
   return (
     <div className="bg-surface-2 border border-line-2 rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-bold text-slate-300">切り出し（書き出す範囲）</span>
+        <span className="text-xs font-bold text-slate-300">{t('切り出し（書き出す範囲）', 'Trim (export range)')}</span>
         <button onClick={onReset} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200">
           <RotateCcw size={12} />
-          全体に戻す
+          {t('全体に戻す', 'Reset to whole log')}
         </button>
       </div>
 
@@ -249,7 +252,7 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
               <button
                 key={i}
                 onClick={() => setCursorSec(m.sec)}
-                title={m.label === '終' ? '最後のラップの終わりを選ぶ' : `${m.label} の始まりを選ぶ`}
+                title={m.end ? t('最後のラップの終わりを選ぶ', 'Select the end of the last lap') : t(`${m.label} の始まりを選ぶ`, `Select the start of ${m.label}`)}
                 style={{ left: `${(m.sec / duration) * 100}%` }}
                 className="absolute -translate-x-1/2 px-1 rounded text-slate-400 hover:text-slate-100 hover:bg-surface-4"
               >
@@ -268,18 +271,18 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
                 className="flex items-center gap-1 px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
               >
                 <Flag size={11} />
-                ここを開始地に設定
+                {t('ここを開始地に設定', 'Set as start')}
               </button>
               <button
                 onClick={() => cursorSec !== null && apply(startSec, cursorSec)}
                 className="flex items-center gap-1 px-2 py-1 rounded bg-red-600 hover:bg-red-500 text-white font-bold"
               >
                 <Flag size={11} />
-                ここを終了地に設定
+                {t('ここを終了地に設定', 'Set as end')}
               </button>
             </>
           ) : (
-            <span>グラフをなぞる（タップする）と、その地点を開始地・終了地に設定できます。</span>
+            <span>{t('グラフをなぞる（タップする）と、その地点を開始地・終了地に設定できます。', 'Hover over (tap) the graph to pick a point and set it as the start or end.')}</span>
           )}
         </div>
       </div>
@@ -287,22 +290,22 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
       {/* 範囲のスライダー */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <label className="text-xs text-slate-400 space-y-1 block">
-          <span>開始</span>
+          <span>{t('開始', 'Start')}</span>
           <input type="range" min={0} max={duration} step={0.1} value={startSec} onChange={e => apply(Number(e.target.value), endSec)} className="w-full accent-emerald-500" />
         </label>
         <label className="text-xs text-slate-400 space-y-1 block">
-          <span>終了</span>
+          <span>{t('終了', 'End')}</span>
           <input type="range" min={0} max={duration} step={0.1} value={endSec} onChange={e => apply(startSec, Number(e.target.value))} className="w-full accent-red-500" />
         </label>
       </div>
 
       {/* 時刻の入力と微調整 */}
       <div className="flex flex-col gap-2">
-        {timeControl('開始', startText, setStartText, commitStart, d => apply(startSec + d, endSec))}
-        {timeControl('終了', endText, setEndText, commitEnd, d => apply(startSec, endSec + d))}
+        {timeControl(t('開始', 'Start'), startText, setStartText, commitStart, d => apply(startSec + d, endSec))}
+        {timeControl(t('終了', 'End'), endText, setEndText, commitEnd, d => apply(startSec, endSec + d))}
         <span className="text-[11px] text-slate-500">
-          長さ: {(endSec - startSec).toFixed(1)} 秒 / ログ全体 {duration.toFixed(1)} 秒
-          {clockBaseMs === null ? '（このログは記録時刻がないため、先頭からの経過時間で表示しています）' : ''}
+          {t(`長さ: ${(endSec - startSec).toFixed(1)} 秒 / ログ全体 ${duration.toFixed(1)} 秒`, `Length: ${(endSec - startSec).toFixed(1)} s / whole log ${duration.toFixed(1)} s`)}
+          {clockBaseMs === null ? t('（このログは記録時刻がないため、先頭からの経過時間で表示しています）', ' (this log has no recorded clock time, so times are shown as elapsed time from the start)') : ''}
         </span>
       </div>
     </div>

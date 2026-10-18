@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { CornerDownRight } from 'lucide-react';
 import { Lap, SelectedCarSlot } from '../types/telemetry';
 import { useLapGeometries } from '../hooks/useLapGeometries';
+import { useT } from '../utils/i18n';
 import { computeCorrectedLineDelta, detectCorners, indexAtDistance, insideOutside, matchIndex, measureCorners } from '../services/drivingAnalysis';
 
 interface CornerAnalysisWindowProps {
@@ -21,6 +22,7 @@ const Diff: React.FC<{ value: number }> = ({ value }) => {
 };
 
 export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars, currentDistance, onSeekDistance }) => {
+  const t = useT();
   const analysed = useLapGeometries(cars);
   const base = analysed[0];
 
@@ -43,10 +45,10 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
   }, [analysed, base]);
 
   if (!base || !result) {
-    return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-surface-1">走行データを読み込むとコーナー別の速度を表示します</div>;
+    return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-surface-1">{t('走行データを読み込むとコーナー別の速度を表示します', 'Load driving data to see speeds for each corner')}</div>;
   }
   if (result.corners.length === 0) {
-    return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-surface-1">このラップからコーナーを検出できませんでした</div>;
+    return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-surface-1">{t('このラップからコーナーを検出できませんでした', 'No corners were found in this lap')}</div>;
   }
 
   // 現在位置は、ログの距離欄ではなく解析用に積算し直した距離で比べる (両者の尺度が違う場合があるため)
@@ -58,17 +60,17 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-line-1 text-[11px] shrink-0">
         <span className="font-bold flex items-center gap-1.5">
           <CornerDownRight size={13} className="text-amber-400" />
-          コーナー別速度 ({result.corners.length} コーナー)
+          {t(`コーナー別速度 (${result.corners.length} コーナー)`, `Corner speeds (${result.corners.length} corners)`)}
         </span>
-        <span className="text-slate-500 truncate ml-2">行クリックで移動 / 差は Car 1 比</span>
+        <span className="text-slate-500 truncate ml-2">{t('行クリックで移動 / 差は Car 1 比', 'Click a row to jump / differences vs Car 1')}</span>
       </div>
 
       <div className="flex-1 overflow-auto">
         <table className="w-full text-[11px] font-mono border-collapse">
           <thead className="sticky top-0 bg-surface-3 text-slate-400">
             <tr>
-              <th className="px-2 py-1 text-left font-medium" rowSpan={2}>コーナー</th>
-              <th className="px-2 py-1 text-right font-medium" rowSpan={2}>最小R</th>
+              <th className="px-2 py-1 text-left font-medium" rowSpan={2}>{t('コーナー', 'Corner')}</th>
+              <th className="px-2 py-1 text-right font-medium" rowSpan={2}>{t('最小R', 'Min R')}</th>
               {result.perCar.map(({ car }) => (
                 <th key={car.slot.slot} className="px-2 py-1 text-center font-medium border-l border-line-2" colSpan={car === base ? 3 : 4}>
                   <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: car.slot.colorHex }} />
@@ -79,10 +81,10 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
             <tr>
               {result.perCar.map(({ car }) => (
                 <React.Fragment key={car.slot.slot}>
-                  <th className="px-2 py-1 text-right font-medium border-l border-line-2">進入</th>
-                  <th className="px-2 py-1 text-right font-medium">ボトム</th>
-                  <th className="px-2 py-1 text-right font-medium">脱出</th>
-                  {car !== base && <th className="px-2 py-1 text-right font-medium">ライン</th>}
+                  <th className="px-2 py-1 text-right font-medium border-l border-line-2">{t('進入', 'Entry')}</th>
+                  <th className="px-2 py-1 text-right font-medium">{t('ボトム', 'Min')}</th>
+                  <th className="px-2 py-1 text-right font-medium">{t('脱出', 'Exit')}</th>
+                  {car !== base && <th className="px-2 py-1 text-right font-medium">{t('ライン', 'Line')}</th>}
                 </React.Fragment>
               ))}
             </tr>
@@ -98,7 +100,7 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
                 >
                   <td className="px-2 py-1 whitespace-nowrap">
                     <span className="font-bold text-slate-100">C{c.number}</span>
-                    <span className={`ml-1.5 ${c.direction === 'R' ? 'text-sky-400' : 'text-amber-400'}`}>{c.direction === 'R' ? '右' : '左'}</span>
+                    <span className={`ml-1.5 ${c.direction === 'R' ? 'text-sky-400' : 'text-amber-400'}`}>{c.direction === 'R' ? t('右', 'R') : t('左', 'L')}</span>
                     <span className="ml-1.5 text-slate-500">{c.headingChangeDeg.toFixed(0)}°</span>
                   </td>
                   <td className="px-2 py-1 text-right text-slate-400">{c.minRadiusM.toFixed(0)}m</td>
@@ -106,7 +108,7 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
                     const m = metrics[i];
                     const b = baseMetrics[i];
                     if (!m || !b) {
-                      return <td key={car.slot.slot} colSpan={car === base ? 3 : 4} className="px-2 py-1 text-center text-slate-600 border-l border-line-2">対応区間なし</td>;
+                      return <td key={car.slot.slot} colSpan={car === base ? 3 : 4} className="px-2 py-1 text-center text-slate-600 border-l border-line-2">{t('対応区間なし', 'No matching section')}</td>;
                     }
                     const off = apexOffsets[i];
                     return (
@@ -116,7 +118,7 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
                         <td className="px-2 py-1 text-right whitespace-nowrap">{m.exitSpeed.toFixed(1)}{car !== base && <Diff value={m.exitSpeed - b.exitSpeed} />}</td>
                         {car !== base && (
                           <td className="px-2 py-1 text-right whitespace-nowrap text-slate-300">
-                            {off ? `${off.side === 'IN' ? 'イン' : off.side === 'OUT' ? 'アウト' : ''} ${Math.abs(off.offsetM).toFixed(1)}m` : '---'}
+                            {off ? `${off.side === 'IN' ? t('イン', 'In') : off.side === 'OUT' ? t('アウト', 'Out') : ''} ${Math.abs(off.offsetM).toFixed(1)}m` : '---'}
                           </td>
                         )}
                       </React.Fragment>
@@ -130,8 +132,8 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
       </div>
 
       <div className="px-3 py-1 border-t border-line-1 text-[10px] text-slate-500 shrink-0">
-        車速は km/h。進入 = ターンイン時 / ボトム = コーナー内の最低車速 / 脱出 = コーナー出口。コーナーは基準車の走行ラインの曲率から自動検出。
-        ラインは基準車のアペックス位置での左右のズレ (ラップ間の GPS の位置ずれを補正済み。1 m 未満の差は参考値)
+        {t('車速は km/h。進入 = ターンイン時 / ボトム = コーナー内の最低車速 / 脱出 = コーナー出口。コーナーは基準車の走行ラインの曲率から自動検出。 ラインは基準車のアペックス位置での左右のズレ (ラップ間の GPS の位置ずれを補正済み。1 m 未満の差は参考値)',
+          'Speeds in km/h. Entry = at turn-in / Min = lowest speed in the corner / Exit = corner exit. Corners are detected automatically from the curvature of the reference car\'s line. Line = left/right offset at the reference car\'s apex (GPS offset between laps corrected; differences under 1 m are indicative only)')}
       </div>
     </div>
   );

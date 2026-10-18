@@ -15,6 +15,10 @@ circuits/
 *.pth
 *.cln
 *.sci
+# アプリ独自のコースデータ (同梱する)
+!courses/*.pth
+!courses/*.cln
+!courses/*.sci
 
 # Node.js
 node_modules/
@@ -32,3 +36,10 @@ log
 
 # macOS
 .DS_Store
+
+# コースデータを作る道具の作業ファイル
+tools/courses/osm_*.json
+tools/courses/center_*.json
+tools/courses/gates_*.json
+tools/courses/crop_*
+tools/courses/view_*
