@@ -54,12 +54,15 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
       if (vidEnd > max) max = vidEnd;
     }
 
+    // サブの動画は、ログ・メインの動画と時間が重なるときだけ範囲に入れる (撮影日の違う動画で、範囲が何日にも伸びないように)
     if (subTrack) {
       const subStart = subTrack.syncOffsetSec || 0;
       const subEnd = subStart + (subTrack.durationSec || 0);
 
-      if (subStart < min) min = subStart;
-      if (subEnd > max) max = subEnd;
+      if (subEnd > min && subStart < max) {
+        if (subStart < min) min = subStart;
+        if (subEnd > max) max = subEnd;
+      }
     }
 
     const dur = Math.max(1, max - min);

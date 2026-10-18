@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   Play, Pause, SkipBack, SkipForward, Video, Upload, 
@@ -9,7 +9,7 @@ import {
   ArrowLeftRight, Volume2, VolumeX, Maximize2
 } from 'lucide-react';
 import { Session, TelemetryPoint, SelectedCarSlot } from '../types/telemetry';
-import { videoSyncManager, VideoTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs } from '../services/videoSyncManager';
+import { videoSyncManager, VideoTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs, sessionStartUtcMs, trackOffsetInSession } from '../services/videoSyncManager';
 import { 
   resolveChapterPlayback, 
   getNextChapter, 
@@ -268,7 +268,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const seekTo = (t: number) => onSeekTime(isGraphEmbedded && baseLap ? Math.min(Math.max(0, t), baseLap.lapTime) : t);
 
   const activeTrack = tracks.find(t => t.id === selectedTrackId);
-  const subTrack = tracks.find(t => t.id === subTrackId);
+  // サブの動画は、基準のログの時刻での位置 (撮影の本当の時刻で換算したずれ) で扱う。
+  // 別の走行のログに照合された動画や、撮影時刻の違う動画が、メインの時刻に引っ張られないように (BUG-21)
+  const rawSubTrack = tracks.find(t => t.id === subTrackId);
+  const subOffsetSec = rawSubTrack ? trackOffsetInSession(rawSubTrack, baseSession, sessions) : 0;
+  const subTrack = useMemo(
+    () => (rawSubTrack && rawSubTrack.syncOffsetSec !== subOffsetSec ? { ...rawSubTrack, syncOffsetSec: subOffsetSec } : rawSubTrack),
+    [rawSubTrack, subOffsetSec]
+  );
   // sub の動画がないとき (1 本だけのとき・sub を消したとき) は、選んでいた表示に関係なく 1 画面で出す。
   // 切り替えのボタンは 2 本以上のときだけ出すので、2画面のまま残ると空いた枠を消せなかった (BUG-22)。
   // 選んでいた表示は覚えておき、sub の動画が戻ったらその表示に戻す
@@ -305,6 +312,15 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   };
 
   const gpsStartTime = baseSession?.points[0]?.timestamp ? new Date(baseSession.points[0].timestamp) : null;
+  // サブの動画が今の時刻に映像を持っているか (撮影の前・後、撮影日の違う動画では持たない)
+  const renderSessionTime = isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec;
+  const subLocalTime = subTrack ? renderSessionTime - subTrack.syncOffsetSec : 0;
+  const subOutOfRange = !!subTrack && (subLocalTime < 0 || (subTrack.durationSec > 0 && subLocalTime > subTrack.durationSec));
+  const subNoFootage = subOutOfRange && (
+    <div className="absolute inset-0 z-[5] flex items-center justify-center bg-black/80 text-slate-400 text-[11px] text-center px-2 pointer-events-none">
+      {t('この時刻の映像はありません', 'No footage at this time')}
+    </div>
+  );
   const isLargeOffset = activeTrack ? Math.abs(activeTrack.syncOffsetSec) > 3600 : false;
 
   // 同期プロジェクトから戻した動画の照合先を、後から読み込んだログに読み替える
@@ -365,7 +381,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     const rf = range(from);
     const rb = range(baseSession);
     if (!rf || !rb || !(rf[0] <= rb[1] && rb[0] <= rf[1])) return;
-    const newOffset = activeTrack.syncOffsetSec + (rf[0] - rb[0]) / 1000;
+    // ずれは、2 つのログの先頭の本当の時刻 (ログごとの時計の補正を引いたもの) の差で換算する
+    const sf = sessionStartUtcMs(from), sb = sessionStartUtcMs(baseSession);
+    if (sf === null || sb === null) return;
+    const newOffset = activeTrack.syncOffsetSec + (sf - sb) / 1000;
     // チャプターに分かれた動画は、全部のチャプターを付け替える (グループの照合先は最初のチャプターから決まるため)
     const group = videoSyncManager.getChapterGroupForTrack(activeTrack.id);
     for (const t of group ? group.tracks.map(ct => ct.track) : [activeTrack]) videoSyncManager.setMatchedSession(t.id, baseSession.id);
@@ -1004,14 +1023,17 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     </button>
                   </span>
                   {subTrack && subTrack.objectUrl ? (
-                    <video
-                      ref={subVideoRef}
-                      onSeeked={handleSeeked}
-                      src={subTrack.objectUrl}
-                      muted={isSubMuted}
-                      playsInline
-                      className="max-h-full max-w-full object-contain"
-                    />
+                    <>
+                      <video
+                        ref={subVideoRef}
+                        onSeeked={handleSeeked}
+                        src={subTrack.objectUrl}
+                        muted={isSubMuted}
+                        playsInline
+                        className="max-h-full max-w-full object-contain"
+                      />
+                      {subNoFootage}
+                    </>
                   ) : (
                     <div className="text-slate-500 text-xs text-center p-4">
                       {t('上部バーでサブ動画トラックを選択してください', 'Select a sub video track in the bar above')}
@@ -1044,6 +1066,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                       playsInline
                       className="w-full h-full object-contain"
                     />
+                    {subNoFootage}
                     {/* PinP コントロールバー */}
                     <div className="absolute top-1 left-1 right-1 flex items-center justify-between pointer-events-auto bg-black/70 px-1.5 py-0.5 rounded text-[9px] font-mono text-slate-200">
                       <span className="truncate max-w-[120px] text-blue-400 font-bold">{subTrack.fileName}</span>
@@ -1246,7 +1269,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         // セッション全体は、ログの終わりか動画の終わりの遅いほうまで
         const logEnd = baseSession && baseSession.points.length > 0 ? baseSession.points[baseSession.points.length - 1].time : 0;
         // App の再生の終わりと同じ (表示しているメインとサブの動画。チャプターに分かれた動画は最後のチャプターまで)
-        const sessionMax = Math.max(logEnd, videoEndSessionSec(activeTrack), viewMode !== 'single' ? videoEndSessionSec(subTrack) : 0) || 60;
+        // サブの動画は、ログの記録と時間が重なるときだけ範囲に入れる (撮影日の違う動画で、範囲が何日にも伸びないように)
+        const subEnd = viewMode !== 'single' && subTrack && subTrack.syncOffsetSec < logEnd ? videoEndSessionSec(subTrack) : 0;
+        const sessionMax = Math.max(logEnd, videoEndSessionSec(activeTrack), subEnd) || 60;
 
         // 周の時刻は、周の始めからの時刻 (動画同期タブでは App の時刻がセッション全体の時刻なので、周の始めを引く)
         const maxVal = isLapMode ? (baseLap.lapTime || 60) : sessionMax;

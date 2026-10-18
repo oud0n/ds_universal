@@ -143,7 +143,8 @@ export function buildMasterTimeline(
     let startEpoch = vid.rawRecordedAt.getTime();
 
     if (matchedSess && matchedSess.points[0]?.timestamp) {
-      const sessP0 = new Date(matchedSess.points[0].timestamp).getTime();
+      // ログの時計の補正 (clockOffsetSec) を引いた、ログの先頭の本当の時刻から換算する
+      const sessP0 = new Date(matchedSess.points[0].timestamp).getTime() - (matchedSess.clockOffsetSec ?? 0) * 1000;
       startEpoch = sessP0 + vid.syncOffsetSec * 1000;
     }
 
