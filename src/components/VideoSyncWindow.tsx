@@ -65,8 +65,13 @@ export function drawTelemetryOverlayOnCanvas(
   effectiveTime: number,
   baseSession: Session | undefined,
   baseLap: any,
-  showGForce: boolean = true
+  showGForce: boolean = true,
+  // PinP の小窓がある隅と、小窓がメインの映像に重なる幅 (canvas の座標)。その隅のメーターを小窓の横へずらす (BUG-23)
+  avoidCorner: PipPosition | null = null,
+  pipOverlapW = 0
 ) {
+  const pipInset = Math.round(pipOverlapW) + 24;
+  if (pipOverlapW <= 0) avoidCorner = null;
   const pts = baseSession?.points || baseLap?.points || [];
   if (pts.length === 0) return;
 
@@ -87,7 +92,7 @@ export function drawTelemetryOverlayOnCanvas(
 
   // 1. デジタルスピードメーター (左下 - フラットデザイン)
   ctx.save();
-  ctx.translate(32, h - 96);
+  ctx.translate(avoidCorner === 'bottom-left' ? pipInset : 32, h - 96);
 
   // フラット背景プレート
   ctx.fillStyle = 'rgba(15, 20, 30, 0.85)';
@@ -121,7 +126,7 @@ export function drawTelemetryOverlayOnCanvas(
   // 2. Gフォースメーター (右下 - フラットデザイン)
   if (showGForce) {
     ctx.save();
-    ctx.translate(w - 128, h - 96);
+    ctx.translate(avoidCorner === 'bottom-right' ? w - pipInset - 96 : w - 128, h - 96);
 
     // フラット背景プレート
     ctx.fillStyle = 'rgba(15, 20, 30, 0.85)';
@@ -173,7 +178,7 @@ export function drawTelemetryOverlayOnCanvas(
 
   // 3. ラップタイム情報 (右上 - フラットデザイン)
   ctx.save();
-  ctx.translate(w - 170, 20);
+  ctx.translate(avoidCorner === 'top-right' ? w - pipInset - 150 : w - 170, 20);
 
   ctx.fillStyle = 'rgba(15, 20, 30, 0.85)';
   ctx.beginPath();
@@ -259,6 +264,11 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const subVideoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // メーターを重ねる四角 (メインの動画が映っている部分) と、PinP の小窓がメインの映像に重なる幅 (canvas の座標、1280 の幅に換算)。BUG-23
+  const [overlayBox, setOverlayBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  // PinP の小窓がメインの映像に重なる幅 (canvas の座標、1280 の幅に換算)
+  const [pipOverlapW, setPipOverlapW] = useState(0);
+  const pipRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -682,10 +692,38 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       ? (baseLap.startTime + currentTimeSec)
       : currentTimeSec;
 
-    drawTelemetryOverlayOnCanvas(ctx, canvas.width, canvas.height, effectiveTime, baseSession, baseLap, showGForce);
-  }, [currentTimeSec, baseLap, baseSession, showOverlay, showGForce, isGraphEmbedded, isVisible]);
+    drawTelemetryOverlayOnCanvas(ctx, canvas.width, canvas.height, effectiveTime, baseSession, baseLap, showGForce, viewMode === 'pip' && subTrack ? pipPosition : null, pipOverlapW);
+  }, [currentTimeSec, baseLap, baseSession, showOverlay, showGForce, isGraphEmbedded, isVisible, viewMode, pipPosition, subTrack, pipOverlapW]);
 
   // PinP 位置クラス
+  // メーターを重ねる四角を、メインの動画が実際に映っている部分に合わせる (2画面ではメインの側だけ、黒い帯は除く)
+  useEffect(() => {
+    const video = videoRef.current;
+    const host = canvasRef.current?.parentElement;
+    if (!video || !host) return;
+    const update = () => {
+      const vr = video.getBoundingClientRect(), hr = host.getBoundingClientRect();
+      if (vr.width === 0 || vr.height === 0) return;
+      const vw = video.videoWidth || 16, vh = video.videoHeight || 9;
+      const scale = Math.min(vr.width / vw, vr.height / vh);
+      const w = vw * scale, h = vh * scale;
+      const box = { left: Math.round(vr.left - hr.left + (vr.width - w) / 2), top: Math.round(vr.top - hr.top + (vr.height - h) / 2), width: Math.round(w), height: Math.round(h) };
+      setOverlayBox(prev => (prev && prev.left === box.left && prev.top === box.top && prev.width === box.width && prev.height === box.height ? prev : box));
+      const pr = pipRef.current?.getBoundingClientRect();
+      const bl = vr.left + (vr.width - w) / 2, bt = vr.top + (vr.height - h) / 2;
+      const ow = pr ? Math.max(0, Math.min(pr.right, bl + w) - Math.max(pr.left, bl)) : 0;
+      const oh = pr ? Math.max(0, Math.min(pr.bottom, bt + h) - Math.max(pr.top, bt)) : 0;
+      setPipOverlapW(ow > 0 && oh > 0 ? Math.round((ow * 1280) / w) : 0);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(video);
+    ro.observe(host);
+    if (pipRef.current) ro.observe(pipRef.current);
+    video.addEventListener('loadedmetadata', update);
+    return () => { ro.disconnect(); video.removeEventListener('loadedmetadata', update); };
+  }, [viewMode, activeTrack?.id, activeTrack?.objectUrl, pipPosition, subTrack?.id]);
+
   const getPipPosClass = (pos: PipPosition) => {
     switch (pos) {
       case 'bottom-right': return 'bottom-4 right-4';
@@ -1098,7 +1136,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
                 {/* フローティング サブ動画 (PinP) */}
                 {subTrack && subTrack.objectUrl && (
-                  <div className={`absolute z-20 w-1/4 min-w-[220px] max-w-[340px] aspect-video border border-blue-500/80 bg-black rounded overflow-hidden ${getPipPosClass(pipPosition)}`}>
+                  <div ref={pipRef} className={`absolute z-20 w-1/4 min-w-[220px] max-w-[340px] aspect-video border border-blue-500/80 bg-black rounded overflow-hidden ${getPipPosClass(pipPosition)}`}>
                     <video
                       ref={subVideoRef}
                       onSeeked={handleSeeked}
@@ -1150,7 +1188,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               ref={canvasRef}
               width={1280}
               height={720}
-              className={`absolute inset-0 w-full h-full object-contain pointer-events-none z-15 ${
+              style={overlayBox ? { left: overlayBox.left, top: overlayBox.top, width: overlayBox.width, height: overlayBox.height } : undefined}
+              className={`absolute ${overlayBox ? '' : 'inset-0 w-full h-full'} object-contain pointer-events-none z-15 ${
                 showOverlay ? 'opacity-100' : 'opacity-0'
               } transition-opacity duration-150`}
             />
