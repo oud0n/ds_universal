@@ -4,6 +4,7 @@ import { useCompactLayout } from '../hooks/useCompactLayout';
 import { CompareAxis, Lap, SelectedCarSlot } from '../types/telemetry';
 import { CircleDot, Disc } from 'lucide-react';
 import { findCarPoint } from '../utils/telemetrySearch';
+import { prepareCanvas } from '../utils/canvasLayer';
 
 interface FrictionCircleWindowProps {
   cars: {
@@ -31,6 +32,10 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
   // スマートフォンでは高さが足りず数値の欄が切れるので、ウインドウの中をスクロールできるようにする
   const compact = useCompactLayout();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // 現在の G の点だけを描く、上に重ねた canvas (再生中はこちらだけを描き直す)
+  const dotCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // 下の canvas を描いたときの配置 (現在の点の位置の計算に使う)
+  const layoutRef = useRef<{ width: number; height: number; centerX: number; centerY: number; maxRadius: number } | null>(null);
 
   const baseCar = cars[0];
 
@@ -53,26 +58,68 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
     return () => observer.disconnect();
   }, []);
 
+  // 現在の G の点を、上に重ねた canvas に描く
+  const curRef = useRef({ cars, currentPoints });
+  curRef.current = { cars, currentPoints };
+  const drawDots = () => {
+    const layout = layoutRef.current;
+    const canvas = dotCanvasRef.current;
+    if (!canvas) return;
+    if (!layout) {
+      const w = canvas.parentElement?.clientWidth ?? 0;
+      const h = canvas.parentElement?.clientHeight ?? 0;
+      if (w > 0 && h > 0) prepareCanvas(canvas, w, h);
+      return;
+    }
+    const { width, height, centerX, centerY, maxRadius } = layout;
+    const ctx = prepareCanvas(canvas, width, height);
+    if (!ctx) return;
+    const { cars, currentPoints } = curRef.current;
+    const maxG = 1.6;
+    const toPx = (gVal: number) => (gVal / maxG) * maxRadius;
+    // 現在値プロット (大きなサークル & グロー)
+    cars.forEach((car, idx) => {
+      const pt = currentPoints[idx];
+      if (!pt) return;
+
+      const px = centerX - toPx(pt.corneringG);
+      const py = centerY + toPx(pt.accelG);
+
+      // グロー
+      ctx.shadowColor = car.slot.colorHex;
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = car.slot.colorHex;
+      ctx.beginPath();
+      ctx.arc(px, py, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // 中心白点
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  };
+  // 再生中は現在の点だけを描き直す
+  useEffect(() => {
+    drawDots();
+  }, [cars, currentDistance, currentTime, compareAxis]);
+
+  // 目盛りと全部の点の分布 (再生では描き直さない)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
     // テーマの色 (テーマを切り替えたら描き直す)
     const C = canvasColors();
 
-    const dpr = window.devicePixelRatio || 1;
     // 隠しているとき (たたんだウインドウ・切り替えで見えていないパネル) は描かない。見えたら大きさの変化で描き直す
     const width = canvas.parentElement?.clientWidth ?? 0;
     const height = canvas.parentElement?.clientHeight ?? 0;
+    layoutRef.current = null;
     if (width === 0 || height === 0) return;
-
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-
-    ctx.scale(dpr, dpr);
+    const ctx = prepareCanvas(canvas, width, height);
+    if (!ctx) return;
 
     // 背景
     ctx.fillStyle = C.bg;
@@ -123,7 +170,11 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
     ctx.textAlign = 'right';
     ctx.fillText('左G (右旋回)', centerX - maxRadius - 4, centerY + 3);
 
-    if (cars.length === 0) return;
+    layoutRef.current = { width, height, centerX, centerY, maxRadius };
+    if (cars.length === 0) {
+      drawDots();
+      return;
+    }
 
     // 3. 全走行データのG分布 (散布図: 薄いドット)
     cars.forEach(car => {
@@ -137,30 +188,8 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
       }
     });
 
-    // 4. 現在値プロット (大きなサークル & グロー)
-    cars.forEach((car, idx) => {
-      const pt = currentPoints[idx];
-      if (!pt) return;
-
-      const px = centerX - toPx(pt.corneringG);
-      const py = centerY + toPx(pt.accelG);
-
-      // グロー
-      ctx.shadowColor = car.slot.colorHex;
-      ctx.shadowBlur = 10;
-      ctx.fillStyle = car.slot.colorHex;
-      ctx.beginPath();
-      ctx.arc(px, py, 6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-
-      // 中心白点
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(px, py, 2.5, 0, Math.PI * 2);
-      ctx.fill();
-    });
-  }, [cars, currentDistance, currentPoints, theme, resizeTick]);
+    drawDots();
+  }, [cars, theme, resizeTick]);
 
   return (
     <div className={`flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 select-none shadow-lg ${compact ? 'overflow-y-auto' : 'overflow-hidden'}`}>
@@ -192,6 +221,7 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
         {/* Canvas */}
         <div className={`flex-1 w-full h-full relative ${compact ? 'min-h-[220px]' : 'min-h-[170px]'}`}>
           <canvas ref={canvasRef} className="w-full h-full block" />
+          <canvas ref={dotCanvasRef} className="absolute inset-0 pointer-events-none block" />
         </div>
 
         {/* リアルタイム計測値パネル */}

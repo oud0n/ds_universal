@@ -606,7 +606,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // リアルタイム・テレメトリオーバーレイ描画 (Canvas)
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !showOverlay) return;
+    // 見えていないウインドウ (別のタブの動画画面) では描かない。見えたら描く
+    if (!canvas || !showOverlay || !isVisible) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -617,7 +618,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       : currentTimeSec;
 
     drawTelemetryOverlayOnCanvas(ctx, canvas.width, canvas.height, effectiveTime, baseSession, baseLap, showGForce);
-  }, [currentTimeSec, baseLap, baseSession, showOverlay, showGForce, isGraphEmbedded]);
+  }, [currentTimeSec, baseLap, baseSession, showOverlay, showGForce, isGraphEmbedded, isVisible]);
 
   // PinP 位置クラス
   const getPipPosClass = (pos: PipPosition) => {

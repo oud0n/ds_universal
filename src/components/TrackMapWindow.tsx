@@ -4,6 +4,7 @@ import { useCompactLayout } from '../hooks/useCompactLayout';
 import { usePinchPointers } from '../hooks/usePinchPointers';
 import { CompareAxis, Lap, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { findCarPoint } from '../utils/telemetrySearch';
+import { prepareCanvas } from '../utils/canvasLayer';
 import { passesNearPoint } from '../services/lapCalculator';
 import { ZoomIn, ZoomOut, RotateCcw, Eye, Palette, Move, LocateFixed } from 'lucide-react';
 import { getTileImage, MapBackground, TILE_ATTRIBUTION, TILE_SOURCES, tilesForView } from '../services/mapTiles';
@@ -69,6 +70,10 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   // スマートフォン向けの配置では、ツールバーを 1 行にして横にスクロールさせ、見出しを省く
   const compact = useCompactLayout();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // 車両の現在位置だけを描く、上に重ねた canvas (再生中はこちらだけを描き直す。追従中は地図ごと動くので両方)
+  const carCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // 下の canvas を描いたときの座標変換 (車両の位置の計算に使う)
+  const layoutRef = useRef<{ width: number; height: number; latMid: number; lonMid: number; cosLat: number; baseScale: number; pan: { x: number; y: number } } | null>(null);
 
   const [colorMode, setColorMode] = useState<'car' | 'speed' | 'accel' | 'line'>('car');
   const [showCorners, setShowCorners] = useState(true);
@@ -176,28 +181,108 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     if (background === 'none') setIsAdjustingMap(false);
   }, [background]);
 
-  // Canvas描画
+  // 各車両の現在位置を、上に重ねた canvas に描く (下の canvas を描いたときの座標変換を使う)
+  const curRef = useRef({ cars, compareAxis, currentDistance, currentTime });
+  curRef.current = { cars, compareAxis, currentDistance, currentTime };
+  const drawCars = () => {
+    const layout = layoutRef.current;
+    const canvas = carCanvasRef.current;
+    if (!canvas) return;
+    if (!layout) {
+      const w = canvas.parentElement?.clientWidth ?? 0;
+      const h = canvas.parentElement?.clientHeight ?? 0;
+      if (w > 0 && h > 0) prepareCanvas(canvas, w, h);
+      return;
+    }
+    const { width, height, latMid, lonMid, cosLat, baseScale, pan } = layout;
+    const ctx = prepareCanvas(canvas, width, height);
+    if (!ctx) return;
+    const { cars, compareAxis, currentDistance, currentTime } = curRef.current;
+    const toScreen = (lat: number, lon: number) => ({
+      x: width / 2 + (lon - lonMid) * cosLat * baseScale + pan.x,
+      y: height / 2 - (lat - latMid) * baseScale + pan.y
+    });
+    cars.forEach(car => {
+      const pts = car.lap.points;
+      if (pts.length === 0) return;
+
+      // 現在の点 (距離基準: 基準車と同じ距離 / 時間基準: 同じ経過時間)
+      const curPt = findCarPoint(pts, compareAxis, currentDistance, currentTime) || pts[0];
+
+      const pos = toScreen(curPt.latitude, curPt.longitude);
+
+      // 5. 各車両の進行方向を向いたレーシングカーアイコン描画
+      ctx.save();
+      ctx.translate(pos.x, pos.y);
+
+      // 地理的Heading (0°:北/画面上, 90°:東/画面右, 180°:南/画面下, 270°:西/画面左)
+      const headingRad = (curPt.heading * Math.PI) / 180;
+      ctx.rotate(headingRad);
+
+      // 車両シャドウ・グロー
+      ctx.shadowColor = car.slot.colorHex;
+      ctx.shadowBlur = 10;
+
+      // レーシングカー型ポリゴン描画 (先端が前・画面上向き)
+      ctx.fillStyle = car.slot.colorHex;
+      ctx.beginPath();
+      ctx.moveTo(0, -11); // ノーズ先端
+      ctx.lineTo(4.5, -4); // 右フロントフェンダー
+      ctx.lineTo(4, 6);   // 右サイド
+      ctx.lineTo(7, 8);   // 右リアウィング端
+      ctx.lineTo(7, 10);
+      ctx.lineTo(0, 7.5); // リア中央イン
+      ctx.lineTo(-7, 10); // 左リアウィング端
+      ctx.lineTo(-7, 8);
+      ctx.lineTo(-4, 6);  // 左サイド
+      ctx.lineTo(-4.5, -4); // 左フロントフェンダー
+      ctx.closePath();
+      ctx.fill();
+
+      // ウィンドシールド (コックピット白抜き)
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(0, -6);
+      ctx.lineTo(2.5, -1);
+      ctx.lineTo(2, 3);
+      ctx.lineTo(-2, 3);
+      ctx.lineTo(-2.5, -1);
+      ctx.closePath();
+      ctx.fill();
+
+      // スロット番号表示 (1..4)
+      ctx.fillStyle = '#0f1117';
+      ctx.font = 'bold 7px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(car.slot.slot + 1), 0, 1);
+
+      ctx.restore();
+    });
+  };
+  // 再生中は車両だけを描き直す
+  useEffect(() => {
+    drawCars();
+  }, [cars, currentDistance, currentTime, compareAxis]);
+  // 追従中は地図ごと動くので、下の canvas も現在位置で描き直す
+  const followPosition = isFollowing ? `${compareAxis === 'distance' ? currentDistance : currentTime}` : '';
+
+  // Canvas描画 (車両の現在位置以外。追従していなければ再生では描き直さない)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
     // テーマの色 (テーマを切り替えたら描き直す)
     // 背景に地図・航空写真を敷くときは、その上で見えるよう、ライトでもダークの色で描く (従来どおり)
     const C = canvasColors(background !== 'none');
 
-    const dpr = window.devicePixelRatio || 1;
     // 隠しているとき (たたんだウインドウ・切り替えで見えていないパネル) は描かない。見えたら大きさの変化で描き直す
     const width = canvas.parentElement?.clientWidth ?? 0;
     const height = canvas.parentElement?.clientHeight ?? 0;
+    layoutRef.current = null;
     if (width === 0 || height === 0) return;
-
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-
-    ctx.scale(dpr, dpr);
+    const ctx = prepareCanvas(canvas, width, height);
+    if (!ctx) return;
 
     // 背景
     ctx.fillStyle = C.bg;
@@ -208,6 +293,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       ctx.font = '13px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('コースデータがありません', width / 2, height / 2);
+      drawCars();
       return;
     }
 
@@ -465,66 +551,9 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       }
     }
 
-    // 5. 各車両の現在位置マーカー
-    cars.forEach(car => {
-      const pts = car.lap.points;
-      if (pts.length === 0) return;
-
-      // 現在の点 (距離基準: 基準車と同じ距離 / 時間基準: 同じ経過時間)
-      const curPt = findCarPoint(pts, compareAxis, currentDistance, currentTime) || pts[0];
-
-      const pos = toScreen(curPt.latitude, curPt.longitude);
-
-      // 5. 各車両の進行方向を向いたレーシングカーアイコン描画
-      ctx.save();
-      ctx.translate(pos.x, pos.y);
-
-      // 地理的Heading (0°:北/画面上, 90°:東/画面右, 180°:南/画面下, 270°:西/画面左)
-      const headingRad = (curPt.heading * Math.PI) / 180;
-      ctx.rotate(headingRad);
-
-      // 車両シャドウ・グロー
-      ctx.shadowColor = car.slot.colorHex;
-      ctx.shadowBlur = 10;
-
-      // レーシングカー型ポリゴン描画 (先端が前・画面上向き)
-      ctx.fillStyle = car.slot.colorHex;
-      ctx.beginPath();
-      ctx.moveTo(0, -11); // ノーズ先端
-      ctx.lineTo(4.5, -4); // 右フロントフェンダー
-      ctx.lineTo(4, 6);   // 右サイド
-      ctx.lineTo(7, 8);   // 右リアウィング端
-      ctx.lineTo(7, 10);
-      ctx.lineTo(0, 7.5); // リア中央イン
-      ctx.lineTo(-7, 10); // 左リアウィング端
-      ctx.lineTo(-7, 8);
-      ctx.lineTo(-4, 6);  // 左サイド
-      ctx.lineTo(-4.5, -4); // 左フロントフェンダー
-      ctx.closePath();
-      ctx.fill();
-
-      // ウィンドシールド (コックピット白抜き)
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.moveTo(0, -6);
-      ctx.lineTo(2.5, -1);
-      ctx.lineTo(2, 3);
-      ctx.lineTo(-2, 3);
-      ctx.lineTo(-2.5, -1);
-      ctx.closePath();
-      ctx.fill();
-
-      // スロット番号表示 (1..4)
-      ctx.fillStyle = '#0f1117';
-      ctx.font = 'bold 7px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(String(car.slot.slot + 1), 0, 1);
-
-      ctx.restore();
-    });
-  }, [cars, controlLine, sectors, pathPolylines, currentDistance, currentTime, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick, theme]);
+    layoutRef.current = { width, height, latMid, lonMid, cosLat, baseScale, pan };
+    drawCars();
+  }, [cars, controlLine, sectors, pathPolylines, followPosition, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick, theme]);
 
   // パン操作 (ドラッグ)
   // ドラッグの状態は、同じイベントの中で続けて読めるよう ref で持つ (タッチは動かしたときに押下と移動が続けて届くため)
@@ -727,6 +756,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
           onWheel={handleWheel}
           className={`w-full h-full block touch-none ${isAdjustingMap ? 'cursor-move' : 'cursor-grab active:cursor-grabbing'}`}
         />
+        {/* 車両の現在位置 (操作は下の canvas が受ける) */}
+        <canvas ref={carCanvasRef} className="absolute inset-0 pointer-events-none block" />
 
         {/* 地図の位置調整中の案内 */}
         {isAdjustingMap && (
