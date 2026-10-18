@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Play, Pause, SkipBack, SkipForward, Video, Upload, 
   Save, FolderOpen, RefreshCw, Sliders, Eye, EyeOff, 
@@ -19,10 +20,9 @@ import {
   SyncPin, 
   createSyncPin, 
   applyPinToTrack, 
-  formatPinTime, 
-  savePinsToStorage, 
-  loadPinsFromStorage 
+  formatPinTime
 } from '../services/videoSyncPinManager';
+import { videoViewStore, useVideoView, useVideoTracks, useSyncPins, VideoViewMode, PipPosition, videoEndSessionSec } from '../services/videoViewStore';
 import { 
   exportBurnedInVideo, 
   VideoExportController 
@@ -30,8 +30,7 @@ import {
 import { MasterTimelineTrackBar } from './MasterTimelineTrackBar';
 import { formatMinSec } from '../utils/timeFormat';
 
-export type VideoViewMode = 'single' | 'split' | 'pip';
-export type PipPosition = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
+export type { VideoViewMode, PipPosition };
 
 interface VideoSyncWindowProps {
   sessions: Session[];
@@ -45,6 +44,10 @@ interface VideoSyncWindowProps {
   targetSessionId?: string;  // 速度ウィンドウで選択中のセッションID
   targetLap?: any;           // 速度ウィンドウで選択中のラップ
   isGraphEmbedded?: boolean; // グラフ解析画面に埋め込まれているかどうか
+  // 画面に見えているか。見えていないウインドウ (隠れている動画同期タブ・グラフ画面) では動画を再生しない
+  isVisible?: boolean;
+  playbackSpeed: number;
+  onChangePlaybackSpeed: (speed: number) => void;
 }
 
 /**
@@ -202,28 +205,36 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   circuitName,
   targetSessionId,
   targetLap,
-  isGraphEmbedded = false
+  isGraphEmbedded = false,
+  isVisible = true,
+  playbackSpeed,
+  onChangePlaybackSpeed
 }) => {
-  const [tracks, setTracks] = useState<VideoTrack[]>(() => videoSyncManager.getTracks());
-  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(tracks[0]?.id || null);
-  const [subTrackId, setSubTrackId] = useState<string | null>(tracks[1]?.id || null);
-  
-  // 2画面 / PinP 表示モード
-  const [viewMode, setViewMode] = useState<VideoViewMode>('single');
-  const [pipPosition, setPipPosition] = useState<PipPosition>('bottom-right');
-  const [isSubMuted, setIsSubMuted] = useState<boolean>(true);
+  // 動画の一覧と表示の状態は、どのウインドウでも同じにする (videoViewStore に 1 つだけ持つ)
+  const tracks = useVideoTracks();
+  const view = useVideoView();
+  const { selectedTrackId, subTrackId, viewMode: storedViewMode, pipPosition, isSubMuted, showOverlay, showGForce } = view;
+  const isAnyExporting = view.isExporting;
+  const setSelectedTrackId = (id: string | null) => videoViewStore.selectMain(id);
+  const setSubTrackId = (id: string | null) => videoViewStore.set({ subTrackId: id });
+  const setViewMode = (m: VideoViewMode) => videoViewStore.set({ viewMode: m });
+  const setPipPosition = (p: PipPosition) => videoViewStore.set({ pipPosition: p });
+  const setIsSubMuted = (v: boolean) => videoViewStore.set({ isSubMuted: v });
+  const setShowOverlay = (v: boolean) => videoViewStore.set({ showOverlay: v });
 
   // シークバースコープ ('lap': 速度ウィンドウ選択中ラップ時間, 'session': セッション全体時間)
-  const [seekbarScope, setSeekbarScope] = useState<'lap' | 'session'>('lap');
+  // 動画同期タブはセッション全体の時刻で再生するので、はじめはセッション全体にする (周の表示は周の外に出ると端に止まる)
+  const [seekbarScope, setSeekbarScope] = useState<'lap' | 'session'>(isGraphEmbedded ? 'lap' : 'session');
 
-  // 表示切替
-  const [showOverlay, setShowOverlay] = useState<boolean>(true);
-  const [showGForce, setShowGForce] = useState<boolean>(true);
-  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
   const [isDragging, setIsDragging] = useState<boolean>(false);
+  // 動画の移動 (seek) が終わった回数。移動中に来た時刻に合わせ直すため、変わったら動画をもう一度合わせる
+  const [seekTick, setSeekTick] = useState(0);
+  const handleSeeked = () => setSeekTick(n => n + 1);
 
-  // 手動キーフレーム同期（ピン留め）ステート
-  const [pins, setPins] = useState<SyncPin[]>(() => loadPinsFromStorage(circuitName || 'default'));
+  // 手動キーフレーム同期（ピン留め）。コースごとに保存し、どのウインドウでも同じものを出す
+  const pinKey = circuitName || 'default';
+  const pins = useSyncPins(pinKey);
+  const setPins = (updated: SyncPin[]) => videoViewStore.setPins(pinKey, updated);
   const [showPinModal, setShowPinModal] = useState<boolean>(false);
   const [newPinName, setNewPinName] = useState<string>('');
 
@@ -235,6 +246,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportProgress, setExportProgress] = useState<{ currentSec: number; totalSec: number; percent: number } | null>(null);
   const exportControllerRef = useRef<VideoExportController | null>(null);
+  // 書き出し中にウインドウが閉じられたら (たたむ・表示の切り替え)、書き出しをやめる (動画の要素がなくなるため)
+  useEffect(() => () => { exportControllerRef.current?.cancel(); }, []);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const subVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -247,9 +260,22 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const speedSessionId = targetSessionId || baseSelected?.sessionId;
   const baseSession = sessions.find(s => s.id === speedSessionId) || sessions[0];
   const baseLap = targetLap || baseSession?.laps.find(l => l.lapNumber === baseSelected?.lapNumber) || baseSession?.laps[0];
+  // グラフ画面の動画では、App の時刻は選んだ周の時刻 (0〜周のタイム)。周の外へは動かさない
+  // (周の外の時刻にすると、次のコマで周の始めに戻ってしまう)
+  const seekTo = (t: number) => onSeekTime(isGraphEmbedded && baseLap ? Math.min(Math.max(0, t), baseLap.lapTime) : t);
 
   const activeTrack = tracks.find(t => t.id === selectedTrackId);
   const subTrack = tracks.find(t => t.id === subTrackId);
+  // sub の動画がないとき (1 本だけのとき・sub を消したとき) は、選んでいた表示に関係なく 1 画面で出す。
+  // 切り替えのボタンは 2 本以上のときだけ出すので、2画面のまま残ると空いた枠を消せなかった (BUG-22)。
+  // 選んでいた表示は覚えておき、sub の動画が戻ったらその表示に戻す
+  // 書き出しの間は表示を変えない (動画の要素が作り直されると、書き出しが古い要素を使い続けるため)
+  const shownViewModeRef = useRef<VideoViewMode>(subTrack ? storedViewMode : 'single');
+  if (!isAnyExporting) shownViewModeRef.current = subTrack ? storedViewMode : 'single';
+  const viewMode = shownViewModeRef.current;
+  // グラフ解析に埋め込んだときは、タイムゾーン・再同期の段とタイムラインを、ボタンで開くまで隠す。
+  // 狭い枠ではこれらの段が場所を使い切り、動画の映る部分の高さが 0 になっていた (BUG-19)。同期の調整は動画同期の画面でもできる
+  const [showSyncTools, setShowSyncTools] = useState(!isGraphEmbedded);
 
   // 現在選択中の動画トラックが属するチャプターグループ
   const currentGroup = selectedTrackId ? videoSyncManager.getChapterGroupForTrack(selectedTrackId) : null;
@@ -278,32 +304,36 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const gpsStartTime = baseSession?.points[0]?.timestamp ? new Date(baseSession.points[0].timestamp) : null;
   const isLargeOffset = activeTrack ? Math.abs(activeTrack.syncOffsetSec) > 3600 : false;
 
+  // 同期プロジェクトから戻した動画の照合先を、後から読み込んだログに読み替える
   useEffect(() => {
-    videoSyncManager.onTracksUpdated = updated => {
-      setTracks([...updated]);
-      if (!selectedTrackId && updated.length > 0) {
-        setSelectedTrackId(updated[0].id);
-      }
-      if (updated.length > 1 && !subTrackId) {
-        setSubTrackId(updated[1].id);
-      }
-    };
-  }, [selectedTrackId, subTrackId]);
+    videoSyncManager.remapImportedSessions(sessions);
+  }, [sessions]);
 
   // 速度ウィンドウのセッション (Car 1) に対応する動画トラックを自動選択
+  // 選ぶのは基準のセッションが変わったとき (と、そのセッションの動画を初めて読み込んだとき) だけ。手で選び直した動画はそのままにする
   useEffect(() => {
-    if (!baseSession || tracks.length === 0) return;
+    if (!isVisible || isAnyExporting || !baseSession || tracks.length === 0) return;
+    if (videoViewStore.autoSelectedSessionId === baseSession.id) return;
     const matchingTrack = tracks.find(t => t.matchedSessionId === baseSession.id);
-    if (matchingTrack && matchingTrack.id !== selectedTrackId) {
+    if (!matchingTrack) {
+      // 動画のないセッションに切り替えたら、前のセッションに戻ったときに選び直せるよう、覚えている印を消す
+      videoViewStore.autoSelectedSessionId = null;
+      return;
+    }
+    videoViewStore.autoSelectedSessionId = baseSession.id;
+    if (matchingTrack.id !== selectedTrackId) {
       setSelectedTrackId(matchingTrack.id);
     }
-  }, [baseSession?.id, tracks]);
+  }, [baseSession?.id, tracks, isVisible, isAnyExporting]);
 
   // 速度ウィンドウで選択されたセッションに合わせて動画のオフセットを自動追従・再同期
   // 手でオフセットや同期ピンを合わせた動画は、トラックやセッションを切り替えても自動の値で上書きしない。
   // 自動照合に失敗した (どのセッションとも時刻が合わなかった) 動画も、勝手に組み合わせない (再同期ボタンでは組み合わせられる)
   useEffect(() => {
+    if (!isVisible || isAnyExporting) return;
     if (!activeTrack || !baseSession || activeTrack.isManuallyAdjusted || !activeTrack.matchedSessionId) return;
+    // そのセッションに照合済みの動画があれば、それを選ぶ (上の自動選択)。今の動画をそのセッションに組み替えない
+    if (tracks.some(t => t.matchedSessionId === baseSession.id)) return;
     if (activeTrack.matchedSessionId !== baseSession.id) {
       videoSyncManager.resyncTrack(
         activeTrack.id,
@@ -313,10 +343,75 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         baseSession.id
       );
     }
-  }, [baseSession?.id, activeTrack?.id]);
+  }, [baseSession?.id, activeTrack?.id, isVisible, isAnyExporting]);
 
-  // GPS タイムライン変化に合わせてメイン動画・サブ動画の再生位置 & チャプター自動切り替えを追従
+  // 動画を結び付けたログと違うログを基準車にしたとき、2 つのログの記録の時間が重なっていれば (同じ走行のログ。
+  // GoPro の GPS のログとデジスパイスのログなど)、記録の時刻 (UTC) の差でずれを換算して、動画を基準車のログに付け替える。
+  // 動画の時刻は基準車のログの時刻から求めるので、付け替えないと 2 つのログの記録の始まりの差だけずれる
   useEffect(() => {
+    if (!isVisible || isAnyExporting || !activeTrack || !baseSession) return;
+    const fromId = activeTrack.matchedSessionId;
+    if (!fromId || fromId === baseSession.id) return;
+    if (tracks.some(t => t.matchedSessionId === baseSession.id)) return;
+    const from = sessions.find(s => s.id === fromId);
+    const range = (s: Session | undefined) => {
+      const a = s?.points[0]?.timestamp;
+      const b = s?.points[s.points.length - 1]?.timestamp;
+      return a && b ? [Date.parse(a), Date.parse(b)] : null;
+    };
+    const rf = range(from);
+    const rb = range(baseSession);
+    if (!rf || !rb || !(rf[0] <= rb[1] && rb[0] <= rf[1])) return;
+    const newOffset = activeTrack.syncOffsetSec + (rf[0] - rb[0]) / 1000;
+    // チャプターに分かれた動画は、全部のチャプターを付け替える (グループの照合先は最初のチャプターから決まるため)
+    const group = videoSyncManager.getChapterGroupForTrack(activeTrack.id);
+    for (const t of group ? group.tracks.map(ct => ct.track) : [activeTrack]) videoSyncManager.setMatchedSession(t.id, baseSession.id);
+    videoSyncManager.updateOffset(activeTrack.id, newOffset);
+  }, [baseSession?.id, activeTrack?.id, isVisible, isAnyExporting]);
+
+  // 再生の基準は App の時刻 (currentTimeSec) だけにする。動画はその時刻に合わせて再生し、ずれたら合わせ直す。
+  // (以前は動画の timeupdate (1 秒に 4 回ほど) で App の時刻を進めていたため、ほかのウインドウの表示がカクつき (#11)、
+  //  動画がないと時刻が進まなかった (#10))
+  const syncVideoElement = (el: HTMLVideoElement | null, localTime: number, durationSec: number) => {
+    if (!el) return;
+    const inRange = localTime >= 0 && (!(durationSec > 0) || localTime <= durationSec);
+    if (!inRange) {
+      // 動画の範囲の外 (撮影の前・後) では止めておく
+      if (!el.paused) el.pause();
+      return;
+    }
+    // 移動中 (seeking) は合わせない。移動が終わったら (seeked) もう一度合わせる
+    if (el.seeking) return;
+    // 動画の本当の長さを超えた位置には移動できない (移動しても終わりに止まり、移動が終わるたびに合わせ直して止まらなくなる)
+    if (Number.isFinite(el.duration) && el.duration > 0 && localTime > el.duration) localTime = el.duration;
+    const diff = localTime - el.currentTime; // 正なら動画が遅れている
+    if (!isPlaying) {
+      if (!el.paused) el.pause();
+      // 止めているときはコマ送り (0.1 秒) にも付いていけるよう、細かく合わせる
+      if (Math.abs(diff) > 0.02) el.currentTime = localTime;
+      if (el.playbackRate !== playbackSpeed) el.playbackRate = playbackSpeed;
+      return;
+    }
+    if (Math.abs(diff) > 0.5) {
+      // 大きくずれたら (シーク・周の始めに戻ったときなど) 飛ぶ
+      el.currentTime = localTime;
+      el.playbackRate = playbackSpeed;
+    } else {
+      // 少しのずれは、再生の速さを少し変えて追いつく (毎回飛ぶと映像が止まって見える)
+      const rate = Math.abs(diff) < 0.03 ? playbackSpeed : playbackSpeed * (1 + Math.max(-0.1, Math.min(0.1, diff * 0.5)));
+      if (Math.abs(el.playbackRate - rate) > 0.001) el.playbackRate = rate;
+    }
+    if (el.paused && el.readyState >= 2) el.play().catch(() => {});
+  };
+
+  useEffect(() => {
+    // 見えていないウインドウ・書き出し中は合わせない (書き出しは動画を自分で動かす)
+    if (isExporting) return;
+    if (!isVisible || isAnyExporting) {
+      videoRef.current?.pause();
+      subVideoRef.current?.pause();
+      return;
+    }
     if (!activeTrack) return;
     const effectiveSessionTime = isGraphEmbedded && baseLap
       ? (baseLap.startTime + currentTimeSec)
@@ -327,70 +422,28 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       const resolution = resolveChapterPlayback(currentGroup, effectiveSessionTime);
       if (resolution) {
         if (resolution.activeTrack.track.id !== selectedTrackId) {
-          setSelectedTrackId(resolution.activeTrack.track.id);
-          if (videoRef.current) {
-            videoRef.current.currentTime = resolution.localVideoTimeSec;
-            if (isPlaying) videoRef.current.play().catch(console.warn);
-          }
+          // 次 (前) のチャプターに切り替える。新しい動画が読み込まれたら、次の時刻の更新で位置を合わせる
+          if (!isAnyExporting) setSelectedTrackId(resolution.activeTrack.track.id);
+        } else if (resolution.isOutOfRange) {
+          // グループの動画の撮影の前・後では止めておく
+          syncVideoElement(videoRef.current, -1, 0);
         } else {
-          if (videoRef.current && Math.abs(videoRef.current.currentTime - resolution.localVideoTimeSec) > 0.15) {
-            videoRef.current.currentTime = resolution.localVideoTimeSec;
-          }
+          syncVideoElement(videoRef.current, resolution.localVideoTimeSec, resolution.activeTrack.durationSec);
         }
+      } else {
+        syncVideoElement(videoRef.current, -1, 0);
       }
-    } else if (videoRef.current) {
-      const targetVideoTime = effectiveSessionTime - activeTrack.syncOffsetSec;
-      if (targetVideoTime >= 0 && targetVideoTime <= (activeTrack.durationSec || 9999)) {
-        if (Math.abs(videoRef.current.currentTime - targetVideoTime) > 0.15) {
-          videoRef.current.currentTime = targetVideoTime;
-        }
-      }
+    } else {
+      syncVideoElement(videoRef.current, effectiveSessionTime - activeTrack.syncOffsetSec, activeTrack.durationSec);
     }
 
     // 2. サブ動画 (2画面 / PinP 時)
-    if (subVideoRef.current && subTrack && viewMode !== 'single') {
-      const targetSubTime = effectiveSessionTime - subTrack.syncOffsetSec;
-      if (targetSubTime >= 0 && targetSubTime <= (subTrack.durationSec || 9999)) {
-        if (Math.abs(subVideoRef.current.currentTime - targetSubTime) > 0.15) {
-          subVideoRef.current.currentTime = targetSubTime;
-        }
-      }
-    }
-  }, [currentTimeSec, activeTrack?.id, subTrack?.id, currentGroup, isGraphEmbedded, baseLap, isPlaying, viewMode]);
-
-  // 再生/一時停止同期 (メイン & サブ両方に適用)
-  useEffect(() => {
-    const v1 = videoRef.current;
-    const v2 = subVideoRef.current;
-
-    if (isPlaying) {
-      if (v1 && v1.paused) v1.play().catch(console.warn);
-      if (v2 && v2.paused && viewMode !== 'single') v2.play().catch(console.warn);
+    if (subTrack && viewMode !== 'single') {
+      syncVideoElement(subVideoRef.current, effectiveSessionTime - subTrack.syncOffsetSec, subTrack.durationSec);
     } else {
-      if (v1 && !v1.paused) v1.pause();
-      if (v2 && !v2.paused) v2.pause();
+      subVideoRef.current?.pause();
     }
-  }, [isPlaying, viewMode]);
-
-  // 再生速度同期
-  useEffect(() => {
-    if (videoRef.current) videoRef.current.playbackRate = playbackSpeed;
-    if (subVideoRef.current) subVideoRef.current.playbackRate = playbackSpeed;
-  }, [playbackSpeed]);
-
-  // 動画側の再生時間更新イベント -> 速度ウィンドウ・GPS タイムラインへ同期伝達
-  const handleTimeUpdate = () => {
-    if (!videoRef.current || !activeTrack || !isPlaying) return;
-    const vTime = videoRef.current.currentTime;
-    const sessionTime = vTime + activeTrack.syncOffsetSec;
-
-    if (isGraphEmbedded && baseLap) {
-      const lapTime = Math.max(0, sessionTime - baseLap.startTime);
-      onSeekTime(lapTime);
-    } else {
-      onSeekTime(Math.max(0, sessionTime));
-    }
-  };
+  }, [currentTimeSec, activeTrack, activeTrack?.syncOffsetSec, subTrack, subTrack?.syncOffsetSec, tracks, currentGroup, isGraphEmbedded, baseLap, isPlaying, viewMode, playbackSpeed, isVisible, isExporting, isAnyExporting, seekTick]);
 
   // ワンクリック同期: 現在の動画フレームを GPS の現在選択タイムに合わせる
   const handleSyncCurrentFrame = () => {
@@ -432,7 +485,6 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
     const updated = [...pins, pin];
     setPins(updated);
-    savePinsToStorage(circuitName || 'default', updated);
     setNewPinName('');
     setShowPinModal(false);
   };
@@ -440,9 +492,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // ピン位置へジャンプ (シーク)
   const handleJumpToPin = (pin: SyncPin) => {
     if (isGraphEmbedded && baseLap) {
-      onSeekTime(Math.max(0, pin.sessionTimeSec - baseLap.startTime));
+      seekTo(Math.max(0, pin.sessionTimeSec - baseLap.startTime));
     } else {
-      onSeekTime(pin.sessionTimeSec);
+      seekTo(pin.sessionTimeSec);
     }
   };
 
@@ -450,20 +502,18 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const handleDeletePin = (pinId: string) => {
     const updated = pins.filter(p => p.id !== pinId);
     setPins(updated);
-    savePinsToStorage(circuitName || 'default', updated);
   };
 
   // メインカメラとサブカメラの入れ替え (Swap)
-  const handleSwapCameras = () => {
-    if (!selectedTrackId || !subTrackId) return;
-    const temp = selectedTrackId;
-    setSelectedTrackId(subTrackId);
-    setSubTrackId(temp);
-  };
+  const handleSwapCameras = () => videoViewStore.swap();
 
   // テレメトリ動画エクスポート開始
   const handleStartExport = () => {
-    if (!videoRef.current || !activeTrack) return;
+    if (!videoRef.current || !activeTrack || isAnyExporting) return;
+    // 書き出しは動画を自分で再生する。ふだんの再生 (App の時刻) は止めておく
+    if (isPlaying) onTogglePlay();
+    videoRef.current.pause();
+    subVideoRef.current?.pause();
 
     let startSec = 0;
     let endSec = activeTrack.durationSec;
@@ -481,6 +531,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     const filename = `${circuitName || 'race'}_${exportRange === 'lap' && baseLap ? `Lap${baseLap.lapNumber}` : 'session'}_telemetry.mp4`;
 
     setIsExporting(true);
+    videoViewStore.set({ isExporting: true });
     setShowExportModal(false);
 
     const controller = exportBurnedInVideo({
@@ -502,27 +553,24 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
     exportControllerRef.current = controller;
 
+    const finish = () => {
+      exportControllerRef.current = null;
+      setIsExporting(false);
+      setExportProgress(null);
+      videoViewStore.set({ isExporting: false });
+    };
     controller.promise
-      .then(() => {
-        setIsExporting(false);
-        setExportProgress(null);
-      })
+      .then(finish)
       .catch((err) => {
         console.warn('Export finished or cancelled:', err);
-        setIsExporting(false);
-        setExportProgress(null);
+        finish();
       });
   };
 
   // 動画ファイル一括処理
+  // (選んでいる動画は videoViewStore が選び直す)
   const processFiles = async (fileList: FileList | File[]) => {
-    const updated = await videoSyncManager.addVideoFiles(fileList, sessions);
-    if (updated.length > 0 && !selectedTrackId) {
-      setSelectedTrackId(updated[0].id);
-    }
-    if (updated.length > 1 && !subTrackId) {
-      setSubTrackId(updated[1].id);
-    }
+    await videoSyncManager.addVideoFiles(fileList, sessions);
   };
 
   const handleAddVideos = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -552,7 +600,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   // プロジェクト保存 / 読込
   const handleExportProject = () => {
-    const jsonStr = videoSyncManager.exportProjectJson(sessions, circuitName);
+    const jsonStr = videoSyncManager.exportProjectJson(sessions, circuitName, pins);
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -569,7 +617,21 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     reader.onload = ev => {
       try {
         const text = ev.target?.result as string;
-        videoSyncManager.importProjectJson(text);
+        const data = videoSyncManager.importProjectJson(text, sessions);
+        // 同期ピンも戻す。動画はファイル名で今の動画に読み替える (同じ時刻・名前のピンは足さない)
+        if (data.pins && data.pins.length > 0) {
+          // ピンは、書き出したときのコースに戻す (ログを読み込む前に戻しても、そのコースを開けば出る)
+          const importKey = data.circuitName || 'default';
+          const current = videoViewStore.getPins(importKey);
+          const all = videoSyncManager.getTracks();
+          const restored = data.pins
+            .filter(p => !current.some(c => c.name === p.name && Math.abs(c.sessionTimeSec - p.sessionTimeSec) < 0.001))
+            .map(p => ({
+              ...createSyncPin(p.name, p.sessionTimeSec, p.videoTimeSec, all.find(t => t.fileName === p.trackFileName)?.id ?? ''),
+              ...(p.createdAt ? { createdAt: p.createdAt } : {})
+            }));
+          if (restored.length > 0) videoViewStore.setPins(importKey, [...current, ...restored]);
+        }
       } catch (err: any) {
         alert('プロジェクト復元エラー: ' + err.message);
       }
@@ -581,7 +643,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // リアルタイム・テレメトリオーバーレイ描画 (Canvas)
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !showOverlay) return;
+    // 見えていないウインドウ (別のタブの動画画面) では描かない。見えたら描く
+    if (!canvas || !showOverlay || !isVisible) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -592,7 +655,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       : currentTimeSec;
 
     drawTelemetryOverlayOnCanvas(ctx, canvas.width, canvas.height, effectiveTime, baseSession, baseLap, showGForce);
-  }, [currentTimeSec, baseLap, baseSession, showOverlay, showGForce, isGraphEmbedded]);
+  }, [currentTimeSec, baseLap, baseSession, showOverlay, showGForce, isGraphEmbedded, isVisible]);
 
   // PinP 位置クラス
   const getPipPosClass = (pos: PipPosition) => {
@@ -605,14 +668,31 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-surface-0 text-slate-200 select-none overflow-hidden font-sans">
+    // 枠が狭くて全部の段が入らないときは、動画を潰さずにウインドウの中をスクロールさせる
+    <div className={`flex flex-col h-full bg-surface-0 text-slate-200 select-none font-sans ${isGraphEmbedded ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'}`}>
       {/* 1. 上部コントロールバー (フラットデザイン) */}
-      <div className="h-11 bg-surface-1 border-b border-line-1 px-3 flex items-center justify-between gap-2 shrink-0">
+      {/* グラフ解析に埋め込んだ狭い枠では、右側のボタンが切れないよう横にスクロールできるようにする */}
+      <div className={`h-11 bg-surface-1 border-b border-line-1 px-3 flex items-center justify-between gap-2 shrink-0 ${isGraphEmbedded ? 'overflow-x-auto overflow-y-hidden' : ''}`}>
         <div className="flex items-center gap-2.5">
           <span className="text-xs font-bold text-slate-100 flex items-center gap-1.5 shrink-0">
             <Video size={15} className="text-red-500" />
             車載動画同期
           </span>
+
+          {/* グラフ解析に埋め込んだときだけ: タイムゾーン・再同期の段とタイムラインを開く / 閉じる。
+              狭い枠で右側が切れても押せるよう、いちばん左に置く */}
+          {isGraphEmbedded && activeTrack && (
+            <button
+              onClick={() => setShowSyncTools(v => !v)}
+              aria-pressed={showSyncTools}
+              title="動画のタイムゾーン・再同期の段とタイムラインを出す / 隠す"
+              className={`flex items-center gap-1 shrink-0 whitespace-nowrap px-2 py-1 rounded text-xs border transition-colors cursor-pointer ${
+                showSyncTools ? 'bg-slate-700 border-slate-500 text-slate-100' : 'bg-surface-3 hover:bg-surface-5 border-line-3 text-slate-300'
+              }`}
+            >
+              同期の調整
+            </button>
+          )}
 
           {/* 速度ウィンドウ連携バッジ (フラット) */}
           {baseSession && (
@@ -647,11 +727,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               </select>
               {selectedTrackId && (
                 <button
-                  onClick={() => {
-                    videoSyncManager.removeTrack(selectedTrackId);
-                    const remaining = videoSyncManager.getTracks();
-                    setSelectedTrackId(remaining[0]?.id || null);
-                  }}
+                  onClick={() => videoSyncManager.removeTrack(selectedTrackId)}
+                  disabled={isAnyExporting}
                   title="動画トラック削除"
                   className="p-1 hover:bg-red-950/60 text-slate-400 hover:text-red-400 rounded transition-colors cursor-pointer"
                 >
@@ -787,7 +864,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       </div>
 
       {/* 2. タイムゾーン設定 & 再同期専用バー (フラットデザイン) */}
-      {activeTrack && (
+      {/* 動画の時刻が大きくずれている (タイムゾーンの違いなど) ときは、直すボタンが見えるよう閉じていても出す */}
+      {activeTrack && (showSyncTools || isLargeOffset) && (
         <div className="bg-surface-1 border-b border-line-1 px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0 select-none">
           <div className="flex flex-wrap items-center gap-2.5">
             {/* 動画タイムゾーン選択 */}
@@ -863,7 +941,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`flex-1 relative flex overflow-hidden ${
+        className={`flex-1 relative flex overflow-hidden ${isGraphEmbedded ? 'min-h-[150px]' : ''} ${
           // 動画を表示しているときは、映像に重ねる表示が読めるよう、ライトモードでも暗い配色にする
           activeTrack && activeTrack.objectUrl ? 'bg-black keep-dark' : 'bg-surface-1'
         } ${
@@ -885,24 +963,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               <div className="w-full h-full relative flex items-center justify-center bg-black">
                 <video
                   ref={videoRef}
+                  onSeeked={handleSeeked}
                   src={activeTrack.objectUrl}
-                  onTimeUpdate={handleTimeUpdate}
-                  onEnded={() => {
-                    if (currentGroup && currentGroup.tracks.length > 1) {
-                      const nextChapter = getNextChapter(currentGroup, activeTrack.id);
-                      if (nextChapter) {
-                        setSelectedTrackId(nextChapter.track.id);
-                        setTimeout(() => {
-                          if (videoRef.current) {
-                            videoRef.current.currentTime = 0;
-                            if (isPlaying) videoRef.current.play().catch(console.warn);
-                          }
-                        }, 50);
-                        return;
-                      }
-                    }
-                    if (isPlaying) onTogglePlay();
-                  }}
                   playsInline
                   className="max-h-full max-w-full object-contain"
                 />
@@ -919,9 +981,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   </span>
                   <video
                     ref={videoRef}
+                    onSeeked={handleSeeked}
                     src={activeTrack.objectUrl}
-                    onTimeUpdate={handleTimeUpdate}
-                    playsInline
+                      playsInline
                     className="max-h-full max-w-full object-contain"
                   />
                 </div>
@@ -941,6 +1003,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   {subTrack && subTrack.objectUrl ? (
                     <video
                       ref={subVideoRef}
+                      onSeeked={handleSeeked}
                       src={subTrack.objectUrl}
                       muted={isSubMuted}
                       playsInline
@@ -961,8 +1024,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 {/* メイン動画 */}
                 <video
                   ref={videoRef}
+                  onSeeked={handleSeeked}
                   src={activeTrack.objectUrl}
-                  onTimeUpdate={handleTimeUpdate}
                   playsInline
                   className="max-h-full max-w-full object-contain"
                 />
@@ -972,6 +1035,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   <div className={`absolute z-20 w-1/4 min-w-[220px] max-w-[340px] aspect-video border border-blue-500/80 bg-black rounded overflow-hidden ${getPipPosClass(pipPosition)}`}>
                     <video
                       ref={subVideoRef}
+                      onSeeked={handleSeeked}
                       src={subTrack.objectUrl}
                       muted={isSubMuted}
                       playsInline
@@ -1025,12 +1089,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             />
 
             {/* 録画開始前インジケーター */}
-            {currentTimeSec < activeTrack.syncOffsetSec && (
+            {(isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec) < activeTrack.syncOffsetSec && (
               <div className="absolute top-3 bg-amber-950/90 border border-amber-600 text-amber-200 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-medium z-20">
                 <Clock size={14} className="text-amber-400 animate-pulse shrink-0" />
-                <span>動画開始まであと <strong className="font-mono text-amber-300">{(activeTrack.syncOffsetSec - currentTimeSec).toFixed(1)}s</strong></span>
+                <span>動画開始まであと <strong className="font-mono text-amber-300">{(activeTrack.syncOffsetSec - (isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec)).toFixed(1)}s</strong></span>
                 <button
-                  onClick={() => onSeekTime(activeTrack.syncOffsetSec)}
+                  onClick={() => seekTo(isGraphEmbedded && baseLap ? Math.max(0, activeTrack.syncOffsetSec - baseLap.startTime) : activeTrack.syncOffsetSec)}
                   className="px-1.5 py-0.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-[10px] cursor-pointer ml-1"
                 >
                   開始点へジャンプ
@@ -1078,9 +1142,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   setSelectedTrackId(prev.track.id);
                   const newSessionTime = prev.track.syncOffsetSec;
                   if (isGraphEmbedded && baseLap) {
-                    onSeekTime(Math.max(0, newSessionTime - baseLap.startTime));
+                    seekTo(Math.max(0, newSessionTime - baseLap.startTime));
                   } else {
-                    onSeekTime(newSessionTime);
+                    seekTo(newSessionTime);
                   }
                 }
               }}
@@ -1101,9 +1165,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                       setSelectedTrackId(ct.track.id);
                       const targetSessionTime = ct.track.syncOffsetSec;
                       if (isGraphEmbedded && baseLap) {
-                        onSeekTime(Math.max(0, targetSessionTime - baseLap.startTime));
+                        seekTo(Math.max(0, targetSessionTime - baseLap.startTime));
                       } else {
-                        onSeekTime(targetSessionTime);
+                        seekTo(targetSessionTime);
                       }
                     }}
                     className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors cursor-pointer ${
@@ -1125,9 +1189,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   setSelectedTrackId(next.track.id);
                   const targetSessionTime = next.track.syncOffsetSec;
                   if (isGraphEmbedded && baseLap) {
-                    onSeekTime(Math.max(0, targetSessionTime - baseLap.startTime));
+                    seekTo(Math.max(0, targetSessionTime - baseLap.startTime));
                   } else {
-                    onSeekTime(targetSessionTime);
+                    seekTo(targetSessionTime);
                   }
                 }
               }}
@@ -1146,7 +1210,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       )}
 
       {/* 5. マスタータイムライン マルチトラックインスペクター (NLE風) */}
-      {(() => {
+      {showSyncTools && (() => {
         const effectiveSessionTime = isGraphEmbedded && baseLap ? (baseLap.startTime + currentTimeSec) : currentTimeSec;
         return (
           <MasterTimelineTrackBar
@@ -1159,9 +1223,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             currentSessionTimeSec={effectiveSessionTime}
             onSeekSessionTime={(targetSessionTime) => {
               if (isGraphEmbedded && baseLap) {
-                onSeekTime(Math.max(0, targetSessionTime - baseLap.startTime));
+                seekTo(Math.max(0, targetSessionTime - baseLap.startTime));
               } else {
-                onSeekTime(targetSessionTime);
+                seekTo(targetSessionTime);
               }
             }}
             formatDuration={formatDuration}
@@ -1172,22 +1236,23 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       {/* 6. 速度ウィンドウ完全同期 シークバー (Lap/Session切替対応) */}
       {(() => {
         const effectiveSessionTime = isGraphEmbedded && baseLap ? (baseLap.startTime + currentTimeSec) : currentTimeSec;
-        const isLapMode = seekbarScope === 'lap' && baseLap;
+        // グラフ画面の動画は選んだ周の中だけで再生する (App の時刻が周の時刻なので、周の外へは動かせない)。
+        // ログ全体を見るのは動画同期タブ
+        const isLapMode = (seekbarScope === 'lap' || isGraphEmbedded) && baseLap;
         
-        let sessionMax = 60;
-        if (baseSession && baseSession.points.length > 0) {
-          sessionMax = baseSession.points[baseSession.points.length - 1].time;
-        } else if (activeTrack) {
-          sessionMax = activeTrack.syncOffsetSec + (activeTrack.durationSec || 60);
-        }
+        // セッション全体は、ログの終わりか動画の終わりの遅いほうまで
+        const logEnd = baseSession && baseSession.points.length > 0 ? baseSession.points[baseSession.points.length - 1].time : 0;
+        // App の再生の終わりと同じ (表示しているメインとサブの動画。チャプターに分かれた動画は最後のチャプターまで)
+        const sessionMax = Math.max(logEnd, videoEndSessionSec(activeTrack), viewMode !== 'single' ? videoEndSessionSec(subTrack) : 0) || 60;
 
+        // 周の時刻は、周の始めからの時刻 (動画同期タブでは App の時刻がセッション全体の時刻なので、周の始めを引く)
         const maxVal = isLapMode ? (baseLap.lapTime || 60) : sessionMax;
-        const curVal = isLapMode ? currentTimeSec : effectiveSessionTime;
+        const curVal = isLapMode ? effectiveSessionTime - baseLap.startTime : effectiveSessionTime;
 
         return (
           <div className="bg-surface-1 border-t border-line-1 px-3 py-1 flex items-center justify-between gap-2.5 shrink-0 select-none">
-            {/* スコープ切替スイッチ (Lap / Session) */}
-            {baseLap && (
+            {/* スコープ切替スイッチ (Lap / Session)。グラフ画面では周だけ */}
+            {baseLap && !isGraphEmbedded && (
               <div className="flex items-center rounded border border-line-2 bg-surface-2 text-[10px] overflow-hidden shrink-0">
                 <button
                   onClick={() => setSeekbarScope('lap')}
@@ -1225,12 +1290,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               onChange={e => {
                 const val = parseFloat(e.target.value);
                 if (isLapMode) {
-                  onSeekTime(val);
+                  seekTo(isGraphEmbedded ? val : baseLap.startTime + val);
                 } else {
                   if (isGraphEmbedded && baseLap) {
-                    onSeekTime(Math.max(0, val - baseLap.startTime));
+                    seekTo(Math.max(0, val - baseLap.startTime));
                   } else {
-                    onSeekTime(val);
+                    seekTo(val);
                   }
                 }
               }}
@@ -1250,7 +1315,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         {/* 再生ボタン群 */}
         <div className="flex items-center gap-1.5">
           <button
-            onClick={() => onSeekTime(Math.max(0, currentTimeSec - 1.0))}
+            onClick={() => seekTo(Math.max(0, currentTimeSec - 1.0))}
             className="p-1.5 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
             title="1秒戻る"
           >
@@ -1264,7 +1329,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             {isPlaying ? <Pause size={15} /> : <Play size={15} />}
           </button>
           <button
-            onClick={() => onSeekTime(currentTimeSec + 1.0)}
+            onClick={() => seekTo(currentTimeSec + 1.0)}
             className="p-1.5 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
             title="1秒進む"
           >
@@ -1273,15 +1338,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
           {/* 再生速度 */}
           <select
-            value={playbackSpeed}
-            onChange={e => setPlaybackSpeed(parseFloat(e.target.value))}
+            value={String(playbackSpeed)}
+            onChange={e => onChangePlaybackSpeed(parseFloat(e.target.value))}
             className="bg-surface-3 border border-line-3 text-[11px] font-mono text-slate-300 rounded px-1.5 py-0.5 outline-none ml-1.5 cursor-pointer"
           >
-            <option value="0.25">0.25x</option>
-            <option value="0.5">0.5x</option>
-            <option value="1.0">1.0x</option>
-            <option value="1.5">1.5x</option>
-            <option value="2.0">2.0x</option>
+            {/* ヘッダーの再生速度と同じ値を共有するので、選べる値もヘッダーと同じ (0.5 / 1 / 2 / 4 倍) にする */}
+            {[0.5, 1, 2, 4].map(v => (
+              <option key={v} value={String(v)}>{v}x</option>
+            ))}
           </select>
         </div>
 
@@ -1533,7 +1597,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       )}
 
       {/* 9. エクスポート進行状況モーダル */}
-      {isExporting && exportProgress && (
+      {/* 開始位置への移動中 (進み具合がまだ来ていないとき) も出して、キャンセルできるようにする */}
+      {/* 画面のいちばん上に出す (このウインドウを隠しても、進み具合が見えてキャンセルできるように) */}
+      {isExporting && createPortal(
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-surface-2 border border-line-3 rounded p-5 w-full max-w-sm text-slate-200 space-y-4 font-sans text-center">
             <h4 className="text-sm font-bold text-red-400 flex items-center justify-center gap-2">
@@ -1546,12 +1612,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               <div className="w-full h-2.5 bg-surface-1 rounded border border-line-3 overflow-hidden">
                 <div
                   className="h-full bg-red-600 transition-all duration-200"
-                  style={{ width: `${exportProgress.percent}%` }}
+                  style={{ width: `${exportProgress?.percent ?? 0}%` }}
                 />
               </div>
               <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-                <span>{exportProgress.percent}%</span>
-                <span>残り約 {Math.max(0, Math.round(exportProgress.totalSec - (exportProgress.currentSec - (activeTrack?.syncOffsetSec || 0))))}s</span>
+                <span>{exportProgress ? `${exportProgress.percent}%` : '準備中'}</span>
+                {exportProgress && (
+                  <span>残り約 {Math.max(0, Math.round(exportProgress.totalSec * (100 - exportProgress.percent) / 100))}s</span>
+                )}
               </div>
             </div>
 
@@ -1570,7 +1638,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               キャンセル
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* 隠しインプット */}

@@ -122,14 +122,14 @@ const escapeXml = (v: string): string =>
 /**
  * GPX 1.1。速度 (m/s) と方位は Garmin の TrackPointExtension v2 として付ける
  */
-export function convertToGpx(points: ConvertedPoint[], trackName: string): string {
+export function convertToGpx(points: ConvertedPoint[], trackName: string, offsetHours = 0): string {
   const name = escapeXml(trackName);
   const body = points
     .map(p => {
       const sat = p.satellites != null ? `\n        <sat>${p.satellites}</sat>` : '';
       const ele = p.altitude != null ? `\n        <ele>${p.altitude.toFixed(1)}</ele>` : '';
       return `      <trkpt lat="${p.latitude.toFixed(7)}" lon="${p.longitude.toFixed(7)}">${ele}
-        <time>${p.time.toISOString()}</time>${sat}
+        <time>${formatAdjustedIso(p.time, offsetHours)}</time>${sat}
         <extensions>
           <gpxtpx:TrackPointExtension>
             <gpxtpx:speed>${(p.speed / 3.6).toFixed(2)}</gpxtpx:speed>
@@ -155,14 +155,103 @@ ${body}
 `;
 }
 
+// KML の線の色 (車速の低い方から: 青 → 水色 → 緑 → 黄 → 橙 → 赤)。KML の色は aabbggrr
+const KML_SPEED_COLORS = ['ffff4d2e', 'ffffc22e', 'ff3ecf4c', 'ff2ee6f2', 'ff1f8cff', 'ff3030e8'];
+
+/**
+ * Google Earth 用の KML。車速を 6 段に分け、同じ段の続く区間ごとに色を付けた線にする。
+ * 線は地面に沿わせる (標高は使わない)。始まりと終わりに印を置く
+ */
+export function convertToKml(points: ConvertedPoint[], title: string, offsetHours = 0): string {
+  const name = escapeXml(title);
+  // 点の多いログで引数の上限を超えないよう、Math.min(...) は使わない
+  let min = Infinity;
+  let max = -Infinity;
+  for (const p of points) {
+    if (!Number.isFinite(p.speed)) continue;
+    if (p.speed < min) min = p.speed;
+    if (p.speed > max) max = p.speed;
+  }
+  if (!Number.isFinite(min)) { min = 0; max = 0; }
+  const bin = (v: number) => (max > min ? Math.min(KML_SPEED_COLORS.length - 1, Math.floor(((v - min) / (max - min)) * KML_SPEED_COLORS.length)) : 0);
+  const coord = (p: ConvertedPoint) => `${p.longitude.toFixed(7)},${p.latitude.toFixed(7)},0`;
+
+  const styles = KML_SPEED_COLORS.map((c, i) =>
+    `    <Style id="s${i}"><LineStyle><color>${c}</color><width>4</width></LineStyle></Style>`).join('\n');
+  // 区間の切れ目の点は前後の区間の両方に入れて、線をつなげる
+  const segments: string[] = [];
+  for (let i = 0; i < points.length - 1; ) {
+    const b = bin(points[i].speed);
+    let j = i + 1;
+    while (j < points.length - 1 && bin(points[j].speed) === b) j++;
+    const lo = min + ((max - min) * b) / KML_SPEED_COLORS.length;
+    const hi = min + ((max - min) * (b + 1)) / KML_SPEED_COLORS.length;
+    segments.push(`      <Placemark>
+        <name>${lo.toFixed(0)}〜${hi.toFixed(0)} km/h</name>
+        <styleUrl>#s${b}</styleUrl>
+        <LineString><tessellate>1</tessellate><coordinates>${points.slice(i, j + 1).map(coord).join(' ')}</coordinates></LineString>
+      </Placemark>`);
+    i = j;
+  }
+  const mark = (label: string, p: ConvertedPoint) => `    <Placemark>
+      <name>${label}</name>
+      <TimeStamp><when>${formatAdjustedIso(p.time, offsetHours)}</when></TimeStamp>
+      <Point><coordinates>${coord(p)}</coordinates></Point>
+    </Placemark>`;
+  const first = points[0];
+  const last = points[points.length - 1];
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${name}</name>
+    <description>DS Universal で書き出し。線の色は車速 (${min.toFixed(0)}〜${max.toFixed(0)} km/h、青が遅く赤が速い)</description>
+${styles}
+    <Folder>
+      <name>走行ライン (車速)</name>
+${segments.join('\n')}
+    </Folder>
+${first ? mark('START', first) : ''}
+${last ? mark('END', last) : ''}
+  </Document>
+</kml>
+`;
+}
+
+/** 時差を調整した時刻を "YYYY-MM-DD HH:mm:ss.SSS" で (Z を付けない。調整後の時刻は UTC の欄に入っている) */
+export function formatAdjustedTime(d: Date, sep = ' '): string {
+  const p = (n: number, w = 2) => String(n).padStart(w, '0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}${sep}${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}.${p(d.getUTCMilliseconds(), 3)}`;
+}
+
+/**
+ * 時差を調整した時刻を ISO 8601 で、時差を付けて書く (調整しないときは Z、+9 時間なら +09:00)。
+ * 調整後の時刻に UTC の印 (Z) を付けると、その時刻を UTC と読まれて時差の分ずれる
+ */
+export function formatAdjustedIso(d: Date, offsetHours: number): string {
+  if (offsetHours === 0) return d.toISOString();
+  const sign = offsetHours < 0 ? '-' : '+';
+  const abs = Math.abs(offsetHours);
+  return `${formatAdjustedTime(d, 'T')}${sign}${String(Math.floor(abs)).padStart(2, '0')}:${String(Math.round((abs % 1) * 60)).padStart(2, '0')}`;
+}
+
+/** 空白区切りのテキスト (ds4_convert の RAW GPS TXT と同じ形) */
+export function convertToTxt(points: ConvertedPoint[]): string {
+  const lines = ['Timestamp Latitude Longitude Speed(km/h) Heading(deg)'];
+  for (const p of points) {
+    lines.push(`${formatAdjustedTime(p.time, 'T')} ${p.latitude.toFixed(7)} ${p.longitude.toFixed(7)} ${p.speed.toFixed(2)} ${p.heading.toFixed(2)}`);
+  }
+  return lines.join('\r\n') + '\r\n';
+}
+
 /**
  * 汎用 CSV (1 行 1 点)
  */
-export function convertToCsv(points: ConvertedPoint[]): string {
-  const rows = ['time_utc,elapsed_s,latitude,longitude,altitude_m,speed_kmh,heading_deg,satellites,distance_km'];
+export function convertToCsv(points: ConvertedPoint[], offsetHours = 0): string {
+  // 時差を調整したときは、列の名前を time にして、時刻に時差を付ける
+  const rows = [`${offsetHours === 0 ? 'time_utc' : 'time'},elapsed_s,latitude,longitude,altitude_m,speed_kmh,heading_deg,satellites,distance_km`];
   for (const p of points) {
     rows.push([
-      p.time.toISOString(),
+      formatAdjustedIso(p.time, offsetHours),
       p.elapsed.toFixed(3),
       p.latitude.toFixed(7),
       p.longitude.toFixed(7),
@@ -196,10 +285,16 @@ export function convertToHtmlMap(points: ConvertedPoint[], title: string): strin
   const first = points[0];
   const last = points[points.length - 1];
   const info = first && last
-    ? `${first.time.toISOString()} 〜 ${last.time.toISOString()} / ${points.length} 点 / 最高 ${maxSpeed.toFixed(1)} km/h`
+    ? `${formatAdjustedTime(first.time)} 〜 ${formatAdjustedTime(last.time)} / ${points.length} 点 / 最高 ${maxSpeed.toFixed(1)} km/h`
     : '';
   // </script> などが紛れ込まないよう、埋め込む JSON の < をエスケープする
   const json = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c');
+  // カーソルを乗せると時刻・車速・方位・緯度経度を出す印 (多すぎると重いので 300 点まで間引く)
+  const marks = decimate(points, 300).map(p => [
+    Number(p.latitude.toFixed(6)),
+    Number(p.longitude.toFixed(6)),
+    `${formatAdjustedTime(p.time)}<br>${p.speed.toFixed(1)} km/h / ${p.heading.toFixed(0)}°<br>${p.latitude.toFixed(6)}, ${p.longitude.toFixed(6)}`
+  ]);
   return `<!doctype html>
 <html lang="ja">
 <head>
@@ -215,10 +310,14 @@ export function convertToHtmlMap(points: ConvertedPoint[], title: string): strin
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 var line = ${json(line)};
+var marks = ${json(marks)};
 var map = L.map('map', { preferCanvas: true });
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
 if (line.length > 0) {
   var track = L.polyline(line, { color: '#e11d48', weight: 3 }).addTo(map);
+  marks.forEach(function (m) {
+    L.circleMarker([m[0], m[1]], { radius: 3, color: '#e11d48', weight: 1, fillOpacity: 0.6 }).bindTooltip(m[2]).addTo(map);
+  });
   L.circleMarker(line[0], { radius: 6, color: '#16a34a' }).bindTooltip('START').addTo(map);
   L.circleMarker(line[line.length - 1], { radius: 6, color: '#2563eb' }).bindTooltip('END').addTo(map);
   map.fitBounds(track.getBounds());

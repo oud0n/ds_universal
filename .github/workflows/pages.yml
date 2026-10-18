@@ -41,6 +41,9 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          # ブラウザ版だけにアクセス数の計測 (GoatCounter) を入れる (vite.config.ts)
+          PAGES_BUILD: '1'
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
