@@ -17,7 +17,8 @@ export async function fetchOsmCircuitPolylines(
   lon: number,
   radiusMeters: number = 2000
 ): Promise<Array<Array<[number, number]>> | null> {
-  const cacheKey = `${CACHE_PREFIX}${lat.toFixed(3)}_${lon.toFixed(3)}`;
+  // 範囲を狭めたときは、既定の範囲で引いたキャッシュと分ける
+  const cacheKey = `${CACHE_PREFIX}${lat.toFixed(3)}_${lon.toFixed(3)}${radiusMeters === 2000 ? '' : `_r${radiusMeters}`}`;
   
   // 1. ローカルキャッシュ確認
   try {

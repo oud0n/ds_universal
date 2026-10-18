@@ -130,6 +130,8 @@ export interface CircuitPreset {
   // 計測線を持たないプリセットもある (中心座標だけでコース名とコース図を引く)
   controlLine?: ControlLine;
   sectors: Sector[];
+  // コース図を OpenStreetMap から引く範囲 (m)。大きな施設の中のカートコースなどで、施設全体のコースを引かないように狭める (既定 2000)
+  mapRadius?: number;
   pathPolylines?: Array<Array<[number, number]>>; // [lon, lat][]
   pthFile?: string | null;
   sciFile?: string | null;
