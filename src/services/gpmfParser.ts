@@ -118,6 +118,13 @@ function gpmfSamplesFromMoov(v: DataView): MetaSample[] | null {
     const timescale = v.getUint32(mdhd.body + (mdhdVersion === 1 ? 20 : 12));
     if (!timescale) continue;
 
+    // 各サンプルの大きさ (stsz)
+    const stsz = findChild(v, stbl.body, stbl.end, ['stsz']);
+    if (!stsz) continue;
+    const fixedSize = v.getUint32(stsz.body + 4);
+    const sampleCount = v.getUint32(stsz.body + 8);
+    const sizes: number[] = [];
+    for (let i = 0; i < sampleCount; i++) sizes.push(fixedSize || v.getUint32(stsz.body + 12 + i * 4));
     // 各サンプルの長さ (stts)
     const stts = findChild(v, stbl.body, stbl.end, ['stts']);
     const durations: number[] = [];
@@ -126,16 +133,9 @@ function gpmfSamplesFromMoov(v: DataView): MetaSample[] | null {
       for (let i = 0; i < n; i++) {
         const count = v.getUint32(stts.body + 8 + i * 8);
         const delta = v.getUint32(stts.body + 12 + i * 8);
-        for (let k = 0; k < count; k++) durations.push(delta);
+        for (let k = 0; k < count && durations.length < sampleCount; k++) durations.push(delta);
       }
     }
-    // 各サンプルの大きさ (stsz)
-    const stsz = findChild(v, stbl.body, stbl.end, ['stsz']);
-    if (!stsz) continue;
-    const fixedSize = v.getUint32(stsz.body + 4);
-    const sampleCount = v.getUint32(stsz.body + 8);
-    const sizes: number[] = [];
-    for (let i = 0; i < sampleCount; i++) sizes.push(fixedSize || v.getUint32(stsz.body + 12 + i * 4));
     // チャンクの位置 (stco / co64)
     const stco = findChild(v, stbl.body, stbl.end, ['stco']);
     const co64 = findChild(v, stbl.body, stbl.end, ['co64']);
@@ -204,6 +204,7 @@ function readNumbers(v: DataView, o: number, type: string, structSize: number, r
   const size = TYPE_SIZE[type];
   if (!size) return [];
   const count = (structSize * repeat) / size;
+  if (!Number.isInteger(count)) return [];
   const out: number[] = [];
   for (let i = 0; i < count; i++) out.push(readValue(v, o + i * size, type));
   return out;
@@ -230,6 +231,7 @@ function parseGpmfPayload(v: DataView, sample: MetaSample, out: GpsFix[], format
     let gpsuMs = NaN;
     let gpsFix = 3;
     let gpsDop = 0;
+    const gps5: { body: number; type: string; structSize: number; repeat: number; scal: number[] }[] = [];
     let pos = start;
     while (pos + 8 <= end) {
       const key = fourcc(v, pos);
@@ -285,26 +287,30 @@ function parseGpmfPayload(v: DataView, sample: MetaSample, out: GpsFix[], format
           });
         }
       } else if (key === 'GPS5') {
-        // lat, lon, alt, 2D 速度, 3D 速度。時刻は GPSU (このサンプルの最初の点) から等間隔
-        const size = TYPE_SIZE[type];
-        if (!size || structSize !== size * 5 || gpsFix < 2 || gpsDop > MAX_DOP || !Number.isFinite(gpsuMs)) { pos = next; continue; }
-        const sc = (i: number) => scal.length >= 5 ? scal[i] || 1 : scal[0] || 1;
-        if (repeat > 0) formats.add('GPS5');
-        for (let r = 0; r < repeat; r++) {
-          const base = body + r * structSize;
-          const val = (i: number) => readValue(v, base + i * size, type) / sc(i);
-          out.push({
-            format: 'GPS5',
-            utcMs: gpsuMs + (r / repeat) * sample.durationSec * 1000,
-            movieSec: sample.startSec + (r / repeat) * sample.durationSec,
-            lat: val(0),
-            lon: val(1),
-            alt: val(2),
-            speedMs: val(3)
-          });
-        }
+        // GPSU などが後に来ることもあるので、STRM を読み終えてから扱う
+        gps5.push({ body, type, structSize, repeat, scal });
       }
       pos = next;
+    }
+    for (const { body, type, structSize, repeat, scal: gscal } of gps5) {
+      // lat, lon, alt, 2D 速度, 3D 速度。時刻は GPSU (このサンプルの最初の点) から等間隔
+      const size = TYPE_SIZE[type];
+      if (!size || structSize !== size * 5 || gpsFix < 2 || gpsDop > MAX_DOP || !Number.isFinite(gpsuMs)) continue;
+      const sc = (i: number) => gscal.length >= 5 ? gscal[i] || 1 : gscal[0] || 1;
+      if (repeat > 0) formats.add('GPS5');
+      for (let r = 0; r < repeat; r++) {
+        const base = body + r * structSize;
+        const val = (i: number) => readValue(v, base + i * size, type) / sc(i);
+        out.push({
+          format: 'GPS5',
+          utcMs: gpsuMs + (r / repeat) * sample.durationSec * 1000,
+          movieSec: sample.startSec + (r / repeat) * sample.durationSec,
+          lat: val(0),
+          lon: val(1),
+          alt: val(2),
+          speedMs: val(3)
+        });
+      }
     }
   };
   walk(0, v.byteLength);
