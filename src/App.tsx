@@ -7,6 +7,7 @@ import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
 import { blobByteSource, goproRecording, parseGoproGps } from './services/gpmfParser';
 import { videoSyncManager } from './services/videoSyncManager';
+import { inflateXrz, isAimCsv, isXrk, parseAimCsv, parseXrk } from './services/aimFormats';
 import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
 import { parsePth, parseCln } from './services/pthParser';
 import { countGateCrossings, createVirtualControlLine, extractLaps, firstGateCrossingTime, gateDirection, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
@@ -612,6 +613,14 @@ export const App: React.FC = () => {
       startDate = parsed.startDate;
     } else if (ext === 'bnx4' || ext === 'bon4' || ext === 'binx' || ext === 'bon') {
       parts = parseDigispiceRawBinary(fileName, buffer);
+    } else if (ext === 'xrk' || ext === 'xrz') {
+      // AiM のロガーのファイル (.xrz は圧縮したもの)
+      const bytes = await inflateXrz(new Uint8Array(buffer));
+      if (!isXrk(bytes)) throw new Error('AiM の .xrk / .xrz として読めませんでした');
+      const parsed = parseXrk(bytes);
+      rawPoints = parsed.points;
+      samplingRate = parsed.samplingRate;
+      startDate = parsed.startDate;
     } else if (['vbo', 'csv', 'txt', 'gpx', 'nmea', 'log'].includes(ext || '')) {
       // テキストの形式は拡張子で決めつけず、中身の先頭で判別する (.txt の NMEA・VBO、.log の CSV なども読めるように)。
       // 判別できないときは拡張子に従う
@@ -619,7 +628,7 @@ export const App: React.FC = () => {
       // NMEA は受信機の起動時の文などの後から始まることがあるので、先頭から広めに (64 KB) 探す
       const head = text.slice(0, 65536);
       // CSV の見出し行 (緯度・経度の列がある行) があるか
-      const csvLike = isRaceChronoCsv(text) || isMotecCsv(text) ||
+      const csvLike = isRaceChronoCsv(text) || isMotecCsv(text) || isAimCsv(text) ||
         /^(?=[^\n]*(lat|緯度))(?=[^\n]*(lon|lng|経度))[^\n]*,/im.test(text.slice(0, 4000));
       const kind =
         isGpx(text) ? 'gpx'
@@ -640,6 +649,7 @@ export const App: React.FC = () => {
           throw new Error('MoTeC CSV の読み込みには現在対応していません');
         }
         parsed = isRaceChronoCsv(text) ? parseRaceChronoCsv(text)
+          : isAimCsv(text) ? parseAimCsv(text)
           : isMotecCsv(text) ? parseMotecCsv(text)
           : parseCsv(text);
       }
@@ -968,7 +978,7 @@ export const App: React.FC = () => {
         ref={fileInputRef}
         onChange={handleFilesSelected}
         multiple
-        accept=".dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx,.mp4,.mov"
+        accept=".dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx,.xrk,.xrz,.mp4,.mov"
         className="hidden"
       />
       <input

@@ -9,9 +9,9 @@
 import { Session, TelemetryPoint } from '../types/telemetry';
 import { calculatePhysics, calculateGeoDistanceAndHeading } from './physics';
 
-// MoTeC CSV の読み込み・書き出しは試験機能。実物の i2 エクスポートで確認できるまで、
-// 画面には出さず (書き出しボタンなし)、読み込み時の自動判別も行わない。有効にするには true にする
-export const MOTEC_CSV_ENABLED = false;
+// MoTeC CSV の読み込み・書き出し。実物の i2 の書き出し (小数点がカンマのもの) で確かめて有効にした (2026-10-18)。
+// false にすると、書き出しボタンと読み込み時の自動判別を止める
+export const MOTEC_CSV_ENABLED = true;
 
 export interface ImportedLog {
   points: TelemetryPoint[];
@@ -60,6 +60,9 @@ function speedFactorToKmh(unit: string): number {
 /** 時刻順に並んだ有効なサンプルだけを残し、TelemetryPoint へ変換して物理量を付与する */
 export function finalizeImportedSamples(samples: RawSample[], formatName: string): ImportedLog {
   const points: TelemetryPoint[] = [];
+  // 速度・方位の記録がない点 (速度の列がないログなど)。後で前後の点の位置と時刻から求める
+  const noSpeed: number[] = [];
+  const noHeading: number[] = [];
   let lastTime = -Infinity;
   let t0: number | null = null;
   let startDate: Date | undefined;
@@ -75,6 +78,8 @@ export function finalizeImportedSamples(samples: RawSample[], formatName: string
       t0 = s.time;
       startDate = s.timestamp;
     }
+    if (!Number.isFinite(s.speedKmh)) noSpeed.push(points.length);
+    if (!Number.isFinite(s.heading)) noHeading.push(points.length);
     points.push({
       index: points.length,
       time: Number((s.time - t0).toFixed(3)),
@@ -95,6 +100,19 @@ export function finalizeImportedSamples(samples: RawSample[], formatName: string
   }
   if (points.length < 2) {
     throw new Error(`${formatName} から有効な GPS 位置データを読み取れませんでした`);
+  }
+  const fromNeighbours = (i: number) => {
+    const a = points[Math.max(0, i - 1)];
+    const b = points[Math.min(points.length - 1, i + 1)];
+    return { ...calculateGeoDistanceAndHeading(a.latitude, a.longitude, b.latitude, b.longitude), dt: b.time - a.time };
+  };
+  for (const i of noSpeed) {
+    const { distanceMeters, dt } = fromNeighbours(i);
+    if (dt > 0) points[i].speed = Number(((distanceMeters / dt) * 3.6).toFixed(2));
+  }
+  for (const i of noHeading) {
+    const { distanceMeters, headingDeg } = fromNeighbours(i);
+    if (distanceMeters > 0) points[i].heading = headingDeg;
   }
   const enriched = calculatePhysics(points);
   const duration = enriched[enriched.length - 1].time - enriched[0].time;
@@ -358,23 +376,26 @@ export function parseMotecCsv(text: string): ImportedLog {
     const c = splitCsvLine(lines[i]);
     for (let k = 0; k + 1 < c.length; k++) if (c[k] && !meta.has(c[k])) meta.set(c[k], c[k + 1]);
   }
-  const dm = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(meta.get('Log Date') || '');
+  // 日付は dd/mm/yyyy か dd.mm.yyyy。タイムゾーンは記録されていないので、この端末の時刻として読む
+  const dm = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(meta.get('Log Date') || '');
   const tm = /^(\d{1,2}):(\d{2}):(\d{2})/.exec(meta.get('Log Time') || '');
-  if (dm) start = Date.UTC(Number(dm[3]), Number(dm[2]) - 1, Number(dm[1]), tm ? Number(tm[1]) : 0, tm ? Number(tm[2]) : 0, tm ? Number(tm[3]) : 0);
+  if (dm) start = new Date(Number(dm[3]), Number(dm[2]) - 1, Number(dm[1]), tm ? Number(tm[1]) : 0, tm ? Number(tm[2]) : 0, tm ? Number(tm[3]) : 0).getTime();
+  // ヨーロッパの設定の i2 は小数点がカンマ ("47,2207022")
+  const num = (v: string | undefined) => parseFloat((v ?? '').replace(/^(-?\d+),(\d+)$/, '$1.$2'));
 
   const samples: RawSample[] = [];
   for (let i = unitIdx + 1; i < lines.length; i++) {
     if (lines[i].trim() === '') continue;
     const c = splitCsvLine(lines[i]);
-    const t = parseFloat(c[0]);
+    const t = num(c[0]);
     if (!Number.isFinite(t)) continue;
     samples.push({
       time: t,
-      latitude: parseFloat(c[cLat]),
-      longitude: parseFloat(c[cLon]),
-      speedKmh: cSpeed >= 0 ? parseFloat(c[cSpeed]) * speedFactor : NaN,
-      altitude: cAlt >= 0 ? parseFloat(c[cAlt]) : NaN,
-      heading: cHeading >= 0 ? parseFloat(c[cHeading]) : NaN,
+      latitude: num(c[cLat]),
+      longitude: num(c[cLon]),
+      speedKmh: cSpeed >= 0 ? num(c[cSpeed]) * speedFactor : NaN,
+      altitude: cAlt >= 0 ? num(c[cAlt]) : NaN,
+      heading: cHeading >= 0 ? num(c[cHeading]) : NaN,
       timestamp: start !== null ? new Date(start + t * 1000) : undefined
     });
   }
@@ -392,8 +413,9 @@ export function exportMotecCsv(session: Session): string {
 
   const startDate = pts[0]?.timestamp ? new Date(pts[0].timestamp) : null;
   const pad = (n: number) => String(n).padStart(2, '0');
-  const logDate = startDate ? `${pad(startDate.getUTCDate())}/${pad(startDate.getUTCMonth() + 1)}/${startDate.getUTCFullYear()}` : '';
-  const logTime = startDate ? `${pad(startDate.getUTCHours())}:${pad(startDate.getUTCMinutes())}:${pad(startDate.getUTCSeconds())}` : '';
+  // MoTeC の記録日時はロガーの時計 (タイムゾーンなし)。この端末の時刻で書く (読み込みと同じ)
+  const logDate = startDate ? `${pad(startDate.getDate())}/${pad(startDate.getMonth() + 1)}/${startDate.getFullYear()}` : '';
+  const logTime = startDate ? `${pad(startDate.getHours())}:${pad(startDate.getMinutes())}:${pad(startDate.getSeconds())}` : '';
 
   // ラップの終了時刻 (セッション先頭からの秒)。ラップが 1 つだけ (区切りなし) の場合は出力しない
   const beacons = session.laps.length > 1 ? session.laps.map(l => (l.endTime - t0).toFixed(3)).join(' ') : '';

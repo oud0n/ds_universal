@@ -158,6 +158,62 @@ ${body}
 /**
  * 汎用 CSV (1 行 1 点)
  */
+// KML の線の色 (車速の低い方から: 青 → 水色 → 緑 → 黄 → 橙 → 赤)。KML の色は aabbggrr
+const KML_SPEED_COLORS = ['ffff4d2e', 'ffffc22e', 'ff3ecf4c', 'ff2ee6f2', 'ff1f8cff', 'ff3030e8'];
+
+/**
+ * Google Earth 用の KML。車速を 6 段に分け、同じ段の続く区間ごとに色を付けた線にする。
+ * 線は地面に沿わせる (標高は使わない)。始まりと終わりに印を置く
+ */
+export function convertToKml(points: ConvertedPoint[], title: string): string {
+  const name = escapeXml(title);
+  const speeds = points.map(p => p.speed).filter(Number.isFinite);
+  const min = speeds.length ? Math.min(...speeds) : 0;
+  const max = speeds.length ? Math.max(...speeds) : 0;
+  const bin = (v: number) => (max > min ? Math.min(KML_SPEED_COLORS.length - 1, Math.floor(((v - min) / (max - min)) * KML_SPEED_COLORS.length)) : 0);
+  const coord = (p: ConvertedPoint) => `${p.longitude.toFixed(7)},${p.latitude.toFixed(7)},0`;
+
+  const styles = KML_SPEED_COLORS.map((c, i) =>
+    `    <Style id="s${i}"><LineStyle><color>${c}</color><width>4</width></LineStyle></Style>`).join('\n');
+  // 区間の切れ目の点は前後の区間の両方に入れて、線をつなげる
+  const segments: string[] = [];
+  for (let i = 0; i < points.length - 1; ) {
+    const b = bin(points[i].speed);
+    let j = i + 1;
+    while (j < points.length - 1 && bin(points[j].speed) === b) j++;
+    const lo = min + ((max - min) * b) / KML_SPEED_COLORS.length;
+    const hi = min + ((max - min) * (b + 1)) / KML_SPEED_COLORS.length;
+    segments.push(`      <Placemark>
+        <name>${lo.toFixed(0)}〜${hi.toFixed(0)} km/h</name>
+        <styleUrl>#s${b}</styleUrl>
+        <LineString><tessellate>1</tessellate><coordinates>${points.slice(i, j + 1).map(coord).join(' ')}</coordinates></LineString>
+      </Placemark>`);
+    i = j;
+  }
+  const mark = (label: string, p: ConvertedPoint) => `    <Placemark>
+      <name>${label}</name>
+      <TimeStamp><when>${p.time.toISOString()}</when></TimeStamp>
+      <Point><coordinates>${coord(p)}</coordinates></Point>
+    </Placemark>`;
+  const first = points[0];
+  const last = points[points.length - 1];
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${name}</name>
+    <description>DS Universal で書き出し。線の色は車速 (${min.toFixed(0)}〜${max.toFixed(0)} km/h、青が遅く赤が速い)</description>
+${styles}
+    <Folder>
+      <name>走行ライン (車速)</name>
+${segments.join('\n')}
+    </Folder>
+${first ? mark('START', first) : ''}
+${last ? mark('END', last) : ''}
+  </Document>
+</kml>
+`;
+}
+
 export function convertToCsv(points: ConvertedPoint[]): string {
   const rows = ['time_utc,elapsed_s,latitude,longitude,altitude_m,speed_kmh,heading_deg,satellites,distance_km'];
   for (const p of points) {
