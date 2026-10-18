@@ -95,7 +95,7 @@ function distToPolylinesM(lat: number, lon: number, polylines: Array<Array<[numb
  * ログのほとんど (95%) が、コース図から 50 m 以内を走っているか (間引いて調べる)。
  * ピット・パドックで止まっている間やピットロードは外れるので、40 km/h 以上で走っている点だけで調べる
  */
-function runsOnPolylines(points: TelemetryPoint[], polylines: Array<Array<[number, number]>>): boolean {
+export function runsOnPolylines(points: TelemetryPoint[], polylines: Array<Array<[number, number]>>): boolean {
   if (polylines.length === 0) return false;
   const moving = points.filter(p => p.speed >= 40);
   if (moving.length === 0) return true;
