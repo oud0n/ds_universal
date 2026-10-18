@@ -1337,6 +1337,7 @@ export const App: React.FC = () => {
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
                       onChooseLog={setBaseSession}
+                      compareCars={activeCars}
                     />
                   )}
                 </div>
@@ -1502,6 +1503,7 @@ export const App: React.FC = () => {
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
                       onChooseLog={setBaseSession}
+                      compareCars={activeCars}
                     />
                   )}
                 </div>
@@ -1530,6 +1532,7 @@ export const App: React.FC = () => {
               playbackSpeed={playbackSpeed}
               onChangePlaybackSpeed={setPlaybackSpeed}
               onChooseLog={setBaseSession}
+              compareCars={activeCars}
             />
           </div>
         )}

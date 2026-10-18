@@ -8,6 +8,8 @@ import { SyncPin, loadPinsFromStorage, savePinsToStorage } from './videoSyncPinM
 
 export type VideoViewMode = 'single' | 'split' | 'pip';
 export type PipPosition = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
+// サブの動画の合わせ方。time: 同じ時刻 (撮影の本当の時刻)、compare: 走行比較 (比較の車がメインと同じ地点を走った時刻) LATER-11
+export type SubSyncMode = 'time' | 'compare';
 
 export interface VideoViewState {
   selectedTrackId: string | null;
@@ -17,6 +19,9 @@ export interface VideoViewState {
   isSubMuted: boolean;
   showOverlay: boolean;
   showGForce: boolean;
+  subSyncMode: SubSyncMode;
+  // 走行比較で合わせる比較の車のスロット (1: Car 2、2: Car 3、3: Car 4)
+  subCompareSlot: number;
   // 動画を書き出し中か。書き出し中は、どのウインドウも動画の切り替え・再生位置の合わせ直しをしない
   isExporting: boolean;
 }
@@ -30,6 +35,8 @@ class VideoViewStore {
     isSubMuted: true,
     showOverlay: true,
     showGForce: true,
+    subSyncMode: 'time',
+    subCompareSlot: 1,
     isExporting: false
   };
   private listeners = new Set<() => void>();
