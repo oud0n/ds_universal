@@ -1,5 +1,6 @@
 import { TelemetryPoint } from '../types/telemetry';
 import { calculatePhysics } from './physics';
+import { tr } from '../utils/i18n';
 
 /**
  * x87 80-bit Extended Precision Float (10 bytes) を JavaScript number にデコード
@@ -90,7 +91,7 @@ export function parseDtb(buffer: ArrayBuffer): {
   const numRecords = Math.floor(bytes.length / RECORD_SIZE);
 
   if (numRecords === 0) {
-    throw new Error('無効な .dtb ファイルです (ファイルサイズが短すぎます)');
+    throw new Error(tr('無効な .dtb ファイルです (ファイルサイズが短すぎます)', 'Invalid .dtb file (too short)'));
   }
 
   const view = new DataView(buffer);

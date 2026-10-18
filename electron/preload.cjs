@@ -13,7 +13,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('open-donate-modal', listener);
   },
   saveBinaryFile: (options) => ipcRenderer.invoke('save-binary-file', options),
+  saveTextFile: (options) => ipcRenderer.invoke('save-text-file', options),
   readFileBuffer: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  // 画面の言語をメニューに知らせる
+  setLanguage: (lang) => ipcRenderer.send('set-language', lang),
   isElectron: true
 });

@@ -1,3 +1,4 @@
+import { tr } from '../utils/i18n';
 /**
  * DigSpice IV (USB / Web Serial API) 通信管理サービス
  */
@@ -225,7 +226,7 @@ export class DigSpiceDevice {
 
   // コマンド送信
   public async sendCommand(body: string): Promise<void> {
-    if (!this.port || !this.port.writable) throw new Error('シリアルポートが開いていません');
+    if (!this.port || !this.port.writable) throw new Error(tr('シリアルポートが開いていません', 'The serial port is not open'));
     const fullCmd = DigSpiceDevice.formatCommand(body);
     this.log('tx', fullCmd.trim());
 
@@ -293,7 +294,7 @@ export class DigSpiceDevice {
   // 応答の指定フィールドを取り出す。欠落・空欄は例外にする
   private static field(line: string, index: number): string {
     const value = DigSpiceDevice.fields(line)[index];
-    if (value === undefined || value === '') throw new Error(`本体から想定外の応答を受信しました: ${line}`);
+    if (value === undefined || value === '') throw new Error(tr(`本体から想定外の応答を受信しました: ${line}`, `Unexpected response from the logger: ${line}`));
     return value;
   }
 
@@ -302,14 +303,14 @@ export class DigSpiceDevice {
     const ack = await this.query(body, ackPrefix, timeoutMs);
     const flag = parseInt(DigSpiceDevice.fields(ack)[flagIndex], 10);
     if (flag !== 3) {
-      throw new Error(`本体がコマンドを受理しませんでした: ${body} (${ACK_FLAG_TEXT[flag] ?? `flag=${flag}`})`);
+      throw new Error(tr(`本体がコマンドを受理しませんでした: ${body} (${ACK_FLAG_TEXT[flag] ?? `flag=${flag}`})`, `The logger rejected the command: ${body} (${ACK_FLAG_TEXT[flag] ?? `flag=${flag}`})`));
     }
   }
 
   // 設定・ダウンロード等の排他実行
   private async exclusive<T>(fn: () => Promise<T>): Promise<T> {
-    if (!this.port) throw new Error('シリアルポートが開いていません');
-    if (this.isBusy) throw new Error('他の操作が実行中です');
+    if (!this.port) throw new Error(tr('シリアルポートが開いていません', 'The serial port is not open'));
+    if (this.isBusy) throw new Error(tr('他の操作が実行中です', 'Another operation is in progress'));
     this.isBusy = true;
     try {
       return await fn();
@@ -407,7 +408,7 @@ export class DigSpiceDevice {
       const wpLine = await this.query('PMTK182,2,8', '$PMTK182,3,8,');
       const wpHex = DigSpiceDevice.field(wpLine, 3);
       const wpAddr = parseInt(wpHex, 16);
-      if (Number.isNaN(wpAddr)) throw new Error(`本体から想定外の応答を受信しました: ${wpLine}`);
+      if (Number.isNaN(wpAddr)) throw new Error(tr(`本体から想定外の応答を受信しました: ${wpLine}`, `Unexpected response from the logger: ${wpLine}`));
       const usedBytes = Math.max(0, wpAddr - 0x200);
 
       return {
@@ -415,7 +416,7 @@ export class DigSpiceDevice {
         logCapacityBytes: FLASH_CAPACITY_BYTES,
         usedBytes,
         writePointerHex: wpHex,
-        status: usedBytes > 0 ? `記録あり (${Math.round(usedBytes / 1024)} KB)` : 'ログ空'
+        status: usedBytes > 0 ? tr(`記録あり (${Math.round(usedBytes / 1024)} KB)`, `Logs present (${Math.round(usedBytes / 1024)} KB)`) : tr('ログ空', 'Empty')
       };
     });
   }
@@ -448,7 +449,7 @@ export class DigSpiceDevice {
 
     const wpAddr = parseInt(wpHex, 16);
     if (Number.isNaN(wpAddr) || !(fixIntervalMs > 0) || !Number.isFinite(autoLogSpeedKmh)) {
-      throw new Error('本体から想定外の設定値を受信しました');
+      throw new Error(tr('本体から想定外の設定値を受信しました', 'Unexpected setting values from the logger'));
     }
 
     return {
@@ -478,7 +479,7 @@ export class DigSpiceDevice {
   // 本体から読み戻した設定を返す。途中で失敗した場合は本体の状態が不明になるため、呼び出し側で再取得すること
   public async setSamplingRate(hz: SamplingRateHz): Promise<DeviceConfig> {
     const intervalMs = RATE_INTERVAL_MS[hz];
-    if (!intervalMs) throw new Error(`サポートされていないレートです: ${hz} Hz`);
+    if (!intervalMs) throw new Error(tr(`サポートされていないレートです: ${hz} Hz`, `Unsupported rate: ${hz} Hz`));
 
     return this.exclusive(async () => {
       this.log('sys', `サンプリングレートを ${hz} Hz (${intervalMs} ms 周期) に変更中...`);
@@ -500,7 +501,7 @@ export class DigSpiceDevice {
       // 本体から読み戻した値で反映を検証する
       const config = await this.readConfig();
       if (config.fixIntervalMs !== intervalMs) {
-        throw new Error(`設定が反映されませんでした: 設定値=${intervalMs} ms, 本体の現在値=${config.fixIntervalMs} ms`);
+        throw new Error(tr(`設定が反映されませんでした: 設定値=${intervalMs} ms, 本体の現在値=${config.fixIntervalMs} ms`, `The setting was not applied: requested ${intervalMs} ms, logger reports ${config.fixIntervalMs} ms`));
       }
       this.log('sys', `[成功] サンプリングレートが ${hz} Hz に変更されました。`);
       return config;
@@ -510,7 +511,7 @@ export class DigSpiceDevice {
   // ログ記録開始/停止速度の変更。本体から読み戻した値 (km/h) を返す
   public async setAutoLogSpeed(speedKmh: number): Promise<number> {
     if (!Number.isInteger(speedKmh) || speedKmh < AUTO_LOG_SPEED_MIN || speedKmh > AUTO_LOG_SPEED_MAX) {
-      throw new Error(`ログ記録開始速度は ${AUTO_LOG_SPEED_MIN}〜${AUTO_LOG_SPEED_MAX} km/h の整数で指定してください`);
+      throw new Error(tr(`ログ記録開始速度は ${AUTO_LOG_SPEED_MIN}〜${AUTO_LOG_SPEED_MAX} km/h の整数で指定してください`, `The logging start speed must be a whole number from ${AUTO_LOG_SPEED_MIN} to ${AUTO_LOG_SPEED_MAX} km/h`));
     }
     const formatted = speedKmh.toFixed(2);
 
@@ -521,7 +522,7 @@ export class DigSpiceDevice {
 
       const confirmed = parseFloat(DigSpiceDevice.field(await this.query('PTSI777,1', '$PTSI777,0,'), 2));
       if (!Number.isFinite(confirmed) || Math.abs(confirmed - speedKmh) > 0.005) {
-        throw new Error(`設定が反映されませんでした: 設定値=${formatted} km/h, 本体の現在値=${confirmed} km/h`);
+        throw new Error(tr(`設定が反映されませんでした: 設定値=${formatted} km/h, 本体の現在値=${confirmed} km/h`, `The setting was not applied: requested ${formatted} km/h, logger reports ${confirmed} km/h`));
       }
       this.log('sys', `[成功] ログ記録開始速度が ${confirmed} km/h に設定されました。`);
       return confirmed;
@@ -533,7 +534,7 @@ export class DigSpiceDevice {
     buffer: Uint8Array;
     fileName: string;
   }> {
-    if (this.isBusy) throw new Error('他の操作が実行中です');
+    if (this.isBusy) throw new Error(tr('他の操作が実行中です', 'Another operation is in progress'));
     this.isBusy = true;
 
     // 無通信の監視タイマー。成否にかかわらず finally で必ず止める
@@ -545,7 +546,7 @@ export class DigSpiceDevice {
       const wpLine = await this.query('PMTK182,2,8', '$PMTK182,3,8,');
       const wpHex = DigSpiceDevice.field(wpLine, 3);
       const wpAddr = parseInt(wpHex, 16);
-      if (Number.isNaN(wpAddr)) throw new Error(`本体から想定外の応答を受信しました: ${wpLine}`);
+      if (Number.isNaN(wpAddr)) throw new Error(tr(`本体から想定外の応答を受信しました: ${wpLine}`, `Unexpected response from the logger: ${wpLine}`));
 
       // 要求サイズの計算: 0x1000 (セクタ境界) に切り上げ
       let reqSize = (wpAddr + 0x0FFF) & ~0x0FFF;
@@ -646,7 +647,7 @@ export class DigSpiceDevice {
                 percent: Math.min(100, Math.round((receivedBlocks / totalBlocks) * 100)),
                 receivedBlocks,
                 totalBlocks,
-                statusText: `データ受信中: ${receivedBlocks} / ${totalBlocks} ブロック (${Math.round(receivedBytes / 1024)} KB)`
+                statusText: tr(`データ受信中: ${receivedBlocks} / ${totalBlocks} ブロック (${Math.round(receivedBytes / 1024)} KB)`, `Receiving: ${receivedBlocks} / ${totalBlocks} blocks (${Math.round(receivedBytes / 1024)} KB)`)
               });
             }
           }

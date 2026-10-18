@@ -132,9 +132,33 @@ function distanceToGateMeters(p: TelemetryPoint, gate: Gate): number {
   return Math.hypot(ax + dx * t, ay + dy * t);
 }
 
+// 周の区切りとして数えない、止まっているような遅い通過 (km/h)。ピットやグリッドで計測線の上に止まっている間の GPS の揺れを周と数えないように
+const SLOW_CROSSING_KMH = 5;
+
+/**
+ * 周回の区切りとして数える、計測線の通過の最短の間隔 (秒)。ふつうは 15 秒 (GPS の揺れで同じ通過を 2 回数えないように)。
+ * 1 周が 15 秒より短いコース (小さなカートコース・ポケバイコース) では、周の時間の中央値の半分まで縮める (最短 4 秒)。
+ * 周の時間は、走っている (15 km/h 以上の) 通過どうしで、間に 50 m 以上走ったものだけから見積もる (止まっている間の揺れを除く)
+ */
+function lapMinInterval(points: TelemetryPoint[], gate: Gate): number {
+  // distance は km (0.05 = 50 m)
+  const c = findGateCrossings(points, gate, 4).filter(x => x.interpolatedPoint.speed >= 15);
+  const gaps = c.slice(1).map((x, i) => ({ dt: x.time - c[i].time, dd: x.distance - c[i].distance })).filter(g => g.dd >= 0.05).map(g => g.dt).sort((a, b) => a - b);
+  if (gaps.length === 0) return 15;
+  // 中央値 (偶数個のときは小さい方。遅い周が混ざっても縮められるように)
+  const median = gaps[Math.floor((gaps.length - 1) / 2)];
+  return median < 30 ? Math.max(4, Math.min(15, median / 2)) : 15;
+}
+
+/** 周回の区切りとする計測線の通過。止まっているような遅い通過は数えない */
+function lapCrossings(points: TelemetryPoint[], gate: Gate): CrossingEvent[] {
+  const c = findGateCrossings(points, gate, lapMinInterval(points, gate));
+  return c.filter(x => x.interpolatedPoint.speed >= SLOW_CROSSING_KMH);
+}
+
 /** 計測線 (ゲート) を進行方向に通過した回数 (コースの自動判定で、どのコースの計測線を走ったかを比べるのに使う) */
 export function countGateCrossings(points: TelemetryPoint[], gate: Gate): number {
-  return findGateCrossings(points, gate, 15).length;
+  return lapCrossings(points, gate).length;
 }
 
 /** 点列がゲートを最初に通過した時刻 (点列の時刻の基準のまま)。通過しなければ undefined */
@@ -329,6 +353,41 @@ export function passesNearControlLine(points: TelemetryPoint[], line: ControlLin
   return points.some(p => (p.latitude - lat) ** 2 + ((p.longitude - lon) * cosLat) ** 2 <= maxDeg2);
 }
 
+/**
+ * セクター線 (最後のフィニッシュ = 計測線を除く) の並びが走る向きと逆なら並べ直す。
+ * 走る向きの分からないコースで作ったセクター (内蔵のコースの仮のセクターなど) や、逆の順に並んだ .sci のため。
+ * 各周で最初に通過した時刻 (周の始めからの割合) の中央値が、並びの順にちょうど減っていくときだけ逆にする。
+ * 名前 (S1, S2 …) は位置ごとに元のものを使う
+ */
+function orderSectorsByTravel(
+  points: TelemetryPoint[],
+  controlLine: ControlLine,
+  sectors: Sector[],
+  lapRanges: Array<{ startTime: number; endTime: number }>
+): Sector[] {
+  const isFinish = (s: Sector) =>
+    Math.abs(s.latA - controlLine.latA) < 1e-7 && Math.abs(s.lonA - controlLine.lonA) < 1e-7 &&
+    Math.abs(s.latB - controlLine.latB) < 1e-7 && Math.abs(s.lonB - controlLine.lonB) < 1e-7;
+  const hasFinish = sectors.length > 0 && isFinish(sectors[sectors.length - 1]);
+  const mids = hasFinish ? sectors.slice(0, -1) : sectors;
+  if (mids.length < 2 || lapRanges.length === 0) return sectors;
+  const median = (v: number[]) => { const a = [...v].sort((x, y) => x - y); return a[Math.floor(a.length / 2)]; };
+  const fractions = mids.map(g => {
+    const times = findGateCrossings(points, g, 2).map(c => c.time);
+    const f: number[] = [];
+    for (const r of lapRanges) {
+      const t = times.find(x => x > r.startTime && x < r.endTime);
+      if (t !== undefined) f.push((t - r.startTime) / (r.endTime - r.startTime));
+    }
+    return f.length > 0 ? median(f) : NaN;
+  });
+  if (!fractions.every(Number.isFinite)) return sectors;
+  const reversed = fractions.every((f, i) => i === 0 || f < fractions[i - 1]);
+  if (!reversed) return sectors;
+  const flipped = [...mids].reverse().map((g, i) => ({ ...g, name: mids[i].name }));
+  return hasFinish ? [...flipped, sectors[sectors.length - 1]] : flipped;
+}
+
 // 計測線の通過が 1 回のログで、通過点より後ろをラップとして扱う最短の長さ (秒)
 const PARTIAL_LAP_MIN_SEC = 15;
 
@@ -336,9 +395,9 @@ export function extractLaps(
   points: TelemetryPoint[],
   controlLine?: ControlLine,
   sectors: Sector[] = []
-): { laps: Lap[]; bestLapIndex: number; theoreticalBestTime: number } {
+): { laps: Lap[]; bestLapIndex: number; theoreticalBestTime: number; sectors: Sector[] } {
   if (points.length < 5) {
-    return { laps: [], bestLapIndex: -1, theoreticalBestTime: 0 };
+    return { laps: [], bestLapIndex: -1, theoreticalBestTime: 0, sectors };
   }
 
   let lapRanges: Array<{
@@ -354,7 +413,7 @@ export function extractLaps(
 
   // コントロールラインがある場合は交差検出でラップ分割
   if (controlLine) {
-    const crossings = findGateCrossings(points, controlLine, 15); // 最低15秒間隔
+    const crossings = lapCrossings(points, controlLine); // ふつうは最低 15 秒間隔
     if (crossings.length >= 2) {
       for (let c = 0; c < crossings.length - 1; c++) {
         const c1 = crossings[c];
@@ -400,6 +459,8 @@ export function extractLaps(
       endTime: points[points.length - 1].time
     });
   }
+
+  if (controlLine && !isWholeSession) sectors = orderSectorsByTravel(points, controlLine, sectors, lapRanges);
 
   const laps: Lap[] = [];
   const sectorDirections = sectors.map(s => gateDirection(points, s));
@@ -506,7 +567,8 @@ export function extractLaps(
   return {
     laps,
     bestLapIndex,
-    theoreticalBestTime: Number(theoreticalBestTime.toFixed(3))
+    theoreticalBestTime: Number(theoreticalBestTime.toFixed(3)),
+    sectors
   };
 }
 

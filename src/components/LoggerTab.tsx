@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { DigSpiceDevice, LogInfo, DownloadProgress, DeviceConfig } from '../services/digspiceDevice';
 import { LoggerSettingsCard } from './LoggerSettingsCard';
+import { tr, useT } from '../utils/i18n';
 
 // 開発サーバーで `?sim=1` を付けると、実機の代わりにシミュレーターへ接続する
 function isSimulatorRequested(): boolean {
@@ -18,6 +19,7 @@ interface LoggerTabProps {
 }
 
 export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateToGraph }) => {
+  const t = useT();
   const [device] = useState<DigSpiceDevice>(() => new DigSpiceDevice());
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isBusy, setIsBusy] = useState<boolean>(false);
@@ -89,7 +91,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
         console.warn('メモリ情報・本体設定の自動取得スキップ:', e);
       }
     } catch (err: any) {
-      alert(`デジスパイスIV 接続エラー:\n${err.message}`);
+      alert(`${tr('デジスパイスIV 接続エラー', 'DigSpice IV connection error')}:\n${err.message}`);
       setIsConnected(false);
     } finally {
       setIsBusy(false);
@@ -116,7 +118,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
       const info = await device.getLogInfo();
       setLogInfo(info);
     } catch (err: any) {
-      alert(`情報取得エラー: ${err.message}`);
+      alert(`${tr('情報取得エラー', 'Could not read logger information')}: ${err.message}`);
     } finally {
       setIsBusy(false);
     }
@@ -126,19 +128,19 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
   const handleErase = async () => {
     if (!isConnected || isBusy) return;
     const ok = window.confirm(
-      '⚠️ 【警告】デジスパイスIV 本体の全走行ログを消去します。\n消去したデータは復元できません。\n本当に消去しますか？'
+      tr('⚠️ 【警告】デジスパイスIV 本体の全走行ログを消去します。\n消去したデータは復元できません。\n本当に消去しますか？', '⚠️ WARNING: this erases every driving log on the DigSpice IV.\nErased data cannot be recovered.\nErase anyway?')
     );
     if (!ok) return;
 
     try {
       setIsBusy(true);
       await device.eraseLogs();
-      alert('ロガーの全ログ消去が完了しました。');
+      alert(tr('ロガーの全ログ消去が完了しました。', 'All logs on the logger have been erased.'));
       // 消去後の容量と本体設定を読み直す (書き込み位置が先頭に戻る)
       setLogInfo(await device.getLogInfo());
       setConfig(await device.getDeviceConfig());
     } catch (err: any) {
-      alert(`消去エラー: ${err.message}`);
+      alert(`${tr('消去エラー', 'Erase error')}: ${err.message}`);
     } finally {
       setIsBusy(false);
     }
@@ -155,7 +157,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
         percent: 0,
         receivedBlocks: 0,
         totalBlocks: 0,
-        statusText: 'ダウンロード準備中...'
+        statusText: tr('ダウンロード準備中...', 'Preparing download...')
       });
       setDownloadedData(null);
 
@@ -163,7 +165,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
       setDownloadedData(result);
       setProgress(null);
     } catch (err: any) {
-      alert(`ダウンロードエラー:\n${err.message}`);
+      alert(`${tr('ダウンロードエラー', 'Download error')}:\n${err.message}`);
       setProgress(null);
     } finally {
       setIsBusy(false);
@@ -182,7 +184,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
         dataArray: downloadedData.buffer
       });
       if (res.success) {
-        alert(`ファイルを保存しました:\n${res.filePath}`);
+        alert(`${tr('ファイルを保存しました', 'File saved')}:\n${res.filePath}`);
       }
       return;
     }
@@ -209,7 +211,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
         onNavigateToGraph();
       }
     } catch (err: any) {
-      alert(`解析画面での展開エラー: ${err?.message || err}`);
+      alert(`${tr('解析画面での展開エラー', 'Could not open in the analysis screen')}: ${err?.message || err}`);
     } finally {
       setIsOpeningAnalyser(false);
     }
@@ -225,21 +227,21 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
           </div>
           <div>
             <div className="flex items-center gap-2.5">
-              <h2 className="text-lg font-bold text-slate-100">DigSpice IV コントロール</h2>
+              <h2 className="text-lg font-bold text-slate-100">{t('DigSpice IV コントロール', 'DigSpice IV control')}</h2>
               <span className={`text-[11px] font-mono px-2.5 py-0.5 rounded-full border ${
                 isConnected 
                   ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
                   : 'bg-slate-700/40 text-slate-400 border-slate-600'
               }`}>
-                {isConnected ? '接続中 (CONNECTED)' : '未接続 (OFFLINE)'}
+                {isConnected ? t('接続中 (CONNECTED)', 'CONNECTED') : t('未接続 (OFFLINE)', 'OFFLINE')}
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-1">
-              デジスパイスIV（VID: 0x2DCF / PID: 0x6002）USBシリアル直接通信 & 公式完全準拠ダウンロード
+              {t('デジスパイスIV（VID: 0x2DCF / PID: 0x6002）USBシリアル直接通信 & 公式完全準拠ダウンロード', 'DigSpice IV (VID: 0x2DCF / PID: 0x6002) direct USB serial communication and official-compatible download')}
             </p>
             {!('serial' in navigator) && !(import.meta.env.DEV && isSimulatorRequested()) && (
               <p className="text-xs text-amber-400 mt-1" data-testid="logger-unsupported">
-                このブラウザはロガーとの USB 通信に対応していません。パソコンの Chrome または Edge で開いてください。
+                {t('このブラウザはロガーとの USB 通信に対応していません。パソコンの Chrome または Edge で開いてください。', 'This browser cannot talk to the logger over USB. Open this page in Chrome or Edge on a PC.')}
               </p>
             )}
           </div>
@@ -253,7 +255,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs tracking-wider transition-all shadow-lg hover:shadow-red-600/30 disabled:opacity-50 cursor-pointer"
             >
               <Usb size={16} />
-              デジスパイスIV に接続
+              {t('デジスパイスIV に接続', 'Connect to DigSpice IV')}
             </button>
           ) : (
             <button
@@ -262,7 +264,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-semibold transition-all cursor-pointer"
             >
               <WifiOff size={15} />
-              切断
+              {t('切断', 'Disconnect')}
             </button>
           )}
         </div>
@@ -275,7 +277,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
           <div className="flex items-center justify-between border-b border-line-2 pb-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
               <HardDrive size={16} className="text-red-500" />
-              内部フラッシュメモリ
+              {t('内部フラッシュメモリ', 'Internal flash memory')}
             </h3>
             {isConnected && (
               <button
@@ -284,7 +286,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
                 className="text-slate-400 hover:text-slate-200 text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
               >
                 <RefreshCw size={12} className={isBusy ? 'animate-spin' : ''} />
-                更新
+                {t('更新', 'Refresh')}
               </button>
             )}
           </div>
@@ -292,9 +294,9 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
           <div className="space-y-3">
             <div>
               <div className="flex justify-between text-xs mb-1.5">
-                <span className="text-slate-400">記録ログ容量</span>
+                <span className="text-slate-400">{t('記録ログ容量', 'Logged data')}</span>
                 <span className="font-mono font-bold text-slate-200">
-                  {logInfo ? `${Math.round(logInfo.usedBytes / 1024)} KB` : isConnected ? '確認中...' : '---'}
+                  {logInfo ? `${Math.round(logInfo.usedBytes / 1024)} KB` : isConnected ? t('確認中...', 'Checking...') : '---'}
                 </span>
               </div>
               <div className="w-full bg-surface-0 rounded-full h-2 overflow-hidden">
@@ -309,12 +311,15 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
 
             <div className="grid grid-cols-2 gap-2 pt-2 text-[11px] font-mono">
               <div className="bg-surface-0 p-2.5 rounded-lg border border-line-1">
-                <span className="text-slate-500 block text-[10px]">書き込みポインタ</span>
+                <span className="text-slate-500 block text-[10px]">{t('書き込みポインタ', 'Write pointer')}</span>
                 <span className="text-slate-300 font-semibold">{logInfo?.writePointerHex ? `0x${logInfo.writePointerHex}` : '---'}</span>
               </div>
               <div className="bg-surface-0 p-2.5 rounded-lg border border-line-1">
-                <span className="text-slate-500 block text-[10px]">ステータス</span>
-                <span className="text-emerald-400 font-semibold">{logInfo?.status || (isConnected ? '正常' : '未接続')}</span>
+                <span className="text-slate-500 block text-[10px]">{t('ステータス', 'Status')}</span>
+                <span className="text-emerald-400 font-semibold">{logInfo
+                    // 状態の文言は、表示するときに今の言語で作る (取得したときの言語のまま残らないように)
+                    ? (logInfo.usedBytes > 0 ? t(`記録あり (${Math.round(logInfo.usedBytes / 1024)} KB)`, `Logs present (${Math.round(logInfo.usedBytes / 1024)} KB)`) : t('ログ空', 'Empty'))
+                    : (isConnected ? t('正常', 'OK') : t('未接続', 'Not connected'))}</span>
               </div>
             </div>
           </div>
@@ -327,7 +332,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
                 className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border border-red-500/30 bg-red-950/20 hover:bg-red-900/30 text-red-400 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
               >
                 <Trash2 size={14} />
-                本体ログの全消去
+                {t('本体ログの全消去', 'Erase all logs on the logger')}
               </button>
             </div>
           )}
@@ -339,7 +344,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
             <div className="border-b border-line-2 pb-3">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
                 <Download size={16} className="text-red-500" />
-                走行ログ ダウンロード
+                {t('走行ログ ダウンロード', 'Download driving logs')}
               </h3>
             </div>
 
@@ -360,8 +365,8 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
                   />
                 </div>
                 <div className="flex justify-between text-[11px] font-mono text-slate-400">
-                  <span>ブロック: {progress.receivedBlocks} / {progress.totalBlocks}</span>
-                  <span>{Math.round(progress.receivedBytes / 1024)} KB 受信済</span>
+                  <span>{t('ブロック', 'Blocks')}: {progress.receivedBlocks} / {progress.totalBlocks}</span>
+                  <span>{Math.round(progress.receivedBytes / 1024)} KB {t('受信済', 'received')}</span>
                 </div>
               </div>
             )}
@@ -371,10 +376,10 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
               <div className="bg-emerald-950/20 border border-emerald-500/40 rounded-xl p-4 space-y-3">
                 <div className="flex items-center gap-2.5 text-emerald-400 text-xs font-bold">
                   <CheckCircle size={18} />
-                  ダウンロード完了！ ({downloadedData.buffer.length.toLocaleString()} バイト - 公式メタデータ付加済)
+                  {t(`ダウンロード完了！ (${downloadedData.buffer.length.toLocaleString()} バイト - 公式メタデータ付加済)`, `Download complete! (${downloadedData.buffer.length.toLocaleString()} bytes, official metadata added)`)}
                 </div>
                 <div className="text-[11px] text-slate-300 font-mono">
-                  ファイル名: <span className="text-amber-400">{downloadedData.fileName}</span>
+                  {t('ファイル名', 'File name')}: <span className="text-amber-400">{downloadedData.fileName}</span>
                 </div>
 
                 <div className="flex flex-wrap gap-2.5 pt-1">
@@ -386,12 +391,12 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
                     {isOpeningAnalyser ? (
                       <>
                         <RefreshCw size={16} className="animate-spin" />
-                        解析データ展開中...
+                        {t('解析データ展開中...', 'Opening...')}
                       </>
                     ) : (
                       <>
                         <PlayCircle size={16} />
-                        このデータを即座に解析する (グラフへ移動)
+                        {t('このデータを即座に解析する (グラフへ移動)', 'Analyse this data now (go to graph)')}
                       </>
                     )}
                   </button>
@@ -400,7 +405,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-4 hover:bg-surface-5 text-slate-200 text-xs font-semibold border border-line-4 transition-all cursor-pointer"
                   >
                     <Save size={15} />
-                    .bnx4 ファイルを保存
+                    {t('.bnx4 ファイルを保存', 'Save .bnx4 file')}
                   </button>
                 </div>
               </div>
@@ -408,8 +413,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
 
             {!progress && !downloadedData && (
               <p className="text-xs text-slate-400 leading-relaxed">
-                デジスパイスIV 本体の走行ログデータを高速ストリーミングで吸い出します。
-                ダウンロード完了後、自動的に公式完全一致のメタデータ（0x0100..0x0109）が付加され、そのままワンクリックで解析画面へ読み込むことができます。
+                {t('デジスパイスIV 本体の走行ログデータを高速ストリーミングで吸い出します。 ダウンロード完了後、自動的に公式完全一致のメタデータ（0x0100..0x0109）が付加され、そのままワンクリックで解析画面へ読み込むことができます。', 'Streams the driving logs off the DigSpice IV. After the download, metadata identical to the official software (0x0100..0x0109) is added automatically, and you can open the data in the analysis screen with one click.')}
               </p>
             )}
           </div>
@@ -421,7 +425,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold uppercase tracking-wider transition-all shadow-lg hover:shadow-red-600/30 disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
             >
               <Download size={16} />
-              ダウンロード実行 (Download)
+              {t('ダウンロード実行 (Download)', 'Download')}
             </button>
           </div>
         </div>
@@ -447,15 +451,15 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
           >
             {consoleOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             <Terminal size={14} className="text-amber-500" />
-            NMEA / Serial 通信コンソール
-            {!consoleOpen && logs.length > 0 && <span className="normal-case font-normal text-slate-500">（{logs.length} 件）</span>}
+            {t('NMEA / Serial 通信コンソール', 'NMEA / serial console')}
+            {!consoleOpen && logs.length > 0 && <span className="normal-case font-normal text-slate-500">{t(`（${logs.length} 件）`, ` (${logs.length})`)}</span>}
           </button>
           {consoleOpen && (
             <button
               onClick={() => setLogs([])}
               className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
             >
-              ログ消去
+              {t('ログ消去', 'Clear')}
             </button>
           )}
         </div>
@@ -463,7 +467,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
         {consoleOpen && (
         <div className="h-44 bg-surface-0 rounded-lg p-3 font-mono text-[11px] overflow-y-auto space-y-1 select-text">
           {logs.length === 0 ? (
-            <div className="text-slate-600 italic">通信ログはまだありません</div>
+            <div className="text-slate-600 italic">{t('通信ログはまだありません', 'No messages yet')}</div>
           ) : (
             logs.map((l, i) => (
               <div key={i} className="flex items-start gap-2">
