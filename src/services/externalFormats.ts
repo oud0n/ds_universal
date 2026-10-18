@@ -19,7 +19,7 @@ export interface ImportedLog {
   startDate?: Date;
 }
 
-interface RawSample {
+export interface RawSample {
   time: number;       // 先頭からの秒
   latitude: number;
   longitude: number;
@@ -58,7 +58,7 @@ function speedFactorToKmh(unit: string): number {
 }
 
 /** 時刻順に並んだ有効なサンプルだけを残し、TelemetryPoint へ変換して物理量を付与する */
-function finalize(samples: RawSample[], formatName: string): ImportedLog {
+export function finalizeImportedSamples(samples: RawSample[], formatName: string): ImportedLog {
   const points: TelemetryPoint[] = [];
   let lastTime = -Infinity;
   let t0: number | null = null;
@@ -161,7 +161,7 @@ export function parseVbo(text: string): ImportedLog {
       timestamp: baseDate !== null ? new Date(baseDate + t * 1000) : undefined
     });
   }
-  return finalize(samples, 'VBO ファイル');
+  return finalizeImportedSamples(samples, 'VBO ファイル');
 }
 
 // ============================================================================
@@ -226,7 +226,7 @@ export function parseRaceChronoCsv(text: string): ImportedLog {
       timestamp: unix > 1e8 ? new Date(unix * 1000) : undefined
     });
   }
-  return finalize(samples, 'RaceChrono CSV');
+  return finalizeImportedSamples(samples, 'RaceChrono CSV');
 }
 
 // ============================================================================
@@ -307,7 +307,7 @@ export function parseGpx(text: string): ImportedLog {
       timestamp: new Date(p.t * 1000)
     };
   });
-  return finalize(samples, 'GPX ファイル');
+  return finalizeImportedSamples(samples, 'GPX ファイル');
 }
 
 // ============================================================================
@@ -378,7 +378,7 @@ export function parseMotecCsv(text: string): ImportedLog {
       timestamp: start !== null ? new Date(start + t * 1000) : undefined
     });
   }
-  return finalize(samples, 'MoTeC CSV');
+  return finalizeImportedSamples(samples, 'MoTeC CSV');
 }
 
 /** セッション全体を MoTeC CSV 形式で書き出す。ラップの区切りは Beacon Markers に記録する */
