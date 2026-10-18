@@ -272,7 +272,8 @@ export function parseGpx(text: string): ImportedLog {
   const valid = raw.filter(p => Number.isFinite(p.t) && Number.isFinite(p.lat) && Number.isFinite(p.lon) && !(p.lat === 0 && p.lon === 0));
   if (valid.length === 0) throw new Error('GPX ファイルに時刻 (time) と位置のある点がないため読み込めません');
   raw.length = 0;
-  raw.push(...valid);
+  // 点の多いログで引数の上限を超えないよう、1 つずつ入れる (push(...valid) は十数万点で失敗する)
+  for (const p of valid) raw.push(p);
 
   // 時刻が秒単位までしかない GPX では同じ時刻の点が続く。次の時刻までを等間隔に割り振って間引かれないようにする
   // 次の時刻が 1 秒より先 (測位の途切れ・区間の切れ目) や、末尾で次の時刻がないときは、1 秒の中に割り振る

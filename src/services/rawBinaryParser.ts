@@ -202,7 +202,8 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
       if (isSectorFormat && unverified.size > 0) {
         const verified = rawPoints.filter(p => !unverified.has(p));
         rawPoints.length = 0;
-        rawPoints.push(...verified);
+        // 点の多いログで引数の上限を超えないよう、1 つずつ入れる
+        for (const p of verified) rawPoints.push(p);
       }
     }
 
