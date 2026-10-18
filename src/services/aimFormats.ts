@@ -19,7 +19,8 @@ export function parseAimCsv(text: string): ImportedLog {
   let headerIdx = -1;
   for (let i = 0; i < Math.min(lines.length, 200); i++) {
     const c = splitCsvLine(lines[i]);
-    if (c[0] === 'Time' && c.length > 4) { headerIdx = i; break; }
+    // 列の見出しの行: 先頭が Time で、GPS の緯度の列がある (列の数は書き出す項目で変わる)
+    if (c[0] === 'Time' && c.some(h => /latitude/i.test(h))) { headerIdx = i; break; }
     if (c.length >= 2) meta.set(c[0], c[1]);
   }
   if (headerIdx < 0) throw new Error('AiM の CSV の列見出しが見つかりません');
@@ -146,8 +147,11 @@ export function parseXrk(bytes: Uint8Array): ImportedLog {
     // 本体: AiM の時刻 (4) + u-blox NAV-SOL (52)。56 バイトずつ並ぶ
     for (let r = body; r + 56 <= end; r += 56) {
       const fix = bytes[r + 14];
+      const flags = bytes[r + 15];
       const pdop = v.getUint16(r + 48, true) / 100;
-      if (fix < 2 || pdop > 5) continue;
+      // 2D / 3D / GPS + 推測の測位で、週と時刻が有効 (WKNSET・TOWSET) なものだけ。
+      // 測位が有効の印 (bit0) は機種によって立っていないので見ない
+      if (fix < 2 || fix > 4 || (flags & 0x0c) !== 0x0c || pdop > 5) continue;
       const iTow = v.getUint32(r + 4, true);
       const fTowNs = v.getInt32(r + 8, true);
       const week = v.getUint16(r + 12, true);
