@@ -16,3 +16,16 @@ export const canUseLoggerUsb: boolean = (() => {
   if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('sim')) return true;
   return 'serial' in navigator && !/Android/i.test(navigator.userAgent);
 })();
+
+/**
+ * iPhone / iPad か。iPadOS の Safari は Mac と名乗るので、タッチの点の数でも見分ける
+ */
+export const isIOS: boolean = typeof navigator !== 'undefined'
+  && (/iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
+
+/**
+ * ファイルの入力欄の accept。iOS では付けない (undefined)。
+ * iOS のファイルの選択画面は、accept に .bon4 など iOS が知らない拡張子を並べると、そのファイルを灰色にして選べなくする
+ * (ds4_convert でも同じだった)。iOS ではどのファイルも選べるようにして、読み込むときに中身で判定する
+ */
+export const fileAccept = (accept: string): string | undefined => (isIOS ? undefined : accept);

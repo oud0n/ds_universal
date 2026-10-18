@@ -4,6 +4,7 @@ import { X, Plus, Trash2, Check, MapPin, Upload, Download } from 'lucide-react';
 import { parseCln, exportCln } from '../services/pthParser';
 import { parseSci, exportSci, userCircuitStorage, UserCircuitItem } from '../services/userCircuitStorage';
 import { tr, useT } from '../utils/i18n';
+import { fileAccept } from '../utils/device';
 
 interface CircuitEditorModalProps {
   isOpen: boolean;
@@ -323,7 +324,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
             <input
               ref={fileInputRef}
               type="file"
-              accept=".cln,.sci"
+              accept={fileAccept('.cln,.sci')}
               multiple
               className="hidden"
               onChange={e => {

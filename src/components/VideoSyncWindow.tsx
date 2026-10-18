@@ -30,6 +30,7 @@ import {
 import { MasterTimelineTrackBar } from './MasterTimelineTrackBar';
 import { formatMinSec } from '../utils/timeFormat';
 import { tr, useT } from '../utils/i18n';
+import { fileAccept } from '../utils/device';
 
 export type { VideoViewMode, PipPosition };
 
@@ -1657,7 +1658,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         type="file"
         ref={jsonInputRef}
         onChange={handleImportProject}
-        accept=".json,.dssync.json"
+        accept={fileAccept('.json,.dssync.json')}
         className="hidden"
       />
     </div>

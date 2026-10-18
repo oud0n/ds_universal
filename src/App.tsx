@@ -32,7 +32,7 @@ import { LoggerTab } from './components/LoggerTab';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
 import { DonateModal } from './components/DonateModal';
 import { useResizableSplit } from './hooks/useResizableSplit';
-import { canUseLoggerUsb } from './utils/device';
+import { canUseLoggerUsb, fileAccept } from './utils/device';
 import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
 import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
 import { BottomTabBar, MobileSeekBar } from './components/MobileNav';
@@ -614,7 +614,7 @@ export const App: React.FC = () => {
     // ログに記録されている車両名・ドライバー名・コース名 (iRacing の .ibt)
     let meta: { vehicleName?: string; driverName?: string; trackName?: string } = {};
 
-    const ext = fileName.split('.').pop()?.toLowerCase();
+    const ext = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() : '';
     const added: Session[] = [];
 
     if (parsedLog) {
@@ -681,10 +681,13 @@ export const App: React.FC = () => {
       samplingRate = parsed.samplingRate;
       startDate = parsed.startDate;
     } else {
-      throw new Error(`${tr('未対応のファイル形式です', 'Unsupported file type')}: .${ext}`);
+      throw new Error(`${tr('未対応のファイル形式です', 'Unsupported file type')}: ${ext ? `.${ext}` : tr('(拡張子なし)', '(no extension)')}`);
     }
 
     if (!parts) parts = [{ points: rawPoints, samplingRate, startDate }];
+    // 位置として正しい点が 2 点に満たない走行は捨てる (違う中身のファイルを生ログなどとして読むと、でたらめな 1 点ができることがあるため)
+    const validPos = (p: any) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude) && Math.abs(p.latitude) <= 90 && Math.abs(p.longitude) <= 180 && !(p.latitude === 0 && p.longitude === 0);
+    parts = parts.filter(p => p.points.filter(validPos).length >= 2);
     if (parts.length === 0 || parts.every(p => p.points.length === 0)) {
       throw new Error(tr('有効なGPS位置データが見つかりませんでした', 'No valid GPS position data was found'));
     }
@@ -1006,7 +1009,7 @@ export const App: React.FC = () => {
         ref={fileInputRef}
         onChange={handleFilesSelected}
         multiple
-        accept=".dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx,.xrk,.xrz,.ibt,.mp4,.mov"
+        accept={fileAccept('.dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx,.xrk,.xrz,.ibt,.mp4,.mov')}
         className="hidden"
       />
       <input
@@ -1014,9 +1017,15 @@ export const App: React.FC = () => {
         ref={pthInputRef}
         onChange={async e => {
           const f = e.target.files?.[0];
+          e.target.value = '';
           if (f) {
             const txt = await f.text();
             const polylines = parsePth(txt);
+            // コース図として読めないファイル (iPhone ではどのファイルでも選べる) は、空のコース図にせず知らせる
+            if (polylines.length === 0) {
+              alert(tr(`${f.name} をコース図 (.pth) として読めませんでした`, `Could not read ${f.name} as a track map (.pth)`));
+              return;
+            }
             // コース図の近く (2 km 以内) を走ったログだけに設定する (別のコースのログのコース図を置き換えないように)
             const ids = latestRef.current.sessions.filter(s => passesNearPolylines(s, polylines, 2000)).map(s => s.id);
             // 手動で読み込んだコース図を、遅れて届いた自動取得の結果で上書きしない
@@ -1027,9 +1036,8 @@ export const App: React.FC = () => {
               if (latestRef.current.sessions.length > 0) alert(tr('このコース図の近くを走ったログがないため、次に読み込む近くのログに使います。', 'No loaded log runs near this track map, so it will be used for the next log you load nearby.'));
             }
           }
-          e.target.value = '';
         }}
-        accept=".pth"
+        accept={fileAccept('.pth')}
         className="hidden"
       />
       <input
@@ -1037,9 +1045,16 @@ export const App: React.FC = () => {
         ref={clnInputRef}
         onChange={async e => {
           const f = e.target.files?.[0];
+          e.target.value = '';
           if (f) {
             const txt = await f.text();
-            const cl = parseCln(txt, f.name);
+            let cl;
+            try {
+              cl = parseCln(txt, f.name);
+            } catch (err: any) {
+              alert(tr(`${f.name} を計測線 (.cln) として読めませんでした: ${err.message}`, `Could not read ${f.name} as a timing line (.cln): ${err.message}`));
+              return;
+            }
             // 計測線の近く (1 km 以内) を走ったログだけに反映する (セクターは各セッションのものを保つ)。
             // 近くのログがなければどのセッションも変えない (別のコースのログの周回が崩れるため)。次に読み込む近くのログで使う
             const ids = latestRef.current.sessions.filter(s => passesNearControlLine(s.points, cl)).map(s => s.id);
@@ -1048,9 +1063,8 @@ export const App: React.FC = () => {
             setCourseHint({ cl, sec: target?.sectors ?? [], name: target?.circuitName ?? '', polylines: target ? target.pathPolylines : courseRef.current.polylines, polylinesSource: target ? target.pathPolylinesSource : courseRef.current.polylinesSource });
             recalcSessions(s => (ids.includes(s.id) ? { cl, sec: s.sectors || [] } : null));
           }
-          e.target.value = '';
         }}
-        accept=".cln"
+        accept={fileAccept('.cln')}
         className="hidden"
       />
       <input
