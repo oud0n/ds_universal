@@ -124,18 +124,23 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
     ? session.sessionName.replace(/[\\/:*?"<>|]/g, '_') + (rangeKind === 'lap' ? `_L${lapNumber}` : rangeKind === 'time' ? '_trim' : '')
     : 'log';
 
-  // 時刻の入った書き出しは、ファイル名に時差を付ける (_UTC / _JST / _UTC+5 など)
-  const tzSuffix = offsetHours === 9 ? '_JST' : offsetHours === 0 ? '_UTC' : `_UTC${offsetHours > 0 ? '+' : ''}${offsetHours}`;
+  // 時刻の入った書き出し (位置のログ) は、ファイル名に時差を付ける (_UTC / _JST / _UTC+5 など)。
+  // 記録日時のないログは仮の日時なので付けない
+  const tzSuffix = session && !hasRecordedClock(session) ? ''
+    : offsetHours === 9 ? '_JST' : offsetHours === 0 ? '_UTC' : `_UTC${offsetHours > 0 ? '+' : ''}${offsetHours}`;
   const save = (ext: string, content: string, mime: string) => triggerFileDownload(`${baseName}${tzSuffix}.${ext}`, content, mime);
 
   const saveDtb = () => {
     if (!session || points.length === 0) return;
-    const bytes = exportDtb(toTelemetryPoints(points), session.samplingRate, points[0].time);
+    // DTB は書き出す端末の時刻で記録する形式なので、時刻の調整は使わない (調整すると二重にずれる)
+    const unshift = (d: Date) => new Date(d.getTime() - offsetHours * 3600000);
+    const raw = points.map(p => ({ ...p, time: unshift(p.time) }));
+    const bytes = exportDtb(toTelemetryPoints(raw), session.samplingRate, raw[0].time);
     const blob = new Blob([bytes as unknown as BlobPart], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${baseName}${tzSuffix}.dtb`;
+    a.download = `${baseName}.dtb`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -299,11 +304,11 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
                     <Download size={13} /> NMEA
                   </button>
                   <button disabled={disabled} className={btnCls} data-testid="convert-gpx"
-                    onClick={() => save('gpx', convertToGpx(points, baseName), 'application/gpx+xml')}>
+                    onClick={() => save('gpx', convertToGpx(points, baseName, offsetHours), 'application/gpx+xml')}>
                     <Download size={13} /> GPX
                   </button>
                   <button disabled={disabled} className={btnCls} data-testid="convert-csv"
-                    onClick={() => save('csv', convertToCsv(points), 'text/csv')}>
+                    onClick={() => save('csv', convertToCsv(points, offsetHours), 'text/csv')}>
                     <Download size={13} /> CSV
                   </button>
                   <button disabled={disabled} className={btnCls} data-testid="convert-txt"
@@ -312,7 +317,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
                     <Download size={13} /> TXT
                   </button>
                   <button disabled={disabled} className={btnCls} data-testid="convert-kml"
-                    onClick={() => save('kml', convertToKml(points, baseName), 'application/vnd.google-earth.kml+xml')}
+                    onClick={() => save('kml', convertToKml(points, baseName, offsetHours), 'application/vnd.google-earth.kml+xml')}
                     title="Google Earth で開ける KML（線の色は車速）">
                     <Download size={13} /> KML
                   </button>
@@ -330,7 +335,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
                 <h3 className="text-xs font-bold text-slate-300 mb-2">解析データ（G などの計算値を含む）</h3>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <button disabled={disabled} className={btnCls} data-testid="convert-dscsv"
-                    onClick={() => triggerFileDownload(`${baseName}${tzSuffix}_telemetry.csv`, exportDigispiceCsv(toTelemetryPoints(points)), 'text/csv;charset=utf-8')}
+                    onClick={() => triggerFileDownload(`${baseName}_telemetry.csv`, exportDigispiceCsv(toTelemetryPoints(points)), 'text/csv;charset=utf-8')}
                     title="デジスパイス公式ソフトと同じ列の CSV（旋回半径・G 付き）">
                     <Download size={13} /> 走行データCSV
                   </button>

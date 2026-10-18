@@ -122,14 +122,14 @@ const escapeXml = (v: string): string =>
 /**
  * GPX 1.1。速度 (m/s) と方位は Garmin の TrackPointExtension v2 として付ける
  */
-export function convertToGpx(points: ConvertedPoint[], trackName: string): string {
+export function convertToGpx(points: ConvertedPoint[], trackName: string, offsetHours = 0): string {
   const name = escapeXml(trackName);
   const body = points
     .map(p => {
       const sat = p.satellites != null ? `\n        <sat>${p.satellites}</sat>` : '';
       const ele = p.altitude != null ? `\n        <ele>${p.altitude.toFixed(1)}</ele>` : '';
       return `      <trkpt lat="${p.latitude.toFixed(7)}" lon="${p.longitude.toFixed(7)}">${ele}
-        <time>${p.time.toISOString()}</time>${sat}
+        <time>${formatAdjustedIso(p.time, offsetHours)}</time>${sat}
         <extensions>
           <gpxtpx:TrackPointExtension>
             <gpxtpx:speed>${(p.speed / 3.6).toFixed(2)}</gpxtpx:speed>
@@ -162,7 +162,7 @@ const KML_SPEED_COLORS = ['ffff4d2e', 'ffffc22e', 'ff3ecf4c', 'ff2ee6f2', 'ff1f8
  * Google Earth 用の KML。車速を 6 段に分け、同じ段の続く区間ごとに色を付けた線にする。
  * 線は地面に沿わせる (標高は使わない)。始まりと終わりに印を置く
  */
-export function convertToKml(points: ConvertedPoint[], title: string): string {
+export function convertToKml(points: ConvertedPoint[], title: string, offsetHours = 0): string {
   const name = escapeXml(title);
   // 点の多いログで引数の上限を超えないよう、Math.min(...) は使わない
   let min = Infinity;
@@ -195,7 +195,7 @@ export function convertToKml(points: ConvertedPoint[], title: string): string {
   }
   const mark = (label: string, p: ConvertedPoint) => `    <Placemark>
       <name>${label}</name>
-      <TimeStamp><when>${p.time.toISOString()}</when></TimeStamp>
+      <TimeStamp><when>${formatAdjustedIso(p.time, offsetHours)}</when></TimeStamp>
       <Point><coordinates>${coord(p)}</coordinates></Point>
     </Placemark>`;
   const first = points[0];
@@ -223,6 +223,17 @@ export function formatAdjustedTime(d: Date, sep = ' '): string {
   return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}${sep}${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}.${p(d.getUTCMilliseconds(), 3)}`;
 }
 
+/**
+ * 時差を調整した時刻を ISO 8601 で、時差を付けて書く (調整しないときは Z、+9 時間なら +09:00)。
+ * 調整後の時刻に UTC の印 (Z) を付けると、その時刻を UTC と読まれて時差の分ずれる
+ */
+export function formatAdjustedIso(d: Date, offsetHours: number): string {
+  if (offsetHours === 0) return d.toISOString();
+  const sign = offsetHours < 0 ? '-' : '+';
+  const abs = Math.abs(offsetHours);
+  return `${formatAdjustedTime(d, 'T')}${sign}${String(Math.floor(abs)).padStart(2, '0')}:${String(Math.round((abs % 1) * 60)).padStart(2, '0')}`;
+}
+
 /** 空白区切りのテキスト (ds4_convert の RAW GPS TXT と同じ形) */
 export function convertToTxt(points: ConvertedPoint[]): string {
   const lines = ['Timestamp Latitude Longitude Speed(km/h) Heading(deg)'];
@@ -235,11 +246,12 @@ export function convertToTxt(points: ConvertedPoint[]): string {
 /**
  * 汎用 CSV (1 行 1 点)
  */
-export function convertToCsv(points: ConvertedPoint[]): string {
-  const rows = ['time_utc,elapsed_s,latitude,longitude,altitude_m,speed_kmh,heading_deg,satellites,distance_km'];
+export function convertToCsv(points: ConvertedPoint[], offsetHours = 0): string {
+  // 時差を調整したときは、列の名前を time にして、時刻に時差を付ける
+  const rows = [`${offsetHours === 0 ? 'time_utc' : 'time'},elapsed_s,latitude,longitude,altitude_m,speed_kmh,heading_deg,satellites,distance_km`];
   for (const p of points) {
     rows.push([
-      p.time.toISOString(),
+      formatAdjustedIso(p.time, offsetHours),
       p.elapsed.toFixed(3),
       p.latitude.toFixed(7),
       p.longitude.toFixed(7),
