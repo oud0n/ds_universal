@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Flag, RotateCcw } from 'lucide-react';
 import { Session } from '../types/telemetry';
-import { useT } from '../utils/i18n';
+import { useLang, useT } from '../utils/i18n';
 
 interface TrimPreviewProps {
   session: Session;
@@ -28,6 +28,7 @@ const pad2 = (n: number) => String(n).padStart(2, '0');
  */
 export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, endSec, onChange, onReset, offsetHours }) => {
   const t = useT();
+  const lang = useLang();
   const pts = session.points;
   const t0 = pts[0]?.time ?? 0;
   const duration = pts.length > 0 ? pts[pts.length - 1].time - t0 : 0;
@@ -157,7 +158,7 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
     // 最後のラップの終わりも選べるようにする
     if (last) marks.push({ sec: last.endTime - t0, label: t('終', 'End'), end: true });
     return marks.filter(m => m.sec >= 0 && m.sec <= duration);
-  }, [session.laps, t0, duration, t]);
+  }, [session.laps, t0, duration, lang]);
 
   const secFromPointer = (e: React.PointerEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
