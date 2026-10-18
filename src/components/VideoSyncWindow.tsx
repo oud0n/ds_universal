@@ -266,7 +266,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // sub の動画がないとき (1 本だけのとき・sub を消したとき) は、選んでいた表示に関係なく 1 画面で出す。
   // 切り替えのボタンは 2 本以上のときだけ出すので、2画面のまま残ると空いた枠を消せなかった (BUG-22)。
   // 選んでいた表示は覚えておき、sub の動画が戻ったらその表示に戻す
-  const viewMode: VideoViewMode = subTrack ? storedViewMode : 'single';
+  // 書き出しの間は表示を変えない (動画の要素が作り直されると、書き出しが古い要素を使い続けるため)
+  const shownViewModeRef = useRef<VideoViewMode>(subTrack ? storedViewMode : 'single');
+  if (!isAnyExporting) shownViewModeRef.current = subTrack ? storedViewMode : 'single';
+  const viewMode = shownViewModeRef.current;
   // グラフ解析に埋め込んだときは、タイムゾーン・再同期の段とタイムラインを、ボタンで開くまで隠す。
   // 狭い枠ではこれらの段が場所を使い切り、動画の映る部分の高さが 0 になっていた (BUG-19)。同期の調整は動画同期の画面でもできる
   const [showSyncTools, setShowSyncTools] = useState(!isGraphEmbedded);
@@ -648,6 +651,21 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             車載動画同期
           </span>
 
+          {/* グラフ解析に埋め込んだときだけ: タイムゾーン・再同期の段とタイムラインを開く / 閉じる。
+              狭い枠で右側が切れても押せるよう、いちばん左に置く */}
+          {isGraphEmbedded && activeTrack && (
+            <button
+              onClick={() => setShowSyncTools(v => !v)}
+              aria-pressed={showSyncTools}
+              title="動画のタイムゾーン・再同期の段とタイムラインを出す / 隠す"
+              className={`flex items-center gap-1 shrink-0 whitespace-nowrap px-2 py-1 rounded text-xs border transition-colors cursor-pointer ${
+                showSyncTools ? 'bg-slate-700 border-slate-500 text-slate-100' : 'bg-surface-3 hover:bg-surface-5 border-line-3 text-slate-300'
+              }`}
+            >
+              同期の調整
+            </button>
+          )}
+
           {/* 速度ウィンドウ連携バッジ (フラット) */}
           {baseSession && (
             <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/80 border border-emerald-800 px-2 py-0.5 rounded flex items-center gap-1 shrink-0" title="速度ウィンドウ同期中">
@@ -764,19 +782,6 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
         {/* 右側アクション群 (ピン留め・MP4エクスポート・プロジェクト保存) */}
         <div className="flex items-center gap-1.5">
-          {/* グラフ解析に埋め込んだときだけ: タイムゾーン・再同期の段とタイムラインを開く / 閉じる */}
-          {isGraphEmbedded && activeTrack && (
-            <button
-              onClick={() => setShowSyncTools(v => !v)}
-              aria-pressed={showSyncTools}
-              title="動画のタイムゾーン・再同期の段とタイムラインを出す / 隠す"
-              className={`flex items-center gap-1 shrink-0 whitespace-nowrap px-2 py-1 rounded text-xs border transition-colors cursor-pointer ${
-                showSyncTools ? 'bg-slate-700 border-slate-500 text-slate-100' : 'bg-surface-3 hover:bg-surface-5 border-line-3 text-slate-300'
-              }`}
-            >
-              同期の調整
-            </button>
-          )}
           {/* 手動キーフレーム同期 (ピン留め) ボタン */}
           {activeTrack && (
             <button
@@ -831,7 +836,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       </div>
 
       {/* 2. タイムゾーン設定 & 再同期専用バー (フラットデザイン) */}
-      {activeTrack && showSyncTools && (
+      {/* 動画の時刻が大きくずれている (タイムゾーンの違いなど) ときは、直すボタンが見えるよう閉じていても出す */}
+      {activeTrack && (showSyncTools || isLargeOffset) && (
         <div className="bg-surface-1 border-b border-line-1 px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0 select-none">
           <div className="flex flex-wrap items-center gap-2.5">
             {/* 動画タイムゾーン選択 */}
