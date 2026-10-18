@@ -570,3 +570,38 @@ class VideoSyncManager {
 }
 
 export const videoSyncManager = new VideoSyncManager();
+
+/**
+ * ログの先頭の本当の時刻 (UTC、ミリ秒)。ログの時計の補正 (clockOffsetSec) を引いたもの。時刻のないログは null。
+ * 動画とログ、ログどうしの時刻の換算はすべてこれを通す (ロガーごとの時計のずれを 1 か所で直すため)
+ */
+export function sessionStartUtcMs(session: Session | null | undefined): number | null {
+  const ts = session?.points[0]?.timestamp;
+  if (!ts) return null;
+  const ms = Date.parse(ts);
+  return Number.isFinite(ms) ? ms - (session!.clockOffsetSec ?? 0) * 1000 : null;
+}
+
+/**
+ * 動画の先頭のコマの本当の時刻 (UTC、ミリ秒)。照合したログがあれば「そのログの先頭 + ずれ」、
+ * なければ撮影日時 (動画の時差の設定で UTC に直したもの)。どちらもなければ null
+ */
+export function trackStartUtcMs(track: VideoTrack, sessions: Session[]): number | null {
+  const matched = sessions.find(s => s.id === track.matchedSessionId);
+  const start = sessionStartUtcMs(matched);
+  if (start !== null) return start + track.syncOffsetSec * 1000;
+  if (!track.rawRecordedAt) return null;
+  return track.rawRecordedAt.getTime() - getTimezoneOffsetMs(track.videoTimezone || 'JST');
+}
+
+/**
+ * 動画の、あるログの時刻での位置 (ずれ、秒)。動画の本当の時刻とログの先頭の本当の時刻の差。
+ * 動画が別のログに照合されていても (サブの動画など)、本当の時刻で換算するので、撮影時刻の違う動画が引っ張られない (BUG-21)。
+ * 換算できないとき (時刻のないログ・動画) は、照合したログの中のずれをそのまま返す
+ */
+export function trackOffsetInSession(track: VideoTrack, session: Session | null | undefined, sessions: Session[]): number {
+  if (!session || track.matchedSessionId === session.id) return track.syncOffsetSec;
+  const v = trackStartUtcMs(track, sessions);
+  const s = sessionStartUtcMs(session);
+  return v !== null && s !== null ? Number(((v - s) / 1000).toFixed(3)) : track.syncOffsetSec;
+}

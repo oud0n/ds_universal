@@ -102,6 +102,9 @@ export interface Session {
   // コース図の出どころ。auto: アプリが自動で取得したもの (読み込み済みのユーザーコース・OpenStreetMap)、manual: 利用者が .pth を読み込んだもの。
   // コースデータを一括設置したとき、auto のコース図だけを読み込んだコース図に置き換える
   pathPolylinesSource?: PolylineSource;
+  // このログの時計の補正 (秒)。ログの時刻からこれを引くと本当の時刻 (UTC) になる。ロガーごとの GPS の受信・記録の遅れや、
+  // 時差の分からないログの補正に使う (BUG-08)。動画との同期・別のログとの時刻の換算に効く。既定 0
+  clockOffsetSec?: number;
 }
 
 export type PolylineSource = 'auto' | 'manual';
