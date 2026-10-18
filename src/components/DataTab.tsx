@@ -19,6 +19,7 @@ import {
 import { formatMinSec } from '../utils/timeFormat';
 import { useCompactLayout } from '../hooks/useCompactLayout';
 import { GFilterLevel } from '../services/physics';
+import { circuitLabel, useLang, useT } from '../utils/i18n';
 
 interface DataTabProps {
   sessions: Session[];
@@ -72,6 +73,8 @@ export const DataTab: React.FC<DataTabProps> = ({
 }) => {
   // スマートフォン向けの配置では、ラップ一覧を表でなく 1 周ずつのカードで出す
   const compact = useCompactLayout();
+  const t = useT();
+  const lang = useLang();
   // スマートフォンでは、コースの設定はたたんでおき、見出しをタップして開く (ラップ一覧を先に見せる)
   const [courseOpen, setCourseOpen] = useState(false);
   const showCourseTools = !compact || courseOpen;
@@ -82,10 +85,10 @@ export const DataTab: React.FC<DataTabProps> = ({
   };
 
   const slotColors = [
-    { slot: 0, label: 'Car 1 (基準車: 赤)', hex: '#ef4444', bg: 'bg-red-600' },
-    { slot: 1, label: 'Car 2 (青)', hex: '#3b82f6', bg: 'bg-blue-600' },
-    { slot: 2, label: 'Car 3 (緑)', hex: '#10b981', bg: 'bg-emerald-600' },
-    { slot: 3, label: 'Car 4 (橙)', hex: '#f59e0b', bg: 'bg-amber-500' }
+    { slot: 0, label: t('Car 1 (基準車: 赤)', 'Car 1 (reference: red)'), hex: '#ef4444', bg: 'bg-red-600' },
+    { slot: 1, label: t('Car 2 (青)', 'Car 2 (blue)'), hex: '#3b82f6', bg: 'bg-blue-600' },
+    { slot: 2, label: t('Car 3 (緑)', 'Car 3 (green)'), hex: '#10b981', bg: 'bg-emerald-600' },
+    { slot: 3, label: t('Car 4 (橙)', 'Car 4 (orange)'), hex: '#f59e0b', bg: 'bg-amber-500' }
   ];
 
   return (
@@ -101,8 +104,8 @@ export const DataTab: React.FC<DataTabProps> = ({
             <MapPin size={22} />
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="text-sm font-bold text-slate-100">コース / コントロールライン設定</h2>
-            <p className="text-xs text-slate-400">全国主要サーキットのプリセット、または独自コースの定義</p>
+            <h2 className="text-sm font-bold text-slate-100">{t('コース / コントロールライン設定', 'Course / timing line')}</h2>
+            <p className="text-xs text-slate-400">{t('全国主要サーキットのプリセット、または独自コースの定義', 'Presets for major circuits in Japan, or your own course definition')}</p>
           </div>
           {compact && <span className="text-slate-400 text-lg">{courseOpen ? '−' : '+'}</span>}
         </div>
@@ -113,10 +116,10 @@ export const DataTab: React.FC<DataTabProps> = ({
             onChange={e => onSelectCircuitPreset(e.target.value)}
             className="bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg px-3 py-2 outline-none focus:border-red-500 transition-colors"
           >
-            <option value="">-- サーキットプリセット選択 --</option>
+            <option value="">{t('-- サーキットプリセット選択 --', '-- Select a circuit preset --')}</option>
             {CIRCUIT_PRESETS.map(c => (
               <option key={c.id} value={c.id}>
-                {c.name}
+                {circuitLabel(c.name, lang)}
               </option>
             ))}
           </select>
@@ -126,10 +129,10 @@ export const DataTab: React.FC<DataTabProps> = ({
             <button
               onClick={onLoadCircuitFolder}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700/80 hover:bg-emerald-600 text-xs text-white font-medium transition-colors shadow"
-              title="公式アプリや自前の Circuit/ControlLine フォルダを選択して一括登録"
+              title={t('公式アプリや自前の Circuit/ControlLine フォルダを選択して一括登録', 'Select a Circuit/ControlLine folder (from the official app or your own) to install every course in it')}
             >
               <FolderOpen size={13} />
-              コースフォルダ一括設置
+              {t('コースフォルダ一括設置', 'Install course folder')}
               {userCircuitCount > 0 && (
                 <span className="bg-emerald-900 text-emerald-200 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
                   {userCircuitCount}
@@ -144,7 +147,7 @@ export const DataTab: React.FC<DataTabProps> = ({
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
           >
             <Layers size={13} />
-            コース図 (.pth)
+            {t('コース図 (.pth)', 'Track map (.pth)')}
           </button>
 
           {/* コントロールライン読込 */}
@@ -153,7 +156,7 @@ export const DataTab: React.FC<DataTabProps> = ({
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
           >
             <FileText size={13} />
-            計測線 (.cln)
+            {t('計測線 (.cln)', 'Timing line (.cln)')}
           </button>
 
           {/* コース編集モーダルを開く */}
@@ -162,7 +165,7 @@ export const DataTab: React.FC<DataTabProps> = ({
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-xs text-white font-medium transition-colors"
           >
             <Edit3 size={13} />
-            コース編集
+            {t('コース編集', 'Course editor')}
           </button>
         </div>
       </div>
@@ -170,9 +173,9 @@ export const DataTab: React.FC<DataTabProps> = ({
       {/* 比較スロット (Car 1〜4) の選択状態バー */}
       <div className="bg-surface-2 border border-line-2 rounded-xl p-3 shadow-md">
         <div className="text-xs font-bold text-slate-300 mb-2 flex items-center justify-between">
-          <span>比較スロット割り当て (最大4台 同時比較)</span>
+          <span>{t('比較スロット割り当て (最大4台 同時比較)', 'Comparison slots (up to 4 cars)')}</span>
           <span className="text-[11px] text-slate-400 font-normal">
-            下のラップ表のボタンをクリックして割り当ててください
+            {t('下のラップ表のボタンをクリックして割り当ててください', 'Assign laps with the buttons in the lap tables below')}
           </span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
@@ -189,15 +192,15 @@ export const DataTab: React.FC<DataTabProps> = ({
                   <div>
                     <div className="text-xs font-bold text-slate-200">{slot.label}</div>
                     <div className="text-[11px] text-slate-400 font-mono">
-                      {assigned ? assigned.label : '未割り当て'}
+                      {assigned ? assigned.label : t('未割り当て', 'Not assigned')}
                     </div>
                     {/* 比較車両の距離の手動補正 (基準車は補正しない) */}
                     {assigned && slot.slot !== baseSlot && (
                       <div
                         className="mt-1 flex items-center gap-1 text-[11px] text-slate-400"
-                        title="重ねたときの前後のずれを補正します。+ で基準車より前（グラフの右）へずらします。Shift を押しながらクリックで 10 m 単位"
+                        title={t('重ねたときの前後のずれを補正します。+ で基準車より前（グラフの右）へずらします。Shift を押しながらクリックで 10 m 単位', 'Corrects the along-track offset when overlaying. + moves this car ahead of the reference car (to the right on the graph). Shift-click for 10 m steps')}
                       >
-                        <span>距離補正</span>
+                        <span>{t('距離補正', 'Offset')}</span>
                         <button
                           onClick={e => onSetDistanceOffset(slot.slot, (assigned.distanceOffsetM || 0) - (e.shiftKey ? 10 : 1))}
                           className="px-1.5 rounded border border-line-3 hover:text-slate-200"
@@ -228,11 +231,11 @@ export const DataTab: React.FC<DataTabProps> = ({
                 {assigned && (
                   <button
                     onClick={() => onClearCarSlot(slot.slot)}
-                    title={`${slot.label} の割り当てを解除`}
+                    title={t(`${slot.label} の割り当てを解除`, `Unassign ${slot.label}`)}
                     className="self-start flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-line-3 text-[11px] text-slate-400 hover:text-slate-100 hover:border-slate-500 transition-colors"
                   >
                     <X size={11} />
-                    解除
+                    {t('解除', 'Clear')}
                   </button>
                 )}
               </div>
@@ -241,19 +244,19 @@ export const DataTab: React.FC<DataTabProps> = ({
         </div>
         <label
           className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer w-fit"
-          title="ロガーごとの 1 周の距離の差（1〜2% 程度）を、比較車両のラップを伸縮して基準車の 1 周の長さに合わせて吸収します。計測線から計測線までの 1 周どうしのときだけ効きます"
+          title={t('ロガーごとの 1 周の距離の差（1〜2% 程度）を、比較車両のラップを伸縮して基準車の 1 周の長さに合わせて吸収します。計測線から計測線までの 1 周どうしのときだけ効きます', 'Absorbs the difference in lap distance between loggers (about 1–2%) by stretching the compared laps to the reference lap length. Only works between full laps from timing line to timing line')}
         >
           <input type="checkbox" checked={alignLapLength} onChange={e => onSetAlignLapLength(e.target.checked)} />
-          1 周の長さを基準車にそろえる
+          {t('1 周の長さを基準車にそろえる', 'Match lap length to the reference car')}
         </label>
       </div>
 
       {/* 解析の設定 */}
       <div className={`bg-surface-2 border border-line-2 rounded-xl shadow-md space-y-2 ${compact ? 'p-3' : 'p-4'}`}>
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs font-bold text-slate-300">G のならし方</span>
-          <div className="flex bg-surface-1 rounded p-0.5 border border-line-3" role="radiogroup" aria-label="G のならし方">
-            {([['weak', '弱'], ['standard', '標準（推奨）'], ['strong', '強']] as const).map(([value, label]) => (
+          <span className="text-xs font-bold text-slate-300">{t('G のならし方', 'G smoothing')}</span>
+          <div className="flex bg-surface-1 rounded p-0.5 border border-line-3" role="radiogroup" aria-label={t('G のならし方', 'G smoothing')}>
+            {([['weak', t('弱', 'Light')], ['standard', t('標準（推奨）', 'Standard (recommended)')], ['strong', t('強', 'Strong')]] as const).map(([value, label]) => (
               <button
                 key={value}
                 role="radio"
@@ -269,10 +272,8 @@ export const DataTab: React.FC<DataTabProps> = ({
           </div>
         </div>
         <p className="text-[11px] text-slate-400 leading-relaxed">
-          G（加減速 G・横 G・合算 G）と旋回半径は、GPS の位置と車速の変化からアプリが計算しています（ロガーが G を測っているわけではありません）。
-          GPS の位置はわずかに揺れるので、計算した G も細かく揺れます。「ならし方」は、その揺れをどれだけ平らにするかの設定です。
-          強くするほど速度グラフの G 表示やフリクションサークルが落ち着きますが、急な変化（ブレーキの踏み始めなど）は鈍く、小さく出ます。
-          「標準」は記録レートに合わせてならし方を変えます。読み込み済みのログにもすぐ反映され、変換画面で書き出す「走行データCSV」・DTB の G もこの値になります。元のログファイルは変わりません。
+          {t('G（加減速 G・横 G・合算 G）と旋回半径は、GPS の位置と車速の変化からアプリが計算しています（ロガーが G を測っているわけではありません）。 GPS の位置はわずかに揺れるので、計算した G も細かく揺れます。「ならし方」は、その揺れをどれだけ平らにするかの設定です。 強くするほど速度グラフの G 表示やフリクションサークルが落ち着きますが、急な変化（ブレーキの踏み始めなど）は鈍く、小さく出ます。 「標準」は記録レートに合わせてならし方を変えます。読み込み済みのログにもすぐ反映され、変換画面で書き出す「走行データCSV」・DTB の G もこの値になります。元のログファイルは変わりません。',
+            'G (longitudinal, lateral and combined) and the turning radius are calculated by the app from changes in GPS position and speed (the logger does not measure G). GPS positions jitter slightly, so the calculated G jitters too. "Smoothing" sets how much of that jitter is flattened. Stronger smoothing calms the G display on the speed graph and the friction circle, but sudden changes (such as the start of braking) appear slower and smaller. "Standard" adapts to the logging rate. Changes apply immediately to loaded logs and to the G in the telemetry CSV and DTB exported on the convert page. The original log files are not changed.')}
         </p>
       </div>
 
@@ -286,9 +287,9 @@ export const DataTab: React.FC<DataTabProps> = ({
           className="w-full bg-surface-2 border border-line-2 rounded-xl p-12 text-center text-slate-400 transition-colors hover:border-red-500/60 hover:bg-surface-3 cursor-pointer disabled:cursor-default"
         >
           <FileText size={48} className="mx-auto mb-3 text-slate-600" />
-          <p className="text-sm font-medium">走行データが読み込まれていません</p>
+          <p className="text-sm font-medium">{t('走行データが読み込まれていません', 'No driving data loaded')}</p>
           <p className="text-xs text-slate-500 mt-1">
-            ここをタップ（クリック）するか、上部の「ファイル読込」から、デジスパイス生ログ (.bnx4, .binx) や .dtb, .csv, .nmea などのログファイルを開いてください。
+            {t('ここをタップ（クリック）するか、上部の「ファイル読込」から、デジスパイス生ログ (.bnx4, .binx) や .dtb, .csv, .nmea などのログファイルを開いてください。', 'Tap (click) here or use "Open file" at the top to open a log file such as a DigSpice raw log (.bnx4, .binx), .dtb, .csv or .nmea.')}
           </p>
         </button>
       ) : (
@@ -305,13 +306,13 @@ export const DataTab: React.FC<DataTabProps> = ({
                   value={session.sessionName}
                   onChange={e => onEditSessionName(session.id, e.target.value)}
                   className={`bg-surface-1 border border-line-3 text-sm font-bold text-slate-100 rounded px-2.5 py-1 focus:border-red-500 outline-none min-w-0 ${compact ? 'w-full' : ''}`}
-                  title="クリックして名前を変更"
+                  title={t('クリックして名前を変更', 'Click to rename')}
                 />
                 <span className="text-xs bg-surface-4 text-slate-300 px-2.5 py-0.5 rounded font-mono">
-                  {session.circuitName || '一般コース'}
+                  {session.circuitName ? circuitLabel(session.circuitName, lang) : t('一般コース', 'Unknown course')}
                 </span>
                 <span className="text-xs text-slate-400 font-mono">
-                  {session.samplingRate}Hz | 計{session.laps.length}周 | {session.totalDistance.toFixed(2)}km
+                  {session.samplingRate}Hz | {t(`計${session.laps.length}周`, `${session.laps.length} laps`)} | {session.totalDistance.toFixed(2)}km
                 </span>
               </div>
 
@@ -319,16 +320,16 @@ export const DataTab: React.FC<DataTabProps> = ({
               <div className="flex items-center gap-1.5 flex-wrap">
                 <button
                   onClick={() => onOpenInConvert(session.id)}
-                  title="このログを変換画面で開き、NMEA・GPX・CSV・.dtb などに書き出す"
+                  title={t('このログを変換画面で開き、NMEA・GPX・CSV・.dtb などに書き出す', 'Open this log on the convert page to export it to NMEA, GPX, CSV, .dtb and more')}
                   data-testid="open-in-convert"
                   className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
                 >
                   <Repeat size={12} />
-                  変換画面で開く
+                  {t('変換画面で開く', 'Open in converter')}
                 </button>
                 <button
                   onClick={() => onRemoveSession(session.id)}
-                  title="セッションを削除"
+                  title={t('セッションを削除', 'Delete session')}
                   className="p-1.5 rounded hover:bg-red-900/40 text-slate-400 hover:text-red-400 transition-colors"
                 >
                   <Trash2 size={15} />
@@ -340,15 +341,15 @@ export const DataTab: React.FC<DataTabProps> = ({
             {(!session.controlLine || session.laps.some(l => l.isWholeSession)) && (
               <div className="px-4 py-2 text-xs text-amber-300 bg-amber-500/10 border-b border-amber-500/30">
                 {session.controlLine
-                  ? '計測線を 2 回以上通過していないため、周回を区切れていません。計測線の位置が合っているか確認してください。'
-                  : '計測線が未設定のため、周回を区切れません。'}
-                「コースフォルダ一括設置」でコースデータを読み込むか、「コース編集」で計測線を設定してください。
+                  ? t('計測線を 2 回以上通過していないため、周回を区切れていません。計測線の位置が合っているか確認してください。', 'The timing line was not crossed twice or more, so laps could not be split. Check that the timing line is in the right place.')
+                  : t('計測線が未設定のため、周回を区切れません。', 'No timing line is set, so laps cannot be split.')}
+                {t('「コースフォルダ一括設置」でコースデータを読み込むか、「コース編集」で計測線を設定してください。', ' Load course data with "Install course folder", or set a timing line in "Course editor".')}
               </div>
             )}
 
             {session.laps.some(l => l.isPartialLap) && (
               <div className="px-4 py-2 text-xs text-amber-300 bg-amber-500/10 border-b border-amber-500/30">
-                計測線の通過が 1 回のため、通過した点から末尾までを 1 周（途中まで）として扱っています。計測線より前の部分は使っていません。
+                {t('計測線の通過が 1 回のため、通過した点から末尾までを 1 周（途中まで）として扱っています。計測線より前の部分は使っていません。', 'The timing line was crossed only once, so the part from that crossing to the end is treated as one (partial) lap. The part before the timing line is not used.')}
               </div>
             )}
 
@@ -368,17 +369,17 @@ export const DataTab: React.FC<DataTabProps> = ({
                   <thead className="bg-surface-1 text-slate-400 font-mono uppercase text-[11px] border-b border-line-2">
                     <tr>
                       <th className="py-2 px-3">Lap</th>
-                      <th className="py-2 px-3">ラップタイム</th>
-                      <th className="py-2 px-3">最高速</th>
-                      <th className="py-2 px-3">最低速</th>
-                      <th className="py-2 px-3">平均速度</th>
-                      <th className="py-2 px-3">距離</th>
+                      <th className="py-2 px-3">{t('ラップタイム', 'Lap time')}</th>
+                      <th className="py-2 px-3">{t('最高速', 'Top speed')}</th>
+                      <th className="py-2 px-3">{t('最低速', 'Min speed')}</th>
+                      <th className="py-2 px-3">{t('平均速度', 'Avg speed')}</th>
+                      <th className="py-2 px-3">{t('距離', 'Distance')}</th>
                       {session.sectors.map(sec => (
                         <th key={sec.id} className="py-2 px-3 text-amber-400">
                           {sec.name}
                         </th>
                       ))}
-                      <th className="py-2 px-3 text-center">スロット選択</th>
+                      <th className="py-2 px-3 text-center">{t('スロット選択', 'Slot')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line-1 font-mono">
@@ -405,8 +406,8 @@ export const DataTab: React.FC<DataTabProps> = ({
                           >
                             {formatTime(lap.lapTime)}
                             {lap.isPartialLap && (
-                              <span className="ml-1.5 text-[10px] text-amber-300" title="次の計測線の通過までログがないため、実際のラップタイムではありません">
-                                (途中まで)
+                              <span className="ml-1.5 text-[10px] text-amber-300" title={t('次の計測線の通過までログがないため、実際のラップタイムではありません', 'The log ends before the next timing line crossing, so this is not a real lap time')}>
+                                {t('(途中まで)', '(partial)')}
                               </span>
                             )}
                           </td>
@@ -422,7 +423,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                               className={`py-2.5 px-3 ${
                                 secRes.isBest ? 'text-amber-400 font-bold' : secRes.isEstimated ? 'text-slate-500' : 'text-slate-300'
                               }`}
-                              title={secRes.isEstimated ? 'セクター線の通過を検出できなかったため推定値です（セクターベスト・理論ベストには使いません）' : undefined}
+                              title={secRes.isEstimated ? t('セクター線の通過を検出できなかったため推定値です（セクターベスト・理論ベストには使いません）', 'Estimated because the sector line crossing was not detected (not used for sector bests or the theoretical best)') : undefined}
                             >
                               {secRes.isEstimated ? '~' : ''}{secRes.time.toFixed(3)}s
                             </td>
@@ -443,7 +444,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                                   <button
                                     key={slot.slot}
                                     onClick={() => onSelectCarSlot(slot.slot, session.id, lap.lapNumber)}
-                                    title={`${slot.label} に割り当て`}
+                                    title={t(`${slot.label} に割り当て`, `Assign to ${slot.label}`)}
                                     className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold transition-all ${
                                       isCurrentSlot
                                         ? `${slot.bg} text-white shadow`
@@ -467,13 +468,13 @@ export const DataTab: React.FC<DataTabProps> = ({
                       <tr>
                         <td className="py-2 px-3 flex items-center gap-1">
                           <Trophy size={13} className="text-amber-400" />
-                          仮想ベスト
+                          {t('仮想ベスト', 'Theoretical best')}
                         </td>
                         <td className="py-2 px-3 text-amber-400 text-sm">
                           {formatTime(session.theoreticalBestTime)}
                         </td>
                         <td colSpan={4} className="py-2 px-3 text-slate-400 font-normal">
-                          (各セクターのベストタイム合算値)
+                          {t('(各セクターのベストタイム合算値)', '(sum of the best time in each sector)')}
                         </td>
                         {session.sectors.map((sec, sIdx) => {
                           // セクターベストの印 (isBest) が付いた実測値だけを出す
@@ -506,6 +507,7 @@ const LapCards: React.FC<{
   formatTime: (sec: number) => string;
   onSelectCarSlot: (slotIndex: number, sessionId: string, lapNumber: number) => void;
 }> = ({ session, selectedCars, slotColors, formatTime, onSelectCarSlot }) => {
+  const t = useT();
   const bestLap = session.laps[session.bestLapIndex];
   // セクターごとのベスト (実測値のうち isBest が付いたもの)
   const bestSectors = session.sectors.map((_, sIdx) => session.laps.map(l => l.sectors[sIdx]).find(r => r?.isBest)?.time);
@@ -534,7 +536,7 @@ const LapCards: React.FC<{
                   {formatTime(lap.lapTime)}
                 </div>
                 <div className={`font-mono text-[11px] ${isBest ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>
-                  {lap.isPartialLap ? (isBest ? 'BEST（途中まで）' : '途中まで') : isBest ? 'BEST' : bestLap ? delta(lap.lapTime, bestLap.lapTime) : ''}
+                  {lap.isPartialLap ? (isBest ? t('BEST（途中まで）', 'BEST (partial)') : t('途中まで', 'Partial')) : isBest ? 'BEST' : bestLap ? delta(lap.lapTime, bestLap.lapTime) : ''}
                 </div>
               </div>
               <div className="text-right shrink-0">
@@ -550,14 +552,14 @@ const LapCards: React.FC<{
                 {lap.sectors.map((sec, sIdx) => (
                   <div
                     key={sIdx}
-                    title={sec.isEstimated ? 'セクター線の通過を検出できなかったため推定値です（セクターベスト・理論ベストには使いません）' : undefined}
+                    title={sec.isEstimated ? t('セクター線の通過を検出できなかったため推定値です（セクターベスト・理論ベストには使いません）', 'Estimated because the sector line crossing was not detected (not used for sector bests or the theoretical best)') : undefined}
                   >
                     <div className="text-[10px] font-bold text-slate-500">{session.sectors[sIdx]?.name ?? `S${sIdx + 1}`}</div>
                     <div className={`font-mono text-sm leading-tight ${sec.isBest ? 'text-emerald-400' : sec.isEstimated ? 'text-slate-500' : 'text-slate-200'}`}>
                       {sec.isEstimated ? '~' : ''}{sec.time.toFixed(3)}
                     </div>
                     <div className={`font-mono text-[10px] ${sec.isBest ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>
-                      {sec.isBest ? 'BEST' : sec.isEstimated ? '推定' : delta(sec.time, bestSectors[sIdx])}
+                      {sec.isBest ? 'BEST' : sec.isEstimated ? t('推定', 'Est.') : delta(sec.time, bestSectors[sIdx])}
                     </div>
                   </div>
                 ))}
@@ -574,7 +576,7 @@ const LapCards: React.FC<{
                   <button
                     key={slot.slot}
                     onClick={() => onSelectCarSlot(slot.slot, session.id, lap.lapNumber)}
-                    aria-label={`${slot.label} に割り当て`}
+                    aria-label={t(`${slot.label} に割り当て`, `Assign to ${slot.label}`)}
                     className={`w-9 h-8 rounded text-xs font-bold ${
                       isCurrentSlot ? `${slot.bg} text-white shadow` : 'bg-surface-4 text-slate-400'
                     }`}
@@ -590,7 +592,7 @@ const LapCards: React.FC<{
 
       {session.theoreticalBestTime > 0 && session.sectors.length > 0 && (
         <div className="flex items-center justify-between border-t border-line-2 mt-1 pt-3 px-1">
-          <span className="text-xs font-bold text-slate-400 tracking-wider">理論ベスト</span>
+          <span className="text-xs font-bold text-slate-400 tracking-wider">{t('理論ベスト', 'Theoretical best')}</span>
           <span className="font-mono text-lg font-bold text-emerald-400">{formatTime(session.theoreticalBestTime)}</span>
         </div>
       )}

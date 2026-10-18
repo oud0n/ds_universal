@@ -7,6 +7,7 @@ import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
 import { blobByteSource, goproRecording, NoGoproGpsError, parseGoproGps } from './services/gpmfParser';
 import { videoSyncManager } from './services/videoSyncManager';
+import { tr, useT } from './utils/i18n';
 import { inflateXrz, isAimCsv, isXrk, parseAimCsv, parseXrk } from './services/aimFormats';
 import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
 import { parsePth, parseCln } from './services/pthParser';
@@ -70,7 +71,7 @@ const NO_POLYLINES: Array<Array<[number, number]>> = [];
 const CollapseButton: React.FC<{ collapsed: boolean; onClick: () => void }> = ({ collapsed, onClick }) => (
   <button
     onClick={onClick}
-    title={collapsed ? '開く' : 'たたむ'}
+    title={collapsed ? tr('開く', 'Expand') : tr('たたむ', 'Collapse')}
     aria-expanded={!collapsed}
     className="ml-auto shrink-0 p-0.5 rounded text-slate-400 hover:text-slate-200 hover:bg-surface-4 cursor-pointer"
   >
@@ -86,16 +87,18 @@ const SHOW_DRIFT = false;
 
 // スマートフォンのグラフ解析タブで、速度ウインドウの下 (横向きでは右) に切り替えて出すウインドウ
 type MobilePanel = 'map' | 'replay' | 'gg' | 'corner' | 'braking' | 'drift';
-const MOBILE_PANELS: { id: MobilePanel; label: string }[] = [
-  { id: 'map', label: 'コース' },
-  { id: 'replay', label: 'アニメ' },
-  { id: 'gg', label: 'GG' },
-  { id: 'corner', label: 'コーナー' },
-  { id: 'braking', label: 'ブレーキ' },
-  { id: 'drift', label: 'ドリフト' }
-].filter(p => SHOW_DRIFT || p.id !== 'drift') as { id: MobilePanel; label: string }[];
+const MOBILE_PANELS: { id: MobilePanel; label: [string, string] }[] = ([
+  { id: 'map', label: ['コース', 'Map'] },
+  { id: 'replay', label: ['アニメ', 'Anim'] },
+  { id: 'gg', label: ['GG', 'GG'] },
+  { id: 'corner', label: ['コーナー', 'Corners'] },
+  { id: 'braking', label: ['ブレーキ', 'Braking'] },
+  { id: 'drift', label: ['ドリフト', 'Drift'] }
+] as { id: MobilePanel; label: [string, string] }[]).filter(p => SHOW_DRIFT || p.id !== 'drift');
 
 export const App: React.FC = () => {
+  // 画面の文言 (言語を切り替えると描き直す)
+  const T = useT();
   // タブ
   // 公開ページでは URL の末尾 (#convert など) で最初に開くタブを指定できる
   const [currentTab, setCurrentTab] = useState<'graph' | 'data' | 'logger' | 'video' | 'convert'>(() => {
@@ -435,7 +438,7 @@ export const App: React.FC = () => {
       const off = nav.electronAPI.onOpenFiles(async (filePaths: string[]) => {
         for (const fp of filePaths) {
           if (/\.(mp4|mov)$/i.test(fp)) {
-            alert('GoPro の動画は、画面の「ファイル読込」から開いてください');
+            alert(tr('GoPro の動画は、画面の「ファイル読込」から開いてください', 'Open GoPro videos with "Open file" in the app window'));
             continue;
           }
           try {
@@ -445,11 +448,11 @@ export const App: React.FC = () => {
               // 最新のコース設定で読み込む (登録時点の関数を使い続けない)
               await loadFileDataRef.current(res.name, buffer);
             } else {
-              alert(`ファイルの読み込みに失敗しました: ${res.error}`);
+              alert(`${tr('ファイルの読み込みに失敗しました', 'Could not load the file')}: ${res.error}`);
             }
           } catch (err: any) {
             console.error('Electron file open error:', err);
-            alert(`ファイルの読み込みに失敗しました: ${err?.message || err}`);
+            alert(`${tr('ファイルの読み込みに失敗しました', 'Could not load the file')}: ${err?.message || err}`);
           }
         }
       });
@@ -541,7 +544,7 @@ export const App: React.FC = () => {
         try {
           await loadFileData(file.name, await file.arrayBuffer());
         } catch (err: any) {
-          alert(`ファイル ${file.name} の読み込みに失敗しました: ${err.message}`);
+          alert(tr(`ファイル ${file.name} の読み込みに失敗しました: ${err.message}`, `Could not load ${file.name}: ${err.message}`));
         }
         continue;
       }
@@ -554,7 +557,7 @@ export const App: React.FC = () => {
       try {
         await loadGoproVideos(group);
       } catch (err: any) {
-        alert(`ファイル ${group.map(f => f.name).join('・')} の読み込みに失敗しました: ${err.message}`);
+        alert(tr(`ファイル ${group.map(f => f.name).join('・')} の読み込みに失敗しました: ${err.message}`, `Could not load ${group.map(f => f.name).join(', ')}: ${err.message}`));
       }
     }
   };
@@ -616,7 +619,7 @@ export const App: React.FC = () => {
       samplingRate = parsedLog.samplingRate;
       startDate = parsedLog.startDate;
     } else if (!buffer) {
-      throw new Error('ファイルの中身がありません');
+      throw new Error(tr('ファイルの中身がありません', 'The file is empty'));
     } else if (ext === 'dtb') {
       const parsed = parseDtb(buffer);
       rawPoints = parsed.points;
@@ -627,7 +630,7 @@ export const App: React.FC = () => {
     } else if (ext === 'xrk' || ext === 'xrz') {
       // AiM のロガーのファイル (.xrz は圧縮したもの)
       const bytes = await inflateXrz(new Uint8Array(buffer));
-      if (!isXrk(bytes)) throw new Error('AiM の .xrk / .xrz として読めませんでした');
+      if (!isXrk(bytes)) throw new Error(tr('AiM の .xrk / .xrz として読めませんでした', 'Could not read this as an AiM .xrk / .xrz file'));
       const parsed = parseXrk(bytes);
       rawPoints = parsed.points;
       samplingRate = parsed.samplingRate;
@@ -657,7 +660,7 @@ export const App: React.FC = () => {
         // 他社形式の CSV は先頭の書式で判別する
         // MoTeC CSV は単位行などの構造が汎用 CSV と違うため、無効の間は汎用の読み込みに回さず断る
         if (isMotecCsv(text) && !MOTEC_CSV_ENABLED) {
-          throw new Error('MoTeC CSV の読み込みには現在対応していません');
+          throw new Error(tr('MoTeC CSV の読み込みには現在対応していません', 'Loading MoTeC CSV is not supported at the moment'));
         }
         parsed = isRaceChronoCsv(text) ? parseRaceChronoCsv(text)
           : isAimCsv(text) ? parseAimCsv(text)
@@ -668,12 +671,12 @@ export const App: React.FC = () => {
       samplingRate = parsed.samplingRate;
       startDate = parsed.startDate;
     } else {
-      throw new Error(`未対応のファイル形式です: .${ext}`);
+      throw new Error(`${tr('未対応のファイル形式です', 'Unsupported file type')}: .${ext}`);
     }
 
     if (!parts) parts = [{ points: rawPoints, samplingRate, startDate }];
     if (parts.length === 0 || parts.every(p => p.points.length === 0)) {
-      throw new Error('有効なGPS位置データが見つかりませんでした');
+      throw new Error(tr('有効なGPS位置データが見つかりませんでした', 'No valid GPS position data was found'));
     }
 
     const baseName = fileName.replace(/\.[^/.]+$/, '');
@@ -1007,7 +1010,7 @@ export const App: React.FC = () => {
             // 近くのログがなければ、次に読み込む近くのログに付けるよう覚えておく (ログを読み込む前なら画面にもそのまま出す)
             if (ids.length === 0) {
               setCourseHint({ ...courseRef.current, polylines, polylinesSource: 'manual' });
-              if (latestRef.current.sessions.length > 0) alert('このコース図の近くを走ったログがないため、次に読み込む近くのログに使います。');
+              if (latestRef.current.sessions.length > 0) alert(tr('このコース図の近くを走ったログがないため、次に読み込む近くのログに使います。', 'No loaded log runs near this track map, so it will be used for the next log you load nearby.'));
             }
           }
           e.target.value = '';
@@ -1044,13 +1047,16 @@ export const App: React.FC = () => {
           if (files && files.length > 0) {
             const r = await userCircuitStorage.importFiles(files);
             const lines = [
-              r.saved ? 'ユーザーコースデータを登録しました。' : '⚠ ユーザーコースデータを読み込みましたが、保存できませんでした（アプリを閉じると消えます）。',
-              `コース: ${r.circuits} 件（コース図あり ${r.withPolylines} 件 / セクターあり ${r.withSectors} 件）`
+              r.saved
+                ? tr('ユーザーコースデータを登録しました。', 'Course data installed.')
+                : tr('⚠ ユーザーコースデータを読み込みましたが、保存できませんでした（アプリを閉じると消えます）。', '⚠ Course data was loaded but could not be saved (it will be lost when you close the app).'),
+              tr(`コース: ${r.circuits} 件（コース図あり ${r.withPolylines} 件 / セクターあり ${r.withSectors} 件）`,
+                `Courses: ${r.circuits} (${r.withPolylines} with a track map / ${r.withSectors} with sectors)`)
             ];
-            if (r.loosePolylines > 0) lines.push(`コントロールラインと組み合わせられなかったコース図: ${r.loosePolylines} 件（近くの内蔵コースのコース図として使います）`);
-            if (r.unusedSectors.length > 0) lines.push(`どのコースとも組み合わせられなかったセクター: ${r.unusedSectors.length} 件（${r.unusedSectors.slice(0, 5).join(', ')}${r.unusedSectors.length > 5 ? ' ほか' : ''}）`);
-            if (r.failed.length > 0) lines.push(`読み込めなかったファイル: ${r.failed.length} 件（${r.failed.slice(0, 5).map(f => `${f.path}: ${f.reason}`).join(' / ')}${r.failed.length > 5 ? ' ほか' : ''}）`);
-            if (!r.saved && r.saveError) lines.push(`保存できなかった理由: ${r.saveError}`);
+            if (r.loosePolylines > 0) lines.push(tr(`コントロールラインと組み合わせられなかったコース図: ${r.loosePolylines} 件（近くの内蔵コースのコース図として使います）`, `Track maps not matched to a timing line: ${r.loosePolylines} (used as track maps for nearby built-in courses)`));
+            if (r.unusedSectors.length > 0) lines.push(tr(`どのコースとも組み合わせられなかったセクター: ${r.unusedSectors.length} 件（${r.unusedSectors.slice(0, 5).join(', ')}${r.unusedSectors.length > 5 ? ' ほか' : ''}）`, `Sectors not matched to any course: ${r.unusedSectors.length} (${r.unusedSectors.slice(0, 5).join(', ')}${r.unusedSectors.length > 5 ? ' and more' : ''})`));
+            if (r.failed.length > 0) lines.push(tr(`読み込めなかったファイル: ${r.failed.length} 件（${r.failed.slice(0, 5).map(f => `${f.path}: ${f.reason}`).join(' / ')}${r.failed.length > 5 ? ' ほか' : ''}）`, `Files that could not be read: ${r.failed.length} (${r.failed.slice(0, 5).map(f => `${f.path}: ${f.reason}`).join(' / ')}${r.failed.length > 5 ? ' and more' : ''})`));
+            if (!r.saved && r.saveError) lines.push(`${tr('保存できなかった理由', 'Reason it could not be saved')}: ${r.saveError}`);
             alert(lines.join('\n'));
             // 読み込み済みのログにも反映する: 各ログの位置で改めてコースを引き当て、周回を計算し直す
             const matches = new Map(latestRef.current.sessions.map(s => [
@@ -1135,7 +1141,7 @@ export const App: React.FC = () => {
                       mobilePanel === p.id ? 'bg-red-600 text-white' : 'text-slate-400'
                     }`}
                   >
-                    {p.label}
+                    {T(...p.label)}
                   </button>
                 ))}
               </div>
@@ -1195,7 +1201,7 @@ export const App: React.FC = () => {
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    走行アニメーション
+                    {T('走行アニメーション', 'Animation')}
                   </button>
                   <button
                     onClick={() => { setLeftBottomMode('video'); toggleCollapsed('anim', false, 'video'); }}
@@ -1205,7 +1211,7 @@ export const App: React.FC = () => {
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    車載動画 (GoPro/MP4)
+                    {T('車載動画 (GoPro/MP4)', 'Onboard video (GoPro/MP4)')}
                   </button>
                   <CollapseButton collapsed={collapsed.anim} onClick={() => toggleCollapsed('anim')} />
                 </div>
@@ -1250,11 +1256,11 @@ export const App: React.FC = () => {
             {/* 右の列を両方たたんだとき: 細い縦の帯にして、押すと開く */}
             {rightCollapsed && (
               <div className="w-9 shrink-0 ml-2 flex flex-col gap-2">
-                {([['map', '全コース'], ['sub', 'GG・コーナー・ブレーキング']] as const).map(([key, label]) => (
+                {([['map', T('全コース', 'Track map')], ['sub', T('GG・コーナー・ブレーキング', 'GG / corners / braking')]] as const).map(([key, label]) => (
                   <button
                     key={key}
                     onClick={() => toggleCollapsed(key, false)}
-                    title={`${label}を開く`}
+                    title={T(`${label}を開く`, `Open ${label}`)}
                     className="flex-1 flex items-center justify-center rounded border border-line-1 bg-surface-2 hover:bg-surface-4 text-[11px] font-bold text-slate-400 hover:text-slate-200 [writing-mode:vertical-rl] tracking-wider cursor-pointer"
                   >
                     {label}
@@ -1281,7 +1287,7 @@ export const App: React.FC = () => {
                     onClick={() => toggleCollapsed('map', false)}
                     className="px-3 py-0.5 rounded font-bold bg-emerald-600 text-white cursor-pointer"
                   >
-                    全コースウインドウ
+                    {T('全コースウインドウ', 'Track map')}
                   </button>
                   <CollapseButton collapsed={collapsed.map} onClick={() => toggleCollapsed('map')} />
                 </div>
@@ -1316,7 +1322,7 @@ export const App: React.FC = () => {
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    フリクションサークル (GG)
+                    {T('フリクションサークル (GG)', 'Friction circle (GG)')}
                   </button>
                   {SHOW_DRIFT && (
                     <button
@@ -1327,7 +1333,7 @@ export const App: React.FC = () => {
                           : 'text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      ドリフト採点・評価
+                      {T('ドリフト採点・評価', 'Drift scoring')}
                     </button>
                   )}
                   <button
@@ -1338,7 +1344,7 @@ export const App: React.FC = () => {
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    コーナー解析
+                    {T('コーナー解析', 'Corners')}
                   </button>
                   <button
                     onClick={() => { setSubWindowMode('braking'); toggleCollapsed('sub', false); }}
@@ -1348,7 +1354,7 @@ export const App: React.FC = () => {
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    ブレーキング
+                    {T('ブレーキング', 'Braking')}
                   </button>
                   <button
                     onClick={() => { setSubWindowMode('video'); toggleCollapsed('sub', false, 'video'); }}
@@ -1358,7 +1364,7 @@ export const App: React.FC = () => {
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    車載動画同期
+                    {T('車載動画同期', 'Onboard video')}
                   </button>
                   </div>
                   <CollapseButton collapsed={collapsed.sub} onClick={() => toggleCollapsed('sub')} />
@@ -1513,7 +1519,7 @@ export const App: React.FC = () => {
           // アプリに保存して、次から同じ場所のログに使う (閉じても消えない)
           if (remember) {
             userCircuitStorage.saveEditedCircuit(name, cl, sec, baseSession && passesNearControlLine(baseSession.points, cl) ? baseSession.pathPolylines : undefined).then(r => {
-              if (!r.saved) alert(`コースを保存できませんでした (この画面には反映しています): ${r.saveError ?? ''}`);
+              if (!r.saved) alert(`${tr('コースを保存できませんでした (この画面には反映しています)', 'Could not save the course (it is applied on this screen)')}: ${r.saveError ?? ''}`);
               setUserCircuitCount(userCircuitStorage.getCircuitCount());
             });
           }

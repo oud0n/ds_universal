@@ -2,6 +2,7 @@ import { TelemetryPoint, Lap } from '../types/telemetry';
 import { calculatePhysics } from './physics';
 import { splitCsvLine } from './externalFormats';
 import { formatMinSec } from '../utils/timeFormat';
+import { tr } from '../utils/i18n';
 
 /**
  * CSV 文字列を解析して TelemetryPoint 配列に変換
@@ -12,7 +13,7 @@ import { formatMinSec } from '../utils/timeFormat';
 export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingRate: number; startDate?: Date } {
   const lines = csvText.split(/\r?\n/).filter(line => line.trim().length > 0);
   if (lines.length < 2) {
-    throw new Error('CSVデータが空または行数が不足しています');
+    throw new Error(tr('CSVデータが空または行数が不足しています', 'The CSV is empty or has too few rows'));
   }
 
   // ヘッダー行を検出（MoTeCの場合は数行のメタデータがある場合がある）
@@ -83,7 +84,7 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
 
   // 位置がなければ解析できない
   if (colLat === -1 || colLon === -1) {
-    throw new Error('CSV に緯度・経度の列が見つかりません');
+    throw new Error(tr('CSV に緯度・経度の列が見つかりません', 'No latitude / longitude columns were found in the CSV'));
   }
 
   const points: TelemetryPoint[] = [];

@@ -6,6 +6,7 @@ import { CompareAxis, Lap, SelectedCarSlot, Sector } from '../types/telemetry';
 import { calculateDeltaTimes } from '../services/lapCalculator';
 import { findClosestPointByDistance, findClosestPointByTime } from '../utils/telemetrySearch';
 import { prepareCanvas, useDevicePixelRatio } from '../utils/canvasLayer';
+import { tr, useLang, useT } from '../utils/i18n';
 import { ZoomIn, ZoomOut, RotateCcw, Activity, Layers } from 'lucide-react';
 
 interface SpeedGraphWindowProps {
@@ -38,6 +39,9 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
 }) => {
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
+  const t = useT();
+  // 言語を切り替えたら canvas の文字も描き直す
+  const lang = useLang();
   // 解像度の違うディスプレイへ移したら描き直す
   const dpr = useDevicePixelRatio();
   // スマートフォン向けの配置では、ツールバーを 1 行にして横にスクロールさせ、見出しを省く
@@ -168,7 +172,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
       ctx.fillStyle = C.axis;
       ctx.font = '13px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('走行データが選択されていません', width / 2, height / 2);
+      ctx.fillText(tr('走行データが選択されていません', 'No driving data selected'), width / 2, height / 2);
       drawCursor();
       return;
     }
@@ -456,7 +460,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     baseCar,
     theme,
     resizeTick,
-    dpr
+    dpr,
+    lang
   ]);
 
   // クリック・ドラッグでシーク操作
@@ -624,7 +629,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
                 xAxisMode === 'distance' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              {compact ? '距離' : '距離 (km)'}
+              {compact ? t('距離', 'Dist') : t('距離 (km)', 'Distance (km)')}
             </button>
             <button
               onClick={() => setXAxisMode('time')}
@@ -632,7 +637,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
                 xAxisMode === 'time' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              {compact ? '時間' : '時間 (sec)'}
+              {compact ? t('時間', 'Time') : t('時間 (sec)', 'Time (s)')}
             </button>
           </div>
 
@@ -646,22 +651,22 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
                   : 'border-line-4 text-slate-400 hover:text-slate-200'
               }`}
             >
-              {compact ? 'タイム差' : 'タイム差 (Delta)'}
+              {compact ? t('タイム差', 'Delta') : t('タイム差 (Delta)', 'Time delta')}
             </button>
           )}
 
           {/* Gフォースオーバーレイ切替 */}
           <div className="flex items-center gap-1">
-            <span className="text-slate-400 text-[11px] ml-1">{compact ? 'G:' : 'G表示:'}</span>
+            <span className="text-slate-400 text-[11px] ml-1">{compact ? 'G:' : t('G表示:', 'G:')}</span>
             <select
               value={showGOverlay}
               onChange={e => setShowGOverlay(e.target.value as any)}
               className="bg-surface-1 border border-line-3 text-[11px] text-slate-300 rounded px-1.5 py-0.5 outline-none"
             >
               <option value="none">OFF</option>
-              <option value="accel">{compact ? '縦G' : '加減速G (縦G)'}</option>
-              <option value="corner">{compact ? '横G' : '横G (コーナリングG)'}</option>
-              <option value="combined">合算G</option>
+              <option value="accel">{compact ? t('縦G', 'Long.') : t('加減速G (縦G)', 'Longitudinal G')}</option>
+              <option value="corner">{compact ? t('横G', 'Lat.') : t('横G (コーナリングG)', 'Lateral G')}</option>
+              <option value="combined">{t('合算G', 'Combined G')}</option>
             </select>
           </div>
 
@@ -674,7 +679,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
                 : 'border-line-4 text-slate-400 hover:text-slate-200'
             }`}
           >
-            標高
+            {t('標高', 'Altitude')}
           </button>
         </div>
 
@@ -682,21 +687,21 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
         <div className="flex items-center gap-1">
           <button
             onClick={() => handleZoom('in')}
-            title="拡大"
+            title={t('拡大', 'Zoom in')}
             className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
           >
             <ZoomIn size={14} />
           </button>
           <button
             onClick={() => handleZoom('out')}
-            title="縮小"
+            title={t('縮小', 'Zoom out')}
             className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
           >
             <ZoomOut size={14} />
           </button>
           <button
             onClick={handleResetZoom}
-            title="全体表示 (リセット)"
+            title={t('全体表示 (リセット)', 'Show all (reset)')}
             className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
           >
             <RotateCcw size={13} />
@@ -749,7 +754,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
             onPointerMove={handleRulerPointerMove}
             onPointerUp={handleRulerPointerUp}
             onPointerCancel={handleRulerPointerUp}
-            title="ドラッグで表示範囲を移動"
+            title={t('ドラッグで表示範囲を移動', 'Drag to move the visible range')}
             className="relative h-2.5 bg-surface-4 rounded-sm cursor-pointer touch-none"
           >
             <div

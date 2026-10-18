@@ -3,6 +3,7 @@ import { Cpu, RefreshCw, Gauge, Timer, CheckCircle, AlertTriangle } from 'lucide
 import {
   DigSpiceDevice, DeviceConfig, SamplingRateHz, AUTO_LOG_SPEED_MIN, AUTO_LOG_SPEED_MAX
 } from '../services/digspiceDevice';
+import { tr, useT } from '../utils/i18n';
 
 interface LoggerSettingsCardProps {
   device: DigSpiceDevice;
@@ -15,10 +16,10 @@ interface LoggerSettingsCardProps {
 
 type Notice = { type: 'ok' | 'err'; text: string } | null;
 
-const RATE_OPTIONS: Array<{ hz: SamplingRateHz; label: string }> = [
-  { hz: 20, label: '高密度 (50 ms)' },
-  { hz: 10, label: '標準 (100 ms)' },
-  { hz: 5, label: '長時間 (200 ms)' }
+const RATE_OPTIONS: Array<{ hz: SamplingRateHz; label: [string, string] }> = [
+  { hz: 20, label: ['高密度 (50 ms)', 'High detail (50 ms)'] },
+  { hz: 10, label: ['標準 (100 ms)', 'Standard (100 ms)'] },
+  { hz: 5, label: ['長時間 (200 ms)', 'Long duration (200 ms)'] }
 ];
 
 const SPEED_PRESETS = [10, 20, 30];
@@ -39,6 +40,7 @@ const NoticeLine: React.FC<{ notice: Notice }> = ({ notice }) => {
 export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
   device, isConnected, isBusy, config, runBusy, onConfigChange
 }) => {
+  const t = useT();
   const [rateNotice, setRateNotice] = useState<Notice>(null);
   const [speedNotice, setSpeedNotice] = useState<Notice>(null);
   const [infoNotice, setInfoNotice] = useState<Notice>(null);
@@ -70,7 +72,7 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
       onConfigChange(await device.getDeviceConfig());
       setInfoNotice(null);
     } catch (err: any) {
-      setInfoNotice({ type: 'err', text: `設定取得エラー: ${err.message}` });
+      setInfoNotice({ type: 'err', text: `${tr('設定取得エラー', 'Could not read settings')}: ${err.message}` });
     }
   });
 
@@ -79,9 +81,9 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
     try {
       const next = await device.setSamplingRate(hz);
       onConfigChange(next);
-      setRateNotice({ type: 'ok', text: `本体の応答で ${next.samplingRateHz} Hz (${next.fixIntervalMs} ms) への変更を確認しました。` });
+      setRateNotice({ type: 'ok', text: tr(`本体の応答で ${next.samplingRateHz} Hz (${next.fixIntervalMs} ms) への変更を確認しました。`, `The logger confirmed the change to ${next.samplingRateHz} Hz (${next.fixIntervalMs} ms).`) });
     } catch (err: any) {
-      setRateNotice({ type: 'err', text: `レート変更失敗: ${err.message}` });
+      setRateNotice({ type: 'err', text: `${tr('レート変更失敗', 'Could not change the rate')}: ${err.message}` });
       await resyncConfig();
     }
   });
@@ -92,9 +94,9 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
       const confirmed = await device.setAutoLogSpeed(kmh);
       if (config) onConfigChange({ ...config, autoLogSpeedKmh: confirmed });
       else await resyncConfig();
-      setSpeedNotice({ type: 'ok', text: `本体の応答で ${confirmed} km/h への変更を確認しました。` });
+      setSpeedNotice({ type: 'ok', text: tr(`本体の応答で ${confirmed} km/h への変更を確認しました。`, `The logger confirmed the change to ${confirmed} km/h.`) });
     } catch (err: any) {
-      setSpeedNotice({ type: 'err', text: `速度設定失敗: ${err.message}` });
+      setSpeedNotice({ type: 'err', text: `${tr('速度設定失敗', 'Could not set the speed')}: ${err.message}` });
       await resyncConfig();
     }
   });
@@ -102,7 +104,7 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
   const handleCustomSpeed = () => {
     const value = Number(customSpeed);
     if (customSpeed.trim() === '' || !Number.isInteger(value) || value < AUTO_LOG_SPEED_MIN || value > AUTO_LOG_SPEED_MAX) {
-      setSpeedNotice({ type: 'err', text: `${AUTO_LOG_SPEED_MIN}〜${AUTO_LOG_SPEED_MAX} km/h の整数を入力してください。` });
+      setSpeedNotice({ type: 'err', text: tr(`${AUTO_LOG_SPEED_MIN}〜${AUTO_LOG_SPEED_MAX} km/h の整数を入力してください。`, `Enter a whole number from ${AUTO_LOG_SPEED_MIN} to ${AUTO_LOG_SPEED_MAX} km/h.`) });
       return;
     }
     handleSetSpeed(value);
@@ -116,7 +118,7 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
       <div className="flex items-center justify-between border-b border-line-2 pb-3">
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
           <Cpu size={16} className="text-red-500" />
-          ロガー本体設定
+          {t('ロガー本体設定', 'Logger settings')}
         </h3>
         {isConnected && (
           <button
@@ -125,14 +127,14 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
             className="text-slate-400 hover:text-slate-200 text-[11px] flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
           >
             <RefreshCw size={12} className={isBusy ? 'animate-spin' : ''} />
-            本体から再取得
+            {t('本体から再取得', 'Read again from logger')}
           </button>
         )}
       </div>
 
       {!isConnected && (
         <p className="text-xs text-slate-400 leading-relaxed">
-          デジスパイスIV を接続すると、サンプリングレート・ログ記録開始速度などの本体設定を確認・変更できます。
+          {t('デジスパイスIV を接続すると、サンプリングレート・ログ記録開始速度などの本体設定を確認・変更できます。', 'Connect a DigSpice IV to view and change its settings, such as the sampling rate and the logging start speed.')}
         </p>
       )}
 
@@ -141,19 +143,19 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
           {/* システム情報 */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] font-mono">
             <div className="bg-surface-0 p-2.5 rounded-lg border border-line-1">
-              <span className="text-slate-500 block text-[10px]">モデル</span>
+              <span className="text-slate-500 block text-[10px]">{t('モデル', 'Model')}</span>
               <span className="text-slate-200 font-semibold" data-testid="cfg-model">{config?.model || '---'}</span>
             </div>
             <div className="bg-surface-0 p-2.5 rounded-lg border border-line-1">
-              <span className="text-slate-500 block text-[10px]">ファームウェア</span>
+              <span className="text-slate-500 block text-[10px]">{t('ファームウェア', 'Firmware')}</span>
               <span className="text-slate-200 font-semibold" data-testid="cfg-firmware">{config?.firmwareVersion ? `v${config.firmwareVersion}` : '---'}</span>
             </div>
             <div className="bg-surface-0 p-2.5 rounded-lg border border-line-1">
-              <span className="text-slate-500 block text-[10px]">内部ステータスコード</span>
+              <span className="text-slate-500 block text-[10px]">{t('内部ステータスコード', 'Internal status code')}</span>
               <span className="text-slate-200 font-semibold">{config?.statusCode ?? '---'}</span>
             </div>
             <div className="bg-surface-0 p-2.5 rounded-lg border border-line-1">
-              <span className="text-slate-500 block text-[10px]">記録フォーマット / フラッシュ状態</span>
+              <span className="text-slate-500 block text-[10px]">{t('記録フォーマット / フラッシュ状態', 'Log format / flash status')}</span>
               <span className="text-slate-200 font-semibold">
                 {config ? `0x${config.logFormatMaskHex} / 0x${config.flashStatusHex}` : '---'}
               </span>
@@ -167,10 +169,10 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
               <div className="flex items-center justify-between">
                 <label className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
                   <Timer size={13} className="text-amber-500" />
-                  サンプリングレート
+                  {t('サンプリングレート', 'Sampling rate')}
                 </label>
                 <span className="text-[11px] font-mono text-slate-400">
-                  現在: <span className="text-slate-100 font-bold" data-testid="cfg-rate">{currentHz !== null ? `${currentHz} Hz` : '---'}</span>
+                  {t('現在', 'Current')}: <span className="text-slate-100 font-bold" data-testid="cfg-rate">{currentHz !== null ? `${currentHz} Hz` : '---'}</span>
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-2">
@@ -189,13 +191,13 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
                       }`}
                     >
                       {opt.hz} Hz
-                      <span className={`block text-[10px] font-normal ${active ? 'text-white/80' : 'text-slate-500'}`}>{opt.label}</span>
+                      <span className={`block text-[10px] font-normal ${active ? 'text-white/80' : 'text-slate-500'}`}>{t(...opt.label)}</span>
                     </button>
                   );
                 })}
               </div>
               <p className="text-[10px] text-slate-500 leading-relaxed" data-testid="rate-note">
-                公式ソフトでレートを変えたときと同じ命令を送るため、記録する項目などの本体の記録設定も標準の値に書き直されます。
+                {t('公式ソフトでレートを変えたときと同じ命令を送るため、記録する項目などの本体の記録設定も標準の値に書き直されます。', 'This sends the same commands as changing the rate in the official software, so the logger\'s other recording settings (such as which items are logged) are also reset to their standard values.')}
               </p>
               <NoticeLine notice={rateNotice} />
             </div>
@@ -205,10 +207,10 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
               <div className="flex items-center justify-between">
                 <label className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
                   <Gauge size={13} className="text-amber-500" />
-                  ログ記録開始速度 (Auto Log Speed)
+                  {t('ログ記録開始速度 (Auto Log Speed)', 'Logging start speed (Auto Log Speed)')}
                 </label>
                 <span className="text-[11px] font-mono text-slate-400">
-                  現在: <span className="text-slate-100 font-bold" data-testid="cfg-speed">{currentSpeed !== null ? `${currentSpeed} km/h` : '---'}</span>
+                  {t('現在', 'Current')}: <span className="text-slate-100 font-bold" data-testid="cfg-speed">{currentSpeed !== null ? `${currentSpeed} km/h` : '---'}</span>
                 </span>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -240,8 +242,8 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
                     onChange={e => setCustomSpeed(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && !disabled) handleCustomSpeed(); }}
                     disabled={disabled}
-                    placeholder="任意"
-                    aria-label="ログ記録開始速度 (km/h)"
+                    placeholder={t('任意', 'Custom')}
+                    aria-label={t('ログ記録開始速度 (km/h)', 'Logging start speed (km/h)')}
                     className="w-20 bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg p-2 outline-none focus:border-red-500 transition-colors disabled:opacity-40"
                   />
                   <button
@@ -249,7 +251,7 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
                     disabled={disabled}
                     className="py-2 px-3 rounded-lg bg-surface-4 hover:bg-surface-5 text-slate-200 text-xs font-semibold border border-line-4 transition-all cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
                   >
-                    設定
+                    {t('設定', 'Set')}
                   </button>
                 </div>
               </div>

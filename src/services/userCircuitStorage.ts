@@ -9,6 +9,7 @@
 import { ControlLine, Sector, TelemetryPoint } from '../types/telemetry';
 import { parsePth, parseCln } from './pthParser';
 import { countGateCrossings } from './lapCalculator';
+import { tr } from '../utils/i18n';
 
 export interface UserCircuitItem {
   id: string;            // 組み合わせの元になった .cln のパス (フォルダ込み) を小文字にしたもの。コース編集で保存したものは `edited:<コース名>`
@@ -143,7 +144,7 @@ export function parseSci(text: string, idPrefix: string): Sector[] {
     if (Math.abs(latA) > 90 || Math.abs(latB) > 90 || Math.abs(lonA) > 180 || Math.abs(lonB) > 180) continue;
     sectors.push({ id: `${idPrefix}_s${sectors.length + 1}`, name: `S${sectors.length + 1}`, latA, lonA, latB, lonB });
   }
-  if (sectors.length === 0) throw new Error('セクター線が見つかりません');
+  if (sectors.length === 0) throw new Error(tr('セクター線が見つかりません', 'No sector lines were found'));
   return sectors;
 }
 
@@ -167,7 +168,7 @@ export function pairCourseFiles(
       if (ext === 'cln') clns.push({ path: f.path, key, cl: parseCln(f.text, key) });
       else if (ext === 'pth') {
         const polylines = parsePth(f.text);
-        if (polylines.length === 0) throw new Error('コース図の座標が見つかりません');
+        if (polylines.length === 0) throw new Error(tr('コース図の座標が見つかりません', 'No track map coordinates were found'));
         pths.push({ path: f.path, key, polylines });
       } else if (ext === 'sci') scis.push({ path: f.path, key, gates: parseSci(f.text, key) });
     } catch (e) {

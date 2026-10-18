@@ -1,4 +1,5 @@
 import { ControlLine } from '../types/telemetry';
+import { tr } from '../utils/i18n';
 
 /**
  * デジスパイス コース図 (.pth) ファイルをパース
@@ -78,7 +79,7 @@ export function parseCln(clnText: string, name = 'Control Line'): ControlLine {
     .filter(l => l.length > 0);
 
   if (lines.length < 5) {
-    throw new Error('無効な .cln ファイル形式です');
+    throw new Error(tr('無効な .cln ファイル形式です', 'Invalid .cln file'));
   }
 
   // 1行目: ライン数 (通常 1)
@@ -94,7 +95,7 @@ export function parseCln(clnText: string, name = 'Control Line'): ControlLine {
   const inRange = [latA, latB].every(v => Number.isFinite(v) && Math.abs(v) <= 90) &&
     [lonA, lonB].every(v => Number.isFinite(v) && Math.abs(v) <= 180);
   if (!inRange || (latA === latB && lonA === lonB)) {
-    throw new Error('.cln ファイルの座標値が不正です');
+    throw new Error(tr('.cln ファイルの座標値が不正です', 'Invalid coordinates in the .cln file'));
   }
 
   return { name, latA, lonA, latB, lonB };

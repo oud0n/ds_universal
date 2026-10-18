@@ -3,6 +3,7 @@ import { ControlLine, Sector } from '../types/telemetry';
 import { X, Plus, Trash2, Check, MapPin, Upload, Download } from 'lucide-react';
 import { parseCln, exportCln } from '../services/pthParser';
 import { parseSci, exportSci, userCircuitStorage, UserCircuitItem } from '../services/userCircuitStorage';
+import { tr, useT } from '../utils/i18n';
 
 interface CircuitEditorModalProps {
   isOpen: boolean;
@@ -42,7 +43,8 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   onSavedCircuitsChange,
   onSaveCircuit
 }) => {
-  const [name, setName] = useState((currentCircuitName || 'カスタムコース').replace(USER_SUFFIX, ''));
+  const t = useT();
+  const [name, setName] = useState((currentCircuitName || tr('カスタムコース', 'Custom course')).replace(USER_SUFFIX, ''));
   const [remember, setRemember] = useState(true);
   // 計測線がないときに .sci を読み込んだか (保存・書き出しのときに、計測線までのフィニッシュを足す)
   const [needsFinish, setNeedsFinish] = useState(false);
@@ -62,15 +64,15 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
     setClLonB(String(c.controlLine.lonB));
     setSectors(c.sectors);
     setNeedsFinish(false);
-    setFileMessage(`「${c.name}」を呼び出しました`);
+    setFileMessage(tr(`「${c.name}」を呼び出しました`, `Loaded "${c.name}"`));
   };
 
   const handleDeleteSaved = async (c: UserCircuitItem) => {
-    if (!confirm(`保存したコース「${c.name}」を削除しますか？ (読み込み済みのログの設定はそのままです)`)) return;
+    if (!confirm(tr(`保存したコース「${c.name}」を削除しますか？ (読み込み済みのログの設定はそのままです)`, `Delete the saved course "${c.name}"? (Settings of logs already loaded are kept.)`))) return;
     const r = await userCircuitStorage.deleteEditedCircuit(c.name);
     setSavedCircuits([...userCircuitStorage.getEditedCircuits()]);
     onSavedCircuitsChange?.();
-    if (!r.saved) setSaveError(`削除を保存できませんでした: ${r.saveError ?? ''}`);
+    if (!r.saved) setSaveError(`${tr('削除を保存できませんでした', 'Could not save the deletion')}: ${r.saveError ?? ''}`);
   };
   // 計測線が未設定なら、ログの位置を挟む南北約 30 m の線分を仮の初期値にする (ログも無ければ空欄)
   const initial = controlLine ?? (defaultPosition && {
@@ -150,8 +152,8 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
     const errors: string[] = [];
     let cl = readControlLine();
     const sciCount = list.filter(f => /\.sci$/i.test(f.name)).length;
-    if (sciCount > 1) errors.push('.sci を複数選んだので、最後のものだけを使いました');
-    if (list.filter(f => /\.cln$/i.test(f.name)).length > 1) errors.push('.cln を複数選んだので、最後のものだけを使いました');
+    if (sciCount > 1) errors.push(tr('.sci を複数選んだので、最後のものだけを使いました', 'Several .sci files were selected; only the last one was used'));
+    if (list.filter(f => /\.cln$/i.test(f.name)).length > 1) errors.push(tr('.cln を複数選んだので、最後のものだけを使いました', 'Several .cln files were selected; only the last one was used'));
     for (const f of list) {
       try {
         const text = await f.text();
@@ -172,28 +174,28 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
           setSectors([...gates, ...finish]);
           setNeedsFinish(!cl);
           done.push(f.name);
-          if (!cl) errors.push('計測線を入れると、保存するときに最後の区間 (計測線まで) を足します');
+          if (!cl) errors.push(tr('計測線を入れると、保存するときに最後の区間 (計測線まで) を足します', 'Once a timing line is entered, the last section (up to the timing line) is added when you save'));
         } else {
-          errors.push(`${f.name}: .cln か .sci を選んでください`);
+          errors.push(`${f.name}: ${tr('.cln か .sci を選んでください', 'choose a .cln or .sci file')}`);
         }
       } catch (e) {
         errors.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    setFileMessage([done.length ? `読み込みました: ${done.join(', ')}` : '', ...errors].filter(Boolean).join(' / '));
+    setFileMessage([done.length ? `${tr('読み込みました', 'Loaded')}: ${done.join(', ')}` : '', ...errors].filter(Boolean).join(' / '));
   };
 
   // 計測線を .cln、セクターを .sci に書き出す (公式アプリと同じ形)
   const handleExportFiles = () => {
     const cl = readControlLine();
     if (!cl) {
-      setSaveError('計測線の 2 点の緯度・経度を正しく入力してください');
+      setSaveError(tr('計測線の 2 点の緯度・経度を正しく入力してください', 'Enter valid latitude and longitude for both points of the timing line'));
       return;
     }
     const finished = withFinish(sectors, cl);
     const badSector = findBadSector(finished);
     if (badSector) {
-      setSaveError(`セクター「${badSector.name}」の 2 点の緯度・経度を正しく入力してください`);
+      setSaveError(tr(`セクター「${badSector.name}」の 2 点の緯度・経度を正しく入力してください`, `Enter valid latitude and longitude for both points of sector "${badSector.name}"`));
       return;
     }
     setSaveError('');
@@ -202,7 +204,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
     downloadText(exportCln(cl), `cl_${base}.cln`);
     const sci = exportSci(finished, cl);
     if (sci) downloadText(sci, `${base}.sci`);
-    setFileMessage(sci ? `書き出しました: cl_${base}.cln, ${base}.sci` : `書き出しました: cl_${base}.cln (セクターがないので .sci は書き出していません)`);
+    setFileMessage(sci ? `${tr('書き出しました', 'Exported')}: cl_${base}.cln, ${base}.sci` : `${tr('書き出しました', 'Exported')}: cl_${base}.cln ${tr('(セクターがないので .sci は書き出していません)', '(no sectors, so no .sci was written)')}`);
   };
 
   const handleSave = () => {
@@ -214,19 +216,19 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
       Math.abs(latA) > 90 || Math.abs(latB) > 90 || Math.abs(lonA) > 180 || Math.abs(lonB) > 180 ||
       (latA === latB && lonA === lonB)
     ) {
-      setSaveError('計測線の 2 点の緯度・経度を正しく入力してください');
+      setSaveError(tr('計測線の 2 点の緯度・経度を正しく入力してください', 'Enter valid latitude and longitude for both points of the timing line'));
       return;
     }
     const newControlLine: ControlLine = { name: 'Start/Finish Line', latA, lonA, latB, lonB };
     const badSector = findBadSector(withFinish(sectors, newControlLine));
     if (badSector) {
-      setSaveError(`セクター「${badSector.name}」の 2 点の緯度・経度を正しく入力してください`);
+      setSaveError(tr(`セクター「${badSector.name}」の 2 点の緯度・経度を正しく入力してください`, `Enter valid latitude and longitude for both points of sector "${badSector.name}"`));
       return;
     }
-    const saveName = name.trim() || 'カスタムコース';
+    const saveName = name.trim() || tr('カスタムコース', 'Custom course');
     // 同じ名前で別の場所のコースを保存していたら、上書きしてよいか聞く (名前を付けずに別のコースで保存したときなど)
     if (remember && userCircuitStorage.isEditedNameUsedElsewhere(saveName, newControlLine) &&
-        !confirm(`「${saveName}」という名前で、別の場所のコースを保存しています。上書きしますか？ (残すときは、キャンセルしてコース名を変えてください)`)) {
+        !confirm(tr(`「${saveName}」という名前で、別の場所のコースを保存しています。上書きしますか？ (残すときは、キャンセルしてコース名を変えてください)`, `A course at a different place is already saved as "${saveName}". Overwrite it? (To keep it, cancel and change the course name.)`))) {
       return;
     }
 
@@ -244,7 +246,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
         <div className="flex items-center justify-between px-5 py-4 border-b border-line-2 bg-surface-1">
           <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
             <MapPin size={18} className="text-amber-500" />
-            コース・計測ライン（コントロールライン）編集
+            {t('コース・計測ライン（コントロールライン）編集', 'Edit course and timing line')}
           </h3>
           <button onClick={onClose} className="p-1 rounded text-slate-400 hover:text-fg">
             <X size={18} />
@@ -255,7 +257,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
         <div className="flex-1 overflow-y-auto p-5 space-y-5 text-xs text-slate-200">
           {/* コース名 */}
           <div>
-            <label className="block font-bold text-slate-300 mb-1">コース名 / サーキット名</label>
+            <label className="block font-bold text-slate-300 mb-1">{t('コース名 / サーキット名', 'Course / circuit name')}</label>
             <input
               type="text"
               value={name}
@@ -269,18 +271,18 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
             <button
               onClick={() => fileInputRef.current?.click()}
               className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-slate-200 border border-line-4 text-[11px]"
-              title="計測線 (.cln) とセクター (.sci) を読み込みます。両方まとめて選べます"
+              title={t('計測線 (.cln) とセクター (.sci) を読み込みます。両方まとめて選べます', 'Loads a timing line (.cln) and sectors (.sci). You can select both at once')}
             >
               <Upload size={13} />
-              .cln / .sci を読み込む
+              {t('.cln / .sci を読み込む', 'Load .cln / .sci')}
             </button>
             <button
               onClick={handleExportFiles}
               className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-slate-200 border border-line-4 text-[11px]"
-              title="計測線を .cln、セクターを .sci に書き出します (公式アプリと同じ形)"
+              title={t('計測線を .cln、セクターを .sci に書き出します (公式アプリと同じ形)', 'Exports the timing line as .cln and the sectors as .sci (same format as the official app)')}
             >
               <Download size={13} />
-              .cln / .sci に書き出す
+              {t('.cln / .sci に書き出す', 'Export .cln / .sci')}
             </button>
             <input
               ref={fileInputRef}
@@ -299,21 +301,21 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
           {/* コース編集で保存したコース */}
           {savedCircuits.length > 0 && (
             <div className="bg-surface-1 border border-line-2 rounded-lg p-3 space-y-1.5">
-              <div className="font-bold text-slate-300">保存したコース</div>
+              <div className="font-bold text-slate-300">{t('保存したコース', 'Saved courses')}</div>
               {savedCircuits.map(c => (
                 <div key={c.id} className="flex items-center gap-2 text-[11px]">
                   <span className="flex-1 truncate text-slate-200">{c.name}</span>
-                  <span className="text-slate-500">セクター {c.sectors.length}</span>
+                  <span className="text-slate-500">{t('セクター', 'Sectors')} {c.sectors.length}</span>
                   <button
                     onClick={() => handleLoadSaved(c)}
                     className="px-2 py-0.5 rounded bg-surface-4 hover:bg-surface-5 border border-line-4 text-slate-200"
                   >
-                    呼び出す
+                    {t('呼び出す', 'Load')}
                   </button>
                   <button
                     onClick={() => handleDeleteSaved(c)}
                     className="p-1 text-slate-500 hover:text-red-400"
-                    title="削除"
+                    title={t('削除', 'Delete')}
                   >
                     <Trash2 size={13} />
                   </button>
@@ -324,14 +326,14 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
 
           {/* コントロールライン (スタート/フィニッシュ) */}
           <div className="bg-surface-1 border border-line-2 rounded-lg p-4 space-y-3">
-            <div className="font-bold text-amber-400">コントロールライン (スタート/フィニッシュ計測線)</div>
+            <div className="font-bold text-amber-400">{t('コントロールライン (スタート/フィニッシュ計測線)', 'Timing line (start/finish)')}</div>
             <p className="text-[11px] text-slate-400">
-              コースのスタート/フィニッシュラインを通過する線分（点Aと点Bの座標）を指定します。
+              {t('コースのスタート/フィニッシュラインを通過する線分（点Aと点Bの座標）を指定します。', 'Enter the segment (coordinates of points A and B) across the start/finish line of the course.')}
             </p>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-slate-400 text-[11px] mb-1">点A 緯度 (Lat A)</label>
+                <label className="block text-slate-400 text-[11px] mb-1">{t('点A 緯度 (Lat A)', 'Point A latitude')}</label>
                 <input
                   type="number"
                   step="0.000001"
@@ -341,7 +343,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-slate-400 text-[11px] mb-1">点A 経度 (Lon A)</label>
+                <label className="block text-slate-400 text-[11px] mb-1">{t('点A 経度 (Lon A)', 'Point A longitude')}</label>
                 <input
                   type="number"
                   step="0.000001"
@@ -351,7 +353,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-slate-400 text-[11px] mb-1">点B 緯度 (Lat B)</label>
+                <label className="block text-slate-400 text-[11px] mb-1">{t('点B 緯度 (Lat B)', 'Point B latitude')}</label>
                 <input
                   type="number"
                   step="0.000001"
@@ -361,7 +363,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-slate-400 text-[11px] mb-1">点B 経度 (Lon B)</label>
+                <label className="block text-slate-400 text-[11px] mb-1">{t('点B 経度 (Lon B)', 'Point B longitude')}</label>
                 <input
                   type="number"
                   step="0.000001"
@@ -376,18 +378,18 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
           {/* セクターゲート */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-slate-300">セクターゲート設定</span>
+              <span className="font-bold text-slate-300">{t('セクターゲート設定', 'Sector gates')}</span>
               <button
                 onClick={handleAddSector}
                 className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-slate-200 border border-line-4 text-[11px]"
               >
                 <Plus size={13} />
-                セクター追加
+                {t('セクター追加', 'Add sector')}
               </button>
             </div>
 
             {sectors.length === 0 ? (
-              <p className="text-slate-500 text-[11px] italic">セクターが設定されていません</p>
+              <p className="text-slate-500 text-[11px] italic">{t('セクターが設定されていません', 'No sectors set')}</p>
             ) : (
               sectors.map((sec, idx) => (
                 <div
@@ -409,7 +411,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                     </button>
                   </div>
                   {sec.id.endsWith('_finish') && (
-                    <p className="text-[10px] text-slate-500">フィニッシュ (計測線まで)。位置は計測線と同じになります</p>
+                    <p className="text-[10px] text-slate-500">{t('フィニッシュ (計測線まで)。位置は計測線と同じになります', 'Finish (up to the timing line). Its position follows the timing line')}</p>
                   )}
                   <div className="grid grid-cols-4 gap-2 text-[10px] font-mono">
                     <input
@@ -457,23 +459,23 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
 
         {/* フッター */}
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-line-2 bg-surface-1">
-          <label className="mr-auto flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer" title="アプリに保存し、次からこの計測線を通るログに使います (データ管理の「ユーザーコース」に入ります)">
+          <label className="mr-auto flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer" title={t('アプリに保存し、次からこの計測線を通るログに使います (データ管理の「ユーザーコース」に入ります)', 'Saves the course in the app and uses it for later logs that cross this timing line (added to your courses on the data tab)')}>
             <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
-            アプリに保存して、次からも使う
+            {t('アプリに保存して、次からも使う', 'Save in the app and use it next time')}
           </label>
           {saveError && <span className="text-xs text-amber-400">{saveError}</span>}
           <button
             onClick={onClose}
             className="px-4 py-1.5 rounded-lg border border-line-3 text-xs text-slate-300 hover:bg-surface-4"
           >
-            キャンセル
+            {t('キャンセル', 'Cancel')}
           </button>
           <button
             onClick={handleSave}
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-xs text-white font-bold transition-all shadow"
           >
             <Check size={14} />
-            保存して適用
+            {t('保存して適用', 'Save and apply')}
           </button>
         </div>
       </div>
