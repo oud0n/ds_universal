@@ -8,6 +8,7 @@ import { prepareCanvas, useDevicePixelRatio } from '../utils/canvasLayer';
 
 // 現在の G の点の後ろに描く軌跡の長さ (秒)
 const GG_TRAIL_SEC = 1.0;
+const GG_TRAIL_MAX_POINTS = 40;
 
 /** time が t 以上になる最初の点の位置 (点は時刻順) */
 function lowerBoundByTime(points: { time: number }[], t: number): number {
@@ -103,9 +104,12 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
 
       // 直近 GG_TRAIL_SEC 秒の G の軌跡。前のものほど薄く、細く描く
       const pts = car.lap.points;
-      let i = lowerBoundByTime(pts, pt.time - GG_TRAIL_SEC);
+      // 記録レートの高いログでも描く線が多くなりすぎないよう、GG_TRAIL_MAX_POINTS 点ほどに間引く
+      const from = lowerBoundByTime(pts, pt.time - GG_TRAIL_SEC);
+      const to = lowerBoundByTime(pts, pt.time);
+      const step = Math.max(1, Math.ceil((to - from) / GG_TRAIL_MAX_POINTS));
       const trail: { x: number; y: number }[] = [];
-      for (; i < pts.length && pts[i].time < pt.time; i++) {
+      for (let i = from; i < to; i += step) {
         trail.push({ x: centerX - toPx(pts[i].corneringG), y: centerY + toPx(pts[i].accelG) });
       }
       trail.push({ x: px, y: py });
