@@ -5,7 +5,7 @@ import { parseDtb } from './services/dtbParser';
 import { parseDigispiceRawBinary } from './services/rawBinaryParser';
 import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
-import { blobByteSource, parseGoproGps } from './services/gpmfParser';
+import { blobByteSource, goproRecording, parseGoproGps } from './services/gpmfParser';
 import { videoSyncManager } from './services/videoSyncManager';
 import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
 import { parsePth, parseCln } from './services/pthParser';
@@ -523,36 +523,64 @@ export const App: React.FC = () => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      try {
-        await loadAnyFile(file);
-      } catch (err: any) {
-        alert(`ファイル ${file.name} の読み込みに失敗しました: ${err.message}`);
-      }
-    }
+    // 読み込みの間に選び直せるよう、先に一覧を写してから入力を空にする
+    const list = Array.from(files);
     e.target.value = '';
+    await loadFiles(list);
   };
 
   // GoPro の動画 (.mp4 / .mov) は数 GB あるので、全体を読み込まず、GPS の記録だけを読む
   const isVideoFileName = (name: string) => /\.(mp4|mov)$/i.test(name);
-  const loadAnyFile = async (file: File) => {
-    if (isVideoFileName(file.name)) await loadGoproVideo(file);
-    else await loadFileData(file.name, await file.arrayBuffer());
+
+  // 選んだファイルを読み込む。動画は 1 回の撮影ごと (チャプターをまとめて) に 1 つのログにする。失敗したファイルは知らせて続ける
+  const loadFiles = async (files: File[]) => {
+    const groups = new Map<string, File[]>();
+    for (const file of files) {
+      if (!isVideoFileName(file.name)) {
+        try {
+          await loadFileData(file.name, await file.arrayBuffer());
+        } catch (err: any) {
+          alert(`ファイル ${file.name} の読み込みに失敗しました: ${err.message}`);
+        }
+        continue;
+      }
+      const rec = goproRecording(file.name);
+      const key = rec ? `rec:${rec.id}` : `file:${file.name}`;
+      groups.set(key, [...(groups.get(key) ?? []), file]);
+    }
+    for (const group of groups.values()) {
+      group.sort((a, b) => (goproRecording(a.name)?.chapter ?? 0) - (goproRecording(b.name)?.chapter ?? 0));
+      try {
+        await loadGoproVideos(group);
+      } catch (err: any) {
+        alert(`ファイル ${group.map(f => f.name).join('・')} の読み込みに失敗しました: ${err.message}`);
+      }
+    }
   };
 
-  // GoPro の動画の GPS を走行ログとして読み込み、同じ動画を動画同期にも登録する
-  // (GPS と映像は同じ時計なので、撮影時刻からの照合でなく、GPS の時刻から求めたずれで合わせる)
-  const loadGoproVideo = async (file: File) => {
-    const log = await parseGoproGps(blobByteSource(file));
-    const added = await loadFileData(file.name, null, log);
-    const session = added[0];
+  // GoPro の動画 (1 回の撮影のチャプター、順に並べたもの) の GPS を走行ログとして読み込み、同じ動画を動画同期にも登録する。
+  // GPS と映像は同じ時計なので、撮影時刻からの照合でなく、GPS の時刻から求めたずれで合わせる
+  const loadGoproVideos = async (files: File[]) => {
+    const log = await parseGoproGps(files.map(blobByteSource));
+    const session = (await loadFileData(files[0].name, null, log))[0];
     if (!session?.points[0]?.timestamp) return;
-    const tracks = await videoSyncManager.addVideoFiles([file], [...latestRef.current.sessions.filter(s => s.id !== session.id), session]);
-    const track = [...tracks].reverse().find(t => t.file === file);
-    if (!track) return;
-    videoSyncManager.setMatchedSession(track.id, session.id);
-    videoSyncManager.updateOffset(track.id, (log.videoStartUtcMs - Date.parse(session.points[0].timestamp)) / 1000);
+    const t0 = Date.parse(session.points[0].timestamp);
+
+    // 動画同期に登録済みの同じ動画は、もう一度は登録しない (同期を二重にしない)
+    const existing = videoSyncManager.getTracks();
+    const toAdd = files.filter(f => !existing.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size));
+    if (toAdd.length === 0) return;
+    const before = new Set(existing.map(t => t.id));
+    const tracks = await videoSyncManager.addVideoFiles(toAdd, [...latestRef.current.sessions.filter(s => s.id !== session.id), session]);
+    // 新しく加わった動画だけを合わせる (同期プロジェクトから戻した動画は、保存した同期のまま)
+    const added = files
+      .map((f, i) => ({ track: tracks.find(t => !before.has(t.id) && t.file === f), startMs: log.videoStartUtcMs[i] }))
+      .filter((a): a is { track: NonNullable<typeof a.track>; startMs: number } => !!a.track);
+    if (added.length === 0) return;
+    for (const a of added) videoSyncManager.setMatchedSession(a.track.id, session.id);
+    // チャプターのずれは動画の長さでそろうので、測位できた最初の動画で合わせる
+    const first = added.find(a => Number.isFinite(a.startMs));
+    if (first) videoSyncManager.updateOffset(first.track.id, (first.startMs - t0) / 1000);
   };
 
   // データファイル読み込みロジック。読み込んだログはセッションとして加え、加えたセッションを返す
@@ -1422,15 +1450,7 @@ export const App: React.FC = () => {
             onSelectSession={setConvertSessionId}
             gFilterLevel={gFilterLevel}
             onOpenFile={() => fileInputRef.current?.click()}
-            onDropFiles={async files => {
-              for (let i = 0; i < files.length; i++) {
-                try {
-                  await loadAnyFile(files[i]);
-                } catch (err: any) {
-                  alert(`ファイル ${files[i].name} の読み込みに失敗しました: ${err.message}`);
-                }
-              }
-            }}
+            onDropFiles={files => loadFiles(Array.from(files))}
           />
         )}
 
