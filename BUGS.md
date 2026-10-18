@@ -32,6 +32,7 @@
 | 🟢 **低 (P3)** | BUG-17 | フリクションサークル | 再生中に現在の G の点が小刻みに跳ねる（G を記録点の間で補間していない） | `src/utils/telemetrySearch.ts`, `src/components/FrictionCircleWindow.tsx` | 一部対応（「なめらか」のトグルを追加。G の補間は未対応） |
 | 🟢 **低 (P3)** | BUG-18 | コースデータ管理 | 一括設置で読み込んだ、組み合わせ先のないコース図 (.pth) が、OSM のコース図を取得済みのログに反映されない | `src/App.tsx`, `src/services/userCircuitStorage.ts` | 修正済み（acd174b / fe0c332 / 1619492。セッションにコース図の出どころを持たせ、自動で取得したコース図だけを置き換える。手で読み込んだ .pth は変えない） |
 | 🟢 **低 (P3)** | BUG-19 | 車載動画の表示 | グラフ解析の左下を「車載動画」にすると、ウインドウが小さいとき操作の段が場所を使い切り、動画の映る部分の高さが 0 になる（BUG-06 の確認で判明。修正前から） | `src/components/VideoSyncWindow.tsx` | 未対応 |
+| 🟡 **中 (P2)** | BUG-20 | 車載動画の表示 | グラフ解析で上の再生ボタンで再生すると、車載動画のコマが 5 秒に 2〜10 コマ抜ける（4K 60fps で測定。動画同期の画面・動画だけの再生では抜けない。グラフを隠すと抜けない。再生中にグラフを毎コマまるごと描き直す負荷が原因。動かない部分を一度だけ描き、現在位置の線と車両だけを描き直す方針） | `src/components/SpeedGraphWindow.tsx`, `src/components/TrackMapWindow.tsx`, `src/components/FrictionCircleWindow.tsx`, `src/App.tsx` | 未対応（BUG-14 の後） |
 
 ---
 
