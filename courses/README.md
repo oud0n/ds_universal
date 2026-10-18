@@ -25,7 +25,7 @@
 - Google マップ・Esri・Bing の航空写真や、他のアプリ・公式ソフトのコースデータは使わない（規約・権利のため）。
 - 作るための道具と手順は [`tools/courses/`](../tools/courses/README.md)。
 
-出典: © OpenStreetMap contributors（[Open Database License 1.0](https://www.openstreetmap.org/copyright)）、[国土地理院 シームレス空中写真](https://maps.gsi.go.jp/development/ichiran.html)、[スポーツランドSUGO レーシングコース図](https://www.sportsland-sugo.co.jp/assets/docs/course/c-racing/2026_racing-course_layout.pdf)（計測地点の距離）、[USGS NAIP](https://www.usgs.gov/centers/eros/science/usgs-eros-archive-aerial-photography-national-agriculture-imagery-program-naip)（パブリックドメイン）、[Beeldmateriaal Nederland](https://www.beeldmateriaal.nl/)（CC BY 4.0）
+出典: © OpenStreetMap contributors（[Open Database License 1.0](https://www.openstreetmap.org/copyright)）、[国土地理院 シームレス空中写真](https://maps.gsi.go.jp/development/ichiran.html)、[スポーツランドSUGO レーシングコース図](https://www.sportsland-sugo.co.jp/assets/docs/course/c-racing/2026_racing-course_layout.pdf)（計測地点の距離）、[USGS NAIP](https://www.usgs.gov/centers/eros/science/usgs-eros-archive-aerial-photography-national-agriculture-imagery-program-naip)（パブリックドメイン）、[Beeldmateriaal Nederland](https://www.beeldmateriaal.nl/)（CC BY 4.0）、[IGN BD ORTHO](https://geoservices.ign.fr/bdortho)（Licence Ouverte 2.0）、[PNOA](https://pnoa.ign.es/)（IGN España、CC BY 4.0）
 
 ## 直してほしいとき・コースを足してほしいとき
 
