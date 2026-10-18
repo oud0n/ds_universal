@@ -287,6 +287,29 @@ ipcMain.handle('save-binary-file', async (event, { defaultName, dataArray }) => 
   }
 });
 
+// テキストファイル保存 IPC ハンドラ (コース編集の .cln / .sci の書き出し)
+// <a download> で 2 つ続けて書き出すと、1 つ目の保存ダイアログが開いている間の 2 つ目が捨てられる (issue #7) ので、
+// 画面から 1 ファイルずつ呼んで、保存ダイアログを順に出す
+ipcMain.handle('save-text-file', async (_event, { defaultName, text }) => {
+  if (typeof text !== 'string') return { success: false, error: 'invalid text' };
+  const name = path.basename(String(defaultName || 'course.txt'));
+  const ext = path.extname(name).slice(1);
+  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: path.join(app.getPath('downloads'), name),
+    filters: [
+      ...(ext ? [{ name: `.${ext}`, extensions: [ext] }] : []),
+      { name: L('すべてのファイル (*.*)', 'All files (*.*)'), extensions: ['*'] }
+    ]
+  });
+  if (canceled || !filePath) return { success: false, canceled: true };
+  try {
+    await fs.promises.writeFile(filePath, text, 'utf8');
+    return { success: true, filePath };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
 // ファイル読み込み IPC ハンドラ
 ipcMain.handle('read-file-buffer', async (event, filePath) => {
   try {

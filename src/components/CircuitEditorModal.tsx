@@ -22,6 +22,20 @@ interface CircuitEditorModalProps {
 // 自動で判定したユーザーコースの名前に付く印。保存するときは外す
 const USER_SUFFIX = ' (ユーザー設置)';
 
+// テキストファイルを保存する。Electron では保存ダイアログを出して、閉じるまで待つ
+// (<a download> を 2 つ続けると、1 つ目のダイアログが開いている間の 2 つ目が捨てられるため。issue #7)。
+// 戻り値: 保存した (ブラウザでは保存を始めた) とき true、キャンセルしたとき false。失敗したときは例外
+async function saveText(text: string, fileName: string): Promise<boolean> {
+  const api = window.electronAPI;
+  if (api?.saveTextFile) {
+    const res = await api.saveTextFile({ defaultName: fileName, text });
+    if (!res.success && !res.canceled) throw new Error(res.error || 'save failed');
+    return res.success;
+  }
+  downloadText(text, fileName);
+  return true;
+}
+
 function downloadText(text: string, fileName: string) {
   const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
   const a = document.createElement('a');
@@ -186,7 +200,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   };
 
   // 計測線を .cln、セクターを .sci に書き出す (公式アプリと同じ形)
-  const handleExportFiles = () => {
+  const handleExportFiles = async () => {
     const cl = readControlLine();
     if (!cl) {
       setSaveError(tr('計測線の 2 点の緯度・経度を正しく入力してください', 'Enter valid latitude and longitude for both points of the timing line'));
@@ -201,10 +215,19 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
     setSaveError('');
     // ファイル名に使えない文字と、末尾の点・空白 (Windows で使えない) を置き換える
     const base = (name.trim() || 'course').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/[. ]+$/, '').replace(/^cl_/i, '') || 'course';
-    downloadText(exportCln(cl), `cl_${base}.cln`);
     const sci = exportSci(finished, cl);
-    if (sci) downloadText(sci, `${base}.sci`);
-    setFileMessage(sci ? `${tr('書き出しました', 'Exported')}: cl_${base}.cln, ${base}.sci` : `${tr('書き出しました', 'Exported')}: cl_${base}.cln ${tr('(セクターがないので .sci は書き出していません)', '(no sectors, so no .sci was written)')}`);
+    // 1 つずつ保存する (.cln をキャンセルしても .sci は保存できるように、続けて聞く)
+    const files: [string, string][] = [[`cl_${base}.cln`, exportCln(cl)], ...(sci ? [[`${base}.sci`, sci] as [string, string]] : [])];
+    const saved: string[] = [];
+    try {
+      for (const [fileName, text] of files) if (await saveText(text, fileName)) saved.push(fileName);
+    } catch (e) {
+      setSaveError(`${tr('書き出せませんでした', 'Could not export')}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    setFileMessage([
+      saved.length ? `${tr('書き出しました', 'Exported')}: ${saved.join(', ')}` : tr('書き出しをキャンセルしました', 'Export cancelled'),
+      sci ? '' : tr('(セクターがないので .sci は書き出していません)', '(no sectors, so no .sci was written)')
+    ].filter(Boolean).join(' '));
   };
 
   const handleSave = () => {
