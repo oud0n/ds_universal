@@ -1,3 +1,4 @@
+import { tr } from '../utils/i18n';
 import type { LoggerTransport, TransportHandlers } from './loggerTransport';
 
 /**
@@ -13,8 +14,9 @@ export class WebSerialTransport implements LoggerTransport {
 
   constructor(private portProvider?: () => Promise<any>) {}
 
+  // 送れる状態か (ポートがあっても、ケーブル抜けの直後などで書き込み口がないときは送れない)
   isOpen(): boolean {
-    return this.port !== null;
+    return this.port !== null && !!this.port.writable;
   }
 
   async open(handlers: TransportHandlers): Promise<void> {
@@ -77,7 +79,7 @@ export class WebSerialTransport implements LoggerTransport {
   }
 
   async write(data: Uint8Array): Promise<void> {
-    if (!this.port || !this.port.writable) throw new Error('シリアルポートが開いていません');
+    if (!this.port || !this.port.writable) throw new Error(tr('シリアルポートが開いていません', 'The serial port is not open'));
     const writer = this.port.writable.getWriter();
     try {
       await writer.write(data);
@@ -149,15 +151,15 @@ export class WebSerialTransport implements LoggerTransport {
       }
     }
 
-    // close() 以外でループを抜けた = ケーブル抜け等による通信断
+    // close() 以外でループを抜けた = ケーブル抜け等による通信断。待っている処理をすぐ失敗させるため、閉じるより先に知らせる
     if (this.keepReading) {
       this.keepReading = false;
       const port = this.port;
       this.port = null;
+      this.handlers?.onLost(new Error(tr('本体との通信が切断されました', 'Communication with the logger was lost')));
       if (port) {
         try { await port.close(); } catch {}
       }
-      this.handlers?.onLost(new Error('本体との通信が切断されました'));
     }
   }
 }

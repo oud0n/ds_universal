@@ -4,7 +4,7 @@ import { WebSerialTransport } from './webSerialTransport';
 import { encodeCommand, fields, LineSplitter, verifyNmeaChecksum } from './digspiceProtocol';
 /**
  * DigSpice IV の手順の層: 設定の読み書き・ログの吸い出しなどの手順と、応答待ち・排他。
- * つなぎ方 (USB の Web Serial、将来の Rust・BLE) は送受信の層 (loggerTransport.ts) に、
+ * つなぎ方 (USB の Web Serial、将来の Rust のシリアル) は送受信の層 (loggerTransport.ts) に、
  * コマンドの組み立てと応答の分解はプロトコル層 (digspiceProtocol.ts) に分けてある
  */
 
@@ -71,6 +71,7 @@ const ACK_FLAG_TEXT: Record<number, string> = {
 
 export class DigSpiceDevice {
   private transport: LoggerTransport | null = null;
+  private connecting: LoggerTransport | null = null;
   private splitter = new LineSplitter();
   private pendingLineResolvers: Array<(line: string) => void> = [];
   private streamingHandler: ((line: string) => void) | null = null;
@@ -92,19 +93,33 @@ export class DigSpiceDevice {
     return this.transport !== null;
   }
 
-  // つなぐ。何も渡さなければ USB (Web Serial) の実機。送受信の層を渡せば、それでつなぐ (Rust・BLE など)。
+  // つなぐ。何も渡さなければ USB (Web Serial) の実機。送受信の層を渡せば、それでつなぐ (Tauri の Rust のシリアルなど)。
   // シリアルポートの生成関数を渡すと、実機の代わりにそのポートを Web Serial の形で使う (開発用シミュレーター)
   public async connect(transportOrPortProvider?: LoggerTransport | (() => Promise<any>)): Promise<boolean> {
     const transport = typeof transportOrPortProvider === 'function'
       ? new WebSerialTransport(transportOrPortProvider)
       : transportOrPortProvider ?? new WebSerialTransport();
     this.splitter.reset();
-    await transport.open({
-      onData: chunk => this.splitter.push(chunk).forEach(line => this.handleLine(line)),
-      onInterrupted: () => this.splitter.reset(),
-      onLost: err => this.handleLost(transport, err),
-      onLog: (type, msg) => this.log(type, msg)
-    });
+    // つなぐ途中で切れたとき (送受信の層によっては open() の完了前に知らせてくる) も取りこぼさないよう、先に覚えておく
+    this.connecting = transport;
+    let lostWhileConnecting: Error | null = null;
+    try {
+      await transport.open({
+        onData: chunk => this.splitter.push(chunk).forEach(line => this.handleLine(line)),
+        onInterrupted: () => this.splitter.reset(),
+        onLost: err => {
+          if (this.connecting === transport) lostWhileConnecting = err;
+          else this.handleLost(transport, err);
+        },
+        onLog: (type, msg) => this.log(type, msg)
+      });
+    } finally {
+      if (this.connecting === transport) this.connecting = null;
+    }
+    if (lostWhileConnecting) {
+      await transport.close();
+      throw lostWhileConnecting;
+    }
     this.transport = transport;
     return true;
   }
@@ -238,8 +253,11 @@ export class DigSpiceDevice {
     Array.from(this.pendingCancels).forEach(cancel => cancel(lost));
     if (this.streamAbort) this.streamAbort(lost);
 
-    this.log('err', '本体との通信が切断されました。');
-    if (this.onConnectionLost) this.onConnectionLost();
+    // 失敗させた処理の後片付け (排他の解除など) が済んでから知らせる (分ける前と同じ順)
+    setTimeout(() => {
+      this.log('err', '本体との通信が切断されました。');
+      if (this.onConnectionLost) this.onConnectionLost();
+    }, 0);
   }
 
   // ログ容量情報取得
