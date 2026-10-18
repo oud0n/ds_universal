@@ -27,6 +27,8 @@ export interface RawSample {
   altitude: number;
   heading: number;
   timestamp?: Date;
+  /** 位置・車速のほかに記録されている値 (アクセル・ブレーキなど)。点にそのまま付ける */
+  extra?: Partial<Pick<TelemetryPoint, 'throttle' | 'brake' | 'steering' | 'rpm' | 'gear'>>;
 }
 
 /** 引用符付きフィールドに対応した CSV 1 行の分割 */
@@ -95,7 +97,8 @@ export function finalizeImportedSamples(samples: RawSample[], formatName: string
       corneringG: 0,
       combinedG: 0,
       turningRadius: 9999,
-      driftAngle: 0
+      driftAngle: 0,
+      ...s.extra
     });
   }
   if (points.length < 2) {

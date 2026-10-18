@@ -165,7 +165,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
           <div className="flex-1 text-center sm:text-left">
             <h2 className="text-sm font-bold text-slate-100">ログ変換</h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              走行ログ (.bnx4 / .bon4 / .dtb / NMEA / CSV / VBO / GPX / AiM / GoPro の動画) を読み込み、NMEA・GPX・CSV などに書き出します。
+              走行ログ (.bnx4 / .bon4 / .dtb / NMEA / CSV / VBO / GPX / AiM / iRacing / GoPro の動画) を読み込み、NMEA・GPX・CSV などに書き出します。
               ファイルをここにドロップしても読み込めます。処理はすべてこの端末内で行われます。
             </p>
           </div>

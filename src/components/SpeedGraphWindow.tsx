@@ -55,6 +55,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
   const [showDeltaTime, setShowDeltaTime] = useState(true);
   const [showGOverlay, setShowGOverlay] = useState<'none' | 'accel' | 'corner' | 'combined'>('none');
   const [showAltitude, setShowAltitude] = useState(false);
+  // アクセル・ブレーキ (記録されているログだけ。いまは iRacing の .ibt)
+  const [showPedals, setShowPedals] = useState(true);
 
   // ズーム & パン状態 (0..1 の正規化範囲)
   const [viewRange, setViewRange] = useState<[number, number]>([0, 1]);
@@ -65,6 +67,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
 
   // 基準車 (Car 0: 赤)
   const baseCar = cars[0];
+  const hasPedals = useMemo(() => cars.some(c => c.lap.points.some(p => p.throttle !== undefined || p.brake !== undefined)), [cars]);
 
   // タイム差 (Delta Time) の事前計算
   const deltaTimes = useMemo(() => {
@@ -325,6 +328,34 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
       ctx.stroke();
     }
 
+    // アクセル (実線)・ブレーキ (点線) を、記録のある車両ごとにその車両の色で、速度グラフの下の 3 割に描く (0〜100%)
+    if (showPedals && hasPedals) {
+      const bandBottom = paddingTop + speedHeight;
+      const bandHeight = speedHeight * 0.3;
+      ctx.save();
+      ctx.globalAlpha = 0.7;
+      ctx.lineWidth = 1.2;
+      for (const { slot, lap } of cars) {
+        for (const key of ['throttle', 'brake'] as const) {
+          if (!lap.points.some(p => p[key] !== undefined)) continue;
+          ctx.setLineDash(key === 'brake' ? [3, 2] : []);
+          ctx.strokeStyle = slot.colorHex;
+          ctx.beginPath();
+          let started = false;
+          for (const p of lap.points) {
+            const xVal = xAxisMode === 'distance' ? p.distance : p.time;
+            const val = p[key];
+            if (val === undefined || xVal < activeDomainStart || xVal > activeDomainEnd) continue;
+            const x = getX(xVal);
+            const y = bandBottom - (Math.min(100, Math.max(0, val)) / 100) * bandHeight;
+            if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
     // 速度グラフ描画 (各車両)
     // セクターにそろえているとき (時間基準) は、そろえた位置より前は時刻がずれていて比べられないので薄く描く
     const dimBefore = xAxisMode === 'time' && alignStartTime !== undefined ? alignStartTime : -Infinity;
@@ -449,6 +480,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     showDeltaTime,
     showGOverlay,
     showAltitude,
+    showPedals,
+    hasPedals,
     viewRange,
     maxDomain,
     maxSpeedY,
@@ -664,6 +697,21 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
               <option value="combined">合算G</option>
             </select>
           </div>
+
+          {/* アクセル・ブレーキ切替 (記録のある車両があるときだけ) */}
+          {hasPedals && (
+            <button
+              onClick={() => setShowPedals(!showPedals)}
+              title="アクセル (実線)・ブレーキ (点線) を下に重ねる (0〜100%)。記録のあるログ (iRacing) だけ"
+              className={`px-2 py-0.5 rounded text-[11px] border transition-all ${
+                showPedals
+                  ? 'bg-slate-800 border-slate-500 text-slate-200'
+                  : 'border-line-4 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {compact ? 'ペダル' : 'アクセル・ブレーキ'}
+            </button>
+          )}
 
           {/* 標高切替 */}
           <button
