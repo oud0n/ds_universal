@@ -67,6 +67,8 @@ export interface VideoTrack {
   isAutoMatched: boolean;
   // 利用者がオフセットを手で合わせた (または同期プロジェクトから復元した) もの。自動の再同期では上書きしない
   isManuallyAdjusted?: boolean;
+  // 利用者が「動画に合わせるログ」を選んだもの。記録の細かいログへの自動の付け替えをしない (LATER-12)
+  isSessionChosenManually?: boolean;
   notes?: string;
 }
 
@@ -445,6 +447,45 @@ class VideoSyncManager {
     }
   }
 
+  /**
+   * 動画 (チャプターに分かれていれば全部) を別のログに付け替える。動画の本当の時刻は変えず、ずれをそのログでの値に直す。
+   * manual: 利用者が選んだ (以後、記録の細かいログへの自動の付け替えをしない)
+   */
+  public rebindTrack(trackId: string, sessionId: string, sessions: Session[], manual = false): void {
+    const session = sessions.find(s => s.id === sessionId);
+    const lead = this.videos.find(v => v.id === trackId);
+    if (!session || !lead) return;
+    const group = this.getChapterGroupForTrack(trackId);
+    for (const t of group ? group.tracks.map(ct => ct.track) : [lead]) {
+      t.syncOffsetSec = trackOffsetInSession(t, session, sessions);
+      t.matchedSessionId = session.id;
+      if (manual) t.isSessionChosenManually = true;
+    }
+    this.updateChapterGroupOffsets();
+    this.notify();
+  }
+
+  /**
+   * 記録の細かいログへ自動で付け替える (LATER-12)。動画と時間の重なるログのうち、記録の細かい (Hz の高い) ログに付ける。
+   * 利用者が選んだ動画は変えない。付け替えたものを [元のログ, 付け替えたログ] で返す
+   */
+  public preferHighestRateSessions(sessions: Session[]): Array<[string, string]> {
+    const changed: Array<[string, string]> = [];
+    const done = new Set<string>();
+    for (const track of this.videos) {
+      if (done.has(track.id) || track.isSessionChosenManually || !track.matchedSessionId) continue;
+      const group = this.getChapterGroupForTrack(track.id);
+      (group ? group.tracks.map(ct => ct.track) : [track]).forEach(t => done.add(t.id));
+      if (group && group.tracks.some(ct => ct.track.isSessionChosenManually)) continue;
+      const best = overlappingSessions(group ? group.tracks[0].track : track, sessions, this)[0];
+      if (best && best.id !== track.matchedSessionId) {
+        changed.push([track.matchedSessionId, best.id]);
+        this.rebindTrack(track.id, best.id, sessions);
+      }
+    }
+    return changed;
+  }
+
   // トラック削除
   public removeTrack(trackId: string): void {
     const track = this.videos.find(v => v.id === trackId);
@@ -599,6 +640,29 @@ export function trackStartUtcMs(track: VideoTrack, sessions: Session[]): number 
  * 動画が別のログに照合されていても (サブの動画など)、本当の時刻で換算するので、撮影時刻の違う動画が引っ張られない (BUG-21)。
  * 換算できないとき (時刻のないログ・動画) は、照合したログの中のずれをそのまま返す
  */
+/**
+ * 動画 (チャプターに分かれていれば全体) と時間の重なるログを、記録の細かい (Hz の高い) 順に並べる (同じなら重なりの長い順)。
+ * 動画を付けるログの候補 (LATER-12)
+ */
+export function overlappingSessions(track: VideoTrack, sessions: Session[], manager: VideoSyncManager = videoSyncManager): Session[] {
+  const start = trackStartUtcMs(track, sessions);
+  if (start === null) return [];
+  const group = manager.getChapterGroupForTrack(track.id);
+  const dur = group && group.tracks.length > 1 ? group.totalDurationSec : track.durationSec;
+  const end = start + Math.max(0, dur || 0) * 1000;
+  const scored: Array<{ s: Session; overlap: number }> = [];
+  for (const s of sessions) {
+    const a = sessionStartUtcMs(s);
+    const last = s.points[s.points.length - 1];
+    if (a === null || !last) continue;
+    const b = a + last.time * 1000;
+    const overlap = Math.min(end, b) - Math.max(start, a);
+    if (overlap > 0) scored.push({ s, overlap });
+  }
+  scored.sort((x, y) => (y.s.samplingRate || 0) - (x.s.samplingRate || 0) || y.overlap - x.overlap);
+  return scored.map(x => x.s);
+}
+
 export function trackOffsetInSession(track: VideoTrack, session: Session | null | undefined, sessions: Session[]): number {
   if (!session || track.matchedSessionId === session.id) return track.syncOffsetSec;
   const v = trackStartUtcMs(track, sessions);

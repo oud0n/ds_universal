@@ -6,7 +6,8 @@ import { parseDigispiceRawBinary } from './services/rawBinaryParser';
 import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
 import { blobByteSource, goproRecording, NoGoproGpsError, parseGoproGps } from './services/gpmfParser';
-import { videoSyncManager } from './services/videoSyncManager';
+import { sessionStartUtcMs, videoSyncManager } from './services/videoSyncManager';
+import { getAddVideoGpsLog } from './services/videoPrefs';
 import { tr, useT } from './utils/i18n';
 import { inflateXrz, isAimCsv, isXrk, parseAimCsv, parseXrk } from './services/aimFormats';
 import { isIbt, parseIbt } from './services/ibtParser';
@@ -577,6 +578,34 @@ export const App: React.FC = () => {
       if (toAdd.length > 0) await videoSyncManager.addVideoFiles(toAdd, latestRef.current.sessions);
       return;
     }
+    // 「動画の GPS も走行ログとして加える」を切っていて、同じ時間に、より記録の細かいログがあれば、GPS のログは加えず、
+    // GPS の時刻で動画をそのログに合わせるだけにする (LATER-12)
+    if (!getAddVideoGpsLog()) {
+      const first = log.points[0]?.timestamp, last = log.points[log.points.length - 1]?.timestamp;
+      const a = first ? Date.parse(first) : NaN, b = last ? Date.parse(last) : NaN;
+      const better = latestRef.current.sessions
+        .filter(s => (s.samplingRate || 0) > (log.samplingRate || 0))
+        .filter(s => {
+          const st = sessionStartUtcMs(s), lp = s.points[s.points.length - 1];
+          return st !== null && lp && st < b && a < st + lp.time * 1000;
+        })
+        .sort((x, y) => (y.samplingRate || 0) - (x.samplingRate || 0))[0];
+      const betterStart = sessionStartUtcMs(better);
+      if (better && betterStart !== null) {
+        const existing = videoSyncManager.getTracks();
+        const toAdd = files.filter(f => !existing.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size));
+        if (toAdd.length < files.length) return;
+        const before = new Set(existing.map(t => t.id));
+        const tracks = await videoSyncManager.addVideoFiles(toAdd, latestRef.current.sessions);
+        const added = files
+          .map((f, i) => ({ track: tracks.find(t => !before.has(t.id) && t.file === f), startMs: log.videoStartUtcMs[i] }))
+          .filter((x): x is { track: NonNullable<typeof x.track>; startMs: number } => !!x.track);
+        for (const x of added) videoSyncManager.setMatchedSession(x.track.id, better.id);
+        const firstFix = added.find(x => Number.isFinite(x.startMs));
+        if (firstFix) videoSyncManager.updateOffset(firstFix.track.id, (firstFix.startMs - betterStart) / 1000);
+        return;
+      }
+    }
     const session = (await loadFileData(files[0].name, null, log))[0];
     if (!session?.points[0]?.timestamp) return;
     const t0 = Date.parse(session.points[0].timestamp);
@@ -843,6 +872,48 @@ export const App: React.FC = () => {
       })
     );
   };
+
+  // 基準車 (Car 1) を別のログに切り替える (動画に合わせるログを選んだとき、LATER-12)。
+  // 周は、今の Car 1 の周と同じ時刻に走った周 (同じ走行を別のロガーで記録したログなら同じ周) を選ぶ。なければベストラップ。
+  // 元の Car 1 のログは空いているスロットに移す (空きがなければ外す)
+  const setBaseSession = (sessionId: string) => {
+    const list = latestRef.current.sessions;
+    const target = list.find(s => s.id === sessionId);
+    if (!target || target.laps.length === 0) return;
+    setSelectedCars(prev => {
+      const car1 = prev.find(c => c.slot === 0);
+      if (car1?.sessionId === sessionId) return prev;
+      const from = list.find(s => s.id === car1?.sessionId);
+      const fromLap = from?.laps.find(l => l.lapNumber === car1?.lapNumber);
+      let lap = target.laps[target.bestLapIndex] ?? target.laps[0];
+      const fs = sessionStartUtcMs(from), ts = sessionStartUtcMs(target);
+      if (fromLap && fs !== null && ts !== null) {
+        const want = fs + fromLap.startTime * 1000;
+        const near = [...target.laps].sort((a, b) => Math.abs(ts + a.startTime * 1000 - want) - Math.abs(ts + b.startTime * 1000 - want))[0];
+        if (near && Math.abs(ts + near.startTime * 1000 - want) < 10000) lap = near;
+      }
+      const COLORS = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b'];
+      const rest = prev.filter(c => c.slot !== 0 && c.sessionId !== sessionId);
+      const next = [...rest, { slot: 0, sessionId, lapNumber: lap.lapNumber, colorHex: COLORS[0], label: `${target.sessionName} (L${lap.lapNumber})` }];
+      if (car1) {
+        const free = [1, 2, 3].find(slot => !next.some(c => c.slot === slot));
+        if (free !== undefined) next.push({ ...car1, slot: free, colorHex: COLORS[free] });
+      }
+      return next.sort((a, b) => a.slot - b.slot);
+    });
+  };
+
+  // ログが増えたら、動画を、時間の重なるログのうち記録の細かい (Hz の高い) ログに付け替える (LATER-12)。
+  // Car 1 が付け替える前のログなら、Car 1 も付け替える
+  const sessionCountRef = useRef(0);
+  useEffect(() => {
+    if (sessions.length <= sessionCountRef.current) { sessionCountRef.current = sessions.length; return; }
+    sessionCountRef.current = sessions.length;
+    const changed = videoSyncManager.preferHighestRateSessions(sessions);
+    const car1 = selectedCars.find(c => c.slot === 0);
+    const hit = changed.find(([from]) => from === car1?.sessionId);
+    if (hit) setBaseSession(hit[1]);
+  }, [sessions]);
 
   // サーキットプリセット選択
   const handleSelectCircuitPreset = (presetId: string) => {
@@ -1265,6 +1336,7 @@ export const App: React.FC = () => {
                       isVisible={currentTab === 'graph'}
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
+                      onChooseLog={setBaseSession}
                     />
                   )}
                 </div>
@@ -1429,6 +1501,7 @@ export const App: React.FC = () => {
                       isVisible={currentTab === 'graph'}
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
+                      onChooseLog={setBaseSession}
                     />
                   )}
                 </div>
@@ -1456,6 +1529,7 @@ export const App: React.FC = () => {
               isVisible={currentTab === 'video'}
               playbackSpeed={playbackSpeed}
               onChangePlaybackSpeed={setPlaybackSpeed}
+              onChooseLog={setBaseSession}
             />
           </div>
         )}
