@@ -42,7 +42,7 @@ function buildMenu() {
       label: L('ファイル', 'File'),
       submenu: [
         {
-          label: L('ログファイルを開く (.bnx4, .dtb, .csv, .nmea, .vbo)... (GoPro の動画は画面の「ファイル読込」から)', 'Open log file (.bnx4, .dtb, .csv, .nmea, .vbo)... (open GoPro videos with "Open file" in the window)'),
+          label: L('ログファイルを開く (.bnx4, .dtb, .csv, .nmea, .vbo, .xrk, .ibt)... (GoPro の動画は画面の「ファイル読込」から)', 'Open log file (.bnx4, .dtb, .csv, .nmea, .vbo, .xrk, .ibt)... (open GoPro videos with "Open file" in the window)'),
           accelerator: 'CmdOrCtrl+O',
           click: async () => {
             const { filePaths } = await dialog.showOpenDialog(mainWindow, {
@@ -52,6 +52,7 @@ function buildMenu() {
                 { name: L('デジスパイス独自バイナリ (.dtb)', 'DigSpice binary (.dtb)'), extensions: ['dtb'] },
                 { name: L('CSV / NMEA / VBO / GPX ログ', 'CSV / NMEA / VBO / GPX logs'), extensions: ['csv', 'txt', 'nmea', 'log', 'vbo', 'gpx'] },
                 { name: 'AiM (.xrk / .xrz)', extensions: ['xrk', 'xrz'] },
+                { name: L('iRacing のテレメトリ (.ibt)', 'iRacing telemetry (.ibt)'), extensions: ['ibt'] },
                 { name: L('すべてのファイル', 'All files'), extensions: ['*'] }
               ]
             });

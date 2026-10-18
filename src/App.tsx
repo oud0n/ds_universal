@@ -9,6 +9,7 @@ import { blobByteSource, goproRecording, NoGoproGpsError, parseGoproGps } from '
 import { videoSyncManager } from './services/videoSyncManager';
 import { tr, useT } from './utils/i18n';
 import { inflateXrz, isAimCsv, isXrk, parseAimCsv, parseXrk } from './services/aimFormats';
+import { isIbt, parseIbt } from './services/ibtParser';
 import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
 import { parsePth, parseCln } from './services/pthParser';
 import { countGateCrossings, createVirtualControlLine, extractLaps, firstGateCrossingTime, gateDirection, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
@@ -610,6 +611,8 @@ export const App: React.FC = () => {
     let startDate: Date | undefined;
     // 1 つのファイルに走行が複数入っているとき (生ログ) は、走行ごとに別のセッションにする
     let parts: { points: any[]; samplingRate: number; startDate?: Date }[] | null = null;
+    // ログに記録されている車両名・ドライバー名・コース名 (iRacing の .ibt)
+    let meta: { vehicleName?: string; driverName?: string; trackName?: string } = {};
 
     const ext = fileName.split('.').pop()?.toLowerCase();
     const added: Session[] = [];
@@ -635,6 +638,13 @@ export const App: React.FC = () => {
       rawPoints = parsed.points;
       samplingRate = parsed.samplingRate;
       startDate = parsed.startDate;
+    } else if (ext === 'ibt') {
+      // iRacing のテレメトリ。コースに出ていた間ごとに分ける (ピットへの移動などで区切る)
+      const bytes = new Uint8Array(buffer);
+      if (!isIbt(bytes)) throw new Error(tr('iRacing の .ibt として読めませんでした', 'Could not read this as an iRacing .ibt file'));
+      const parsed = parseIbt(bytes);
+      parts = parsed.parts;
+      meta = { vehicleName: parsed.vehicleName, driverName: parsed.driverName, trackName: parsed.trackName };
     } else if (['vbo', 'csv', 'txt', 'gpx', 'nmea', 'log'].includes(ext || '')) {
       // テキストの形式は拡張子で決めつけず、中身の先頭で判別する (.txt の NMEA・VBO、.log の CSV なども読めるように)。
       // 判別できないときは拡張子に従う
@@ -740,7 +750,10 @@ export const App: React.FC = () => {
         fileName,
         sessionName,
         date: startDate ? startDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-        circuitName: circName,
+        // コースを判定できないときは、ログに記録されたコース名を使う
+        circuitName: circName || meta.trackName || '',
+        ...(meta.vehicleName ? { vehicleName: meta.vehicleName } : {}),
+        ...(meta.driverName ? { driverName: meta.driverName } : {}),
         samplingRate,
         totalDistance: rawPoints[rawPoints.length - 1].distance,
         points: rawPoints,
@@ -993,7 +1006,7 @@ export const App: React.FC = () => {
         ref={fileInputRef}
         onChange={handleFilesSelected}
         multiple
-        accept=".dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx,.xrk,.xrz,.mp4,.mov"
+        accept=".dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx,.xrk,.xrz,.ibt,.mp4,.mov"
         className="hidden"
       />
       <input
