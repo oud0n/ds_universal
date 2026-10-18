@@ -17,7 +17,7 @@ ID の付け方: 不具合は `BUG-NN`（[BUGS.md](BUGS.md) と同じ番号）�
 | BUG-23 | 2画面・PinP のとき、メーターのオーバーレイが main の動画に合わせて描かれない | 未対応 |
 | LATER-01 | 吸い出しの欠けたブロックの読み直しの有効化（実機確認が要る） | 実装済み・無効 |
 | LATER-02 | 大きいログの書き出しのメモリ使用量 | 未対応 |
-| LATER-03 | ds4_convert から未移植の機能（地図 HTML のホバー表示・JST / UTC 切り替え・.txt 書き出し・平均車速） | 未対応 |
+| LATER-03 | ds4_convert から未移植の機能（地図 HTML のホバー表示・JST / UTC 切り替え・.txt 書き出し・平均車速） | 対応（2026-10-18） |
 | LATER-04 | Windows ビルドのアイコン表示確認 | 未確認 |
 | LATER-05 | USB でのシリアル番号の取得 | 方法不明 |
 | LATER-06 | 内部ステータスコード（`PTSI990` の `27`）の意味 | 不明 |
@@ -29,11 +29,14 @@ ID の付け方: 不具合は `BUG-NN`（[BUGS.md](BUGS.md) と同じ番号）�
 | PLAN-01 | iPhone アプリ版（Bluetooth 接続。通信の層の分離を含む） | プロトコル解析済み |
 | PLAN-02 | AI によるドライビングコーチ | 検討のみ |
 | PLAN-03 | GoPro の動画の GPS（GPMF）の読み込み | 対応 |
-| PLAN-04 | MoTeC / AIM / RaceChrono 形式（AIM の CSV・.xrk / .xrz の読み込み、MoTeC CSV の有効化、KML の書き出し） | 一部対応 |
+| PLAN-04 | MoTeC / AIM / RaceChrono 形式（AIM の CSV・.xrk / .xrz の読み込み、MoTeC CSV の有効化、KML の書き出し） | 対応（RaceChrono の実機の CSV での確認が残り） |
 | PLAN-05 | 日本語 / 英語の切り替え・ハイコントラスト表示 | 未着手 |
 | PLAN-06 | メーターを焼き込んだ動画の書き出し | 未着手 |
 | PLAN-07 | Tauri 化（Electron からの移行） | 未着手 |
-| WISH-01 | AiM のロガー（MyChron・Solo など）から USB で直接データを吸い出す。USB の通信の形は一部分かったが、確かめるには AiM の実機が要る | 実機待ち |
+| PLAN-08 | DashWare が持っている機能をすべて実装する（車載動画にメーター・グラフ・コース図などを重ねて書き出す。部品（ゲージ）の配置・見た目を自由に作るエディタとテンプレート、多数のロガー・アプリの形式の読み込み、計算チャンネル、動画とデータの同期、動画の書き出し）。PLAN-06 を含む。まず DashWare の機能を洗い出して、既存の機能との差を一覧にする | 未着手 |
+| PLAN-09 | iRacing のテレメトリ（.ibt）の読み込み（2026-10-18 追加）。ゲームで練習した走りと実車の走りを同じ画面で比べるため（ブレーキを踏む位置など）。形式は iRacing の SDK（irsdk）で公開されている（項目の一覧・セッション情報の YAML・60Hz の値）。緯度経度を使って実車のログと重ねる。仕様は SDK の資料で確かめてから作る | 未着手 |
+| PLAN-10 | 最終目標: RaceChrono に近いアプリにする（2026-10-18 追加）。スマホアプリ版（PLAN-01）で、デジスパイス以外の外部の機器にもつないで計測する。仕様が公開されていてつなぎやすいものから: RaceBox（Mini / Micro。メーカーが Bluetooth の通信の形の資料を公開。Micro は NMEA でも送れる）、RaceChrono の DIY 用の Bluetooth の形（GitHub の aollin/racechrono-ble-diy-device。サービス `0x1FF8`、GPS と CAN の特性）、外付けの Bluetooth GPS（NMEA）、OBD-II（ELM327）。ファイルは VBOX の .vbo（文字・仕様公開）も読む | 構想 |
+| WISH-01 | AiM のロガー（MyChron・Solo など）から直接データを吸い出す（Race Studio 3 は Windows 専用なので、それを使わずに済ませる）。**デスクトップ版（Electron）とスマホアプリ版にだけ組み込み、ブラウザ版には入れない**（2026-10-18 決定。ブラウザからはロガーとの通信ができないため）。Solo 2 DL はロガーが自分で作る Wi-Fi のネットワークにつないで吸い出す（USB でもつなげるかは未確認）。USB の通信の形は一部分かったが、Wi-Fi・USB とも確かめるには AiM の実機が要る。通信の層は PLAN-01 の「通信の層の分離」と同じ考えで、プロトコル層を共通にし、送受信の層を Electron（Node の `net` / `dgram`）とスマホ（ネイティブのプラグイン。ロガーの Wi-Fi への接続も要る）で差し替える。PLAN-07 で Tauri にするなら送受信の層は Rust 側に移す | 実機待ち |
 
 ---
 
@@ -163,13 +166,13 @@ USB シリアル通信をさらに拡張し、公式アプリを使わずにロ�
 - [ ] **PLAN-04（2.5）MoTeC i2 / AIM / RaceChrono 形式の相互インポート・エクスポート**
   - [x] MoTeC CSV 形式（i2 の CSV エクスポートと同じ書式）の出力と読み込み: **試験機能としてコードのみ組み込み、画面には出していない**
     - `src/services/externalFormats.ts` の `MOTEC_CSV_ENABLED` を `true` にすると、データ管理の書き出しボタンと読み込み時の自動判別が有効になる
-  - [ ] AIM の読み込み（MUST）: Race Studio の CSV（`"Format","AiM CSV File"`）と .xrk / .xrz。.xrk / .xrz は libxrk（MIT）を参考にする。サンプルは `_private/samples/aim_libxrk/`（富士 GP ショート・筑波など）
-  - [ ] MoTeC CSV の有効化: 実物の i2 の書き出し（`_private/samples/motec_lapsim/`、小数点がカンマ）で確かめてから `MOTEC_CSV_ENABLED` を true にする
-  - [ ] KML の書き出し（Google Earth 用。区間ごとに色を付けた線）
+  - [x] （2026-10-18 対応、`aimFormats.ts`）AIM の読み込み（MUST）: Race Studio の CSV（`"Format","AiM CSV File"`）と .xrk / .xrz。.xrk は GPS の記録（u-blox NAV-SOL）だけを読む。富士 GP ショートの .xrk / .xrz / CSV が AiM の区間タイムと 3 ミリ秒以内で一致。.xrk / .xrz は libxrk（MIT）を参考にする。サンプルは `_private/samples/aim_libxrk/`（富士 GP ショート・筑波など）
+  - [x] （2026-10-18 対応）MoTeC CSV の有効化（小数点のカンマ・dd.mm.yyyy の日付・速度の列がないもの（位置から求める）に対応。記録日時は端末の時刻で読み書き）: 実物の i2 の書き出し（`_private/samples/motec_lapsim/`、小数点がカンマ）で確かめてから `MOTEC_CSV_ENABLED` を true にする
+  - [x] （2026-10-18 対応）KML の書き出し（Google Earth 用。車速を 6 段に分け、段ごとに色を付けた線）
   - [x] RaceChrono CSV（v2 / v3）・VBO (Racelogic) 形式のインポート対応
-  - [ ] MoTeC: 実物の i2 から書き出した GPS 入り CSV での読み込み確認（入手できた公開サンプルは書式の確認用で、GPS チャンネルを含まない）。確認できたら画面に出す
+  - [x] MoTeC: 実物の i2 から書き出した GPS 入り CSV での読み込み確認（2026-10-18、`motec_lapsim` の 2 本）（入手できた公開サンプルは書式の確認用で、GPS チャンネルを含まない）。確認できたら画面に出す
   - [ ] RaceChrono: 実機で書き出した CSV での確認（入手できた公開サンプルは数行の合成データ）
-  - [ ] AIM 形式（未着手）
+  - [x] AIM 形式（上の「AIM の読み込み」）
   - [x] **GPX の読み込み**（2026-10-16 追加・実装、dev ブランチ。要望: issue #1〜#3 の投稿者のブログ、みんカラ 2026-10-15「RaceChrono で書き出した GPX を読みたい」）
     - `externalFormats.ts` の `parseGpx`。`trkpt` の緯度経度・`ele`・`time` を読み、複数の `trk` / `trkseg` は連結する
     - 速度・進行方向は `<speed>` / `<course>` か拡張要素（`gpxtpx:speed` など、m/s）。速度がなければ位置と時刻から求める
@@ -299,12 +302,12 @@ UI 調整と iPhone アプリ版の後に着手する。まずは方法の検討
 - [x] ブラウザ版でのロガー通信を実機で確認（2026-10-13、macOS の Chrome で接続し、通信ログが流れることを確認。Edge と Windows は未確認）
 - [x] **GGA の HDOP 空欄の互換性**: 標高・衛星数・HDOP がすべて空欄の GGA（.bon4 由来、ds4_convert v1.0.3）を RaceChrono に取り込めることを確認（2026-10-13）。標高・衛星数入りで HDOP だけ空欄の GGA（.bnx4 由来、変換ページの出力）も取り込めることを確認（同日）
 - [ ] **LATER-02 大きいログの書き出しのメモリ使用量**: 30 万点の GPX は約 68 MiB の文字列になり、生成中は配列・結合結果・Blob が重なる。メモリの少ない端末向けに、分割生成や Worker への移行を検討する（実機では未計測）
-- [ ] **LATER-03 `ds4_convert` から未移植の機能・UI の取り込み**（2026-10-16 追加）
+- [x] **LATER-03 `ds4_convert` から未移植の機能・UI の取り込み**（2026-10-18 対応。地図 HTML の背景は外部との通信先を増やさないよう OpenStreetMap のまま）（2026-10-16 追加）
   - [x] **（2026-10-17 対応）変換タブ内のビジュアルトリミング UI**（`ds4_convert` の `TrackPreview.tsx` 相当）: コース軌跡マップ & 車速グラフのプレビュー表示（選択区間ハイライト・除外区間グレーアウト）、開始・終了レンジスライダー、グラフのホバー地点を「開始地 / 終了地に設定」するボタン、`HH:mm:ss` 時刻入力と `±10秒` / `±1分` 微調整ステッパー
-  - [ ] **地図 HTML（`.html`）出力のホバーマーカー**: ダーク地図タイル上に間引いたマーカー（最大 300 点）を置き、ホバー時に時刻・車速・方位・緯度経度のツールチップを表示する（現状は標準タイル＋軌跡線＋START/END のみ）
-  - [ ] **時差補正の初期値・ワンクリック切り替え・ファイル名サフィックス**: 公式アプリ出力に合わせた JST (`+9h`) 既定または `JST (+9h)` / `UTC (+0h)` のクイック切り替え、および出力ファイル名への `_JST` / `_UTC` 付与
-  - [ ] **スペース区切り `.txt`（`RAW GPS TXT`）出力**: `Timestamp Latitude Longitude Speed(km/h) Heading(deg)` 形式のプレーンテキスト書き出し
-  - [ ] **変換概要欄の「平均車速」・座標表示**: 選択区間の最高車速に加えて平均車速と開始・終了座標を表示する
+  - [x] **地図 HTML（`.html`）出力のホバーマーカー**: ダーク地図タイル上に間引いたマーカー（最大 300 点）を置き、ホバー時に時刻・車速・方位・緯度経度のツールチップを表示する（現状は標準タイル＋軌跡線＋START/END のみ）
+  - [x] **時差補正の初期値・ワンクリック切り替え・ファイル名サフィックス**: 公式アプリ出力に合わせた JST (`+9h`) 既定または `JST (+9h)` / `UTC (+0h)` のクイック切り替え、および出力ファイル名への `_JST` / `_UTC` 付与
+  - [x] **スペース区切り `.txt`（`RAW GPS TXT`）出力**: `Timestamp Latitude Longitude Speed(km/h) Heading(deg)` 形式のプレーンテキスト書き出し
+  - [x] **変換概要欄の「平均車速」・座標表示**: 選択区間の最高車速に加えて平均車速と開始・終了座標を表示する
   - （ライト / ダーク / システム連動のテーマ切り替えは P3 の「3.1 UI 多言語化 & テーマ切替」に含む）
 - スマートフォン向けレイアウトは [UI 調整](#-ui-調整スマホ表示を含む最優先) に移した
 
