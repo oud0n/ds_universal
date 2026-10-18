@@ -6,6 +6,7 @@ import { Play, Pause, SkipBack, SkipForward, PlaySquare, Compass, Eye } from 'lu
 import { findCarPoint } from '../utils/telemetrySearch';
 import { getPointGrid, pointsInBounds } from '../utils/pointGrid';
 import { prepareCanvas, useDevicePixelRatio } from '../utils/canvasLayer';
+import { tr, useLang, useT } from '../utils/i18n';
 
 interface ReplayWindowProps {
   cars: {
@@ -55,6 +56,9 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
 }) => {
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
+  const t = useT();
+  // 言語を切り替えたら canvas の文字も描き直す
+  const lang = useLang();
   // 解像度の違うディスプレイへ移したら描き直す
   const dpr = useDevicePixelRatio();
   // スマートフォン向けの配置では、ツールバーを 1 行にして横にスクロールさせ、見出しを省く
@@ -97,7 +101,7 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
       ctx.fillStyle = C.axis;
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('再生データがありません', width / 2, height / 2);
+      ctx.fillText(tr('再生データがありません', 'Nothing to play'), width / 2, height / 2);
       return;
     }
 
@@ -227,7 +231,7 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
     ctx.textAlign = 'left';
     ctx.fillText(`Dist: ${currentDistance.toFixed(3)} km`, 10, height - 12);
     ctx.fillText(`Time: ${currentTime.toFixed(2)} s`, 10, height - 24);
-  }, [cars, baseCar, currentDistance, currentTime, compareAxis, zoomLevel, followCar, theme, resizeTick, dpr]);
+  }, [cars, baseCar, currentDistance, currentTime, compareAxis, zoomLevel, followCar, theme, resizeTick, dpr, lang]);
 
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
@@ -238,22 +242,24 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
           {!compact && (
             <span className="font-bold text-slate-200 flex items-center gap-1.5">
               <PlaySquare size={14} className="text-amber-400" />
-              アニメーション再生
+              {t('アニメーション再生', 'Animation')}
             </span>
           )}
 
           {/* セクター同時スタートボタン */}
           {sectors.length > 0 && (
             <div className={`flex flex-wrap items-center gap-1 ${compact ? '' : 'ml-2'}`}>
-              <span className="text-[10px] text-slate-400 font-medium">{compact ? '同時:' : '同時スタート:'}</span>
+              <span className="text-[10px] text-slate-400 font-medium">{compact ? t('同時:', 'Start:') : t('同時スタート:', 'Common start:')}</span>
               <div className="flex gap-1">
                 {sectors.map((sec, idx) => (
                   <button
                     key={sec.id}
                     onClick={() => onSyncSectorStart(idx)}
                     title={sectorStartMode === 'all'
-                      ? `全車が S${idx + 1} の始まり (${idx === 0 ? '計測線' : `${sectors[idx - 1].name || `S${idx}`} の線`}) を同時に通るよう時刻をそろえて、そこから一斉スタート (時間基準)`
-                      : `S${idx + 1} の始まり (${idx === 0 ? '計測線' : `${sectors[idx - 1].name || `S${idx}`} の線`}) から一斉スタート (基準車の位置に合わせる)`}
+                      ? t(`全車が S${idx + 1} の始まり (${idx === 0 ? '計測線' : `${sectors[idx - 1].name || `S${idx}`} の線`}) を同時に通るよう時刻をそろえて、そこから一斉スタート (時間基準)`,
+                          `Align the times so every car crosses the start of S${idx + 1} (${idx === 0 ? 'the timing line' : `the ${sectors[idx - 1].name || `S${idx}`} line`}) together, and start all cars from there (time based)`)
+                      : t(`S${idx + 1} の始まり (${idx === 0 ? '計測線' : `${sectors[idx - 1].name || `S${idx}`} の線`}) から一斉スタート (基準車の位置に合わせる)`,
+                          `Start all cars from the start of S${idx + 1} (${idx === 0 ? 'the timing line' : `the ${sectors[idx - 1].name || `S${idx}`} line`}) (matched to the reference car's position)`)}
                     className="px-1.5 py-0.5 rounded bg-surface-4 hover:bg-amber-600 hover:text-white text-slate-300 text-[10px] font-bold border border-line-4 transition-all"
                   >
                     {`S${idx + 1}`}
@@ -269,21 +275,21 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
                     className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-all ${
                       sectorStartMode === mode ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-slate-200'
                     }`}
-                    title={mode === 'base' ? '基準車 (Car 1) の位置に合わせる' : '全車がそのセクター線を同時に通るようにそろえる'}
+                    title={mode === 'base' ? t('基準車 (Car 1) の位置に合わせる', 'Match the reference car (Car 1) position') : t('全車がそのセクター線を同時に通るようにそろえる', 'Align every car to cross the sector line together')}
                   >
-                    {mode === 'base' ? (compact ? 'Car 1' : 'Car 1 に合わせる') : (compact ? '全車' : '全車をそろえる')}
+                    {mode === 'base' ? (compact ? 'Car 1' : t('Car 1 に合わせる', 'Match Car 1')) : (compact ? t('全車', 'All') : t('全車をそろえる', 'Align all cars'))}
                   </button>
                 ))}
               </div>
               {alignedSectorName && (
                 <button
                   onClick={onClearAlignedSector}
-                  title="セクターにそろえるのをやめる"
+                  title={t('セクターにそろえるのをやめる', 'Stop aligning to the sector')}
                   className="ml-1 px-1.5 py-0.5 rounded border border-amber-600/60 text-[10px] text-amber-300 hover:text-fg hover:bg-amber-700/40"
                 >
                   {alignBaseMissing
-                    ? `${alignedSectorName}: ${compact ? 'そろえられません' : '基準車がこの線を通っていないため、そろえられません'}`
-                    : `${alignedSectorName} ${compact ? 'そろえ中' : 'にそろえ中'}${alignFailedCount > 0 ? `（${compact ? `${alignFailedCount} 台不可` : `${alignFailedCount} 台はそろえられません`}）` : ''}`} ✕
+                    ? `${alignedSectorName}: ${compact ? t('そろえられません', 'cannot align') : t('基準車がこの線を通っていないため、そろえられません', 'cannot align because the reference car does not cross this line')}`
+                    : `${t(`${alignedSectorName} ${compact ? 'そろえ中' : 'にそろえ中'}`, `Aligned to ${alignedSectorName}`)}${alignFailedCount > 0 ? t(`（${compact ? `${alignFailedCount} 台不可` : `${alignFailedCount} 台はそろえられません`}）`, ` (${alignFailedCount} ${compact ? 'failed' : 'cars could not be aligned'})`) : ''}`} ✕
                 </button>
               )}
             </div>
@@ -292,7 +298,7 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
 
         {/* ズーム */}
         <div className="flex items-center gap-1">
-          {!compact && <span className="text-[10px] text-slate-400">拡大率:</span>}
+          {!compact && <span className="text-[10px] text-slate-400">{t('拡大率:', 'Zoom:')}</span>}
           {[2, 3, 5].map(z => (
             <button
               key={z}

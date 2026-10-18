@@ -5,6 +5,7 @@ import { CompareAxis, Lap, SelectedCarSlot } from '../types/telemetry';
 import { CircleDot, Disc } from 'lucide-react';
 import { findCarPoint } from '../utils/telemetrySearch';
 import { prepareCanvas, useDevicePixelRatio } from '../utils/canvasLayer';
+import { tr, useLang, useT } from '../utils/i18n';
 
 // 現在の G の点の後ろに描く軌跡の長さ (秒)
 const GG_TRAIL_SEC = 1.0;
@@ -45,6 +46,9 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
 }) => {
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
+  const t = useT();
+  // 言語を切り替えたら canvas の文字も描き直す
+  const lang = useLang();
   // 解像度の違うディスプレイへ移したら描き直す
   const dpr = useDevicePixelRatio();
   // スマートフォンでは高さが足りず数値の欄が切れるので、ウインドウの中をスクロールできるようにする
@@ -204,12 +208,12 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
     // 軸ラベル (モータースポーツG-Gダイアグラム標準: ブレーキング=上, 加速=下, 右旋回遠心G=左, 左旋回遠心G=右)
     ctx.fillStyle = C.label;
     ctx.font = 'bold 9px sans-serif';
-    ctx.fillText('減速 (ブレーキ)', centerX, centerY - maxRadius - 4);
-    ctx.fillText('加速', centerX, centerY + maxRadius + 12);
+    ctx.fillText(tr('減速 (ブレーキ)', 'Braking'), centerX, centerY - maxRadius - 4);
+    ctx.fillText(tr('加速', 'Accel'), centerX, centerY + maxRadius + 12);
     ctx.textAlign = 'left';
-    ctx.fillText('右G (左旋回)', centerX + maxRadius + 4, centerY + 3);
+    ctx.fillText(tr('右G (左旋回)', 'Right G (left turn)'), centerX + maxRadius + 4, centerY + 3);
     ctx.textAlign = 'right';
-    ctx.fillText('左G (右旋回)', centerX - maxRadius - 4, centerY + 3);
+    ctx.fillText(tr('左G (右旋回)', 'Left G (right turn)'), centerX - maxRadius - 4, centerY + 3);
 
     layoutRef.current = { width, height, centerX, centerY, maxRadius };
     if (cars.length === 0) {
@@ -230,7 +234,7 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
     });
 
     drawDots();
-  }, [cars, theme, resizeTick, dpr]);
+  }, [cars, theme, resizeTick, dpr, lang]);
 
   return (
     <div className={`flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 select-none shadow-lg ${compact ? 'overflow-y-auto' : 'overflow-hidden'}`}>
@@ -238,22 +242,22 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0">
         <span className="font-bold text-slate-200 flex items-center gap-1.5">
           <Disc size={14} className="text-cyan-400" />
-          フリクションサークル
+          {t('フリクションサークル', 'Friction circle')}
         </span>
         <div className="flex items-center gap-2">
           {onToggleSmooth && (
             <button
               onClick={onToggleSmooth}
               aria-pressed={!!smoothStrong}
-              title="G のならし方を「強」にして、点の動きを落ち着かせます (データ管理タブの「G のならし方」と同じ設定。急な変化は鈍く出ます)"
+              title={t('G のならし方を「強」にして、点の動きを落ち着かせます (データ管理タブの「G のならし方」と同じ設定。急な変化は鈍く出ます)', 'Sets G smoothing to "strong" to calm the dot (same setting as G smoothing on the data tab; sudden changes appear slower)')}
               className={`px-2 py-0.5 rounded border text-[11px] font-medium transition-colors ${
                 smoothStrong ? 'bg-cyan-600 border-cyan-500 text-white' : 'border-line-3 text-slate-400 hover:text-slate-200'
               }`}
             >
-              なめらか{smoothStrong ? ': ON' : ''}
+              {t('なめらか', 'Smooth')}{smoothStrong ? ': ON' : ''}
             </button>
           )}
-          <span className="text-[10px] text-cyan-400 font-mono">限界円 1.0G</span>
+          <span className="text-[10px] text-cyan-400 font-mono">{t('限界円 1.0G', 'Limit 1.0G')}</span>
         </div>
       </div>
 
@@ -269,38 +273,38 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
         {basePoint && (
           <div className="w-full md:w-36 bg-surface-1 border border-line-2 rounded p-2.5 flex flex-col gap-2 text-xs">
             <div className="text-[11px] font-bold text-slate-400 border-b border-line-2 pb-1">
-              基準車 (Red) テレメトリ
+              {t('基準車 (Red) テレメトリ', 'Reference car (red)')}
             </div>
 
             <div className="flex justify-between items-center font-mono">
-              <span className="text-slate-400 text-[11px]">合算 G:</span>
+              <span className="text-slate-400 text-[11px]">{t('合算 G:', 'Combined G:')}</span>
               <span className="font-bold text-amber-400 text-sm">{basePoint.combinedG.toFixed(2)} G</span>
             </div>
 
             <div className="flex justify-between items-center font-mono">
-              <span className="text-slate-400 text-[11px]">加減速 G:</span>
+              <span className="text-slate-400 text-[11px]">{t('加減速 G:', 'Long. G:')}</span>
               <span className={`font-bold ${basePoint.accelG >= 0 ? 'text-cyan-400' : 'text-red-400'}`}>
                 {basePoint.accelG > 0 ? '+' : ''}{basePoint.accelG.toFixed(2)} G
               </span>
             </div>
 
             <div className="flex justify-between items-center font-mono">
-              <span className="text-slate-400 text-[11px]">横 G:</span>
+              <span className="text-slate-400 text-[11px]">{t('横 G:', 'Lat. G:')}</span>
               <span className="font-bold text-emerald-400">
                 {basePoint.corneringG > 0 ? 'R' : 'L'} {Math.abs(basePoint.corneringG).toFixed(2)} G
               </span>
             </div>
 
             <div className="flex justify-between items-center font-mono">
-              <span className="text-slate-400 text-[11px]">旋回半径 R:</span>
+              <span className="text-slate-400 text-[11px]">{t('旋回半径 R:', 'Radius R:')}</span>
               <span className="font-bold text-purple-400">
-                {basePoint.turningRadius > 2000 ? '直線' : `${basePoint.turningRadius.toFixed(0)} m`}
+                {basePoint.turningRadius > 2000 ? t('直線', 'Straight') : `${basePoint.turningRadius.toFixed(0)} m`}
               </span>
             </div>
 
             {/* 縦横G比率バー (公式アプリ仕様) */}
             <div className="flex flex-col gap-1 mt-1 pt-1 border-t border-line-2">
-              <span className="text-[10px] text-slate-400">縦横G比率:</span>
+              <span className="text-[10px] text-slate-400">{t('縦横G比率:', 'Long./lat. G ratio:')}</span>
               <div className="w-full h-2 rounded bg-slate-800 overflow-hidden flex">
                 {basePoint.combinedG > 0.05 && (
                   <>
@@ -309,21 +313,21 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
                         width: `${Math.min(100, (Math.abs(basePoint.accelG) / basePoint.combinedG) * 100)}%`
                       }}
                       className="h-full bg-red-500"
-                      title="縦G (加減速)"
+                      title={t('縦G (加減速)', 'Longitudinal G')}
                     />
                     <div
                       style={{
                         width: `${Math.min(100, (Math.abs(basePoint.corneringG) / basePoint.combinedG) * 100)}%`
                       }}
                       className="h-full bg-emerald-500"
-                      title="横G (コーナリング)"
+                      title={t('横G (コーナリング)', 'Lateral G')}
                     />
                   </>
                 )}
               </div>
               <div className="flex justify-between text-[9px] text-slate-400">
-                <span className="text-red-400">縦: 加減速</span>
-                <span className="text-emerald-400">横: コーナリング</span>
+                <span className="text-red-400">{t('縦: 加減速', 'Long.')}</span>
+                <span className="text-emerald-400">{t('横: コーナリング', 'Lat.')}</span>
               </div>
             </div>
           </div>
