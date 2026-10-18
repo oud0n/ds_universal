@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { canvasColors, useResolvedTheme } from '../utils/theme';
+import { tr, useLang, useT } from '../utils/i18n';
 import { OctagonAlert } from 'lucide-react';
 import { Lap, SelectedCarSlot } from '../types/telemetry';
 import { useLapGeometries } from '../hooks/useLapGeometries';
@@ -16,6 +17,9 @@ const CHART_MARGIN_BEFORE_M = 25;
 const CHART_MARGIN_AFTER_M = 25;
 
 export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ cars, currentDistance, onSeekDistance }) => {
+  const t = useT();
+  // 言語を切り替えたら canvas の文字も描き直す
+  const lang = useLang();
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
   const analysed = useLapGeometries(cars);
@@ -101,7 +105,7 @@ export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ ca
     ctx.fillStyle = C.axis;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(`基準車の制動開始からの距離 (m)  実線: 前後G / 破線: 横G`, (pad.l + width - pad.r) / 2, height - 2);
+    ctx.fillText(tr('基準車の制動開始からの距離 (m)  実線: 前後G / 破線: 横G', 'Distance from the reference car\'s braking point (m)  solid: long. G / dashed: lat. G'), (pad.l + width - pad.r) / 2, height - 2);
 
     // 各車両の前後 G (実線) と横 G の絶対値 (破線)。横軸は基準車の位置に対応させる
     result.perCar.forEach(({ car }) => {
@@ -139,13 +143,13 @@ export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ ca
       ctx.lineTo(xOf(currentM), height - pad.b);
       ctx.stroke();
     }
-  }, [result, base, zoneIndex, currentM, resizeTick, theme]);
+  }, [result, base, zoneIndex, currentM, resizeTick, theme, lang]);
 
   if (!base || !result) {
-    return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-surface-1">走行データを読み込むとブレーキングの診断を表示します</div>;
+    return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-surface-1">{t('走行データを読み込むとブレーキングの診断を表示します', 'Load driving data to see the braking analysis')}</div>;
   }
   if (result.baseZones.length === 0) {
-    return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-surface-1">このラップから制動区間 (0.3G 以上の減速) を検出できませんでした</div>;
+    return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-surface-1">{t('このラップから制動区間 (0.3G 以上の減速) を検出できませんでした', 'No braking zones (deceleration of 0.3 G or more) were found in this lap')}</div>;
   }
 
   return (
@@ -153,24 +157,24 @@ export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ ca
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-line-1 text-[11px] shrink-0">
         <span className="font-bold flex items-center gap-1.5">
           <OctagonAlert size={13} className="text-red-400" />
-          ブレーキング診断 ({result.baseZones.length} 区間)
+          {t(`ブレーキング診断 (${result.baseZones.length} 区間)`, `Braking analysis (${result.baseZones.length} zones)`)}
         </span>
-        <span className="text-slate-500 truncate ml-2" title="GPS の車速から算出した減速 G による推定です。ブレーキ操作そのものは記録されていないため、アクセルオフによる減速と区別できない場合があります">減速 G からの推定</span>
+        <span className="text-slate-500 truncate ml-2" title={t('GPS の車速から算出した減速 G による推定です。ブレーキ操作そのものは記録されていないため、アクセルオフによる減速と区別できない場合があります', 'Estimated from deceleration G calculated from GPS speed. Brake use itself is not recorded, so it may not be distinguishable from lifting off the throttle')}>{t('減速 G からの推定', 'Estimated from deceleration G')}</span>
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto">
         <table className="w-full text-[11px] font-mono border-collapse">
           <thead className="sticky top-0 bg-surface-3 text-slate-400">
             <tr>
-              <th className="px-2 py-1 text-left font-medium">区間</th>
-              <th className="px-2 py-1 text-left font-medium">車両</th>
-              <th className="px-2 py-1 text-right font-medium">開始位置</th>
-              <th className="px-2 py-1 text-right font-medium">車速 (km/h)</th>
-              <th className="px-2 py-1 text-right font-medium">制動距離</th>
-              <th className="px-2 py-1 text-right font-medium" title="最大減速 G / 区間平均">最大G / 平均</th>
-              <th className="px-2 py-1 text-right font-medium" title="踏み始めから最大減速の 80% に達するまでの時間と、その間の増加率">立ち上がり</th>
-              <th className="px-2 py-1 text-right font-medium" title="最大減速の 80% を下回ってから制動が終わるまでの時間と、その間の減速 G の最大変化率 (小さいほど滑らか)">リリース</th>
-              <th className="px-2 py-1 text-right font-medium" title="横 G が 0.3G 以上出ている状態で制動している時間と、その間の最大横 G">トレイル</th>
+              <th className="px-2 py-1 text-left font-medium">{t('区間', 'Zone')}</th>
+              <th className="px-2 py-1 text-left font-medium">{t('車両', 'Car')}</th>
+              <th className="px-2 py-1 text-right font-medium">{t('開始位置', 'Start')}</th>
+              <th className="px-2 py-1 text-right font-medium">{t('車速 (km/h)', 'Speed (km/h)')}</th>
+              <th className="px-2 py-1 text-right font-medium">{t('制動距離', 'Distance')}</th>
+              <th className="px-2 py-1 text-right font-medium" title={t('最大減速 G / 区間平均', 'Peak deceleration G / zone average')}>{t('最大G / 平均', 'Peak G / avg')}</th>
+              <th className="px-2 py-1 text-right font-medium" title={t('踏み始めから最大減速の 80% に達するまでの時間と、その間の増加率', 'Time from the start of braking to 80% of peak deceleration, and the rate of increase')}>{t('立ち上がり', 'Build-up')}</th>
+              <th className="px-2 py-1 text-right font-medium" title={t('最大減速の 80% を下回ってから制動が終わるまでの時間と、その間の減速 G の最大変化率 (小さいほど滑らか)', 'Time from dropping below 80% of peak deceleration to the end of braking, and the largest rate of change of deceleration G (smaller is smoother)')}>{t('リリース', 'Release')}</th>
+              <th className="px-2 py-1 text-right font-medium" title={t('横 G が 0.3G 以上出ている状態で制動している時間と、その間の最大横 G', 'Time spent braking with 0.3 G or more lateral G, and the peak lateral G during it')}>{t('トレイル', 'Trail')}</th>
             </tr>
           </thead>
           <tbody>
@@ -195,10 +199,10 @@ export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ ca
                       <td className="px-2 py-1 text-right whitespace-nowrap"><span className="font-bold">{z.peakG.toFixed(2)}</span> / {z.averageG.toFixed(2)}</td>
                       <td className="px-2 py-1 text-right whitespace-nowrap">{z.buildUpS.toFixed(2)}s ({z.buildUpRate.toFixed(1)}G/s)</td>
                       <td className="px-2 py-1 text-right whitespace-nowrap">{z.releaseS.toFixed(2)}s ({z.releaseMaxRate.toFixed(1)}G/s)</td>
-                      <td className="px-2 py-1 text-right whitespace-nowrap">{z.trailS > 0 ? `${z.trailS.toFixed(2)}s (横${z.trailMaxLatG.toFixed(2)}G)` : 'なし'}</td>
+                      <td className="px-2 py-1 text-right whitespace-nowrap">{z.trailS > 0 ? `${z.trailS.toFixed(2)}s (${t('横', 'lat ')}${z.trailMaxLatG.toFixed(2)}G)` : t('なし', 'none')}</td>
                     </>
                   ) : (
-                    <td colSpan={7} className="px-2 py-1 text-center text-slate-600">この位置での制動なし</td>
+                    <td colSpan={7} className="px-2 py-1 text-center text-slate-600">{t('この位置での制動なし', 'No braking here')}</td>
                   )}
                 </tr>
               );

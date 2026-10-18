@@ -29,6 +29,7 @@ import {
 } from '../services/telemetryVideoExporter';
 import { MasterTimelineTrackBar } from './MasterTimelineTrackBar';
 import { formatMinSec } from '../utils/timeFormat';
+import { tr, useT } from '../utils/i18n';
 
 export type { VideoViewMode, PipPosition };
 
@@ -210,6 +211,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   playbackSpeed,
   onChangePlaybackSpeed
 }) => {
+  const t = useT();
   // 動画の一覧と表示の状態は、どのウインドウでも同じにする (videoViewStore に 1 つだけ持つ)
   const tracks = useVideoTracks();
   const view = useVideoView();
@@ -472,7 +474,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     const currentVideoTime = videoRef.current.currentTime;
     
     const pin = createSyncPin(
-      newPinName || `ピン ${pins.length + 1}`,
+      newPinName || `${tr('ピン', 'Pin')} ${pins.length + 1}`,
       effectiveSessionTime,
       currentVideoTime,
       activeTrack.id
@@ -633,7 +635,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           if (restored.length > 0) videoViewStore.setPins(importKey, [...current, ...restored]);
         }
       } catch (err: any) {
-        alert('プロジェクト復元エラー: ' + err.message);
+        alert(tr('プロジェクト復元エラー: ', 'Could not restore the project: ') + err.message);
       }
     };
     reader.readAsText(file);
@@ -676,7 +678,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         <div className="flex items-center gap-2.5">
           <span className="text-xs font-bold text-slate-100 flex items-center gap-1.5 shrink-0">
             <Video size={15} className="text-red-500" />
-            車載動画同期
+            {t('車載動画同期', 'Onboard video sync')}
           </span>
 
           {/* グラフ解析に埋め込んだときだけ: タイムゾーン・再同期の段とタイムラインを開く / 閉じる。
@@ -685,18 +687,18 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             <button
               onClick={() => setShowSyncTools(v => !v)}
               aria-pressed={showSyncTools}
-              title="動画のタイムゾーン・再同期の段とタイムラインを出す / 隠す"
+              title={t('動画のタイムゾーン・再同期の段とタイムラインを出す / 隠す', 'Show / hide the time zone and resync row and the timeline')}
               className={`flex items-center gap-1 shrink-0 whitespace-nowrap px-2 py-1 rounded text-xs border transition-colors cursor-pointer ${
                 showSyncTools ? 'bg-slate-700 border-slate-500 text-slate-100' : 'bg-surface-3 hover:bg-surface-5 border-line-3 text-slate-300'
               }`}
             >
-              同期の調整
+              {t('同期の調整', 'Sync settings')}
             </button>
           )}
 
           {/* 速度ウィンドウ連携バッジ (フラット) */}
           {baseSession && (
-            <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/80 border border-emerald-800 px-2 py-0.5 rounded flex items-center gap-1 shrink-0" title="速度ウィンドウ同期中">
+            <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/80 border border-emerald-800 px-2 py-0.5 rounded flex items-center gap-1 shrink-0" title={t('速度ウィンドウ同期中', 'Synced with the speed window')}>
               <CheckCircle2 size={11} className="text-emerald-400 shrink-0" />
               <span className="max-w-[120px] truncate font-bold">{baseSession.sessionName}</span>
               {baseLap && <span className="text-emerald-300 font-bold">L{baseLap.lapNumber}</span>}
@@ -729,7 +731,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 <button
                   onClick={() => videoSyncManager.removeTrack(selectedTrackId)}
                   disabled={isAnyExporting}
-                  title="動画トラック削除"
+                  title={t('動画トラック削除', 'Remove video track')}
                   className="p-1 hover:bg-red-950/60 text-slate-400 hover:text-red-400 rounded transition-colors cursor-pointer"
                 >
                   <Trash2 size={12} />
@@ -761,26 +763,26 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   className={`px-2 py-1 text-[10px] font-bold transition-colors cursor-pointer ${
                     viewMode === 'single' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
                   }`}
-                  title="単一カメラ表示"
+                  title={t('単一カメラ表示', 'Single camera')}
                 >
-                  単一
+                  {t('単一', 'Single')}
                 </button>
                 <button
                   onClick={() => setViewMode('split')}
                   className={`px-2 py-1 text-[10px] font-bold transition-colors cursor-pointer flex items-center gap-1 ${
                     viewMode === 'split' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
                   }`}
-                  title="左右2画面並列表示 (1:1)"
+                  title={t('左右2画面並列表示 (1:1)', 'Two cameras side by side (1:1)')}
                 >
                   <Columns size={11} />
-                  2画面
+                  {t('2画面', 'Split')}
                 </button>
                 <button
                   onClick={() => setViewMode('pip')}
                   className={`px-2 py-1 text-[10px] font-bold transition-colors cursor-pointer flex items-center gap-1 ${
                     viewMode === 'pip' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
                   }`}
-                  title="ピクチャー・イン・ピクチャー (PinP)"
+                  title={t('ピクチャー・イン・ピクチャー (PinP)', 'Picture-in-picture (PiP)')}
                 >
                   <PictureInPicture size={11} />
                   PinP
@@ -791,7 +793,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               <button
                 onClick={handleSwapCameras}
                 className="p-1 rounded bg-surface-3 hover:bg-surface-4 border border-line-3 text-slate-300 transition-colors cursor-pointer"
-                title="メインカメラとサブカメラを瞬時に入れ替え"
+                title={t('メインカメラとサブカメラを瞬時に入れ替え', 'Swap the main and sub cameras')}
               >
                 <ArrowLeftRight size={12} />
               </button>
@@ -804,7 +806,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             className="flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-5 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer"
           >
             <Plus size={12} />
-            動画追加
+            {t('動画追加', 'Add video')}
           </button>
         </div>
 
@@ -815,10 +817,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             <button
               onClick={() => setShowPinModal(true)}
               className="flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-4 text-xs text-amber-300 border border-amber-500/40 transition-colors cursor-pointer"
-              title="現在の動画フレームとGPS時刻を同期ピンとして固定"
+              title={t('現在の動画フレームとGPS時刻を同期ピンとして固定', 'Pin the current video frame and GPS time as a sync point')}
             >
               <MapPin size={12} className="text-amber-400" />
-              ピン留め同期 ({pins.length})
+              {t('ピン留め同期', 'Pin sync')} ({pins.length})
             </button>
           )}
 
@@ -827,10 +829,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             <button
               onClick={() => setShowExportModal(true)}
               className="flex items-center gap-1 px-2 py-1 rounded bg-red-700 hover:bg-red-600 text-xs font-bold text-white transition-colors cursor-pointer"
-              title="メーターオーバーレイ付きの動画をMP4形式で書き出し"
+              title={t('メーターオーバーレイ付きの動画をMP4形式で書き出し', 'Export the video with the gauge overlay as MP4')}
             >
               <Download size={12} />
-              動画書き出し
+              {t('動画書き出し', 'Export video')}
             </button>
           )}
 
@@ -838,14 +840,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           <button
             onClick={handleExportProject}
             className="flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-4 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer"
-            title="同期プロジェクト保存 (.dssync.json)"
+            title={t('同期プロジェクト保存 (.dssync.json)', 'Save sync project (.dssync.json)')}
           >
             <Save size={12} />
           </button>
           <button
             onClick={() => jsonInputRef.current?.click()}
             className="flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-4 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer"
-            title="プロジェクト読込 (.dssync.json)"
+            title={t('プロジェクト読込 (.dssync.json)', 'Load sync project (.dssync.json)')}
           >
             <FolderOpen size={12} />
           </button>
@@ -856,7 +858,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             className={`p-1 rounded border transition-colors cursor-pointer ${
               showOverlay ? 'bg-red-600/20 text-red-400 border-red-500/50' : 'bg-slate-800 text-slate-500 border-slate-700'
             }`}
-            title="テレメトリ計器表示切替"
+            title={t('テレメトリ計器表示切替', 'Show or hide the telemetry gauges')}
           >
             {showOverlay ? <Eye size={14} /> : <EyeOff size={14} />}
           </button>
@@ -870,7 +872,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           <div className="flex flex-wrap items-center gap-2.5">
             {/* 動画タイムゾーン選択 */}
             <div className="flex items-center gap-1 bg-surface-3 px-2 py-0.5 rounded border border-line-3">
-              <span className="text-slate-400 text-[10px] font-medium">動画TZ:</span>
+              <span className="text-slate-400 text-[10px] font-medium">{t('動画TZ:', 'Video TZ:')}</span>
               <select
                 value={activeTrack.videoTimezone || 'JST'}
                 onChange={e => videoSyncManager.resyncTrack(activeTrack.id, sessions, e.target.value, undefined, baseSession?.id)}
@@ -878,7 +880,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               >
                 {TIMEZONE_OPTIONS.map(opt => (
                   <option key={opt.value} value={opt.value} className="bg-surface-3 text-slate-200">
-                    {opt.label}
+                    {t(opt.label, opt.labelEn)}
                   </option>
                 ))}
               </select>
@@ -894,7 +896,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               >
                 {TIMEZONE_OPTIONS.map(opt => (
                   <option key={opt.value} value={opt.value} className="bg-surface-3 text-slate-200">
-                    {opt.label}
+                    {t(opt.label, opt.labelEn)}
                   </option>
                 ))}
               </select>
@@ -904,10 +906,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             <button
               onClick={() => videoSyncManager.resyncTrack(activeTrack.id, sessions, activeTrack.videoTimezone, activeTrack.gpsTimezone, baseSession?.id)}
               className="flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px] transition-colors cursor-pointer"
-              title="タイムゾーンに基づきオフセット再計算"
+              title={t('タイムゾーンに基づきオフセット再計算', 'Recalculate the offset from the time zones')}
             >
               <RefreshCw size={11} />
-              再同期
+              {t('再同期', 'Resync')}
             </button>
           </div>
 
@@ -916,19 +918,19 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             {isLargeOffset && (
               <div className="flex items-center gap-1.5 bg-amber-950/80 border border-amber-600 text-amber-300 px-2 py-0.5 rounded">
                 <AlertTriangle size={12} className="text-amber-400 shrink-0" />
-                <span>約{Math.round(Math.abs(activeTrack.syncOffsetSec) / 3600)}hズレ</span>
+                <span>{t(`約${Math.round(Math.abs(activeTrack.syncOffsetSec) / 3600)}hズレ`, `About ${Math.round(Math.abs(activeTrack.syncOffsetSec) / 3600)} h off`)}</span>
                 <button
                   onClick={() => videoSyncManager.shiftOffsetHours(activeTrack.id, activeTrack.syncOffsetSec > 0 ? -9 : 9)}
                   className="px-1.5 py-0.2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-[10px] cursor-pointer"
-                  title="9時間時差を打ち消し"
+                  title={t('9時間時差を打ち消し', 'Cancel a 9-hour time zone difference')}
                 >
-                  ±9h補正
+                  {t('±9h補正', '±9 h fix')}
                 </button>
               </div>
             )}
 
             <div className="hidden lg:flex items-center gap-2 bg-surface-1 px-2.5 py-0.5 rounded border border-line-2 text-slate-400 font-mono text-[11px]">
-              <span>動画: <strong className="text-slate-200">{formatTzDate(activeTrack.rawRecordedAt, activeTrack.videoTimezone || 'JST')}</strong></span>
+              <span>{t('動画', 'Video')}: <strong className="text-slate-200">{formatTzDate(activeTrack.rawRecordedAt, activeTrack.videoTimezone || 'JST')}</strong></span>
               <span className="text-slate-600">|</span>
               <span>GPS: <strong className="text-slate-200">{formatTzDate(gpsStartTime, activeTrack.gpsTimezone || 'JST')}</strong></span>
             </div>
@@ -952,7 +954,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         {isDragging && (
           <div className="absolute inset-0 bg-red-950/80 flex flex-col items-center justify-center z-40 pointer-events-none space-y-1">
             <Video size={40} className="text-red-400 animate-bounce" />
-            <p className="text-sm font-bold text-fg">ここに動画ファイル（.mp4, .mov）をドロップ</p>
+            <p className="text-sm font-bold text-fg">{t('ここに動画ファイル（.mp4, .mov）をドロップ', 'Drop video files (.mp4, .mov) here')}</p>
           </div>
         )}
 
@@ -991,11 +993,11 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 {/* 右側: サブ動画 */}
                 <div className="flex-1 relative flex items-center justify-center bg-black">
                   <span className="absolute top-2 left-2 z-10 text-[10px] font-mono font-bold bg-black/70 border border-slate-700 px-1.5 py-0.5 rounded text-blue-400 flex items-center gap-1">
-                    Sub: {subTrack?.fileName || '未選択'}
+                    Sub: {subTrack?.fileName || t('未選択', 'none')}
                     <button
                       onClick={() => setIsSubMuted(!isSubMuted)}
                       className="ml-1 text-slate-400 hover:text-slate-200 cursor-pointer"
-                      title={isSubMuted ? 'サブ音声ミュート解除' : 'サブ音声をミュート'}
+                      title={isSubMuted ? t('サブ音声ミュート解除', 'Unmute sub audio') : t('サブ音声をミュート', 'Mute sub audio')}
                     >
                       {isSubMuted ? <VolumeX size={11} /> : <Volume2 size={11} />}
                     </button>
@@ -1011,7 +1013,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     />
                   ) : (
                     <div className="text-slate-500 text-xs text-center p-4">
-                      上部バーでサブ動画トラックを選択してください
+                      {t('上部バーでサブ動画トラックを選択してください', 'Select a sub video track in the bar above')}
                     </div>
                   )}
                 </div>
@@ -1048,7 +1050,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                         <button
                           onClick={handleSwapCameras}
                           className="hover:text-amber-300 cursor-pointer"
-                          title="メインと入れ替え"
+                          title={t('メインと入れ替え', 'Swap with main')}
                         >
                           <ArrowLeftRight size={10} />
                         </button>
@@ -1061,7 +1063,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                             setPipPosition(nextPos);
                           }}
                           className="hover:text-blue-300 cursor-pointer"
-                          title="PinPの四隅表示位置を切り替え"
+                          title={t('PinPの四隅表示位置を切り替え', 'Move the PiP window to another corner')}
                         >
                           <Maximize2 size={10} />
                         </button>
@@ -1092,12 +1094,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             {(isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec) < activeTrack.syncOffsetSec && (
               <div className="absolute top-3 bg-amber-950/90 border border-amber-600 text-amber-200 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-medium z-20">
                 <Clock size={14} className="text-amber-400 animate-pulse shrink-0" />
-                <span>動画開始まであと <strong className="font-mono text-amber-300">{(activeTrack.syncOffsetSec - (isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec)).toFixed(1)}s</strong></span>
+                <span>{t('動画開始まであと', 'Video starts in')} <strong className="font-mono text-amber-300">{(activeTrack.syncOffsetSec - (isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec)).toFixed(1)}s</strong></span>
                 <button
                   onClick={() => seekTo(isGraphEmbedded && baseLap ? Math.max(0, activeTrack.syncOffsetSec - baseLap.startTime) : activeTrack.syncOffsetSec)}
                   className="px-1.5 py-0.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-[10px] cursor-pointer ml-1"
                 >
-                  開始点へジャンプ
+                  {t('開始点へジャンプ', 'Jump to start')}
                 </button>
               </div>
             )}
@@ -1107,9 +1109,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           // (中央に寄せるのは m-auto で行う。justify-center だと、収まらないときに上が切れてスクロールでも見えないため)
           <div className="flex flex-col w-full h-full p-3 overflow-y-auto">
             <div className="m-auto flex flex-col items-center text-center space-y-2">
-              <h3 className="text-sm font-bold text-slate-200">車載動画（オンボード映像）を読み込む</h3>
+              <h3 className="text-sm font-bold text-slate-200">{t('車載動画（オンボード映像）を読み込む', 'Load onboard video')}</h3>
               <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
-                GoPro（H.265 / HEVC 4GBチャプター分割対応）や複数カメラの MP4 / MOV 動画をここにドラッグ＆ドロップしてください。
+                {t('GoPro（H.265 / HEVC 4GBチャプター分割対応）や複数カメラの MP4 / MOV 動画をここにドラッグ＆ドロップしてください。', 'Drag and drop GoPro (H.265 / HEVC, 4 GB chapters supported) or other MP4 / MOV videos from one or more cameras here.')}
               </p>
               <div className="flex items-center gap-2 pt-1">
                 <button
@@ -1117,7 +1119,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition-colors cursor-pointer"
                 >
                   <Upload size={13} />
-                  動画ファイルを選択
+                  {t('動画ファイルを選択', 'Choose video files')}
                 </button>
               </div>
             </div>
@@ -1132,7 +1134,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             <span className="flex items-center gap-1 text-[11px] font-bold text-slate-200">
               <Layers size={12} className="text-red-400 shrink-0" />
               {currentGroup.brand === 'gopro' ? 'GoPro' : currentGroup.brand.toUpperCase()} {currentGroup.sessionId}
-              <span className="text-slate-400 font-normal">({currentGroup.tracks.length}チャプター連動, 計 {formatDuration(currentGroup.totalDurationSec)})</span>
+              <span className="text-slate-400 font-normal">{t(`(${currentGroup.tracks.length}チャプター連動, 計 ${formatDuration(currentGroup.totalDurationSec)})`, `(${currentGroup.tracks.length} chapters linked, ${formatDuration(currentGroup.totalDurationSec)} total)`)}</span>
             </span>
 
             <button
@@ -1150,7 +1152,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               }}
               disabled={!getPreviousChapter(currentGroup, activeTrack?.id || '')}
               className="p-1 rounded bg-surface-3 hover:bg-surface-4 disabled:opacity-30 text-slate-300 transition-colors cursor-pointer"
-              title="前のチャプターへ"
+              title={t('前のチャプターへ', 'Previous chapter')}
             >
               <ChevronLeft size={12} />
             </button>
@@ -1197,14 +1199,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               }}
               disabled={!getNextChapter(currentGroup, activeTrack?.id || '')}
               className="p-1 rounded bg-surface-3 hover:bg-surface-4 disabled:opacity-30 text-slate-300 transition-colors cursor-pointer"
-              title="次のチャプターへ"
+              title={t('次のチャプターへ', 'Next chapter')}
             >
               <ChevronRight size={12} />
             </button>
           </div>
 
           <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/70 border border-emerald-800/80 px-1.5 py-0.2 rounded">
-            シームレス連続再生: 有効
+            {t('シームレス連続再生: 有効', 'Seamless playback: on')}
           </span>
         </div>
       )}
@@ -1259,7 +1261,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   className={`px-2 py-0.5 font-bold transition-colors cursor-pointer ${
                     isLapMode ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'
                   }`}
-                  title="速度ウィンドウで選択中のラップ時間 (0〜lapTime) に同期"
+                  title={t('速度ウィンドウで選択中のラップ時間 (0〜lapTime) に同期', 'Sync to the lap selected in the speed window (0 to lap time)')}
                 >
                   L{baseLap.lapNumber}
                 </button>
@@ -1268,9 +1270,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   className={`px-2 py-0.5 font-bold transition-colors cursor-pointer ${
                     !isLapMode ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
                   }`}
-                  title="セッション全体の絶対時間に同期"
+                  title={t('セッション全体の絶対時間に同期', 'Sync to the absolute time of the whole session')}
                 >
-                  全体
+                  {t('全体', 'All')}
                 </button>
               </div>
             )}
@@ -1317,21 +1319,21 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           <button
             onClick={() => seekTo(Math.max(0, currentTimeSec - 1.0))}
             className="p-1.5 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
-            title="1秒戻る"
+            title={t('1秒戻る', 'Back 1 s')}
           >
             <SkipBack size={14} />
           </button>
           <button
             onClick={onTogglePlay}
             className="p-2 rounded bg-red-600 hover:bg-red-500 text-white font-bold transition-colors cursor-pointer"
-            title={isPlaying ? '一時停止' : '再生'}
+            title={isPlaying ? t('一時停止', 'Pause') : t('再生', 'Play')}
           >
             {isPlaying ? <Pause size={15} /> : <Play size={15} />}
           </button>
           <button
             onClick={() => seekTo(currentTimeSec + 1.0)}
             className="p-1.5 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
-            title="1秒進む"
+            title={t('1秒進む', 'Forward 1 s')}
           >
             <SkipForward size={14} />
           </button>
@@ -1364,7 +1366,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   className="bg-transparent text-amber-300 font-bold text-[11px] outline-none cursor-pointer max-w-[110px] truncate"
                   defaultValue=""
                 >
-                  <option value="" disabled className="bg-surface-3 text-slate-400">ピン一覧 ({pins.length})</option>
+                  <option value="" disabled className="bg-surface-3 text-slate-400">{t('ピン一覧', 'Pins')} ({pins.length})</option>
                   {pins.map(p => (
                     <option key={p.id} value={p.id} className="bg-surface-3 text-slate-200">
                       {p.name} ({formatPinTime(p.sessionTimeSec)})
@@ -1376,7 +1378,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
             <span className="text-slate-400 flex items-center gap-1 text-[11px]">
               <Sliders size={12} className="text-amber-400" />
-              オフセット:
+              {t('オフセット:', 'Offset:')}
               <input
                 type="number"
                 step="0.05"
@@ -1421,9 +1423,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             <button
               onClick={handleSyncCurrentFrame}
               className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-[11px] font-bold text-white transition-colors cursor-pointer ml-1"
-              title="現在フレームでGPSと同期"
+              title={t('現在フレームでGPSと同期', 'Sync the GPS to the current frame')}
             >
-              現フレームで同期
+              {t('現フレームで同期', 'Sync to this frame')}
             </button>
           </div>
         )}
@@ -1436,7 +1438,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             <div className="flex items-center justify-between border-b border-line-3 pb-2">
               <span className="text-sm font-bold flex items-center gap-1.5 text-amber-400">
                 <MapPin size={15} />
-                キーフレーム同期ピンの追加
+                {t('キーフレーム同期ピンの追加', 'Add a keyframe sync pin')}
               </span>
               <button
                 onClick={() => setShowPinModal(false)}
@@ -1447,14 +1449,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             </div>
 
             <p className="text-xs text-slate-400 leading-relaxed">
-              現在の一時停止位置（GPS時刻と動画フレーム）をキーフレームとしてピン留めし、オフセットを固定します。
+              {t('現在の一時停止位置（GPS時刻と動画フレーム）をキーフレームとしてピン留めし、オフセットを固定します。', 'Pins the current paused position (GPS time and video frame) as a keyframe and locks the offset.')}
             </p>
 
             <div className="space-y-1">
-              <label className="text-[11px] font-medium text-slate-300">ピン名 (地点名):</label>
+              <label className="text-[11px] font-medium text-slate-300">{t('ピン名 (地点名):', 'Pin name (place):')}</label>
               <input
                 type="text"
-                placeholder="例: 1コーナーAPEX, コントロールライン"
+                placeholder={t('例: 1コーナーAPEX, コントロールライン', 'e.g. Turn 1 apex, timing line')}
                 value={newPinName}
                 onChange={e => setNewPinName(e.target.value)}
                 className="w-full bg-surface-1 border border-line-3 text-xs px-2.5 py-1.5 rounded outline-none focus:border-amber-400 text-slate-100"
@@ -1465,7 +1467,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             {/* 登録済みピン一覧 */}
             {pins.length > 0 && (
               <div className="space-y-1 pt-1">
-                <span className="text-[10px] font-medium text-slate-400">登録済みピン ({pins.length}件):</span>
+                <span className="text-[10px] font-medium text-slate-400">{t(`登録済みピン (${pins.length}件):`, `Saved pins (${pins.length}):`)}</span>
                 <div className="max-h-28 overflow-y-auto space-y-1 bg-surface-1 p-1.5 rounded border border-line-1">
                   {pins.map(p => (
                     <div key={p.id} className="flex items-center justify-between text-[11px] text-slate-300 py-0.5 px-1 hover:bg-surface-3 rounded">
@@ -1475,7 +1477,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                         <button
                           onClick={() => handleDeletePin(p.id)}
                           className="hover:text-red-400 text-slate-500 cursor-pointer"
-                          title="削除"
+                          title={t('削除', 'Delete')}
                         >
                           <Trash2 size={11} />
                         </button>
@@ -1491,13 +1493,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 onClick={() => setShowPinModal(false)}
                 className="px-3 py-1 rounded bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 cursor-pointer"
               >
-                閉じる
+                {t('閉じる', 'Close')}
               </button>
               <button
                 onClick={handleAddPin}
                 className="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors cursor-pointer"
               >
-                現在位置でピン留め
+                {t('現在位置でピン留め', 'Pin here')}
               </button>
             </div>
           </div>
@@ -1511,7 +1513,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             <div className="flex items-center justify-between border-b border-line-3 pb-2">
               <span className="text-sm font-bold flex items-center gap-1.5 text-red-400">
                 <Download size={15} />
-                テレメトリ動画書き出し設定
+                {t('テレメトリ動画書き出し設定', 'Telemetry video export')}
               </span>
               <button
                 onClick={() => setShowExportModal(false)}
@@ -1522,12 +1524,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             </div>
 
             <p className="text-xs text-slate-400 leading-relaxed">
-              車載動画にメーター（速度・Gフォース・ラップタイム）を合成し、MP4動画としてエクスポートします。
+              {t('車載動画にメーター（速度・Gフォース・ラップタイム）を合成し、MP4動画としてエクスポートします。', 'Composites gauges (speed, G-force, lap time) onto the onboard video and exports it as MP4.')}
             </p>
 
             {/* 書き出し範囲選択 */}
             <div className="space-y-1">
-              <label className="text-[11px] font-medium text-slate-300">書き出し範囲:</label>
+              <label className="text-[11px] font-medium text-slate-300">{t('書き出し範囲:', 'Range:')}</label>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => setExportRange('lap')}
@@ -1537,7 +1539,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                       : 'bg-surface-1 text-slate-400 border-line-3 hover:text-slate-200'
                   }`}
                 >
-                  {baseLap ? `Lap ${baseLap.lapNumber} (ラップ区間)` : '選択ラップ'}
+                  {baseLap ? `Lap ${baseLap.lapNumber} ${t('(ラップ区間)', '(lap)')}` : t('選択ラップ', 'Selected lap')}
                 </button>
                 <button
                   onClick={() => setExportRange('all')}
@@ -1547,7 +1549,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                       : 'bg-surface-1 text-slate-400 border-line-3 hover:text-slate-200'
                   }`}
                 >
-                  動画全体
+                  {t('動画全体', 'Whole video')}
                 </button>
               </div>
             </div>
@@ -1555,7 +1557,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             {/* 解像度 & フレームレート選択 */}
             <div className="grid grid-cols-2 gap-2 pt-1">
               <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-400">解像度:</label>
+                <label className="text-[10px] font-medium text-slate-400">{t('解像度:', 'Resolution:')}</label>
                 <select
                   value={exportResolution}
                   onChange={e => setExportResolution(e.target.value as any)}
@@ -1566,14 +1568,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-400">フレームレート:</label>
+                <label className="text-[10px] font-medium text-slate-400">{t('フレームレート:', 'Frame rate:')}</label>
                 <select
                   value={exportFps}
                   onChange={e => setExportFps(parseInt(e.target.value, 10))}
                   className="w-full bg-surface-1 border border-line-3 text-xs px-2 py-1 rounded outline-none text-slate-200 cursor-pointer"
                 >
-                  <option value="30">30 fps (推奨)</option>
-                  <option value="60">60 fps (高品質)</option>
+                  <option value="30">{t('30 fps (推奨)', '30 fps (recommended)')}</option>
+                  <option value="60">{t('60 fps (高品質)', '60 fps (high quality)')}</option>
                 </select>
               </div>
             </div>
@@ -1583,13 +1585,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 onClick={() => setShowExportModal(false)}
                 className="px-3 py-1 rounded bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 cursor-pointer"
               >
-                キャンセル
+                {t('キャンセル', 'Cancel')}
               </button>
               <button
                 onClick={handleStartExport}
                 className="px-3 py-1 rounded bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition-colors cursor-pointer"
               >
-                書き出し開始
+                {t('書き出し開始', 'Start export')}
               </button>
             </div>
           </div>
@@ -1604,7 +1606,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           <div className="bg-surface-2 border border-line-3 rounded p-5 w-full max-w-sm text-slate-200 space-y-4 font-sans text-center">
             <h4 className="text-sm font-bold text-red-400 flex items-center justify-center gap-2">
               <Download size={16} className="animate-bounce" />
-              テレメトリ動画をレンダリング・書き出し中...
+              {t('テレメトリ動画をレンダリング・書き出し中...', 'Rendering and exporting the telemetry video...')}
             </h4>
 
             {/* プログレスバー */}
@@ -1616,15 +1618,15 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 />
               </div>
               <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-                <span>{exportProgress ? `${exportProgress.percent}%` : '準備中'}</span>
+                <span>{exportProgress ? `${exportProgress.percent}%` : t('準備中', 'Preparing')}</span>
                 {exportProgress && (
-                  <span>残り約 {Math.max(0, Math.round(exportProgress.totalSec * (100 - exportProgress.percent) / 100))}s</span>
+                  <span>{t('残り約', 'About')} {Math.max(0, Math.round(exportProgress.totalSec * (100 - exportProgress.percent) / 100))}s{t('', ' left')}</span>
                 )}
               </div>
             </div>
 
             <p className="text-xs text-slate-400 leading-relaxed">
-              完了するとブラウザのダウンロードフォルダに MP4 動画が保存されます。
+              {t('完了するとブラウザのダウンロードフォルダに MP4 動画が保存されます。', 'When finished, the MP4 video is saved to your browser\'s download folder.')}
             </p>
 
             <button
@@ -1635,7 +1637,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               }}
               className="px-4 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 cursor-pointer transition-colors"
             >
-              キャンセル
+              {t('キャンセル', 'Cancel')}
             </button>
           </div>
         </div>,

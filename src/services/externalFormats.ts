@@ -8,6 +8,7 @@
 
 import { Session, TelemetryPoint } from '../types/telemetry';
 import { calculatePhysics, calculateGeoDistanceAndHeading } from './physics';
+import { tr } from '../utils/i18n';
 
 // MoTeC CSV の読み込み・書き出し。実物の i2 の書き出し (小数点がカンマのもの) で確かめて有効にした (2026-10-18)。
 // false にすると、書き出しボタンと読み込み時の自動判別を止める
@@ -119,7 +120,7 @@ export function finalizeImportedSamples(samples: RawSample[], formatName: string
     });
   }
   if (points.length < 2) {
-    throw new Error(`${formatName} から有効な GPS 位置データを読み取れませんでした`);
+    throw new Error(tr(`${formatName} から有効な GPS 位置データを読み取れませんでした`, `Could not read valid GPS positions from ${formatName}`));
   }
   const fromNeighbours = (i: number) => {
     const a = points[Math.max(0, i - 1)];
@@ -170,7 +171,7 @@ export function parseVbo(text: string): ImportedLog {
   const cHeading = col('heading');
   const cHeight = col('height', 'altitude');
   if (cTime < 0 || cLat < 0 || cLon < 0) {
-    throw new Error('VBO ファイルに time / lat / long の列が見つかりません');
+    throw new Error(tr('VBO ファイルに time / lat / long の列が見つかりません', 'No time / lat / long columns were found in the VBO file'));
   }
 
   // 作成日 ("File created on dd/mm/yyyy ...") を記録開始日として使う
@@ -199,7 +200,7 @@ export function parseVbo(text: string): ImportedLog {
       timestamp: baseDate !== null ? new Date(baseDate + t * 1000) : undefined
     });
   }
-  return finalizeImportedSamples(samples, 'VBO ファイル');
+  return finalizeImportedSamples(samples, tr('VBO ファイル', 'the VBO file'));
 }
 
 // ============================================================================
@@ -214,7 +215,7 @@ export function parseRaceChronoCsv(text: string): ImportedLog {
   const lines = text.split(/\r?\n/);
   // v3: "timestamp,fragment_id,..." + 単位行 + 取得元行 / v2: "Time (s),Session fragment #,..."
   const headerIdx = lines.findIndex(l => /^"?timestamp"?,/i.test(l) || /^"?Time \(s\)"?,/i.test(l));
-  if (headerIdx < 0) throw new Error('RaceChrono CSV の列見出しが見つかりません');
+  if (headerIdx < 0) throw new Error(tr('RaceChrono CSV の列見出しが見つかりません', 'Column headers were not found in the RaceChrono CSV'));
 
   const header = splitCsvLine(lines[headerIdx]).map(h => h.toLowerCase());
   const isV3 = header[0] === 'timestamp';
@@ -245,7 +246,7 @@ export function parseRaceChronoCsv(text: string): ImportedLog {
     const um = cSpeed >= 0 ? /\(([^)]+)\)/.exec(header[cSpeed]) : null;
     if (um) speedFactor = speedFactorToKmh(um[1]);
   }
-  if (cLat < 0 || cLon < 0) throw new Error('RaceChrono CSV に latitude / longitude の列が見つかりません');
+  if (cLat < 0 || cLon < 0) throw new Error(tr('RaceChrono CSV に latitude / longitude の列が見つかりません', 'No latitude / longitude columns were found in the RaceChrono CSV'));
 
   const samples: RawSample[] = [];
   for (let i = dataStart; i < lines.length; i++) {
@@ -305,10 +306,10 @@ export function parseGpx(text: string): ImportedLog {
       course: parseFloat(gpxTag(body, 'course') ?? '')
     });
   }
-  if (raw.length === 0) throw new Error('GPX ファイルに航跡 (trkpt) が見つかりません');
+  if (raw.length === 0) throw new Error(tr('GPX ファイルに航跡 (trkpt) が見つかりません', 'No track points (trkpt) were found in the GPX file'));
   // 時刻・位置のない点と未測位の点 (0, 0) は、時刻の割り振りと速度の計算より前に除く (前後の点の速度を壊さないため)
   const valid = raw.filter(p => Number.isFinite(p.t) && Number.isFinite(p.lat) && Number.isFinite(p.lon) && !(p.lat === 0 && p.lon === 0));
-  if (valid.length === 0) throw new Error('GPX ファイルに時刻 (time) と位置のある点がないため読み込めません');
+  if (valid.length === 0) throw new Error(tr('GPX ファイルに時刻 (time) と位置のある点がないため読み込めません', 'The GPX file has no points with both a time and a position'));
   raw.length = 0;
   // 点の多いログで引数の上限を超えないよう、1 つずつ入れる (push(...valid) は十数万点で失敗する)
   for (const p of valid) raw.push(p);
@@ -345,7 +346,7 @@ export function parseGpx(text: string): ImportedLog {
       timestamp: new Date(p.t * 1000)
     };
   });
-  return finalizeImportedSamples(samples, 'GPX ファイル');
+  return finalizeImportedSamples(samples, tr('GPX ファイル', 'the GPX file'));
 }
 
 // ============================================================================
@@ -368,7 +369,7 @@ export function parseMotecCsv(text: string): ImportedLog {
     while (j < lines.length && lines[j].trim() === '') j++;
     if (/^s(ec(onds?)?)?$/i.test(splitCsvLine(lines[j] || '')[0] ?? '')) { headerIdx = i; unitIdx = j; }
   }
-  if (headerIdx < 0) throw new Error('MoTeC CSV のチャンネル見出し (Time / s) が見つかりません');
+  if (headerIdx < 0) throw new Error(tr('MoTeC CSV のチャンネル見出し (Time / s) が見つかりません', 'Channel headers (Time / s) were not found in the MoTeC CSV'));
 
   const names = splitCsvLine(lines[headerIdx]).map(n => n.toLowerCase());
   const units = splitCsvLine(lines[unitIdx]);
@@ -385,7 +386,7 @@ export function parseMotecCsv(text: string): ImportedLog {
   const cAlt = find(/^gps alt/, /^altitude/, /gps.*(alt|height)/);
   const cHeading = find(/^gps heading/, /^heading/);
   if (cLat < 0 || cLon < 0) {
-    throw new Error('この MoTeC CSV には GPS の緯度・経度チャンネルがないため読み込めません (本アプリの解析には位置情報が必要です)');
+    throw new Error(tr('この MoTeC CSV には GPS の緯度・経度チャンネルがないため読み込めません (本アプリの解析には位置情報が必要です)', 'This MoTeC CSV has no GPS latitude / longitude channels, so it cannot be loaded (the app needs positions for analysis)'));
   }
   const speedFactor = cSpeed >= 0 ? speedFactorToKmh(units[cSpeed] || 'km/h') : 1;
 

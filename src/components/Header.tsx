@@ -1,14 +1,22 @@
 import React, { useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, Repeat, BarChart2, List, Video, Coffee, Sun, Moon, Monitor, MoreHorizontal } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, Repeat, BarChart2, List, Video, Coffee, Sun, Moon, Monitor, MoreHorizontal, Contrast } from 'lucide-react';
 import { SelectedCarSlot, Session } from '../types/telemetry';
 import { ThemeSetting, setThemeSetting, useThemeSetting } from '../utils/theme';
 import { canUseLoggerUsb } from '../utils/device';
+import { Lang, setLang, useLang, useT } from '../utils/i18n';
 
 // テーマの切り替え (ライト / ダーク / システムに合わせる)
-const THEME_OPTIONS: { value: ThemeSetting; label: string; Icon: typeof Sun }[] = [
-  { value: 'light', label: 'ライトモード', Icon: Sun },
-  { value: 'dark', label: 'ダークモード', Icon: Moon },
-  { value: 'system', label: 'システムに合わせる', Icon: Monitor }
+const THEME_OPTIONS: { value: ThemeSetting; label: [string, string]; short: [string, string]; Icon: typeof Sun }[] = [
+  { value: 'light', label: ['ライトモード', 'Light mode'], short: ['ライト', 'Light'], Icon: Sun },
+  { value: 'dark', label: ['ダークモード', 'Dark mode'], short: ['ダーク', 'Dark'], Icon: Moon },
+  { value: 'system', label: ['システムに合わせる', 'Match system'], short: ['システム', 'System'], Icon: Monitor },
+  { value: 'contrast', label: ['ハイコントラスト (屋外の日差しの下で見やすい)', 'High contrast (easier to read in sunlight)'], short: ['高コントラスト', 'Contrast'], Icon: Contrast }
+];
+
+// 言語の切り替え
+const LANG_OPTIONS: { value: Lang; label: string }[] = [
+  { value: 'ja', label: '日本語' },
+  { value: 'en', label: 'English' }
 ];
 
 interface HeaderProps {
@@ -44,6 +52,8 @@ export const Header: React.FC<HeaderProps> = ({
   compact = false
 }) => {
   const themeSetting = useThemeSetting();
+  const lang = useLang();
+  const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
 
   if (compact) {
@@ -54,28 +64,28 @@ export const Header: React.FC<HeaderProps> = ({
           className="flex items-center gap-1.5 text-xs bg-red-600 text-white font-bold px-3 py-1.5 rounded"
         >
           <FolderOpen size={16} />
-          読込
+          {t('読込', 'Open')}
         </button>
 
         {currentTab === 'graph' && selectedCars.length > 0 && (
           <div className="flex items-center gap-1">
-            <button onClick={onStepBack} aria-label="コマ戻し" className="p-1.5 rounded text-slate-300">
+            <button onClick={onStepBack} aria-label={t('コマ戻し', 'Step back')} className="p-1.5 rounded text-slate-300">
               <SkipBack size={18} />
             </button>
             <button
               onClick={onTogglePlay}
-              aria-label="再生 / 一時停止"
+              aria-label={t('再生 / 一時停止', 'Play / pause')}
               className={`p-1.5 rounded ${isPlaying ? 'bg-amber-500 text-slate-950' : 'bg-red-600 text-white'}`}
             >
               {isPlaying ? <Pause size={18} /> : <Play size={18} />}
             </button>
-            <button onClick={onStepForward} aria-label="コマ送り" className="p-1.5 rounded text-slate-300">
+            <button onClick={onStepForward} aria-label={t('コマ送り', 'Step forward')} className="p-1.5 rounded text-slate-300">
               <SkipForward size={18} />
             </button>
             <select
               value={playbackSpeed}
               onChange={e => onChangePlaybackSpeed(Number(e.target.value))}
-              aria-label="再生速度"
+              aria-label={t('再生速度', 'Playback speed')}
               className="bg-surface-3 border border-line-3 rounded text-xs font-mono text-slate-200 px-1 py-1.5"
             >
               {[0.5, 1, 2, 4].map(s => (
@@ -85,7 +95,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         )}
 
-        <button onClick={() => setMenuOpen(o => !o)} aria-label="メニュー" aria-expanded={menuOpen} className="p-1.5 rounded text-slate-300 border border-line-3">
+        <button onClick={() => setMenuOpen(o => !o)} aria-label={t('メニュー', 'Menu')} aria-expanded={menuOpen} className="p-1.5 rounded text-slate-300 border border-line-3">
           <MoreHorizontal size={18} />
         </button>
 
@@ -97,24 +107,38 @@ export const Header: React.FC<HeaderProps> = ({
               {onOpenDonate && (
                 <button onClick={() => { setMenuOpen(false); onOpenDonate(); }} className="flex items-center gap-2 px-3 py-2.5 rounded text-slate-200 hover:bg-surface-4 text-left">
                   <Coffee size={16} className="text-amber-400" />
-                  開発支援
+                  {t('開発支援', 'Support')}
                 </button>
               )}
-              <div className="border-t border-line-2 mt-1 pt-2 px-1 text-[11px] text-slate-500">テーマ</div>
-              <div className="flex gap-1 px-1 pb-1" role="radiogroup" aria-label="テーマ">
-                {THEME_OPTIONS.map(({ value, label, Icon }) => (
+              <div className="border-t border-line-2 mt-1 pt-2 px-1 text-[11px] text-slate-500">{t('テーマ', 'Theme')}</div>
+              <div className="flex gap-1 px-1 pb-1" role="radiogroup" aria-label={t('テーマ', 'Theme')}>
+                {THEME_OPTIONS.map(({ value, label, short, Icon }) => (
                   <button
                     key={value}
                     onClick={() => setThemeSetting(value)}
                     role="radio"
                     aria-checked={themeSetting === value}
-                    title={label}
+                    title={t(...label)}
                     className={`flex-1 flex flex-col items-center gap-1 py-2 rounded text-[10px] ${
                       themeSetting === value ? 'bg-surface-5 text-fg' : 'text-slate-400'
                     }`}
                   >
                     <Icon size={16} />
-                    {value === 'light' ? 'ライト' : value === 'dark' ? 'ダーク' : 'システム'}
+                    {t(...short)}
+                  </button>
+                ))}
+              </div>
+              <div className="border-t border-line-2 mt-1 pt-2 px-1 text-[11px] text-slate-500">{t('言語', 'Language')}</div>
+              <div className="flex gap-1 px-1 pb-1" role="radiogroup" aria-label={t('言語', 'Language')}>
+                {LANG_OPTIONS.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    onClick={() => setLang(value)}
+                    role="radio"
+                    aria-checked={lang === value}
+                    className={`flex-1 py-2 rounded text-xs ${lang === value ? 'bg-surface-5 text-fg' : 'text-slate-400'}`}
+                  >
+                    {label}
                   </button>
                 ))}
               </div>
@@ -137,7 +161,7 @@ export const Header: React.FC<HeaderProps> = ({
           }`}
         >
           <BarChart2 size={14} />
-          グラフ解析
+          {t('グラフ解析', 'Graph')}
         </button>
         <button
           onClick={() => setCurrentTab('video')}
@@ -148,7 +172,7 @@ export const Header: React.FC<HeaderProps> = ({
           }`}
         >
           <Video size={14} />
-          動画同期
+          {t('動画同期', 'Video')}
         </button>
         <button
           onClick={() => setCurrentTab('data')}
@@ -159,7 +183,7 @@ export const Header: React.FC<HeaderProps> = ({
           }`}
         >
           <List size={14} />
-          データ管理
+          {t('データ管理', 'Data')}
           {sessions.length > 0 && (
             <span className="ml-1 px-1.5 py-0.2 text-[10px] rounded bg-slate-700 text-slate-300 font-mono">
               {sessions.length}
@@ -175,7 +199,7 @@ export const Header: React.FC<HeaderProps> = ({
           }`}
         >
           <Repeat size={14} />
-          ログ変換
+          {t('ログ変換', 'Convert')}
         </button>
         {/* ロガー設定は USB でつなぐので、つなげない環境 (スマートフォン・タブレット・Safari など) では出さない */}
         {canUseLoggerUsb && (
@@ -188,7 +212,7 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <Settings size={14} />
-            ロガー設定
+            {t('ロガー設定', 'Logger')}
           </button>
         )}
       </div>
@@ -198,14 +222,14 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="hidden lg:flex items-center gap-2 bg-surface-2 px-2.5 py-1 rounded border border-line-2">
           <button
             onClick={onStepBack}
-            title="コマ戻し (B / ←キー、Shift で 1 秒)"
+            title={t('コマ戻し (B / ←キー、Shift で 1 秒)', 'Step back (B / ← key, Shift for 1 s)')}
             className="p-1 hover:bg-surface-4 rounded text-slate-300 hover:text-fg transition-colors cursor-pointer"
           >
             <SkipBack size={14} />
           </button>
           <button
             onClick={onTogglePlay}
-            title="再生 / 一時停止 (SPACEキー)"
+            title={t('再生 / 一時停止 (SPACEキー)', 'Play / pause (Space)')}
             className={`p-1.5 rounded transition-colors cursor-pointer ${
               isPlaying ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold' : 'bg-red-600 hover:bg-red-500 text-white'
             }`}
@@ -214,7 +238,7 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
           <button
             onClick={onStepForward}
-            title="コマ送り (F / →キー、Shift で 1 秒)"
+            title={t('コマ送り (F / →キー、Shift で 1 秒)', 'Step forward (F / → key, Shift for 1 s)')}
             className="p-1 hover:bg-surface-4 rounded text-slate-300 hover:text-fg transition-colors cursor-pointer"
           >
             <SkipForward size={14} />
@@ -249,7 +273,7 @@ export const Header: React.FC<HeaderProps> = ({
           className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-500 text-white font-bold px-3 py-1.5 rounded transition-colors cursor-pointer"
         >
           <FolderOpen size={13} />
-          ファイル読込
+          {t('ファイル読込', 'Open file')}
         </button>
 
         {/* 開発支援 / Buy Me a Coffee */}
@@ -257,22 +281,40 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenDonate}
             className="flex items-center gap-1.5 text-xs bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 hover:text-amber-200 border border-amber-500/30 hover:border-amber-400/50 font-medium px-2.5 py-1.5 rounded transition-colors cursor-pointer"
-            title="Buy Me a Coffee で開発者を支援"
+            title={t('Buy Me a Coffee で開発者を支援', 'Support the developer on Buy Me a Coffee')}
           >
             <Coffee size={13} className="text-amber-400" />
-            <span className="hidden sm:inline">開発支援</span>
+            <span className="hidden sm:inline">{t('開発支援', 'Support')}</span>
           </button>
         )}
 
+        {/* 言語 */}
+        <div className="flex bg-surface-3 p-0.5 rounded border border-line-3" role="radiogroup" aria-label={t('言語', 'Language')}>
+          {LANG_OPTIONS.map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => setLang(value)}
+              role="radio"
+              aria-checked={lang === value}
+              title={label}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+                lang === value ? 'bg-surface-5 text-fg' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {value === 'ja' ? 'JA' : 'EN'}
+            </button>
+          ))}
+        </div>
+
         {/* テーマ */}
-        <div className="flex bg-surface-3 p-0.5 rounded border border-line-3" role="radiogroup" aria-label="テーマ">
+        <div className="flex bg-surface-3 p-0.5 rounded border border-line-3" role="radiogroup" aria-label={t('テーマ', 'Theme')}>
           {THEME_OPTIONS.map(({ value, label, Icon }) => (
             <button
               key={value}
               onClick={() => setThemeSetting(value)}
               role="radio"
               aria-checked={themeSetting === value}
-              title={label}
+              title={t(...label)}
               className={`p-1 rounded transition-colors cursor-pointer ${
                 themeSetting === value ? 'bg-surface-5 text-fg' : 'text-slate-400 hover:text-slate-200'
               }`}

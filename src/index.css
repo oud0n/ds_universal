@@ -563,3 +563,57 @@ body {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* ハイコントラスト: 屋外の直射日光の下で見やすいよう、ライトモードの明暗差を大きくする
+   (白地に黒い文字、灰色の文字・線を濃く、色付きの文字も濃くする) */
+:root.light.contrast {
+  --ds-surface-0: #ffffff;
+  --ds-surface-1: #ffffff;
+  --ds-surface-2: #ffffff;
+  --ds-surface-3: #f2f2f2;
+  --ds-surface-4: #e0e0e0;
+  --ds-surface-5: #c8c8c8;
+  --ds-line-1: #8a8a8a;
+  --ds-line-2: #6e6e6e;
+  --ds-line-3: #555555;
+  --ds-line-4: #3c3c3c;
+  --ds-fg: #000000;
+  --ds-canvas-bg: #ffffff;
+  --ds-canvas-panel: #ffffff;
+  --ds-canvas-grid: #b5b5b5;
+  --ds-canvas-grid-strong: #6e6e6e;
+  --ds-canvas-axis: #1a1a1a;
+  --ds-canvas-label: #000000;
+  --ds-canvas-strong: #000000;
+  --ds-canvas-soft: #000000;
+  --ds-canvas-track: #bdbdbd;
+  --ds-canvas-track-edge: #555555;
+  --ds-canvas-sector: #8a5a00;
+  --ds-canvas-sector-line: #8a5a00;
+  --ds-scrollbar-thumb: #6e6e6e;
+  --color-slate-50: #000000;
+  --color-slate-100: #000000;
+  --color-slate-200: #000000;
+  --color-slate-300: #111111;
+  --color-slate-400: #1f1f1f;
+  --color-slate-500: #333333;
+  --color-slate-600: #444444;
+  --color-gray-300: #111111;
+  --color-gray-400: #1f1f1f;
+  --color-gray-500: #333333;
+  --color-red-300: oklch(42% 0.2 27);
+  --color-red-400: oklch(42% 0.2 27);
+  --color-amber-300: oklch(45% 0.14 50);
+  --color-amber-400: oklch(45% 0.14 50);
+  --color-emerald-300: oklch(40% 0.11 165);
+  --color-emerald-400: oklch(40% 0.11 165);
+  --color-sky-300: oklch(42% 0.13 240);
+  --color-sky-400: oklch(42% 0.13 240);
+  --color-cyan-300: oklch(42% 0.1 215);
+  --color-cyan-400: oklch(42% 0.1 215);
+  --color-blue-300: oklch(42% 0.18 262);
+  --color-blue-400: oklch(42% 0.18 262);
+  --color-orange-300: oklch(47% 0.17 40);
+  --color-orange-400: oklch(47% 0.17 40);
+  --color-purple-400: oklch(42% 0.2 300);
+}

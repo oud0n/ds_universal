@@ -12,17 +12,18 @@ import {
   VideoChapterTrack,
   findChapterGroupForTrack
 } from './videoChapterManager';
+import { tr } from '../utils/i18n';
 
 export type TimezoneMode = 'JST' | 'UTC' | 'LOCAL' | '+8' | '+1' | '-5' | '-8';
 
-export const TIMEZONE_OPTIONS: { value: string; label: string; offsetHours: number }[] = [
-  { value: 'JST', label: 'JST (UTC+9: 日本標準時)', offsetHours: 9 },
-  { value: 'UTC', label: 'UTC (±0: 世界標準時 / GPS時刻)', offsetHours: 0 },
-  { value: 'LOCAL', label: 'PCローカル時刻', offsetHours: -new Date().getTimezoneOffset() / 60 },
-  { value: '+8', label: 'UTC+8 (アジア標準時)', offsetHours: 8 },
-  { value: '+1', label: 'UTC+1 (CET: 欧州中央時)', offsetHours: 1 },
-  { value: '-5', label: 'UTC-5 (EST: 米東部標準時)', offsetHours: -5 },
-  { value: '-8', label: 'UTC-8 (PST: 米太平洋標準時)', offsetHours: -8 }
+export const TIMEZONE_OPTIONS: { value: string; label: string; labelEn: string; offsetHours: number }[] = [
+  { value: 'JST', label: 'JST (UTC+9: 日本標準時)', labelEn: 'JST (UTC+9: Japan)', offsetHours: 9 },
+  { value: 'UTC', label: 'UTC (±0: 世界標準時 / GPS時刻)', labelEn: 'UTC (±0: GPS time)', offsetHours: 0 },
+  { value: 'LOCAL', label: 'PCローカル時刻', labelEn: 'PC local time', offsetHours: -new Date().getTimezoneOffset() / 60 },
+  { value: '+8', label: 'UTC+8 (アジア標準時)', labelEn: 'UTC+8 (Asia)', offsetHours: 8 },
+  { value: '+1', label: 'UTC+1 (CET: 欧州中央時)', labelEn: 'UTC+1 (CET: Central Europe)', offsetHours: 1 },
+  { value: '-5', label: 'UTC-5 (EST: 米東部標準時)', labelEn: 'UTC-5 (EST: US Eastern)', offsetHours: -5 },
+  { value: '-8', label: 'UTC-8 (PST: 米太平洋標準時)', labelEn: 'UTC-8 (PST: US Pacific)', offsetHours: -8 }
 ];
 
 export function getTimezoneOffsetMs(mode: string): number {
@@ -496,7 +497,7 @@ class VideoSyncManager {
   public importProjectJson(jsonText: string, sessions: Session[] = []): SyncProjectData {
     const data: SyncProjectData = JSON.parse(jsonText);
     if (!data || data.version !== '1.0' || !Array.isArray(data.videos)) {
-      throw new Error('無効な同期プロジェクト JSON 形式です');
+      throw new Error(tr('無効な同期プロジェクト JSON 形式です', 'Invalid sync project JSON'));
     }
     // 数値・文字列を検証する。NaN や極端な値のまま取り込むと、再生位置の計算が壊れて画面が固まる
     // 手で別の日のセッションに合わせた動画もあり得るので、オフセットの上限は 1 年とする (NaN・極端な値だけを断る)
@@ -507,17 +508,17 @@ class VideoSyncManager {
         Number.isFinite(v.durationSec) && v.durationSec >= 0 && v.durationSec <= 7 * 24 * 3600 &&
         Number.isFinite(v.fileSize) && v.fileSize >= 0 &&
         (v.matchedSessionId === null || typeof v.matchedSessionId === 'string');
-      if (!ok) throw new Error(`同期プロジェクト JSON の動画 ${v?.fileName ?? ''} の値が不正です`);
+      if (!ok) throw new Error(tr(`同期プロジェクト JSON の動画 ${v?.fileName ?? ''} の値が不正です`, `Invalid values for video ${v?.fileName ?? ''} in the sync project JSON`));
       const raw = v.rawRecordedAt || v.recordedAtJst;
-      if (raw && Number.isNaN(new Date(raw).getTime())) throw new Error(`同期プロジェクト JSON の動画 ${v.fileName} の記録日時が不正です`);
+      if (raw && Number.isNaN(new Date(raw).getTime())) throw new Error(tr(`同期プロジェクト JSON の動画 ${v.fileName} の記録日時が不正です`, `Invalid recording time for video ${v.fileName} in the sync project JSON`));
     }
     if (data.pins !== undefined) {
-      if (!Array.isArray(data.pins)) throw new Error('同期プロジェクト JSON の同期ピンが不正です');
+      if (!Array.isArray(data.pins)) throw new Error(tr('同期プロジェクト JSON の同期ピンが不正です', 'Invalid sync pins in the sync project JSON'));
       for (const p of data.pins) {
         const ok = p && typeof p.name === 'string' &&
           [p.sessionTimeSec, p.videoTimeSec, p.calculatedOffsetSec].every(x => Number.isFinite(x) && Math.abs(x) <= MAX_OFFSET_SEC) &&
           (p.trackFileName === null || typeof p.trackFileName === 'string');
-        if (!ok) throw new Error(`同期プロジェクト JSON の同期ピン ${p?.name ?? ''} の値が不正です`);
+        if (!ok) throw new Error(tr(`同期プロジェクト JSON の同期ピン ${p?.name ?? ''} の値が不正です`, `Invalid values for sync pin ${p?.name ?? ''} in the sync project JSON`));
       }
     }
 
