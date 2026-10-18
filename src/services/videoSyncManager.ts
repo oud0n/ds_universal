@@ -486,6 +486,33 @@ class VideoSyncManager {
     return changed;
   }
 
+  /**
+   * ログの時計の補正を delta 秒変えたとき (BUG-08)、動画のずれを直す。
+   * - その動画自身の GPS のログ (GoPro の動画から作ったログ) の補正なら、動画も同じ時計なので、動画の本当の時刻も一緒に動かす。
+   *   動画をそのログに付けていればずれはそのまま、別のログ (デジスパイスなど) に付けていれば、ずれから delta を引く
+   * - それ以外のログに付いている動画 (別のログから換算して付けた動画・撮影日時で合わせた動画) は、本当の時刻を変えないよう、ずれに delta を足す
+   */
+  public onSessionClockChanged(session: Session, deltaSec: number): void {
+    if (!deltaSec) return;
+    let changed = false;
+    for (const t of this.videos) {
+      const group = this.getChapterGroupForTrack(t.id);
+      const lead = group ? group.tracks[0].track : t;
+      const ownGps = lead.fileName === session.fileName;
+      let next = t.syncOffsetSec;
+      if (ownGps && t.matchedSessionId !== session.id) next -= deltaSec;
+      else if (!ownGps && t.matchedSessionId === session.id) next += deltaSec;
+      if (next !== t.syncOffsetSec) {
+        t.syncOffsetSec = Number(next.toFixed(3));
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.updateChapterGroupOffsets();
+      this.notify();
+    }
+  }
+
   // トラック削除
   public removeTrack(trackId: string): void {
     const track = this.videos.find(v => v.id === trackId);

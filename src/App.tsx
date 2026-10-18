@@ -8,6 +8,7 @@ import { parseNmea } from './services/nmeaParser';
 import { blobByteSource, goproRecording, NoGoproGpsError, parseGoproGps } from './services/gpmfParser';
 import { sessionStartUtcMs, videoSyncManager } from './services/videoSyncManager';
 import { getAddVideoGpsLog } from './services/videoPrefs';
+import { estimateClockOffset, pickReferenceSession } from './services/clockOffsetEstimator';
 import { tr, useT } from './utils/i18n';
 import { inflateXrz, isAimCsv, isXrk, parseAimCsv, parseXrk } from './services/aimFormats';
 import { isIbt, parseIbt } from './services/ibtParser';
@@ -903,6 +904,32 @@ export const App: React.FC = () => {
     });
   };
 
+  // ログの時計の補正 (BUG-08)。そのログに付いている動画のずれも直す (動画の本当の時刻を保つ。その動画自身の GPS のログは一緒に動かす)
+  const setSessionClockOffset = (sessionId: string, sec: number) => {
+    const s = latestRef.current.sessions.find(x => x.id === sessionId);
+    if (!s || !Number.isFinite(sec)) return;
+    const value = Number(sec.toFixed(3));
+    const delta = value - (s.clockOffsetSec ?? 0);
+    if (!delta) return;
+    setSessions(prev => prev.map(x => (x.id === sessionId ? { ...x, clockOffsetSec: value } : x)));
+    videoSyncManager.onSessionClockChanged(s, delta);
+  };
+
+  // 時計の補正を、同じ時間に記録したほかのログ (基準車のログ、なければ記録の細かいログ) との位置の比べから見積もって入れる (BUG-08)
+  const estimateSessionClockOffset = (sessionId: string): { refName: string; offsetSec: number; medianDistanceM: number } | string => {
+    const list = latestRef.current.sessions;
+    const s = list.find(x => x.id === sessionId);
+    if (!s) return tr('ログが見つかりません', 'Log not found');
+    const ref = pickReferenceSession(s, list, baseSession?.id);
+    if (!ref) return tr('同じ時間に記録したほかのログがありません (1 分以上重なるログが要ります)', 'No other log covers the same time (at least 1 minute of overlap is needed)');
+    const r = estimateClockOffset(ref.points, s.points);
+    if (!r) return tr('走っている区間が短く、見積もれませんでした', 'Too little driving in common to estimate');
+    // 見積もりは 2 つのログの時刻 (補正前) どうしの差。基準のログの補正を足すと、このログの補正になる
+    const value = (ref.clockOffsetSec ?? 0) + r.offsetSec;
+    setSessionClockOffset(sessionId, value);
+    return { refName: ref.sessionName, offsetSec: Number(value.toFixed(3)), medianDistanceM: r.medianDistanceM };
+  };
+
   // ログが増えたら、動画を、時間の重なるログのうち記録の細かい (Hz の高い) ログに付け替える (LATER-12)。
   // Car 1 が付け替える前のログなら、Car 1 も付け替える
   const sessionCountRef = useRef(0);
@@ -1562,6 +1589,8 @@ export const App: React.FC = () => {
             onEditSessionName={(id, name) => {
               setSessions(prev => prev.map(s => (s.id === id ? { ...s, sessionName: name } : s)));
             }}
+            onSetClockOffset={setSessionClockOffset}
+            onEstimateClockOffset={estimateSessionClockOffset}
             onSelectCircuitPreset={handleSelectCircuitPreset}
             onOpenCircuitEditor={() => setIsCircuitEditorOpen(true)}
             onLoadPthFile={() => pthInputRef.current?.click()}

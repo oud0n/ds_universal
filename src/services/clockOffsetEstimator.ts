@@ -1,4 +1,4 @@
-import type { TelemetryPoint } from '../types/telemetry';
+import type { Session, TelemetryPoint } from '../types/telemetry';
 
 /**
  * 同じ走行を別々のロガーで記録した 2 つのログの、時計のずれ (GPS の受信・記録の遅れ) を見積もる (BUG-08)。
@@ -108,4 +108,28 @@ export function estimateClockOffset(reference: TelemetryPoint[], other: Telemetr
     samples: final.n,
     sharpnessM: Number((around - final.median).toFixed(2))
   };
+}
+
+/** ログの記録の時間 (ログの時刻のまま、ミリ秒)。時刻のないログは null */
+function sessionRange(s: Session): [number, number] | null {
+  const a = s.points[0]?.timestamp, b = s.points[s.points.length - 1]?.timestamp;
+  const ta = a ? Date.parse(a) : NaN, tb = b ? Date.parse(b) : NaN;
+  return Number.isFinite(ta) && Number.isFinite(tb) ? [ta, tb] : null;
+}
+
+/**
+ * 時計のずれを見積もるときの基準のログ: 同じ時間に記録したほかのログのうち、基準車のログ (あれば)、なければ記録の細かい (Hz の高い) もの。
+ * 重なる時間が 60 秒より短いログは使わない
+ */
+export function pickReferenceSession(session: Session, sessions: Session[], preferredId?: string): Session | null {
+  const r = sessionRange(session);
+  if (!r) return null;
+  const candidates = sessions.filter(s => {
+    if (s.id === session.id) return false;
+    const q = sessionRange(s);
+    return !!q && Math.min(r[1], q[1]) - Math.max(r[0], q[0]) >= 60000;
+  });
+  return candidates.find(s => s.id === preferredId)
+    ?? candidates.sort((x, y) => (y.samplingRate || 0) - (x.samplingRate || 0))[0]
+    ?? null;
 }
