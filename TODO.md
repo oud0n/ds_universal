@@ -26,6 +26,8 @@ ID の付け方: 不具合は `BUG-NN`（[BUGS.md](BUGS.md) と同じ番号）�
 | LATER-10 | フリクションサークルの G の軌跡を、直前を濃く・前のものほど薄く描く。現在の G の点を少し小さくする。濃く描く秒数などの見た目は公式アプリの表示に合わせる（BUG-17 と合わせて見直す） | 一部対応（2026-10-18、直近 1 秒の軌跡を前ほど薄く描き、点を小さくした。公式アプリの見た目との見比べは未） |
 | LATER-11 | 別々の走行の動画を main と sub に横に並べて見る方式（それぞれの走行の時刻で再生し、周や地点でそろえて比べる）。BUG-21 の撮影時刻での同期と両立させる | 検討 |
 | LATER-12 | 同じ時間帯の走行ログが複数あるとき（GoPro の GPS のログとデジスパイスのログなど）、動画を付けるログを選べるようにする。既定（デジスパイス優先 / GoPro の GPS）の設定と動画同期の画面での切り替え。ずれは動画の先頭の UTC 時刻から計算し直す。デジスパイス優先のとき GoPro のログを加えるかも選ぶ。**BUG-21 と同じ作業で行う**（動画ごとに正確な時刻を持たせ、その時刻で各ログに合わせる作り替え） | 未対応 |
+| LATER-13 | 海外のコースを足す（2026-10-18）: アメリカの Streets of Willow Springs・Horse Thief Mile・Adams Motorsports Park（カート）・Pikes Peak International Raceway（PPIR）・Auto Club Speedway、スペインの Monteblanco。PLAN-13 と同じやり方（OpenStreetMap と航空写真、`tools/courses/`）。**2026-10-18 対応**: Streets of Willow Springs・PPIR（ロードコース）・Monteblanco を足し、Adams は計測線だけ（レイアウトが入り組んでいて、3 等分のセクター線が隣の路面までまたぐ）。Horse Thief Mile は OpenStreetMap のコースの線が路面から 20〜40 m ずれているので作らない。Auto Club Speedway は閉鎖され、OpenStreetMap からもコースがほぼ消されているので作らない。あわせて国内のフェスティカサーキット栃木を計測線だけで足した（OpenStreetMap にコースの線がない）。ほかの国のコース（中国・タイ・韓国など）は、その国で使ってよい航空写真が見つかってから | 対応（4 コースとフェスティカ。2 コースは作らない） |
+| LATER-14 | 海外のコースの計測線の位置の確認（2026-10-18）。スタートの線とフィニッシュの線が違うコースがあるので、7 コース（Valencia・Aragón・Le Mans・Jerez・Paul Ricard・Laguna Seca・Assen）の写真を見直す。**2026-10-18 対応**: Valencia・Aragón・Paul Ricard はフィニッシュの白線、Assen はゲートの手前の白線に移した。Jerez は円形の建物の下で線が見えず、Laguna Seca は写真の解像度が低いので、推定の位置にした。Le Mans はいまの線（OpenStreetMap でスタート / フィニッシュのタグが付いた位置の白線）のまま。線を動かしたコースは、セクター線も新しい計測線からの 3 等分に置き直した | 対応 |
 | PLAN-01 | iPhone アプリ版（Bluetooth 接続。通信の層の分離を含む） | プロトコル解析済み |
 | PLAN-02 | AI によるドライビングコーチ | 検討のみ |
 | PLAN-03 | GoPro の動画の GPS（GPMF）の読み込み | 対応 |
