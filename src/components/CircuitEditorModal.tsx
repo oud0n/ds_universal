@@ -63,6 +63,9 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   // 計測線がないときに .sci を読み込んだか (保存・書き出しのときに、計測線までのフィニッシュを足す)
   const [needsFinish, setNeedsFinish] = useState(false);
   const [fileMessage, setFileMessage] = useState('');
+  // 書き出しの保存ダイアログを待っている間 (ボタンを続けて押しても、二重に書き出さない)
+  const [exporting, setExporting] = useState(false);
+  const exportingRef = useRef(false); // 同じ瞬間の 2 回のクリックは state では止められないので、ref でも止める
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // コース編集で保存したコース (呼び出し・削除用)
   const [savedCircuits, setSavedCircuits] = useState<UserCircuitItem[]>(() => [...userCircuitStorage.getEditedCircuits()]);
@@ -201,6 +204,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
 
   // 計測線を .cln、セクターを .sci に書き出す (公式アプリと同じ形)
   const handleExportFiles = async () => {
+    if (exportingRef.current) return;
     const cl = readControlLine();
     if (!cl) {
       setSaveError(tr('計測線の 2 点の緯度・経度を正しく入力してください', 'Enter valid latitude and longitude for both points of the timing line'));
@@ -219,15 +223,23 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
     // 1 つずつ保存する (.cln をキャンセルしても .sci は保存できるように、続けて聞く)
     const files: [string, string][] = [[`cl_${base}.cln`, exportCln(cl)], ...(sci ? [[`${base}.sci`, sci] as [string, string]] : [])];
     const saved: string[] = [];
+    let failed = false;
+    exportingRef.current = true;
+    setExporting(true);
     try {
       for (const [fileName, text] of files) if (await saveText(text, fileName)) saved.push(fileName);
     } catch (e) {
+      failed = true;
       setSaveError(`${tr('書き出せませんでした', 'Could not export')}: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      exportingRef.current = false;
+      setExporting(false);
     }
-    setFileMessage([
-      saved.length ? `${tr('書き出しました', 'Exported')}: ${saved.join(', ')}` : tr('書き出しをキャンセルしました', 'Export cancelled'),
-      sci ? '' : tr('(セクターがないので .sci は書き出していません)', '(no sectors, so no .sci was written)')
-    ].filter(Boolean).join(' '));
+    if (saved.length) {
+      setFileMessage(`${tr('書き出しました', 'Exported')}: ${saved.join(', ')}${sci ? '' : ` ${tr('(セクターがないので .sci は書き出していません)', '(no sectors, so no .sci was written)')}`}`);
+    } else {
+      setFileMessage(failed ? '' : tr('書き出しをキャンセルしました', 'Export cancelled'));
+    }
   };
 
   const handleSave = () => {
@@ -301,7 +313,8 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
             </button>
             <button
               onClick={handleExportFiles}
-              className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-slate-200 border border-line-4 text-[11px]"
+              disabled={exporting}
+              className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-slate-200 border border-line-4 text-[11px] disabled:opacity-60"
               title={t('計測線を .cln、セクターを .sci に書き出します (公式アプリと同じ形)', 'Exports the timing line as .cln and the sectors as .sci (same format as the official app)')}
             >
               <Download size={13} />
