@@ -1017,9 +1017,15 @@ export const App: React.FC = () => {
         ref={pthInputRef}
         onChange={async e => {
           const f = e.target.files?.[0];
+          e.target.value = '';
           if (f) {
             const txt = await f.text();
             const polylines = parsePth(txt);
+            // コース図として読めないファイル (iPhone ではどのファイルでも選べる) は、空のコース図にせず知らせる
+            if (polylines.length === 0) {
+              alert(tr(`${f.name} をコース図 (.pth) として読めませんでした`, `Could not read ${f.name} as a track map (.pth)`));
+              return;
+            }
             // コース図の近く (2 km 以内) を走ったログだけに設定する (別のコースのログのコース図を置き換えないように)
             const ids = latestRef.current.sessions.filter(s => passesNearPolylines(s, polylines, 2000)).map(s => s.id);
             // 手動で読み込んだコース図を、遅れて届いた自動取得の結果で上書きしない
@@ -1030,7 +1036,6 @@ export const App: React.FC = () => {
               if (latestRef.current.sessions.length > 0) alert(tr('このコース図の近くを走ったログがないため、次に読み込む近くのログに使います。', 'No loaded log runs near this track map, so it will be used for the next log you load nearby.'));
             }
           }
-          e.target.value = '';
         }}
         accept={fileAccept('.pth')}
         className="hidden"
@@ -1040,9 +1045,16 @@ export const App: React.FC = () => {
         ref={clnInputRef}
         onChange={async e => {
           const f = e.target.files?.[0];
+          e.target.value = '';
           if (f) {
             const txt = await f.text();
-            const cl = parseCln(txt, f.name);
+            let cl;
+            try {
+              cl = parseCln(txt, f.name);
+            } catch (err: any) {
+              alert(tr(`${f.name} を計測線 (.cln) として読めませんでした: ${err.message}`, `Could not read ${f.name} as a timing line (.cln): ${err.message}`));
+              return;
+            }
             // 計測線の近く (1 km 以内) を走ったログだけに反映する (セクターは各セッションのものを保つ)。
             // 近くのログがなければどのセッションも変えない (別のコースのログの周回が崩れるため)。次に読み込む近くのログで使う
             const ids = latestRef.current.sessions.filter(s => passesNearControlLine(s.points, cl)).map(s => s.id);
@@ -1051,7 +1063,6 @@ export const App: React.FC = () => {
             setCourseHint({ cl, sec: target?.sectors ?? [], name: target?.circuitName ?? '', polylines: target ? target.pathPolylines : courseRef.current.polylines, polylinesSource: target ? target.pathPolylinesSource : courseRef.current.polylinesSource });
             recalcSessions(s => (ids.includes(s.id) ? { cl, sec: s.sectors || [] } : null));
           }
-          e.target.value = '';
         }}
         accept={fileAccept('.cln')}
         className="hidden"
