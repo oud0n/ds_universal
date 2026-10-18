@@ -97,7 +97,7 @@
 
 インストールせずに、ブラウザからそのまま使えます。ログの読み込み・解析・変換はお使いの端末内で行い、ログをサーバーへ送信しません。
 
-外部と通信するのは、地図の表示（地図タイルの取得）、コース定義の自動取得（コース中心の座標を OpenStreetMap の Overpass API に送信）、書き出した地図 HTML を開いたとき（表示用スクリプトを unpkg.com から、地図タイルを OpenStreetMap から取得）です。
+外部と通信するのは、地図の表示（地図タイルの取得）、コース定義の自動取得（コース中心の座標を OpenStreetMap の Overpass API に送信）、書き出した地図 HTML を開いたとき（表示用スクリプトを unpkg.com から、地図タイルを OpenStreetMap から取得）です。また、ブラウザ版はアクセス数を数えるために [GoatCounter](https://www.goatcounter.com/) を使っています（開いたページ・参照元などを送ります。Cookie は使わず、ログの内容は送りません）。デスクトップ版には入っていません。
 
 - 解析画面: <https://oud0n.github.io/ds_universal/>
 - ログ変換ページ: <https://oud0n.github.io/ds_universal/#convert>
