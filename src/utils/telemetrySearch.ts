@@ -114,9 +114,12 @@ export function interpolatePoint(
     speed: lerp(a.speed, b.speed),
     heading: (a.heading + dh * r + 360) % 360,
     // G も記録点の間で補間する (手前の点の値のままだと、記録の間隔ごとに段差で跳ぶ)
-    accelG: lerp(a.accelG, b.accelG),
-    corneringG: lerp(a.corneringG, b.corneringG),
-    combinedG: lerp(a.combinedG, b.combinedG)
+    ...(() => {
+      const accelG = lerp(a.accelG, b.accelG);
+      const corneringG = lerp(a.corneringG, b.corneringG);
+      // 合算 G は補間した縦・横から求める (別々に補間すると点の位置と合わない)
+      return { accelG, corneringG, combinedG: Math.hypot(accelG, corneringG) };
+    })()
   };
 }
 
