@@ -293,17 +293,22 @@ function findMatchingPreset(lat: number, lon: number, points?: TelemetryPoint[])
  * 1. ユーザーが設置したデータ内のポリライン
  * 2. OpenStreetMap (OSM) から動的取得
  */
+/** 読み込み済みのコースデータにある、このコースのコース図: ユーザーコースならそのコース図、内蔵のコースなら計測線 (なければ中心) の近くを通るコース図 */
+export function findUserPolylines(circuit: CircuitPreset): Array<Array<[number, number]>> | undefined {
+  return circuit.id.startsWith('user:')
+    ? userCircuitStorage.getCircuitPolylines(circuit.id.slice(5))
+    : circuit.controlLine
+      ? userCircuitStorage.findPolylinesNear((circuit.controlLine.latA + circuit.controlLine.latB) / 2, (circuit.controlLine.lonA + circuit.controlLine.lonB) / 2, undefined, circuit.name)
+      : userCircuitStorage.findPolylinesNear(circuit.centerLat, circuit.centerLon, 1500, circuit.name);
+}
+
 export async function resolveCircuitPolylines(
   circuit: CircuitPreset,
   sourcePreference: 'osm' | 'user' = 'osm'
 ): Promise<Array<Array<[number, number]>> | undefined> {
   // 1. ユーザー設置データ確認: ユーザーコースならそのコース図、内蔵のコースなら計測線 (なければ中心) の近くを通る読み込み済みのコース図
   await userCircuitStorage.ready;
-  const userPolylines = circuit.id.startsWith('user:')
-    ? userCircuitStorage.getCircuitPolylines(circuit.id.slice(5))
-    : circuit.controlLine
-      ? userCircuitStorage.findPolylinesNear((circuit.controlLine.latA + circuit.controlLine.latB) / 2, (circuit.controlLine.lonA + circuit.controlLine.lonB) / 2, undefined, circuit.name)
-      : userCircuitStorage.findPolylinesNear(circuit.centerLat, circuit.centerLon, 1500, circuit.name);
+  const userPolylines = findUserPolylines(circuit);
   if (userPolylines && userPolylines.length > 0) {
     console.log('[Circuit] ユーザー設置コース図を使用:', circuit.id);
     return userPolylines;
