@@ -52,6 +52,7 @@ function buildMenu() {
                 { name: L('デジスパイス独自バイナリ (.dtb)', 'DigSpice binary (.dtb)'), extensions: ['dtb'] },
                 { name: L('CSV / NMEA / VBO / GPX ログ', 'CSV / NMEA / VBO / GPX logs'), extensions: ['csv', 'txt', 'nmea', 'log', 'vbo', 'gpx'] },
                 { name: 'AiM (.xrk / .xrz)', extensions: ['xrk', 'xrz'] },
+                { name: L('iRacing のテレメトリ (.ibt)', 'iRacing telemetry (.ibt)'), extensions: ['ibt'] },
                 { name: L('すべてのファイル', 'All files'), extensions: ['*'] }
               ]
             });

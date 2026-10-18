@@ -179,8 +179,8 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
           <div className="flex-1 text-center sm:text-left">
             <h2 className="text-sm font-bold text-slate-100">{t('ログ変換', 'Log conversion')}</h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              {t('走行ログ (.bnx4 / .bon4 / .dtb / NMEA / CSV / VBO / GPX / AiM / GoPro の動画) を読み込み、NMEA・GPX・CSV などに書き出します。 ファイルをここにドロップしても読み込めます。処理はすべてこの端末内で行われます。',
-                'Load a driving log (.bnx4 / .bon4 / .dtb / NMEA / CSV / VBO / GPX / AiM / GoPro video) and export it to NMEA, GPX, CSV and more. You can also drop files here. Everything is processed on this device.')}
+              {t('走行ログ (.bnx4 / .bon4 / .dtb / NMEA / CSV / VBO / GPX / AiM / iRacing / GoPro の動画) を読み込み、NMEA・GPX・CSV などに書き出します。 ファイルをここにドロップしても読み込めます。処理はすべてこの端末内で行われます。',
+                'Load a driving log (.bnx4 / .bon4 / .dtb / NMEA / CSV / VBO / GPX / AiM / iRacing / GoPro video) and export it to NMEA, GPX, CSV and more. You can also drop files here. Everything is processed on this device.')}
             </p>
           </div>
           <button onClick={onOpenFile} data-testid="convert-open" className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-xs text-white font-bold">
