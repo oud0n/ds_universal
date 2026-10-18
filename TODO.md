@@ -29,7 +29,7 @@ ID の付け方: 不具合は `BUG-NN`（[BUGS.md](BUGS.md) と同じ番号）�
 | PLAN-01 | iPhone アプリ版（Bluetooth 接続。通信の層の分離を含む） | プロトコル解析済み |
 | PLAN-02 | AI によるドライビングコーチ | 検討のみ |
 | PLAN-03 | GoPro の動画の GPS（GPMF）の読み込み | 対応 |
-| PLAN-04 | MoTeC / AIM / RaceChrono 形式（AIM の CSV・.xrk / .xrz の読み込み、MoTeC CSV の有効化、KML の書き出し） | 一部対応 |
+| PLAN-04 | MoTeC / AIM / RaceChrono 形式（AIM の CSV・.xrk / .xrz の読み込み、MoTeC CSV の有効化、KML の書き出し） | 対応（RaceChrono の実機の CSV での確認が残り） |
 | PLAN-05 | 日本語 / 英語の切り替え・ハイコントラスト表示 | 未着手 |
 | PLAN-06 | メーターを焼き込んだ動画の書き出し | 未着手 |
 | PLAN-07 | Tauri 化（Electron からの移行） | 未着手 |
@@ -163,13 +163,13 @@ USB シリアル通信をさらに拡張し、公式アプリを使わずにロ�
 - [ ] **PLAN-04（2.5）MoTeC i2 / AIM / RaceChrono 形式の相互インポート・エクスポート**
   - [x] MoTeC CSV 形式（i2 の CSV エクスポートと同じ書式）の出力と読み込み: **試験機能としてコードのみ組み込み、画面には出していない**
     - `src/services/externalFormats.ts` の `MOTEC_CSV_ENABLED` を `true` にすると、データ管理の書き出しボタンと読み込み時の自動判別が有効になる
-  - [ ] AIM の読み込み（MUST）: Race Studio の CSV（`"Format","AiM CSV File"`）と .xrk / .xrz。.xrk / .xrz は libxrk（MIT）を参考にする。サンプルは `_private/samples/aim_libxrk/`（富士 GP ショート・筑波など）
-  - [ ] MoTeC CSV の有効化: 実物の i2 の書き出し（`_private/samples/motec_lapsim/`、小数点がカンマ）で確かめてから `MOTEC_CSV_ENABLED` を true にする
-  - [ ] KML の書き出し（Google Earth 用。区間ごとに色を付けた線）
+  - [x] （2026-10-18 対応、`aimFormats.ts`）AIM の読み込み（MUST）: Race Studio の CSV（`"Format","AiM CSV File"`）と .xrk / .xrz。.xrk は GPS の記録（u-blox NAV-SOL）だけを読む。富士 GP ショートの .xrk / .xrz / CSV が AiM の区間タイムと 3 ミリ秒以内で一致。.xrk / .xrz は libxrk（MIT）を参考にする。サンプルは `_private/samples/aim_libxrk/`（富士 GP ショート・筑波など）
+  - [x] （2026-10-18 対応）MoTeC CSV の有効化（小数点のカンマ・dd.mm.yyyy の日付・速度の列がないもの（位置から求める）に対応。記録日時は端末の時刻で読み書き）: 実物の i2 の書き出し（`_private/samples/motec_lapsim/`、小数点がカンマ）で確かめてから `MOTEC_CSV_ENABLED` を true にする
+  - [x] （2026-10-18 対応）KML の書き出し（Google Earth 用。車速を 6 段に分け、段ごとに色を付けた線）
   - [x] RaceChrono CSV（v2 / v3）・VBO (Racelogic) 形式のインポート対応
-  - [ ] MoTeC: 実物の i2 から書き出した GPS 入り CSV での読み込み確認（入手できた公開サンプルは書式の確認用で、GPS チャンネルを含まない）。確認できたら画面に出す
+  - [x] MoTeC: 実物の i2 から書き出した GPS 入り CSV での読み込み確認（2026-10-18、`motec_lapsim` の 2 本）（入手できた公開サンプルは書式の確認用で、GPS チャンネルを含まない）。確認できたら画面に出す
   - [ ] RaceChrono: 実機で書き出した CSV での確認（入手できた公開サンプルは数行の合成データ）
-  - [ ] AIM 形式（未着手）
+  - [x] AIM 形式（上の「AIM の読み込み」）
   - [x] **GPX の読み込み**（2026-10-16 追加・実装、dev ブランチ。要望: issue #1〜#3 の投稿者のブログ、みんカラ 2026-10-15「RaceChrono で書き出した GPX を読みたい」）
     - `externalFormats.ts` の `parseGpx`。`trkpt` の緯度経度・`ele`・`time` を読み、複数の `trk` / `trkseg` は連結する
     - 速度・進行方向は `<speed>` / `<course>` か拡張要素（`gpxtpx:speed` など、m/s）。速度がなければ位置と時刻から求める

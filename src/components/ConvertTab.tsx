@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Download, FolderOpen, Repeat } from 'lucide-react';
 import { Session } from '../types/telemetry';
 import {
-  ConvertRange, selectConvertPoints, toTelemetryPoints, hasRecordedClock, convertToNmea, convertToGpx, convertToCsv, convertToHtmlMap
+  ConvertRange, selectConvertPoints, toTelemetryPoints, hasRecordedClock, convertToNmea, convertToGpx, convertToCsv, convertToHtmlMap, convertToKml
 } from '../services/logConverter';
 import { exportDtb } from '../services/dtbParser';
 import { triggerFileDownload } from '../services/nmeaExporter';
@@ -165,7 +165,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
           <div className="flex-1 text-center sm:text-left">
             <h2 className="text-sm font-bold text-slate-100">ログ変換</h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              走行ログ (.bnx4 / .bon4 / .dtb / NMEA / CSV / VBO) を読み込み、NMEA・GPX・CSV などに書き出します。
+              走行ログ (.bnx4 / .bon4 / .dtb / NMEA / CSV / VBO / GPX / AiM / GoPro の動画) を読み込み、NMEA・GPX・CSV などに書き出します。
               ファイルをここにドロップしても読み込めます。処理はすべてこの端末内で行われます。
             </p>
           </div>
@@ -275,7 +275,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
             <div className="bg-surface-2 border border-line-2 rounded-xl p-4 space-y-4">
               <div>
                 <h3 className="text-xs font-bold text-slate-300 mb-2">位置のログ</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                   <button disabled={disabled} className={btnCls} data-testid="convert-nmea"
                     onClick={() => save('nmea', convertToNmea(points, talkerId, includeGga), 'text/plain')}>
                     <Download size={13} /> NMEA
@@ -288,6 +288,11 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
                     onClick={() => save('csv', convertToCsv(points), 'text/csv')}>
                     <Download size={13} /> CSV
                   </button>
+                  <button disabled={disabled} className={btnCls} data-testid="convert-kml"
+                    onClick={() => save('kml', convertToKml(points, baseName), 'application/vnd.google-earth.kml+xml')}
+                    title="Google Earth で開ける KML（線の色は車速）">
+                    <Download size={13} /> KML
+                  </button>
                   <button disabled={disabled} className={btnCls} data-testid="convert-html"
                     onClick={() => save('html', convertToHtmlMap(points, baseName), 'text/html')}>
                     <Download size={13} /> 地図 HTML
@@ -295,7 +300,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
                 </div>
                 <p className="text-[11px] text-slate-500 mt-2">
                   NMEA / GPX は RaceChrono などの解析アプリに読み込めます。CSV は位置・速度・方位・衛星数の表です。記録されていない項目（標高・衛星数）は空欄にします。
-                  地図 HTML は開くときにインターネット接続が必要です（地図は OpenStreetMap、表示用のスクリプトは unpkg.com から読み込みます）。
+                  KML は Google Earth で開けます（線の色は車速）。地図 HTML は開くときにインターネット接続が必要です（地図は OpenStreetMap、表示用のスクリプトは unpkg.com から読み込みます）。
                 </p>
               </div>
               <div>
@@ -316,7 +321,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
                     <Download size={13} /> DTB
                   </button>
                   {MOTEC_CSV_ENABLED && (
-                    <button disabled={disabled} className={btnCls} onClick={() => triggerFileDownload(`${session.sessionName.replace(/[\\/:*?"<>|]/g, '_')}_motec.csv`, exportMotecCsv(session), 'text/csv;charset=utf-8')}
+                    <button disabled={disabled} className={btnCls} data-testid="convert-motec" onClick={() => triggerFileDownload(`${session.sessionName.replace(/[\\/:*?"<>|]/g, '_')}_motec.csv`, exportMotecCsv(session), 'text/csv;charset=utf-8')}
                       title="MoTeC CSV 形式 (i2 の CSV エクスポートと同じ書式)。範囲によらずログ全体">
                       <Download size={13} /> MoTeC CSV
                     </button>
