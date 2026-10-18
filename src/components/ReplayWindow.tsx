@@ -5,7 +5,7 @@ import { Lap, SelectedCarSlot, Sector, CompareAxis } from '../types/telemetry';
 import { Play, Pause, SkipBack, SkipForward, PlaySquare, Compass, Eye } from 'lucide-react';
 import { findCarPoint } from '../utils/telemetrySearch';
 import { getPointGrid, pointsInBounds } from '../utils/pointGrid';
-import { prepareCanvas } from '../utils/canvasLayer';
+import { prepareCanvas, useDevicePixelRatio } from '../utils/canvasLayer';
 
 interface ReplayWindowProps {
   cars: {
@@ -55,6 +55,8 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
 }) => {
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
+  // 解像度の違うディスプレイへ移したら描き直す
+  const dpr = useDevicePixelRatio();
   // スマートフォン向けの配置では、ツールバーを 1 行にして横にスクロールさせ、見出しを省く
   const compact = useCompactLayout();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -225,7 +227,7 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
     ctx.textAlign = 'left';
     ctx.fillText(`Dist: ${currentDistance.toFixed(3)} km`, 10, height - 12);
     ctx.fillText(`Time: ${currentTime.toFixed(2)} s`, 10, height - 24);
-  }, [cars, baseCar, currentDistance, currentTime, compareAxis, zoomLevel, followCar, theme, resizeTick]);
+  }, [cars, baseCar, currentDistance, currentTime, compareAxis, zoomLevel, followCar, theme, resizeTick, dpr]);
 
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">

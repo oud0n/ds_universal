@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+
 // 2 枚重ねの canvas の補助。
 // 下の canvas には動かないもの (グラフの線・目盛り・走行ラインなど) を、データや表示が変わったときだけ描き、
 // 上の canvas には再生中に動くもの (カーソル・車両など) だけを毎コマ描く。
@@ -35,4 +37,29 @@ export function prepareCanvas(canvas: HTMLCanvasElement | null, width: number, h
   ctx.textBaseline = 'alphabetic';
   ctx.clearRect(0, 0, width, height);
   return ctx;
+}
+
+/**
+ * 画面の解像度 (devicePixelRatio)。ウインドウを解像度の違うディスプレイへ移したときに変わる。
+ * 大きさは変わらないので ResizeObserver では気づけない。描き直しのきっかけに使う (ぼやけたままにならないように)
+ */
+export function useDevicePixelRatio(): number {
+  const [dpr, setDpr] = useState(() => window.devicePixelRatio || 1);
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    let query: MediaQueryList | null = null;
+    const onChange = () => {
+      setDpr(window.devicePixelRatio || 1);
+      watch();
+    };
+    // 今の解像度から変わったときに 1 度だけ知らせる問い合わせを、変わるたびに作り直す
+    const watch = () => {
+      query?.removeEventListener('change', onChange);
+      query = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+      query.addEventListener('change', onChange);
+    };
+    watch();
+    return () => query?.removeEventListener('change', onChange);
+  }, []);
+  return dpr;
 }
