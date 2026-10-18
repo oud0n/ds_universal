@@ -213,7 +213,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // 動画の一覧と表示の状態は、どのウインドウでも同じにする (videoViewStore に 1 つだけ持つ)
   const tracks = useVideoTracks();
   const view = useVideoView();
-  const { selectedTrackId, subTrackId, viewMode, pipPosition, isSubMuted, showOverlay, showGForce } = view;
+  const { selectedTrackId, subTrackId, viewMode: storedViewMode, pipPosition, isSubMuted, showOverlay, showGForce } = view;
   const isAnyExporting = view.isExporting;
   const setSelectedTrackId = (id: string | null) => videoViewStore.selectMain(id);
   const setSubTrackId = (id: string | null) => videoViewStore.set({ subTrackId: id });
@@ -263,6 +263,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   const activeTrack = tracks.find(t => t.id === selectedTrackId);
   const subTrack = tracks.find(t => t.id === subTrackId);
+  // sub の動画がないとき (1 本だけのとき・sub を消したとき) は、選んでいた表示に関係なく 1 画面で出す。
+  // 切り替えのボタンは 2 本以上のときだけ出すので、2画面のまま残ると空いた枠を消せなかった (BUG-22)。
+  // 選んでいた表示は覚えておき、sub の動画が戻ったらその表示に戻す
+  const viewMode: VideoViewMode = subTrack ? storedViewMode : 'single';
+  // グラフ解析に埋め込んだときは、タイムゾーン・再同期の段とタイムラインを、ボタンで開くまで隠す。
+  // 狭い枠ではこれらの段が場所を使い切り、動画の映る部分の高さが 0 になっていた (BUG-19)。同期の調整は動画同期の画面でもできる
+  const [showSyncTools, setShowSyncTools] = useState(!isGraphEmbedded);
 
   // 現在選択中の動画トラックが属するチャプターグループ
   const currentGroup = selectedTrackId ? videoSyncManager.getChapterGroupForTrack(selectedTrackId) : null;
@@ -631,7 +638,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-surface-0 text-slate-200 select-none overflow-hidden font-sans">
+    // 枠が狭くて全部の段が入らないときは、動画を潰さずにウインドウの中をスクロールさせる
+    <div className={`flex flex-col h-full bg-surface-0 text-slate-200 select-none font-sans ${isGraphEmbedded ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'}`}>
       {/* 1. 上部コントロールバー (フラットデザイン) */}
       <div className="h-11 bg-surface-1 border-b border-line-1 px-3 flex items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-2.5">
@@ -756,6 +764,19 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
         {/* 右側アクション群 (ピン留め・MP4エクスポート・プロジェクト保存) */}
         <div className="flex items-center gap-1.5">
+          {/* グラフ解析に埋め込んだときだけ: タイムゾーン・再同期の段とタイムラインを開く / 閉じる */}
+          {isGraphEmbedded && activeTrack && (
+            <button
+              onClick={() => setShowSyncTools(v => !v)}
+              aria-pressed={showSyncTools}
+              title="動画のタイムゾーン・再同期の段とタイムラインを出す / 隠す"
+              className={`flex items-center gap-1 shrink-0 whitespace-nowrap px-2 py-1 rounded text-xs border transition-colors cursor-pointer ${
+                showSyncTools ? 'bg-slate-700 border-slate-500 text-slate-100' : 'bg-surface-3 hover:bg-surface-5 border-line-3 text-slate-300'
+              }`}
+            >
+              同期の調整
+            </button>
+          )}
           {/* 手動キーフレーム同期 (ピン留め) ボタン */}
           {activeTrack && (
             <button
@@ -810,7 +831,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       </div>
 
       {/* 2. タイムゾーン設定 & 再同期専用バー (フラットデザイン) */}
-      {activeTrack && (
+      {activeTrack && showSyncTools && (
         <div className="bg-surface-1 border-b border-line-1 px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0 select-none">
           <div className="flex flex-wrap items-center gap-2.5">
             {/* 動画タイムゾーン選択 */}
@@ -886,7 +907,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`flex-1 relative flex overflow-hidden ${
+        className={`flex-1 relative flex overflow-hidden ${isGraphEmbedded ? 'min-h-[120px]' : ''} ${
           // 動画を表示しているときは、映像に重ねる表示が読めるよう、ライトモードでも暗い配色にする
           activeTrack && activeTrack.objectUrl ? 'bg-black keep-dark' : 'bg-surface-1'
         } ${
@@ -1155,7 +1176,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       )}
 
       {/* 5. マスタータイムライン マルチトラックインスペクター (NLE風) */}
-      {(() => {
+      {showSyncTools && (() => {
         const effectiveSessionTime = isGraphEmbedded && baseLap ? (baseLap.startTime + currentTimeSec) : currentTimeSec;
         return (
           <MasterTimelineTrackBar
