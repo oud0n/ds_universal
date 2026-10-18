@@ -980,7 +980,7 @@ export const App: React.FC = () => {
               if (!s) continue;
               // 利用者が読み込んだコース図 (.pth) は変えない
               if (s.pathPolylinesSource === 'manual') continue;
-              if (isUser(m) || !s.pathPolylines) {
+              if (isUser(m) || (!s.pathPolylines && s.circuitName === m.name)) {
                 // コース図を取り直す。見つからなければ (通信できないときなど) 今のコース図を残す
                 requestPolylines([id], m);
               } else if (s.pathPolylinesSource === 'auto' && s.circuitName === m.name) {
@@ -989,6 +989,13 @@ export const App: React.FC = () => {
                 const p = findUserPolylines(m);
                 if (p && p !== s.pathPolylines && runsOnPolylines(s.points, p)) setSessionPolylines([id], p, 'auto');
               }
+            }
+            // 次に読み込むログの手がかり (ログを読み込む前なら画面にも出す) のコース図も、自動で取得したものなら読み込んだコース図に置き換える
+            const hint = courseRef.current;
+            const hintCircuit = hint.name ? ALL_CIRCUITS.find(c => c.name === hint.name) : undefined;
+            if (hintCircuit && hint.polylinesSource !== 'manual') {
+              const p = findUserPolylines(hintCircuit);
+              if (p && p !== hint.polylines) setCourseHint({ ...hint, polylines: p, polylinesSource: 'auto' });
             }
             setUserCircuitCount(userCircuitStorage.getCircuitCount());
           }
