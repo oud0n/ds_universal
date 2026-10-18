@@ -190,5 +190,170 @@
     "notes": {
       "controlLine": "施設内に複数のコースがあり、地図上でコースを特定できないため計測線は持たない"
     }
+  },
+  {
+    "id": "zandvoort",
+    "name": "Circuit Zandvoort",
+    "country": "NL",
+    "center": [
+      52.388102,
+      4.54589
+    ],
+    "cln": "zandvoort.cln",
+    "sci": "zandvoort.sci",
+    "notes": {
+      "controlLine": "メインストレートに架かるスタートの信号のゲートの位置 (Beeldmateriaal Nederland の航空写真 (PDOK、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4258 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "assen",
+    "name": "TT Circuit Assen",
+    "country": "NL",
+    "center": [
+      52.958714,
+      6.521181
+    ],
+    "cln": "assen.cln",
+    "sci": "assen.sci",
+    "notes": {
+      "controlLine": "メインストレートに架かるゲートの位置 (Beeldmateriaal Nederland の航空写真 (PDOK、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4541 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "cota",
+    "name": "Circuit of the Americas (COTA)",
+    "country": "US",
+    "center": [
+      30.134742,
+      -97.63396
+    ],
+    "cln": "cota.cln",
+    "sci": "cota.sci",
+    "notes": {
+      "controlLine": "メインストレートに架かるスタートの信号のゲートの位置 (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 5509 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "laguna_seca",
+    "name": "WeatherTech Raceway Laguna Seca",
+    "country": "US",
+    "center": [
+      36.584282,
+      -121.753385
+    ],
+    "cln": "laguna_seca.cln",
+    "sci": "laguna_seca.sci",
+    "notes": {
+      "controlLine": "メインストレートに架かる歩道橋の位置 (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 3605 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "watkins_glen",
+    "name": "Watkins Glen International",
+    "country": "US",
+    "center": [
+      42.33637,
+      -76.924703
+    ],
+    "cln": "watkins_glen.cln",
+    "sci": "watkins_glen.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタート / フィニッシュの白い印の位置 (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 5479 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "sebring",
+    "name": "Sebring International Raceway",
+    "country": "US",
+    "center": [
+      27.452758,
+      -81.352173
+    ],
+    "cln": "sebring.cln",
+    "sci": "sebring.sci",
+    "notes": {
+      "controlLine": "メインストレートに架かる歩道橋の位置 (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 5872 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "vir",
+    "name": "Virginia International Raceway (VIR)",
+    "country": "US",
+    "center": [
+      36.560388,
+      -79.207499
+    ],
+    "cln": "vir.cln",
+    "sci": "vir.sci",
+    "notes": {
+      "controlLine": "スタートラインを航空写真で確かめられなかったため、ピットロードの中ほどに置いた仮の線 (OpenStreetMap のピットロードに直交)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 5268 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "road_atlanta",
+    "name": "Michelin Raceway Road Atlanta",
+    "country": "US",
+    "center": [
+      34.143478,
+      -83.814545
+    ],
+    "cln": "road_atlanta.cln",
+    "sci": "road_atlanta.sci",
+    "notes": {
+      "controlLine": "メインストレートに架かる歩道橋の位置 (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4095 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "mid_ohio",
+    "name": "Mid-Ohio Sports Car Course",
+    "country": "US",
+    "center": [
+      40.689229,
+      -82.636142
+    ],
+    "cln": "mid_ohio.cln",
+    "sci": "mid_ohio.sci",
+    "notes": {
+      "controlLine": "スタートラインを航空写真で確かめられなかったため、ピットロードの中ほどに置いた仮の線 (OpenStreetMap のピットロードに直交)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 3620 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "barber",
+    "name": "Barber Motorsports Park",
+    "country": "US",
+    "center": [
+      33.532586,
+      -86.619474
+    ],
+    "cln": "barber.cln",
+    "sci": "barber.sci",
+    "notes": {
+      "controlLine": "メインストレートの管制塔の前 (推定。路面の印は確かめられなかった) (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 3724 m の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "lime_rock",
+    "name": "Lime Rock Park",
+    "country": "US",
+    "center": [
+      41.927586,
+      -73.383393
+    ],
+    "cln": "lime_rock.cln",
+    "sci": "lime_rock.sci",
+    "notes": {
+      "controlLine": "スタートラインを航空写真で確かめられなかったため、ピットロードの中ほどに置いた仮の線 (OpenStreetMap のピットロードに直交)。2026-10-18 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 2414 m の上)。2026-10-18 作成"
+    }
   }
 ]
