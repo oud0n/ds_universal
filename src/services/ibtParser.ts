@@ -102,7 +102,7 @@ export function parseIbt(bytes: Uint8Array): IbtLog {
   }
   const reader = (name: string): ((row: number) => number) | null => {
     const h = vars.get(name);
-    if (!h || h.offset + TYPE_SIZE[h.type] > bufLen) return null;
+    if (!h || h.offset < 0 || h.offset + TYPE_SIZE[h.type] > bufLen) return null;
     return (row: number) => {
       const p = bufOffset + row * bufLen + h.offset;
       switch (h.type) {
@@ -130,8 +130,9 @@ export function parseIbt(bytes: Uint8Array): IbtLog {
   const rpm = reader('RPM');
   const gear = reader('Gear');             // -1 R / 0 N / 1〜
 
+  // セッション情報の YAML は cp1252 (iRacing の SDK・pyirsdk と同じ。UTF-8 で読むと Nürburgring などが化ける)
   const info = sessionInfoOffset > 0 && sessionInfoLen > 0 && sessionInfoOffset + sessionInfoLen <= bytes.length
-    ? parseIbtSessionInfo(new TextDecoder('utf-8').decode(bytes.subarray(sessionInfoOffset, sessionInfoOffset + sessionInfoLen)).replace(/\0+$/, '').replace(/\r\n/g, '\n'))
+    ? parseIbtSessionInfo(new TextDecoder('windows-1252').decode(bytes.subarray(sessionInfoOffset, sessionInfoOffset + sessionInfoLen)).replace(/\0+$/, '').replace(/\r\n/g, '\n'))
     : {};
 
   // コースに出ていない間 (ガレージ・リプレイ) と、位置が (0, 0) の行 (リセットの瞬間) で区切る。
@@ -188,7 +189,7 @@ export function parseIbt(bytes: Uint8Array): IbtLog {
     return d >= 500;
   };
   const logs = parts.filter(p => p.length >= 2 && moved(p)).map(p => {
-    const log = finalizeImportedSamples(p, 'iRacing の .ibt');
+    const log = finalizeImportedSamples(p, tr('iRacing の .ibt', 'iRacing .ibt'), 9);
     return { ...log, samplingRate: tickRate };
   });
   if (logs.length === 0) throw new Error(tr('iRacing の .ibt に、コースを走った記録がありません', 'The iRacing .ibt file has no laps driven on track'));

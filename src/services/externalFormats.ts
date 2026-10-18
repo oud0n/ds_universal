@@ -81,7 +81,8 @@ function speedFactorToKmh(unit: string): number {
 }
 
 /** 時刻順に並んだ有効なサンプルだけを残し、TelemetryPoint へ変換して物理量を付与する */
-export function finalizeImportedSamples(samples: RawSample[], formatName: string): ImportedLog {
+// coordDigits: 緯度経度を丸める桁。60Hz の .ibt のように点の間隔が短いログでは、7 桁 (約 1 cm) の丸めが 3 点から求める旋回半径の誤差になる (偽の横 G) ので、桁を増やす
+export function finalizeImportedSamples(samples: RawSample[], formatName: string, coordDigits = 7): ImportedLog {
   const points: TelemetryPoint[] = [];
   // 速度・方位の記録がない点 (速度の列がないログなど)。後で前後の点の位置と時刻から求める
   const noSpeed: number[] = [];
@@ -107,8 +108,8 @@ export function finalizeImportedSamples(samples: RawSample[], formatName: string
       index: points.length,
       time: Number((s.time - t0).toFixed(3)),
       timestamp: s.timestamp?.toISOString(),
-      latitude: Number(s.latitude.toFixed(7)),
-      longitude: Number(s.longitude.toFixed(7)),
+      latitude: Number(s.latitude.toFixed(coordDigits)),
+      longitude: Number(s.longitude.toFixed(coordDigits)),
       altitude: Number((Number.isFinite(s.altitude) ? s.altitude : 0).toFixed(2)),
       ...(Number.isFinite(s.altitude) ? {} : { altitudeMissing: true }),
       speed: Number((Number.isFinite(s.speedKmh) ? Math.max(0, s.speedKmh) : 0).toFixed(2)),
