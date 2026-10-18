@@ -206,6 +206,1347 @@
     }
   },
   {
+    "id": "akechi_hilltop_circuit",
+    "name": "明智ヒルトップサーキット (Akechi Hilltop Circuit)",
+    "country": "JP",
+    "center": [
+      35.291342,
+      137.377052
+    ],
+    "mapRadius": 400,
+    "cln": "akechi_hilltop_circuit.cln",
+    "sci": "akechi_hilltop_circuit.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 799 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "akigase_circuit",
+    "name": "秋ヶ瀬サーキット (Akigase Circuit)",
+    "country": "JP",
+    "center": [
+      35.859997,
+      139.592466
+    ],
+    "mapRadius": 400,
+    "cln": "akigase_circuit.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "autoland_tsukude",
+    "name": "オートランド作手 (Autoland Tsukude)",
+    "country": "JP",
+    "center": [
+      35.032756,
+      137.468668
+    ],
+    "mapRadius": 400,
+    "cln": "autoland_tsukude.cln",
+    "sci": "autoland_tsukude.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 645 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "asan_circuit",
+    "name": "阿讃サーキット (Asan Circuit)",
+    "country": "JP",
+    "center": [
+      34.088848,
+      133.858643
+    ],
+    "mapRadius": 400,
+    "cln": "asan_circuit.cln",
+    "sci": "asan_circuit.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1006 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "aomori_speed_park",
+    "name": "青森スピードパーク (Aomori Speed Park)",
+    "country": "JP",
+    "center": [
+      40.759042,
+      140.841234
+    ],
+    "mapRadius": 400,
+    "cln": "aomori_speed_park.cln",
+    "sci": "aomori_speed_park.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 2046 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "higashimatsushima_kart",
+    "name": "東松島市のカートコース (Higashimatsushima kart track)",
+    "country": "JP",
+    "center": [
+      38.433301,
+      141.183354
+    ],
+    "mapRadius": 400,
+    "cln": "higashimatsushima_kart.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "az_yamanashi",
+    "name": "AZ 山梨サーキット (AZ Yamanashi)",
+    "country": "JP",
+    "center": [
+      35.703063,
+      138.659752
+    ],
+    "mapRadius": 400,
+    "cln": "az_yamanashi.cln",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "bihoku_highland",
+    "name": "備北ハイランドサーキット (Bihoku Highland)",
+    "country": "JP",
+    "center": [
+      34.974076,
+      133.615232
+    ],
+    "mapRadius": 400,
+    "cln": "bihoku_highland.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "biwako_sportsland",
+    "name": "琵琶湖スポーツランド (Biwako Sportsland)",
+    "country": "JP",
+    "center": [
+      35.151842,
+      135.88856
+    ],
+    "mapRadius": 400,
+    "cln": "biwako_sportsland.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "central_circuit",
+    "name": "セントラルサーキット (Central Circuit)",
+    "country": "JP",
+    "center": [
+      35.025362,
+      134.922474
+    ],
+    "mapRadius": 550,
+    "cln": "central_circuit.cln",
+    "sci": "central_circuit.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 2802 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "chiba_kita_pocket_bike",
+    "name": "千葉北 ポケバイコース (Chiba-kita Pocket Bike)",
+    "country": "JP",
+    "center": [
+      35.670953,
+      140.12897
+    ],
+    "mapRadius": 400,
+    "cln": "chiba_kita_pocket_bike.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "city_circuit_tokyo_bay",
+    "name": "シティサーキット東京ベイ (City Circuit Tokyo Bay)",
+    "country": "JP",
+    "center": [
+      35.626055,
+      139.781327
+    ],
+    "mapRadius": 400,
+    "cln": "city_circuit_tokyo_bay.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "hiratsuka_dream",
+    "name": "ドリーム平塚 (Dream Hiratsuka)",
+    "country": "JP",
+    "center": [
+      35.338033,
+      139.364705
+    ],
+    "mapRadius": 400,
+    "cln": "hiratsuka_dream.cln",
+    "sci": "hiratsuka_dream.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 455 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "ebisu_circuit_north",
+    "name": "エビスサーキット 北コース (Ebisu North)",
+    "country": "JP",
+    "center": [
+      37.646338,
+      140.365573
+    ],
+    "mapRadius": 400,
+    "cln": "ebisu_circuit_north.cln",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "ebisu_circuit_west",
+    "name": "エビスサーキット 西コース (Ebisu West)",
+    "country": "JP",
+    "center": [
+      37.639422,
+      140.371724
+    ],
+    "mapRadius": 550,
+    "cln": "ebisu_circuit_west.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "fuji_speedway_kart",
+    "name": "富士スピードウェイ カートコース (Fuji Speedway Kart)",
+    "country": "JP",
+    "center": [
+      35.368966,
+      138.933317
+    ],
+    "mapRadius": 400,
+    "cln": "fuji_speedway_kart.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "fuji_short_circuit",
+    "name": "富士スピードウェイ ショートサーキット (Fuji Short Circuit)",
+    "country": "JP",
+    "center": [
+      35.374998,
+      138.937794
+    ],
+    "mapRadius": 400,
+    "cln": "fuji_short_circuit.cln",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "grande_isola_circuit",
+    "name": "タイムトライアルサーキット・グランデイソーラ (Grande Isola)",
+    "country": "JP",
+    "center": [
+      36.799523,
+      139.700913
+    ],
+    "mapRadius": 400,
+    "cln": "grande_isola_circuit.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "harbor_circuit_kisarazu",
+    "name": "ハーバーサーキット木更津 (Harbor Circuit Kisarazu)",
+    "country": "JP",
+    "center": [
+      35.36335,
+      139.908904
+    ],
+    "mapRadius": 400,
+    "cln": "harbor_circuit_kisarazu.cln",
+    "sci": "harbor_circuit_kisarazu.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 401 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "hokkaido_speed_park",
+    "name": "北海道スピードパーク (Hokkaido Speed Park)",
+    "country": "JP",
+    "center": [
+      42.921408,
+      140.714892
+    ],
+    "mapRadius": 450,
+    "cln": "hokkaido_speed_park.cln",
+    "sci": "hokkaido_speed_park.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1365 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "hsr_kyushu",
+    "name": "HSR九州 (HSR Kyushu)",
+    "country": "JP",
+    "center": [
+      32.897259,
+      130.876636
+    ],
+    "mapRadius": 400,
+    "cln": "hsr_kyushu.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "hsr_dream",
+    "name": "HSR九州 ドリームコース (HSR Kyushu Dream)",
+    "country": "JP",
+    "center": [
+      32.89543,
+      130.873562
+    ],
+    "mapRadius": 400,
+    "cln": "hsr_dream.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "igashira_motor_park",
+    "name": "井頭モーターパーク (Igashira Motor Park)",
+    "country": "JP",
+    "center": [
+      36.503837,
+      139.985487
+    ],
+    "mapRadius": 400,
+    "cln": "igashira_motor_park.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "ikei_island",
+    "name": "伊計島サーキット (Ikei Island)",
+    "country": "JP",
+    "center": [
+      26.397005,
+      127.999814
+    ],
+    "mapRadius": 400,
+    "cln": "ikei_island.cln",
+    "sci": "ikei_island.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 600 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "sportsland_ikoma",
+    "name": "スポーツランド生駒 (Sportsland Ikoma)",
+    "country": "JP",
+    "center": [
+      34.712406,
+      135.683228
+    ],
+    "mapRadius": 400,
+    "cln": "sportsland_ikoma.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "inagawa_circuit",
+    "name": "猪名川サーキット (Inagawa Circuit)",
+    "country": "JP",
+    "center": [
+      34.975079,
+      135.306493
+    ],
+    "mapRadius": 400,
+    "cln": "inagawa_circuit.cln",
+    "sci": "inagawa_circuit.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1005 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "ishino_circuit",
+    "name": "石野サーキット (Ishino Circuit)",
+    "country": "JP",
+    "center": [
+      35.13934,
+      137.211766
+    ],
+    "mapRadius": 400,
+    "cln": "ishino_circuit.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "isk_hanna",
+    "name": "ISK はんな (ISK Hanna)",
+    "country": "JP",
+    "center": [
+      34.697397,
+      135.71382
+    ],
+    "mapRadius": 400,
+    "cln": "isk_hanna.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "isk_maishima",
+    "name": "ISK 舞洲 (ISK Maishima)",
+    "country": "JP",
+    "center": [
+      34.666996,
+      135.389672
+    ],
+    "mapRadius": 400,
+    "cln": "isk_maishima.cln",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "itako_motorsports_park",
+    "name": "イタコモータースポーツパーク (Itako MSP)",
+    "country": "JP",
+    "center": [
+      35.986874,
+      140.55343
+    ],
+    "mapRadius": 400,
+    "cln": "itako_motorsports_park.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "kartland_shikoku",
+    "name": "カートランド四国 (Kartland Shikoku)",
+    "country": "JP",
+    "center": [
+      34.235065,
+      133.961589
+    ],
+    "mapRadius": 400,
+    "cln": "kartland_shikoku.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "kart_land_ark",
+    "name": "カートランドアーク (Kartland Ark)",
+    "country": "JP",
+    "center": [
+      43.913199,
+      142.55583
+    ],
+    "mapRadius": 400,
+    "cln": "kart_land_ark.cln",
+    "sci": "kart_land_ark.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 569 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "kinki_sportsland",
+    "name": "近畿スポーツランド (Kinki Sportsland)",
+    "country": "JP",
+    "center": [
+      34.870854,
+      135.85163
+    ],
+    "mapRadius": 400,
+    "cln": "kinki_sportsland.cln",
+    "sci": "kinki_sportsland.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 764 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "kobe_kita_kart",
+    "name": "神戸市北区のカートコース (Kobe Kita kart track)",
+    "country": "JP",
+    "center": [
+      34.766678,
+      135.066851
+    ],
+    "mapRadius": 400,
+    "cln": "kobe_kita_kart.cln",
+    "sci": "kobe_kita_kart.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 711 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "kitakyushu_wakamatsu_kart",
+    "name": "北九州市若松区のカートコース (Kitakyushu Wakamatsu kart track)",
+    "country": "JP",
+    "center": [
+      33.927594,
+      130.690869
+    ],
+    "mapRadius": 400,
+    "cln": "kitakyushu_wakamatsu_kart.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "kota_circuit_aichi",
+    "name": "幸田サーキット (Kota Circuit)",
+    "country": "JP",
+    "center": [
+      34.8347,
+      137.139989
+    ],
+    "mapRadius": 400,
+    "cln": "kota_circuit_aichi.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "hitachiota_kart",
+    "name": "常陸太田市のカートコース (Hitachiota kart track)",
+    "country": "JP",
+    "center": [
+      36.566237,
+      140.459026
+    ],
+    "mapRadius": 400,
+    "cln": "hitachiota_kart.cln",
+    "sci": "hitachiota_kart.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 777 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "kukuru_yomitan_circuit",
+    "name": "ククル読谷サーキット (Kukuru Yomitan)",
+    "country": "JP",
+    "center": [
+      26.40715,
+      127.721642
+    ],
+    "mapRadius": 400,
+    "cln": "kukuru_yomitan_circuit.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "autopolis_lakeside",
+    "name": "オートポリス レイクサイドコース (Autopolis Lakeside)",
+    "country": "JP",
+    "center": [
+      33.034795,
+      130.976096
+    ],
+    "mapRadius": 400,
+    "cln": "autopolis_lakeside.cln",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "festika_circuit_mizunami",
+    "name": "フェスティカサーキット瑞浪 (Festika Circuit Mizunami)",
+    "country": "JP",
+    "center": [
+      35.415774,
+      137.285721
+    ],
+    "mapRadius": 400,
+    "cln": "festika_circuit_mizunami.cln",
+    "sci": "festika_circuit_mizunami.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1161 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "fukushima_ozasao_kart",
+    "name": "福島市大笹生のカートコース (Fukushima Ozasao kart track)",
+    "country": "JP",
+    "center": [
+      37.80268,
+      140.390356
+    ],
+    "mapRadius": 400,
+    "cln": "fukushima_ozasao_kart.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "the_magarigawa_club",
+    "name": "THE MAGARIGAWA CLUB",
+    "country": "JP",
+    "center": [
+      35.080507,
+      139.879302
+    ],
+    "mapRadius": 800,
+    "cln": "the_magarigawa_club.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "maze_circuit",
+    "name": "日本海間瀬サーキット (Maze Circuit)",
+    "country": "JP",
+    "center": [
+      37.745523,
+      138.804351
+    ],
+    "mapRadius": 600,
+    "cln": "maze_circuit.cln",
+    "sci": "maze_circuit.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 2009 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "minami_chiba_circuit",
+    "name": "南千葉サーキット (Minami Chiba Circuit)",
+    "country": "JP",
+    "center": [
+      35.488241,
+      140.25131
+    ],
+    "mapRadius": 400,
+    "cln": "minami_chiba_circuit.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "mobara_twin_circuit",
+    "name": "茂原ツインサーキット (Mobara Twin Circuit)",
+    "country": "JP",
+    "center": [
+      35.382717,
+      140.282126
+    ],
+    "mapRadius": 400,
+    "cln": "mobara_twin_circuit.cln",
+    "sci": "mobara_twin_circuit.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1130 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "mobility_resort_motegi_kart",
+    "name": "モビリティリゾートもてぎ カートコース (Motegi Kart)",
+    "country": "JP",
+    "center": [
+      36.52907,
+      140.225704
+    ],
+    "mapRadius": 400,
+    "cln": "mobility_resort_motegi_kart.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "motor_land_sp",
+    "name": "モーターランドSP (Motorland SP)",
+    "country": "JP",
+    "center": [
+      40.433307,
+      141.397012
+    ],
+    "mapRadius": 400,
+    "cln": "motor_land_sp.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "motorland_suzuka",
+    "name": "モーターランド鈴鹿 (Motorland Suzuka)",
+    "country": "JP",
+    "center": [
+      34.806842,
+      136.505548
+    ],
+    "mapRadius": 400,
+    "cln": "motorland_suzuka.cln",
+    "sci": "motorland_suzuka.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 988 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "nakai_inter_circuit",
+    "name": "中井インターサーキット (Nakai Inter Circuit)",
+    "country": "JP",
+    "center": [
+      35.350145,
+      139.219287
+    ],
+    "mapRadius": 400,
+    "cln": "nakai_inter_circuit.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "nakayama_circuit",
+    "name": "中山サーキット (Nakayama Circuit)",
+    "country": "JP",
+    "center": [
+      34.786734,
+      134.177883
+    ],
+    "mapRadius": 400,
+    "cln": "nakayama_circuit.cln",
+    "sci": "nakayama_circuit.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1797 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "nakayama_circuit_kart",
+    "name": "中山サーキット カートコース (Nakayama Kart)",
+    "country": "JP",
+    "center": [
+      34.783699,
+      134.17794
+    ],
+    "mapRadius": 400,
+    "cln": "nakayama_circuit_kart.cln",
+    "sci": "nakayama_circuit_kart.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 706 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "nanporo_riverside_kartland",
+    "name": "南幌リバーサイドカートランド (Nanporo Riverside Kartland)",
+    "country": "JP",
+    "center": [
+      43.094721,
+      141.671912
+    ],
+    "mapRadius": 400,
+    "cln": "nanporo_riverside_kartland.cln",
+    "sci": "nanporo_riverside_kartland.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 718 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "narita_motor_land",
+    "name": "成田モーターランド (Narita Motorland)",
+    "country": "JP",
+    "center": [
+      35.675522,
+      140.400523
+    ],
+    "mapRadius": 400,
+    "cln": "narita_motor_land.cln",
+    "sci": "narita_motor_land.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 753 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "nasu_motorsports_land",
+    "name": "那須モータースポーツランド (Nasu MSL)",
+    "country": "JP",
+    "center": [
+      36.969379,
+      140.127581
+    ],
+    "mapRadius": 400,
+    "cln": "nasu_motorsports_land.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "narita_sakurada_circuit",
+    "name": "成田市桜田のサーキット (Narita Sakurada circuit)",
+    "country": "JP",
+    "center": [
+      35.846595,
+      140.436634
+    ],
+    "mapRadius": 400,
+    "cln": "narita_sakurada_circuit.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "neo_speedpark",
+    "name": "ネオ・スピードパーク (Neo Speed Park)",
+    "country": "JP",
+    "center": [
+      35.772959,
+      140.085667
+    ],
+    "mapRadius": 400,
+    "cln": "neo_speedpark.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "new_tokyo_circuit",
+    "name": "新東京サーキット (New Tokyo Circuit)",
+    "country": "JP",
+    "center": [
+      35.455669,
+      140.09215
+    ],
+    "mapRadius": 400,
+    "cln": "new_tokyo_circuit.cln",
+    "sci": "new_tokyo_circuit.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 925 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "shin_kyowa_kartland",
+    "name": "新協和カートランド (Shin-Kyowa Kartland)",
+    "country": "JP",
+    "center": [
+      39.640107,
+      140.419271
+    ],
+    "mapRadius": 400,
+    "cln": "shin_kyowa_kartland.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "spa_nishiura",
+    "name": "スパ西浦モーターパーク (Spa Nishiura)",
+    "country": "JP",
+    "center": [
+      34.775719,
+      137.187155
+    ],
+    "mapRadius": 400,
+    "cln": "spa_nishiura.cln",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "ocean_kartland",
+    "name": "オーシャンカートランド (Ocean Kartland)",
+    "country": "JP",
+    "center": [
+      33.399592,
+      130.27255
+    ],
+    "mapRadius": 400,
+    "cln": "ocean_kartland.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "oarai_circuit",
+    "name": "大洗サーキット (Oarai Circuit)",
+    "country": "JP",
+    "center": [
+      36.320554,
+      140.512709
+    ],
+    "mapRadius": 400,
+    "cln": "oarai_circuit.cln",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "okegawa_sportsland",
+    "name": "桶川スポーツランド (Okegawa Sportsland)",
+    "country": "JP",
+    "center": [
+      35.973358,
+      139.525494
+    ],
+    "mapRadius": 400,
+    "cln": "okegawa_sportsland.cln",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "oimatsuda_kartland",
+    "name": "大井松田カートランド (Oimatsuda Kartland)",
+    "country": "JP",
+    "center": [
+      35.336579,
+      139.192423
+    ],
+    "mapRadius": 400,
+    "cln": "oimatsuda_kartland.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "owara_circuit",
+    "name": "おわらサーキット (Owara Circuit)",
+    "country": "JP",
+    "center": [
+      36.607189,
+      137.108303
+    ],
+    "mapRadius": 400,
+    "cln": "owara_circuit.cln",
+    "sci": "owara_circuit.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1032 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "kart_pista_hiroshima",
+    "name": "カートピスタヒロシマ (Kart Pista Hiroshima)",
+    "country": "JP",
+    "center": [
+      34.379158,
+      132.274182
+    ],
+    "mapRadius": 400,
+    "cln": "kart_pista_hiroshima.cln",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "quick_hanyu_kart",
+    "name": "クイック羽生 (Quick Hanyu)",
+    "country": "JP",
+    "center": [
+      36.174609,
+      139.517022
+    ],
+    "mapRadius": 400,
+    "cln": "quick_hanyu_kart.cln",
+    "sci": "quick_hanyu_kart.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 622 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "sapporo_sportsland",
+    "name": "サッポロスポーツランド (Sapporo Sportsland)",
+    "country": "JP",
+    "center": [
+      43.336708,
+      141.451477
+    ],
+    "mapRadius": 400,
+    "cln": "sapporo_sportsland.cln",
+    "sci": "sapporo_sportsland.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 770 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "sarukura_msl",
+    "name": "さるくらモータースポーツランド (Sarukura MSL)",
+    "country": "JP",
+    "center": [
+      35.531375,
+      137.783234
+    ],
+    "mapRadius": 400,
+    "cln": "sarukura_msl.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "setonaikai_circuit",
+    "name": "瀬戸内海サーキット (Setonaikai Circuit)",
+    "country": "JP",
+    "center": [
+      33.887373,
+      133.01293
+    ],
+    "mapRadius": 400,
+    "cln": "setonaikai_circuit.cln",
+    "sci": "setonaikai_circuit.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 760 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "shiraito_speedland",
+    "name": "白糸スピードランド (Shiraito Speedland)",
+    "country": "JP",
+    "center": [
+      35.308381,
+      138.622237
+    ],
+    "mapRadius": 400,
+    "cln": "shiraito_speedland.cln",
+    "sci": "shiraito_speedland.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 735 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "sportsland_yamanashi",
+    "name": "スポーツランドやまなし (Sportsland Yamanashi)",
+    "country": "JP",
+    "center": [
+      35.762626,
+      138.507537
+    ],
+    "mapRadius": 400,
+    "cln": "sportsland_yamanashi.cln",
+    "sci": "sportsland_yamanashi.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 821 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "sonic_park_ajimu",
+    "name": "ソニックパーク安心院 (Sonic Park Ajimu)",
+    "country": "JP",
+    "center": [
+      33.452867,
+      131.354612
+    ],
+    "mapRadius": 400,
+    "cln": "sonic_park_ajimu.cln",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "southern_circuit",
+    "name": "サザンサーキット (Southern Circuit)",
+    "country": "JP",
+    "center": [
+      38.169761,
+      140.786856
+    ],
+    "mapRadius": 400,
+    "cln": "southern_circuit.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "spa_naoiri_circuit",
+    "name": "SPA 直入 (Spa Naoiri)",
+    "country": "JP",
+    "center": [
+      33.102097,
+      131.408841
+    ],
+    "mapRadius": 400,
+    "cln": "spa_naoiri_circuit.cln",
+    "sci": "spa_naoiri_circuit.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1428 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "speedpark_niigata",
+    "name": "スピードパーク新潟 (Speed Park Niigata)",
+    "country": "JP",
+    "center": [
+      38.088586,
+      139.37054
+    ],
+    "mapRadius": 400,
+    "cln": "speedpark_niigata.cln",
+    "sci": "speedpark_niigata.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 512 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "sportsland_sugo_west",
+    "name": "スポーツランドSUGO 西コース (SUGO West)",
+    "country": "JP",
+    "center": [
+      38.141763,
+      140.77206
+    ],
+    "mapRadius": 400,
+    "cln": "sportsland_sugo_west.cln",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "suzuka_south",
+    "name": "鈴鹿サーキット 南コース (Suzuka South)",
+    "country": "JP",
+    "center": [
+      34.842218,
+      136.52821
+    ],
+    "mapRadius": 400,
+    "cln": "suzuka_south.cln",
+    "sci": "suzuka_south.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1267 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "suzuka_twin_circuit",
+    "name": "鈴鹿ツインサーキット (Suzuka Twin)",
+    "country": "JP",
+    "center": [
+      34.806675,
+      136.496931
+    ],
+    "mapRadius": 400,
+    "cln": "suzuka_twin_circuit.cln",
+    "sci": "suzuka_twin_circuit.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1066 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "takasu_circuit",
+    "name": "タカスサーキット (Takasu Circuit)",
+    "country": "JP",
+    "center": [
+      36.138685,
+      136.085123
+    ],
+    "mapRadius": 400,
+    "cln": "takasu_circuit.cln",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "ts_takata",
+    "name": "TSタカタサーキット (TS Takata)",
+    "country": "JP",
+    "center": [
+      34.749861,
+      132.712173
+    ],
+    "mapRadius": 400,
+    "cln": "ts_takata.cln",
+    "sci": "ts_takata.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1406 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "takarazuka_kart_field",
+    "name": "たからづかカートフィールド (Takarazuka Kart Field)",
+    "country": "JP",
+    "center": [
+      34.832709,
+      135.336472
+    ],
+    "mapRadius": 400,
+    "cln": "takarazuka_kart_field.cln",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "tokachi_speedway",
+    "name": "十勝スピードウェイ (Tokachi Speedway)",
+    "country": "JP",
+    "center": [
+      42.629027,
+      143.290744
+    ],
+    "mapRadius": 800,
+    "cln": "tokachi_speedway.cln",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "tokachi_speedway_junior",
+    "name": "十勝スピードウェイ ジュニアコース (Tokachi Junior)",
+    "country": "JP",
+    "center": [
+      42.628209,
+      143.282759
+    ],
+    "mapRadius": 400,
+    "cln": "tokachi_speedway_junior.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "tokushima_kart_land",
+    "name": "徳島カートランド (Tokushima Kartland)",
+    "country": "JP",
+    "center": [
+      34.039606,
+      134.266191
+    ],
+    "mapRadius": 400,
+    "cln": "tokushima_kart_land.cln",
+    "sci": "tokushima_kart_land.sci",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 642 m の上)。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "tsukuruma_nasu",
+    "name": "つくるまサーキット那須 (Tsukuruma Nasu)",
+    "country": "JP",
+    "center": [
+      36.97481,
+      139.93959
+    ],
+    "mapRadius": 400,
+    "cln": "tsukuruma_nasu.cln",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "yanai_hizumi_kart",
+    "name": "柳井市のカートコース (Yanai kart track)",
+    "country": "JP",
+    "center": [
+      34.015259,
+      132.139645
+    ],
+    "mapRadius": 400,
+    "cln": "yanai_hizumi_kart.cln",
+    "notes": {
+      "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
+      "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
+    }
+  },
+  {
+    "id": "yz_circuit_east",
+    "name": "YZ サーキット 東コース (YZ East)",
+    "country": "JP",
+    "center": [
+      35.436429,
+      137.246434
+    ],
+    "mapRadius": 400,
+    "cln": "yz_circuit_east.cln",
+    "sci": "yz_circuit_east.sci",
+    "notes": {
+      "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 876 m の上)。2026-10-19 作成"
+    }
+  },
+  {
     "id": "zandvoort",
     "name": "Circuit Zandvoort",
     "country": "NL",

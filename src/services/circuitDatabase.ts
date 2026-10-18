@@ -17,6 +17,7 @@ interface CourseIndexEntry {
   name: string;
   country: string;
   center: number[]; // [緯度, 経度]
+  mapRadius?: number; // コース図を引く範囲 (m)
   cln?: string;
   sci?: string;
 }
@@ -32,7 +33,7 @@ export const CIRCUIT_PRESETS: CircuitPreset[] = (courseIndex as unknown as Cours
     ? [...parseSci(sci, c.id), { id: `${c.id}_finish`, name: '', latA: controlLine.latA, lonA: controlLine.lonA, latB: controlLine.latB, lonB: controlLine.lonB }]
     : [];
   sectors.forEach((sec, i) => { sec.name = `S${i + 1}`; });
-  return { id: c.id, name: c.name, country: c.country, centerLat: c.center[0], centerLon: c.center[1], ...(controlLine ? { controlLine } : {}), sectors };
+  return { id: c.id, name: c.name, country: c.country, centerLat: c.center[0], centerLon: c.center[1], ...(c.mapRadius ? { mapRadius: c.mapRadius } : {}), ...(controlLine ? { controlLine } : {}), sectors };
 });
 
 export const ALL_CIRCUITS: CircuitPreset[] = CIRCUIT_PRESETS;
@@ -145,7 +146,7 @@ export async function resolveCircuitPolylines(
 
   // 2. OpenStreetMap (OSM) から取得
   try {
-    const osmPolylines = await fetchOsmCircuitPolylines(circuit.centerLat, circuit.centerLon);
+    const osmPolylines = await fetchOsmCircuitPolylines(circuit.centerLat, circuit.centerLon, circuit.mapRadius);
     if (osmPolylines && osmPolylines.length > 0) {
       console.log('[Circuit] OpenStreetMap コース図を使用:', circuit.name);
       return osmPolylines;

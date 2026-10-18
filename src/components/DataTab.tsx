@@ -117,10 +117,15 @@ export const DataTab: React.FC<DataTabProps> = ({
             className="bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg px-3 py-2 outline-none focus:border-red-500 transition-colors"
           >
             <option value="">{t('-- サーキットプリセット選択 --', '-- Select a circuit preset --')}</option>
-            {CIRCUIT_PRESETS.map(c => (
-              <option key={c.id} value={c.id}>
-                {circuitLabel(c.name, lang)}
-              </option>
+            {/* 国内と海外に分ける (数が多いので) */}
+            {[[t('国内', 'Japan'), CIRCUIT_PRESETS.filter(c => c.country === 'JP')], [t('海外', 'Overseas'), CIRCUIT_PRESETS.filter(c => c.country !== 'JP')]].map(([label, list]) => (
+              <optgroup key={label as string} label={label as string}>
+                {(list as typeof CIRCUIT_PRESETS).map(c => (
+                  <option key={c.id} value={c.id}>
+                    {circuitLabel(c.name, lang)}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
 
