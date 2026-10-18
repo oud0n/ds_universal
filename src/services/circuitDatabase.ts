@@ -11,6 +11,7 @@ import courseIndex from '../../courses/index.json';
 // 作り方と出典は courses/README.md。修正の依頼はファイルごとに Issue / PR で受け付ける
 // 出典: © OpenStreetMap contributors (Open Database License 1.0, https://www.openstreetmap.org/copyright)
 //       国土地理院 シームレス空中写真 (https://maps.gsi.go.jp/development/ichiran.html)
+//       海外: USGS NAIP (パブリックドメイン)、Beeldmateriaal Nederland・PNOA (CC BY 4.0)、IGN BD ORTHO (Licence Ouverte 2.0)
 interface CourseIndexEntry {
   id: string;
   name: string;

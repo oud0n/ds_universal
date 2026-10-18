@@ -19,6 +19,13 @@ export interface TelemetryPoint {
   turningRadius: number; // 旋回半径 R (m)
   driftAngle: number;    // ドリフト角度 (度: 進行方向と車体姿勢の偏差)
   sectorIndex?: number;  // 通過中のセクター (0-indexed)
+
+  // 車両の記録 (記録されている形式のみ。いまは iRacing の .ibt)
+  throttle?: number;     // アクセル開度 (%)
+  brake?: number;        // ブレーキ (%)
+  steering?: number;     // ハンドルの角度 (度: +右, -左)
+  rpm?: number;          // エンジン回転数 (rpm)
+  gear?: number;         // ギア (-1: R, 0: N)
 }
 
 export interface Sector {
