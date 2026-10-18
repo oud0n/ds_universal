@@ -614,7 +614,7 @@ export const App: React.FC = () => {
     // ログに記録されている車両名・ドライバー名・コース名 (iRacing の .ibt)
     let meta: { vehicleName?: string; driverName?: string; trackName?: string } = {};
 
-    const ext = fileName.split('.').pop()?.toLowerCase();
+    const ext = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() : '';
     const added: Session[] = [];
 
     if (parsedLog) {
@@ -681,10 +681,13 @@ export const App: React.FC = () => {
       samplingRate = parsed.samplingRate;
       startDate = parsed.startDate;
     } else {
-      throw new Error(`${tr('未対応のファイル形式です', 'Unsupported file type')}: .${ext}`);
+      throw new Error(`${tr('未対応のファイル形式です', 'Unsupported file type')}: ${ext ? `.${ext}` : tr('(拡張子なし)', '(no extension)')}`);
     }
 
     if (!parts) parts = [{ points: rawPoints, samplingRate, startDate }];
+    // 位置として正しい点が 2 点に満たない走行は捨てる (違う中身のファイルを生ログなどとして読むと、でたらめな 1 点ができることがあるため)
+    const validPos = (p: any) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude) && Math.abs(p.latitude) <= 90 && Math.abs(p.longitude) <= 180 && !(p.latitude === 0 && p.longitude === 0);
+    parts = parts.filter(p => p.points.filter(validPos).length >= 2);
     if (parts.length === 0 || parts.every(p => p.points.length === 0)) {
       throw new Error(tr('有効なGPS位置データが見つかりませんでした', 'No valid GPS position data was found'));
     }
