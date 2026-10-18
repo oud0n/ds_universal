@@ -1,6 +1,11 @@
 import { tr } from '../utils/i18n';
+import type { LoggerTransport } from './loggerTransport';
+import { WebSerialTransport } from './webSerialTransport';
+import { encodeCommand, fields, LineSplitter, verifyNmeaChecksum } from './digspiceProtocol';
 /**
- * DigSpice IV (USB / Web Serial API) 通信管理サービス
+ * DigSpice IV の手順の層: 設定の読み書き・ログの吸い出しなどの手順と、応答待ち・排他。
+ * つなぎ方 (USB の Web Serial、将来の Rust・BLE) は送受信の層 (loggerTransport.ts) に、
+ * コマンドの組み立てと応答の分解はプロトコル層 (digspiceProtocol.ts) に分けてある
  */
 
 
@@ -64,26 +69,12 @@ const ACK_FLAG_TEXT: Record<number, string> = {
   3: '成功'
 };
 
-const READ_BUFFER_LIMIT = 1024 * 1024;
-
-// `$...*HH` 形式のチェックサム検証
-function verifyNmeaChecksum(line: string): boolean {
-  const m = /^\$([^*]*)\*([0-9A-Fa-f]{2})\s*$/.exec(line);
-  if (!m) return false;
-  let cs = 0;
-  for (let i = 0; i < m[1].length; i++) cs ^= m[1].charCodeAt(i);
-  return cs === parseInt(m[2], 16);
-}
-
 export class DigSpiceDevice {
-  private port: any = null;
-  private reader: any = null;
-  private readBuffer: string = '';
+  private transport: LoggerTransport | null = null;
+  private splitter = new LineSplitter();
   private pendingLineResolvers: Array<(line: string) => void> = [];
   private streamingHandler: ((line: string) => void) | null = null;
   private isBusy: boolean = false;
-  private keepReading: boolean = false;
-  private readLoopPromise: Promise<void> | null = null;
 
   private pendingCancels = new Set<(err: Error) => void>();
   private streamAbort: ((err: Error) => void) | null = null;
@@ -97,92 +88,24 @@ export class DigSpiceDevice {
     console.log(`[DigSpice][${type}] ${msg}`);
   }
 
-  // NMEA XORチェックサム計算
-  private static calculateChecksum(body: string): string {
-    let clean = body.trim();
-    if (clean.startsWith('$')) clean = clean.substring(1);
-    const starIdx = clean.indexOf('*');
-    if (starIdx >= 0) clean = clean.substring(0, starIdx);
-
-    let cs = 0;
-    for (let i = 0; i < clean.length; i++) {
-      cs ^= clean.charCodeAt(i);
-    }
-    return cs.toString(16).toUpperCase().padStart(2, '0');
-  }
-
-  // NMEA コマンド整形 ($<Body>*<CS>\r\n)
-  private static formatCommand(body: string): string {
-    const cs = DigSpiceDevice.calculateChecksum(body);
-    let clean = body.trim();
-    if (clean.startsWith('$')) clean = clean.substring(1);
-    const starIdx = clean.indexOf('*');
-    if (starIdx >= 0) clean = clean.substring(0, starIdx);
-    return `$${clean}*${cs}\r\n`;
-  }
-
   public isConnected(): boolean {
-    return this.port !== null;
+    return this.transport !== null;
   }
 
-  // シリアルポート接続 (デジスパイスIV VID: 0x2DCF, PID: 0x6002)
-  // portProvider: 実機の代わりに使うシリアルポートの生成関数 (開発用シミュレーター)
-  public async connect(portProvider?: () => Promise<any>): Promise<boolean> {
-    let port: any;
-    if (portProvider) {
-      this.log('sys', 'シミュレーターのシリアルポートに接続中...');
-      port = await portProvider();
-    } else {
-      const nav = navigator as any;
-      if (!nav.serial) {
-        throw new Error(
-          'このブラウザはロガーとの USB 通信（Web Serial API）に対応していません。\n' +
-          'パソコンの Chrome または Edge で開いてください。\n' +
-          'Safari / Firefox、iPhone・iPad・Android のブラウザでは接続できません（ログの読み込み・解析・変換は使えます）。'
-        );
-      }
-
-      this.log('sys', 'デジスパイスIV（VID: 0x2DCF, PID: 0x6002）を検出中...');
-
-      try {
-        port = await nav.serial.requestPort({
-          filters: [{ usbVendorId: 0x2dcf, usbProductId: 0x6002 }]
-        });
-      } catch (e: any) {
-        // 該当する USB デバイスが OS に認識されていない場合は NotFoundError になる
-        if (e?.name === 'NotFoundError') {
-          throw new Error(
-            'デジスパイスIV が見つかりません (USB シリアルポートとして認識されていません)。\n' +
-            '・本体の電源が入っているか\n' +
-            '・データ通信対応の USB ケーブルか (充電専用ケーブルでは認識されません)\n' +
-            '・USB ハブを介さず PC に直接つないで変わるか\n' +
-            'を確認してください。'
-          );
-        }
-        throw e;
-      }
-    }
-
-    await port.open({
-      baudRate: 115200,
-      dataBits: 8,
-      stopBits: 1,
-      parity: 'none',
-      bufferSize: 8192,
-      flowControl: 'none'
+  // つなぐ。何も渡さなければ USB (Web Serial) の実機。送受信の層を渡せば、それでつなぐ (Rust・BLE など)。
+  // シリアルポートの生成関数を渡すと、実機の代わりにそのポートを Web Serial の形で使う (開発用シミュレーター)
+  public async connect(transportOrPortProvider?: LoggerTransport | (() => Promise<any>)): Promise<boolean> {
+    const transport = typeof transportOrPortProvider === 'function'
+      ? new WebSerialTransport(transportOrPortProvider)
+      : transportOrPortProvider ?? new WebSerialTransport();
+    this.splitter.reset();
+    await transport.open({
+      onData: chunk => this.splitter.push(chunk).forEach(line => this.handleLine(line)),
+      onInterrupted: () => this.splitter.reset(),
+      onLost: err => this.handleLost(transport, err),
+      onLog: (type, msg) => this.log(type, msg)
     });
-    this.port = port;
-    this.readBuffer = '';
-
-    try {
-      await this.port.setSignals({ dataTerminalReady: true, requestToSend: true });
-    } catch (e) {
-      console.warn('DTR/RTS skip:', e);
-    }
-
-    this.log('sys', 'シリアルポートを 115200 bps でオープンしました。');
-    this.keepReading = true;
-    this.readLoopPromise = this.startReadLoop();
+    this.transport = transport;
     return true;
   }
 
@@ -193,51 +116,20 @@ export class DigSpiceDevice {
     if (this.streamAbort) this.streamAbort(closed);
     this.isBusy = false;
     this.streamingHandler = null;
-    this.keepReading = false;
 
-    if (this.reader) {
-      try {
-        await this.reader.cancel();
-      } catch (e) {
-        console.warn('reader.cancel warn:', e);
-      }
-    }
-
-    if (this.readLoopPromise) {
-      try {
-        await this.readLoopPromise;
-      } catch (e) {
-        console.warn('readLoopPromise warn:', e);
-      }
-      this.readLoopPromise = null;
-    }
-
-    if (this.port) {
-      try {
-        await this.port.close();
-      } catch (e) {
-        console.warn('port.close warn:', e);
-      }
-      this.port = null;
-    }
+    const transport = this.transport;
+    this.transport = null;
+    if (transport) await transport.close();
 
     this.log('sys', 'シリアルポートを切断しました。');
   }
 
   // コマンド送信
   public async sendCommand(body: string): Promise<void> {
-    if (!this.port || !this.port.writable) throw new Error(tr('シリアルポートが開いていません', 'The serial port is not open'));
-    const fullCmd = DigSpiceDevice.formatCommand(body);
-    this.log('tx', fullCmd.trim());
-
-    const encoder = new TextEncoder();
-    const data = encoder.encode(fullCmd);
-    const writer = this.port.writable.getWriter();
-    try {
-      await writer.write(data);
-    } finally {
-      writer.releaseLock();
-    }
+    if (!this.transport || !this.transport.isOpen()) throw new Error(tr('シリアルポートが開いていません', 'The serial port is not open'));
+    const data = encodeCommand(body);
+    this.log('tx', new TextDecoder().decode(data).trim());
+    await this.transport.write(data);
   }
 
   // 行待機
@@ -288,7 +180,7 @@ export class DigSpiceDevice {
   }
 
   private static fields(line: string): string[] {
-    return line.split('*')[0].split(',');
+    return fields(line);
   }
 
   // 応答の指定フィールドを取り出す。欠落・空欄は例外にする
@@ -309,7 +201,7 @@ export class DigSpiceDevice {
 
   // 設定・ダウンロード等の排他実行
   private async exclusive<T>(fn: () => Promise<T>): Promise<T> {
-    if (!this.port) throw new Error(tr('シリアルポートが開いていません', 'The serial port is not open'));
+    if (!this.transport) throw new Error(tr('シリアルポートが開いていません', 'The serial port is not open'));
     if (this.isBusy) throw new Error(tr('他の操作が実行中です', 'Another operation is in progress'));
     this.isBusy = true;
     try {
@@ -319,85 +211,35 @@ export class DigSpiceDevice {
     }
   }
 
-  private async startReadLoop(): Promise<void> {
-    const decoder = new TextDecoder();
-    let streamClosed = false;
-    let consecutiveErrors = 0;
-    while (this.port && this.port.readable && this.keepReading && !streamClosed) {
-      try {
-        this.reader = this.port.readable.getReader();
-        while (this.keepReading) {
-          const { value, done } = await this.reader.read();
-          if (done) {
-            streamClosed = true;
-            break;
-          }
-          if (value) {
-            consecutiveErrors = 0;
-            const chunk = decoder.decode(value, { stream: true });
-            this.readBuffer += chunk;
-            // 改行のないゴミデータが続いた場合に際限なく溜め込まない
-            if (this.readBuffer.length > READ_BUFFER_LIMIT && this.readBuffer.indexOf('\n') < 0) {
-              this.readBuffer = '';
-            }
-
-            let newlineIdx;
-            while ((newlineIdx = this.readBuffer.indexOf('\n')) >= 0) {
-              const line = this.readBuffer.substring(0, newlineIdx).replace(/\r$/, '');
-              this.readBuffer = this.readBuffer.substring(newlineIdx + 1);
-
-              if (line.trim().length > 0) {
-                if (this.streamingHandler) {
-                  this.streamingHandler(line);
-                } else if (!verifyNmeaChecksum(line)) {
-                  // 化けた行を応答として採用しない
-                  this.log('err', `チェックサム不一致の行を破棄: ${line.substring(0, 80)}`);
-                  continue;
-                } else {
-                  this.log('rx', line);
-                }
-
-                for (let i = this.pendingLineResolvers.length - 1; i >= 0; i--) {
-                  this.pendingLineResolvers[i](line);
-                }
-              }
-            }
-          }
-        }
-      } catch (err: any) {
-        if (this.port && this.keepReading) {
-          this.log('err', `受信ループ例外: ${err?.message || err}`);
-        }
-        // バッファ溢れ等の一時的なエラーは port.readable が再生成されるので読み直す。
-        // ケーブル抜け等の致命的なエラーでは port.readable が null になりループを抜ける
-        this.readBuffer = '';
-        if (++consecutiveErrors >= 5) break;
-      } finally {
-        if (this.reader) {
-          try { this.reader.releaseLock(); } catch {}
-          this.reader = null;
-        }
-      }
+  // 受け取った 1 行を、吸い出し中の処理か、応答を待っている処理に渡す
+  private handleLine(line: string) {
+    if (this.streamingHandler) {
+      this.streamingHandler(line);
+    } else if (!verifyNmeaChecksum(line)) {
+      // 化けた行を応答として採用しない
+      this.log('err', `チェックサム不一致の行を破棄: ${line.substring(0, 80)}`);
+      return;
+    } else {
+      this.log('rx', line);
     }
 
-    // disconnect() 以外でループを抜けた = ケーブル抜け等による通信断
-    if (this.keepReading) {
-      this.keepReading = false;
-      this.streamingHandler = null;
-      const port = this.port;
-      this.port = null;
-
-      // 応答待ち・ダウンロード中の処理をタイムアウトを待たずに失敗させる
-      const lost = new Error('本体との通信が切断されました');
-      Array.from(this.pendingCancels).forEach(cancel => cancel(lost));
-      if (this.streamAbort) this.streamAbort(lost);
-
-      if (port) {
-        try { await port.close(); } catch {}
-      }
-      this.log('err', '本体との通信が切断されました。');
-      if (this.onConnectionLost) this.onConnectionLost();
+    for (let i = this.pendingLineResolvers.length - 1; i >= 0; i--) {
+      this.pendingLineResolvers[i](line);
     }
+  }
+
+  // disconnect() 以外で切れた = ケーブル抜け等による通信断
+  private handleLost(transport: LoggerTransport, lost: Error) {
+    if (this.transport !== transport) return;
+    this.transport = null;
+    this.streamingHandler = null;
+
+    // 応答待ち・ダウンロード中の処理をタイムアウトを待たずに失敗させる
+    Array.from(this.pendingCancels).forEach(cancel => cancel(lost));
+    if (this.streamAbort) this.streamAbort(lost);
+
+    this.log('err', '本体との通信が切断されました。');
+    if (this.onConnectionLost) this.onConnectionLost();
   }
 
   // ログ容量情報取得
