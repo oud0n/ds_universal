@@ -32,7 +32,7 @@ import { LoggerTab } from './components/LoggerTab';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
 import { DonateModal } from './components/DonateModal';
 import { useResizableSplit } from './hooks/useResizableSplit';
-import { canUseLoggerUsb } from './utils/device';
+import { canUseLoggerUsb, fileAccept } from './utils/device';
 import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
 import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
 import { BottomTabBar, MobileSeekBar } from './components/MobileNav';
@@ -1006,7 +1006,7 @@ export const App: React.FC = () => {
         ref={fileInputRef}
         onChange={handleFilesSelected}
         multiple
-        accept=".dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx,.xrk,.xrz,.ibt,.mp4,.mov"
+        accept={fileAccept('.dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx,.xrk,.xrz,.ibt,.mp4,.mov')}
         className="hidden"
       />
       <input
@@ -1029,7 +1029,7 @@ export const App: React.FC = () => {
           }
           e.target.value = '';
         }}
-        accept=".pth"
+        accept={fileAccept('.pth')}
         className="hidden"
       />
       <input
@@ -1050,7 +1050,7 @@ export const App: React.FC = () => {
           }
           e.target.value = '';
         }}
-        accept=".cln"
+        accept={fileAccept('.cln')}
         className="hidden"
       />
       <input
