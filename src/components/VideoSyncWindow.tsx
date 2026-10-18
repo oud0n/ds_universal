@@ -9,7 +9,8 @@ import {
   ArrowLeftRight, Volume2, VolumeX, Maximize2
 } from 'lucide-react';
 import { Session, TelemetryPoint, SelectedCarSlot } from '../types/telemetry';
-import { videoSyncManager, VideoTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs, sessionStartUtcMs, trackOffsetInSession } from '../services/videoSyncManager';
+import { getAddVideoGpsLog, setAddVideoGpsLog } from '../services/videoPrefs';
+import { videoSyncManager, VideoTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs, sessionStartUtcMs, trackOffsetInSession, overlappingSessions } from '../services/videoSyncManager';
 import { 
   resolveChapterPlayback, 
   getNextChapter, 
@@ -50,6 +51,8 @@ interface VideoSyncWindowProps {
   isVisible?: boolean;
   playbackSpeed: number;
   onChangePlaybackSpeed: (speed: number) => void;
+  // 動画に合わせるログを選んだとき (そのログを基準車 Car 1 にする)。LATER-12
+  onChooseLog?: (sessionId: string) => void;
 }
 
 /**
@@ -210,7 +213,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   isGraphEmbedded = false,
   isVisible = true,
   playbackSpeed,
-  onChangePlaybackSpeed
+  onChangePlaybackSpeed,
+  onChooseLog
 }) => {
   const t = useT();
   // 動画の一覧と表示の状態は、どのウインドウでも同じにする (videoViewStore に 1 つだけ持つ)
@@ -286,6 +290,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // グラフ解析に埋め込んだときは、タイムゾーン・再同期の段とタイムラインを、ボタンで開くまで隠す。
   // 狭い枠ではこれらの段が場所を使い切り、動画の映る部分の高さが 0 になっていた (BUG-19)。同期の調整は動画同期の画面でもできる
   const [showSyncTools, setShowSyncTools] = useState(!isGraphEmbedded);
+  // GoPro の動画の GPS も走行ログとして加えるか (次に読み込む動画から効く) LATER-12
+  const [addVideoGpsLog, setAddVideoGpsLogState] = useState(getAddVideoGpsLog);
 
   // 現在選択中の動画トラックが属するチャプターグループ
   const currentGroup = selectedTrackId ? videoSyncManager.getChapterGroupForTrack(selectedTrackId) : null;
@@ -890,6 +896,41 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       {activeTrack && (showSyncTools || isLargeOffset) && (
         <div className="bg-surface-1 border-b border-line-1 px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0 select-none">
           <div className="flex flex-wrap items-center gap-2.5">
+            {/* 動画に合わせるログ (動画と時間の重なるログが 2 つ以上のとき。記録の細かい順) LATER-12 */}
+            {(() => {
+              const logs = overlappingSessions(activeTrack, sessions);
+              if (logs.length < 2) return null;
+              return (
+                <div className="flex items-center gap-1 bg-surface-3 px-2 py-0.5 rounded border border-line-3" title={t('同じ時間に記録したログが複数あるとき、動画に合わせて表示するログを選びます (基準車 Car 1 になります)。既定は記録の細かいログ', 'When several logs were recorded at the same time, choose the log shown with the video (it becomes Car 1). By default the log with the highest rate')}>
+                  <span className="text-slate-400 text-[10px] font-medium">{t('動画に合わせるログ:', 'Log for this video:')}</span>
+                  <select
+                    value={logs.some(l => l.id === activeTrack.matchedSessionId) ? activeTrack.matchedSessionId ?? '' : ''}
+                    onChange={e => {
+                      videoSyncManager.rebindTrack(activeTrack.id, e.target.value, sessions, true);
+                      onChooseLog?.(e.target.value);
+                    }}
+                    className="bg-transparent text-slate-100 font-bold text-xs outline-none cursor-pointer max-w-[220px] truncate"
+                  >
+                    {logs.map(l => (
+                      <option key={l.id} value={l.id} className="bg-surface-3 text-slate-200">
+                        {l.sessionName} ({l.samplingRate} Hz)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })()}
+            <label
+              className="flex items-center gap-1 text-[10px] text-slate-400 cursor-pointer"
+              title={t('切ると、同じ時間に記録の細かいログ (デジスパイスなど) があるとき、GoPro の動画の GPS を走行ログとして加えず、動画の時刻合わせだけに使います。次に読み込む動画から効きます', 'When off, if a log with a higher rate (e.g. DigSpice) covers the same time, the GPS in GoPro videos is not added as a driving log and is only used to time the video. Applies to videos loaded next')}
+            >
+              <input
+                type="checkbox"
+                checked={addVideoGpsLog}
+                onChange={e => { setAddVideoGpsLog(e.target.checked); setAddVideoGpsLogState(e.target.checked); }}
+              />
+              {t('動画の GPS もログとして加える', 'Add video GPS as a log')}
+            </label>
             {/* 動画タイムゾーン選択 */}
             <div className="flex items-center gap-1 bg-surface-3 px-2 py-0.5 rounded border border-line-3">
               <span className="text-slate-400 text-[10px] font-medium">{t('動画TZ:', 'Video TZ:')}</span>
