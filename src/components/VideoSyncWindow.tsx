@@ -644,7 +644,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     // 枠が狭くて全部の段が入らないときは、動画を潰さずにウインドウの中をスクロールさせる
     <div className={`flex flex-col h-full bg-surface-0 text-slate-200 select-none font-sans ${isGraphEmbedded ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'}`}>
       {/* 1. 上部コントロールバー (フラットデザイン) */}
-      <div className="h-11 bg-surface-1 border-b border-line-1 px-3 flex items-center justify-between gap-2 shrink-0">
+      {/* グラフ解析に埋め込んだ狭い枠では、右側のボタンが切れないよう横にスクロールできるようにする */}
+      <div className={`h-11 bg-surface-1 border-b border-line-1 px-3 flex items-center justify-between gap-2 shrink-0 ${isGraphEmbedded ? 'overflow-x-auto overflow-y-hidden' : ''}`}>
         <div className="flex items-center gap-2.5">
           <span className="text-xs font-bold text-slate-100 flex items-center gap-1.5 shrink-0">
             <Video size={15} className="text-red-500" />
@@ -913,7 +914,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`flex-1 relative flex overflow-hidden ${isGraphEmbedded ? 'min-h-[120px]' : ''} ${
+        className={`flex-1 relative flex overflow-hidden ${isGraphEmbedded ? 'min-h-[150px]' : ''} ${
           // 動画を表示しているときは、映像に重ねる表示が読めるよう、ライトモードでも暗い配色にする
           activeTrack && activeTrack.objectUrl ? 'bg-black keep-dark' : 'bg-surface-1'
         } ${
