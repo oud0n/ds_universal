@@ -29,6 +29,26 @@ export interface RawSample {
   timestamp?: Date;
 }
 
+/**
+ * データの行の値から、小数点がカンマか (ヨーロッパの設定で書き出した CSV) を決める。
+ * "47,2207022" のような値があればカンマ、"47.22" のような値があればピリオド。
+ * カンマの後ろがちょうど 3 桁の値 ("1,000") は桁区切りかもしれないので、決め手にしない
+ */
+export function detectDecimalComma(lines: string[], start: number, maxRows = 30): boolean {
+  let rows = 0;
+  for (let i = start; i < lines.length && rows < maxRows; i++) {
+    if (lines[i].trim() === '') continue;
+    rows++;
+    for (const cell of splitCsvLine(lines[i])) {
+      const v = cell.trim();
+      if (/^-?\d+\.\d+$/.test(v)) return false;
+      const m = /^-?\d+,(\d+)$/.exec(v);
+      if (m && m[1].length !== 3) return true;
+    }
+  }
+  return false;
+}
+
 /** 引用符付きフィールドに対応した CSV 1 行の分割 */
 export function splitCsvLine(line: string): string[] {
   const out: string[] = [];
@@ -389,8 +409,7 @@ export function parseMotecCsv(text: string): ImportedLog {
     }
   }
   // ヨーロッパの設定の i2 は小数点がカンマ ("47,2207022")。ファイル全体で決める (英語の設定の "1,000" を 1 にしない)
-  const decimalComma = /^-?\d+,\d+$/.test(meta.get('Sample Rate') ?? '') ||
-    /^-?\d+,\d+$/.test(splitCsvLine(lines.slice(unitIdx + 1).find(l => l.trim() !== '') ?? '')[0] ?? '');
+  const decimalComma = detectDecimalComma(lines, unitIdx + 1);
   const num = (v: string | undefined) => parseFloat(decimalComma ? (v ?? '').replace(/\./g, '').replace(',', '.') : (v ?? '').replace(/,/g, ''));
 
   const samples: RawSample[] = [];
