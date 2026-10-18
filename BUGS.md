@@ -33,6 +33,8 @@
 | 🟢 **低 (P3)** | BUG-18 | コースデータ管理 | 一括設置で読み込んだ、組み合わせ先のないコース図 (.pth) が、OSM のコース図を取得済みのログに反映されない | `src/App.tsx`, `src/services/userCircuitStorage.ts` | 修正済み（acd174b / fe0c332 / 1619492。セッションにコース図の出どころを持たせ、自動で取得したコース図だけを置き換える。手で読み込んだ .pth は変えない） |
 | 🟢 **低 (P3)** | BUG-19 | 車載動画の表示 | グラフ解析の左下を「車載動画」にすると、ウインドウが小さいとき操作の段が場所を使い切り、動画の映る部分の高さが 0 になる（BUG-06 の確認で判明。修正前から） | `src/components/VideoSyncWindow.tsx` | 未対応 |
 | 🟡 **中 (P2)** | BUG-20 | 車載動画の表示 | グラフ解析で上の再生ボタンで再生すると、車載動画のコマが 5 秒に 2〜10 コマ抜ける（4K 60fps で測定。動画同期の画面・動画だけの再生では抜けない。グラフを隠すと抜けない。再生中にグラフを毎コマまるごと描き直す負荷が原因。動かない部分を一度だけ描き、現在位置の線と車両だけを描き直す方針） | `src/components/SpeedGraphWindow.tsx`, `src/components/TrackMapWindow.tsx`, `src/components/FrictionCircleWindow.tsx`, `src/App.tsx` | 未対応（BUG-14 の後） |
+| 🟡 **中 (P2)** | BUG-21 | 車載動画同期 | 撮影時刻の全く違う動画を 2 本読み込むと（袖ヶ浦と TC2000 など）、sub が main 側に引っ張られて同期してしまう。撮影時刻（メタデータ）のある動画は、その時刻でログに合わせたい（利用者の報告、2026-10-18） | `src/components/VideoSyncWindow.tsx`, `src/services/videoSyncManager.ts` | 未対応 |
+| 🟢 **低 (P3)** | BUG-22 | 車載動画同期 | sub の動画を消して 1 本になると、単一 / 2画面 / PinP の切り替えボタンが消える（2 本以上のときだけ出す作り）。表示は 2画面のまま残り、右の空欄を消せない（利用者の報告、2026-10-18） | `src/components/VideoSyncWindow.tsx`, `src/services/videoViewStore.ts` | 未対応 |
 
 ---
 
