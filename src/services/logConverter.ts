@@ -155,6 +155,55 @@ ${body}
 `;
 }
 
+/**
+ * Racelogic の VBO (Circuit Tools・RaceChrono などで読める)。
+ * 緯度・経度は「分」単位で、経度は西経が正。時刻は HHMMSS.SS (時差を調整したときはその時刻)
+ */
+export function convertToVbo(points: ConvertedPoint[]): string {
+  const pad = (n: number, w: number) => String(Math.floor(Math.abs(n))).padStart(w, '0');
+  const signed = (v: number, intW: number, dec: number) => {
+    const s = Math.abs(v).toFixed(dec);
+    const [i, f] = s.split('.');
+    return `${v < 0 ? '-' : '+'}${i.padStart(intW, '0')}${f !== undefined ? '.' + f : ''}`;
+  };
+  const first = points[0]?.time ?? new Date();
+  const lines = [
+    `File created on ${pad(first.getUTCDate(), 2)}/${pad(first.getUTCMonth() + 1, 2)}/${first.getUTCFullYear()} at ${pad(first.getUTCHours(), 2)}:${pad(first.getUTCMinutes(), 2)}:${pad(first.getUTCSeconds(), 2)}`,
+    '',
+    '[header]',
+    'satellites',
+    'time',
+    'latitude',
+    'longitude',
+    'velocity kmh',
+    'heading',
+    'height',
+    '',
+    '[comments]',
+    'Exported by DS Universal',
+    '',
+    '[column names]',
+    'sats time lat long velocity heading height',
+    '',
+    '[data]'
+  ];
+  for (const p of points) {
+    const d = p.time;
+    const time = `${pad(d.getUTCHours(), 2)}${pad(d.getUTCMinutes(), 2)}${pad(d.getUTCSeconds(), 2)}.${String(Math.floor(d.getUTCMilliseconds() / 10)).padStart(2, '0')}`;
+    lines.push([
+      pad(p.satellites ?? 0, 3),
+      time,
+      signed(p.latitude * 60, 5, 6),
+      // 経度は西経が正
+      signed(-p.longitude * 60, 5, 6),
+      Math.max(0, p.speed).toFixed(3).padStart(7, '0'),
+      (((p.heading % 360) + 360) % 360).toFixed(2).padStart(6, '0'),
+      signed(p.altitude ?? 0, 5, 2)
+    ].join(' '));
+  }
+  return lines.join('\r\n') + '\r\n';
+}
+
 // KML の線の色 (車速の低い方から: 青 → 水色 → 緑 → 黄 → 橙 → 赤)。KML の色は aabbggrr
 const KML_SPEED_COLORS = ['ffff4d2e', 'ffffc22e', 'ff3ecf4c', 'ff2ee6f2', 'ff1f8cff', 'ff3030e8'];
 
