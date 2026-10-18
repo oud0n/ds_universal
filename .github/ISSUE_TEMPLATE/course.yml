@@ -1,0 +1,36 @@
+name: コースデータの修正・追加 / Course data
+description: 内蔵のコースの計測線・セクターの修正や、コースの追加の依頼 / Fix or add a built-in course
+title: "[コース] "
+labels: ["course"]
+body:
+  - type: input
+    id: course
+    attributes:
+      label: コース / Course
+      description: コースの名前（内蔵のコースなら courses/index.json の ID でも可）
+      placeholder: "例: 筑波サーキット コース2000 (tsukuba2000)"
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 内容 / Request
+      options:
+        - 計測線がずれている / Control line is off
+        - セクター線を直したい / Fix sector lines
+        - コースを足してほしい / Add a course
+        - その他 / Other
+    validations:
+      required: true
+  - type: textarea
+    id: detail
+    attributes:
+      label: 詳しく / Details
+      description: どこがどうずれているか。公式のセクターの位置が分かる資料があれば、そのリンクも
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: ファイル / Files
+      description: アプリの「コース編集」で書き出した .cln / .sci があれば添付してください（.zip にまとめても可）。他のアプリや公式ソフトのデータの写しは使えません

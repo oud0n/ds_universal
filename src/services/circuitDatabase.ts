@@ -2,216 +2,37 @@ import { CircuitPreset, TelemetryPoint } from '../types/telemetry';
 import { countGateCrossings, passesNearControlLine } from './lapCalculator';
 import { userCircuitStorage } from './userCircuitStorage';
 import { fetchOsmCircuitPolylines } from './osmCircuitService';
+import { parseCln, parseSci } from './pthParser';
+import courseIndex from '../../courses/index.json';
 
-// 国内主要サーキットのプリセット (独自に作成したデータ)
-// - 中心座標: OpenStreetMap のコース形状 (highway=raceway) の外接矩形の中心
-// - 計測線: OpenStreetMap にスタートラインの情報は無いため、国土地理院の航空写真で
-//   スタートライン付近の位置を確認し、OpenStreetMap のコース中心線に直交する線分として作成
-//   (周回の区切りには使えるが、各サーキットの公式計測位置と一致するとは限らない)
-// - セクター線は持たない (コース編集、または利用者が読み込んだコースデータで設定する)
+// 内蔵のコース (独自に作成したデータ)。リポジトリの courses/ に、デジスパイスと同じ形式のファイルで置いて同梱する
+// - index.json: コースの一覧 (名前・中心の座標・ファイル名・作り方のメモ)
+// - <id>.cln: 計測線、<id>.sci: セクター線 (公式の .sci と同じく、フィニッシュ (計測線) は含まない)
+// 作り方と出典は courses/README.md。修正の依頼はファイルごとに Issue / PR で受け付ける
 // 出典: © OpenStreetMap contributors (Open Database License 1.0, https://www.openstreetmap.org/copyright)
 //       国土地理院 シームレス空中写真 (https://maps.gsi.go.jp/development/ichiran.html)
-export const CIRCUIT_PRESETS: CircuitPreset[] = [
-  {
-    id: 'fsw',
-    name: '富士スピードウェイ (FSW)',
-    country: 'JP',
-    centerLat: 35.370533,
-    centerLon: 138.926908,
-    // 管制塔の前の路面のコントロールライン (航空写真で確認、ピットロードまで含む)。2026-10-17 に見直し
-    // (以前の線はピットの建物の端に置いており、約 300 m ずれていた)
-    controlLine: {
-      name: 'Start/Finish Line',
-      latA: 35.372217,
-      lonA: 138.926976,
-      latB: 35.371954,
-      lonB: 138.927313
-    },
-    sectors: []
-  },
-  {
-    id: 'suzuka',
-    name: '鈴鹿サーキット (Suzuka Circuit)',
-    country: 'JP',
-    centerLat: 34.843668,
-    centerLon: 136.532668,
-    // メインストレートに架かるスタートの信号のゲートの位置 (航空写真で確認、ピットロードまで含む)。2026-10-17 に見直し
-    // (以前の線はピットの建物の端に置いており、約 290 m ずれていた)
-    controlLine: {
-      name: 'Start/Finish Line',
-      latA: 34.844812,
-      lonA: 136.539025,
-      latB: 34.844564,
-      lonB: 136.538649
-    },
-    sectors: []
-  },
-  {
-    id: 'tsukuba2000',
-    name: '筑波サーキット コース2000 (TC2000)',
-    country: 'JP',
-    centerLat: 36.150480,
-    centerLon: 139.921780,
-    controlLine: {
-      name: 'Start/Finish Line',
-      latA: 36.150127,
-      lonA: 139.919345,
-      latB: 36.150067,
-      lonB: 139.919671
-    },
-    sectors: []
-  },
-  {
-    id: 'tsukuba1000',
-    name: '筑波サーキット コース1000 (TC1000)',
-    country: 'JP',
-    centerLat: 36.150718,
-    centerLon: 139.924068,
-    controlLine: {
-      name: 'Start/Finish Line',
-      latA: 36.151054,
-      lonA: 139.924331,
-      latB: 36.151043,
-      lonB: 139.924598
-    },
-    sectors: []
-  },
-  {
-    id: 'nikko',
-    name: '日光サーキット (Nikko Circuit)',
-    country: 'JP',
-    centerLat: 36.662164,
-    centerLon: 139.862590,
-    // 管制塔から架かる計測ゲートの位置 (航空写真で確認、ピットロードまで含む)。2026-10-17 に見直し
-    // (以前の線は隣の直線に置いていたため、ベストラップが 0.08 秒短く出ていた)
-    controlLine: {
-      name: 'Start/Finish Line',
-      latA: 36.662468,
-      lonA: 139.862454,
-      latB: 36.662254,
-      lonB: 139.862701
-    },
-    sectors: []
-  },
-  {
-    id: 'motegi',
-    name: 'モビリティリゾートもてぎ (Motegi Road Course)',
-    country: 'JP',
-    centerLat: 36.532484,
-    centerLon: 140.231982,
-    controlLine: {
-      name: 'Start/Finish Line',
-      latA: 36.533176,
-      lonA: 140.226386,
-      latB: 36.533331,
-      lonB: 140.226739
-    },
-    sectors: []
-  },
-  {
-    id: 'sugo',
-    name: 'スポーツランドSUGO (Sportsland SUGO)',
-    country: 'JP',
-    centerLat: 38.140417,
-    centerLon: 140.776664,
-    // 管制塔の前の路面のコントロールライン (航空写真で確認)。2026-10-17 に見直し
-    // (以前の線はメインストレートの東の端に置いており、約 220 m ずれていた)
-    controlLine: {
-      name: 'Start/Finish Line',
-      latA: 38.142431,
-      lonA: 140.777708,
-      latB: 38.142193,
-      lonB: 140.777678
-    },
-    sectors: []
-  },
-  {
-    id: 'autopolis',
-    name: 'オートポリス (Autopolis)',
-    country: 'JP',
-    centerLat: 33.036795,
-    centerLon: 130.972808,
-    controlLine: {
-      name: 'Start/Finish Line',
-      latA: 33.038907,
-      lonA: 130.973405,
-      latB: 33.038537,
-      lonB: 130.973117
-    },
-    sectors: []
-  },
-  {
-    id: 'okayama',
-    name: '岡山国際サーキット (Okayama International)',
-    country: 'JP',
-    centerLat: 34.915650,
-    centerLon: 134.221622,
-    controlLine: {
-      name: 'Start/Finish Line',
-      latA: 34.914336,
-      lonA: 134.218780,
-      latB: 34.914359,
-      lonB: 134.219174
-    },
-    sectors: []
-  },
-  {
-    id: 'sodegaura',
-    name: '袖ヶ浦フォレストレースウェイ (Sodegaura)',
-    country: 'JP',
-    centerLat: 35.394188,
-    centerLon: 140.089014,
-    controlLine: {
-      name: 'Start/Finish Line',
-      latA: 35.394940,
-      lonA: 140.087893,
-      latB: 35.394798,
-      lonB: 140.088173
-    },
-    sectors: []
-  },
-  {
-    id: 'honjo',
-    name: '本庄サーキット (Honjo Circuit)',
-    country: 'JP',
-    centerLat: 36.171078,
-    centerLon: 139.107479,
-    // パドックの横でコースを横切る線 (航空写真で確認)。2026-10-17 に見直し
-    // (以前は写真から特定できず、直線の中ほどの仮の位置に置いていた)
-    controlLine: {
-      name: 'Start/Finish Line',
-      latA: 36.170933,
-      lonA: 139.108741,
-      latB: 36.170845,
-      lonB: 139.108881
-    },
-    sectors: []
-  },
-  {
-    id: 'ebisu_east',
-    name: 'エビスサーキット 東コース (Ebisu East)',
-    country: 'JP',
-    centerLat: 37.643835,
-    centerLon: 140.372223,
-    controlLine: {
-      name: 'Start/Finish Line',
-      latA: 37.644183,
-      lonA: 140.370761,
-      latB: 37.644375,
-      lonB: 140.370884
-    },
-    sectors: []
-  },
-  {
-    // 施設内に複数のコースがあり、地図上でコースを特定できないため計測線は持たない
-    id: 'meihan',
-    name: '名阪スポーツランド (Meihan Sportsland)',
-    country: 'JP',
-    centerLat: 34.635400,
-    centerLon: 135.998000,
-    sectors: []
-  }
-];
+interface CourseIndexEntry {
+  id: string;
+  name: string;
+  country: string;
+  center: number[]; // [緯度, 経度]
+  cln?: string;
+  sci?: string;
+}
+const courseFiles = import.meta.glob('../../courses/*.{cln,sci}', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+const courseFile = (name: string) => courseFiles[`../../courses/${name}`];
+
+export const CIRCUIT_PRESETS: CircuitPreset[] = (courseIndex as unknown as CourseIndexEntry[]).map(c => {
+  const cln = c.cln ? courseFile(c.cln) : undefined;
+  const controlLine = cln ? parseCln(cln, 'Start/Finish Line') : undefined;
+  const sci = c.sci ? courseFile(c.sci) : undefined;
+  // フィニッシュ (計測線まで) を最後の区間として足す (公式の .sci を読み込んだときと同じ)
+  const sectors = sci && controlLine
+    ? [...parseSci(sci, c.id), { id: `${c.id}_finish`, name: '', latA: controlLine.latA, lonA: controlLine.lonA, latB: controlLine.latB, lonB: controlLine.lonB }]
+    : [];
+  sectors.forEach((sec, i) => { sec.name = `S${i + 1}`; });
+  return { id: c.id, name: c.name, country: c.country, centerLat: c.center[0], centerLon: c.center[1], ...(controlLine ? { controlLine } : {}), sectors };
+});
 
 export const ALL_CIRCUITS: CircuitPreset[] = CIRCUIT_PRESETS;
 

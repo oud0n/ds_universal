@@ -7,7 +7,8 @@
  * - 保存先は IndexedDB (公式データ一式は localStorage の上限 約 5 MB に収まらない)。以前の localStorage の保存分は初回に移し替える
  */
 import { ControlLine, Sector, TelemetryPoint } from '../types/telemetry';
-import { parsePth, parseCln } from './pthParser';
+import { parsePth, parseCln, parseSci } from './pthParser';
+export { parseSci };
 import { countGateCrossings } from './lapCalculator';
 import { tr } from '../utils/i18n';
 
@@ -132,20 +133,6 @@ export function exportSci(sectors: Sector[], controlLine?: ControlLine): string 
     .filter(s => !same(s))
     .map(s => [s.latA, s.lonA, s.latB, s.lonB].map(v => v.toFixed(6)).join(',') + ',1\r\n')
     .join('');
-}
-
-/** .sci (1 行 1 本: 緯度A,経度A,緯度B,経度B,…) を読む */
-export function parseSci(text: string, idPrefix: string): Sector[] {
-  const sectors: Sector[] = [];
-  for (const line of text.split(/\r?\n/)) {
-    const v = line.split(',').map(x => parseFloat(x.trim()));
-    if (v.length < 4 || !v.slice(0, 4).every(Number.isFinite)) continue;
-    const [latA, lonA, latB, lonB] = v;
-    if (Math.abs(latA) > 90 || Math.abs(latB) > 90 || Math.abs(lonA) > 180 || Math.abs(lonB) > 180) continue;
-    sectors.push({ id: `${idPrefix}_s${sectors.length + 1}`, name: `S${sectors.length + 1}`, latA, lonA, latB, lonB });
-  }
-  if (sectors.length === 0) throw new Error(tr('セクター線が見つかりません', 'No sector lines were found'));
-  return sectors;
 }
 
 // ---------------------------------------------------------------------------

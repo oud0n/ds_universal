@@ -733,7 +733,7 @@ export const App: React.FC = () => {
       courseRef.current = { cl, sec, name: circName, polylines: hintPolylines, polylinesSource: hintSource };
 
       // ラップ分割とセクタータイム計算
-      const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(rawPoints, cl, sec);
+      const { laps, bestLapIndex, theoreticalBestTime, sectors: lapSectors } = extractLaps(rawPoints, cl, sec);
 
       const newSession: Session = {
         id: `sess_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -748,7 +748,8 @@ export const App: React.FC = () => {
         bestLapIndex,
         theoreticalBestTime,
         controlLine: cl,
-        sectors: sec,
+        // 走る向きに並べ直したセクター (並びが逆だったとき)
+        sectors: lapSectors,
         ...(hintPolylines ? { pathPolylines: hintPolylines, pathPolylinesSource: hintSource } : {})
       };
 
@@ -805,9 +806,9 @@ export const App: React.FC = () => {
       const r = resolve(s);
       if (!r) return s;
       const { cl, sec, name } = r;
-      const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(s.points, cl, sec);
+      const { laps, bestLapIndex, theoreticalBestTime, sectors: lapSectors } = extractLaps(s.points, cl, sec);
       return {
-        ...s, laps, bestLapIndex, theoreticalBestTime, controlLine: cl, sectors: sec,
+        ...s, laps, bestLapIndex, theoreticalBestTime, controlLine: cl, sectors: lapSectors,
         ...(name !== undefined ? { circuitName: name } : {})
       };
     });

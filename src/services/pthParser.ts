@@ -1,4 +1,4 @@
-import { ControlLine } from '../types/telemetry';
+import { ControlLine, Sector } from '../types/telemetry';
 import { tr } from '../utils/i18n';
 
 /**
@@ -107,4 +107,18 @@ export function parseCln(clnText: string, name = 'Control Line'): ControlLine {
 export function exportCln(line: ControlLine): string {
   // 公式の .cln と同じく、最後の行にも改行を付ける
   return ['1', line.latA.toFixed(6), line.lonA.toFixed(6), line.latB.toFixed(6), line.lonB.toFixed(6)].join('\r\n') + '\r\n';
+}
+
+/** .sci (1 行 1 本: 緯度A,経度A,緯度B,経度B,…) を読む */
+export function parseSci(text: string, idPrefix: string): Sector[] {
+  const sectors: Sector[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const v = line.split(',').map(x => parseFloat(x.trim()));
+    if (v.length < 4 || !v.slice(0, 4).every(Number.isFinite)) continue;
+    const [latA, lonA, latB, lonB] = v;
+    if (Math.abs(latA) > 90 || Math.abs(latB) > 90 || Math.abs(lonA) > 180 || Math.abs(lonB) > 180) continue;
+    sectors.push({ id: `${idPrefix}_s${sectors.length + 1}`, name: `S${sectors.length + 1}`, latA, lonA, latB, lonB });
+  }
+  if (sectors.length === 0) throw new Error(tr('セクター線が見つかりません', 'No sector lines were found'));
+  return sectors;
 }

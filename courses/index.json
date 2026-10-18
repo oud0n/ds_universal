@@ -1,0 +1,194 @@
+[
+  {
+    "id": "fsw",
+    "name": "富士スピードウェイ (FSW)",
+    "country": "JP",
+    "center": [
+      35.370533,
+      138.926908
+    ],
+    "cln": "fsw.cln",
+    "sci": "fsw.sci",
+    "notes": {
+      "controlLine": "管制塔の前の路面のコントロールライン (航空写真で確認、ピットロードまで含む)。2026-10-17 に見直し (以前の線はピットの建物の端に置いており、約 300 m ずれていた)",
+      "sectors": "WEC などの 3 区間に合わせた推定: S1 はヘアピン (アドバン) を抜けて 300R の手前まで、S2 はダンロップのシケインを抜けるまで (コース中心線の上で 2150 m・3050 m)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "suzuka",
+    "name": "鈴鹿サーキット (Suzuka Circuit)",
+    "country": "JP",
+    "center": [
+      34.843668,
+      136.532668
+    ],
+    "cln": "suzuka.cln",
+    "sci": "suzuka.sci",
+    "notes": {
+      "controlLine": "メインストレートに架かるスタートの信号のゲートの位置 (航空写真で確認、ピットロードまで含む)。2026-10-17 に見直し (以前の線はピットの建物の端に置いており、約 290 m ずれていた)",
+      "sectors": "F1 の 3 区間に合わせた推定: S1 はダンロップを抜けてデグナー 1 の手前まで、S2 はスプーンの出口まで (コース中心線の上で 2050 m・4050 m)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "tsukuba2000",
+    "name": "筑波サーキット コース2000 (TC2000)",
+    "country": "JP",
+    "center": [
+      36.15048,
+      139.92178
+    ],
+    "cln": "tsukuba2000.cln",
+    "sci": "tsukuba2000.sci",
+    "notes": {
+      "controlLine": "国土地理院の航空写真でスタートライン付近の位置を確認し、OpenStreetMap のコース中心線に直交する線分として作成 (公式の計測位置と一致するとは限らない)",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "tsukuba1000",
+    "name": "筑波サーキット コース1000 (TC1000)",
+    "country": "JP",
+    "center": [
+      36.150718,
+      139.924068
+    ],
+    "cln": "tsukuba1000.cln",
+    "sci": "tsukuba1000.sci",
+    "notes": {
+      "controlLine": "国土地理院の航空写真でスタートライン付近の位置を確認し、OpenStreetMap のコース中心線に直交する線分として作成 (公式の計測位置と一致するとは限らない)",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "nikko",
+    "name": "日光サーキット (Nikko Circuit)",
+    "country": "JP",
+    "center": [
+      36.662164,
+      139.86259
+    ],
+    "cln": "nikko.cln",
+    "sci": "nikko.sci",
+    "notes": {
+      "controlLine": "管制塔から架かる計測ゲートの位置 (航空写真で確認、ピットロードまで含む)。2026-10-17 に見直し (以前の線は隣の直線に置いていたため、ベストラップが 0.08 秒短く出ていた)",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "motegi",
+    "name": "モビリティリゾートもてぎ (Motegi Road Course)",
+    "country": "JP",
+    "center": [
+      36.532484,
+      140.231982
+    ],
+    "cln": "motegi.cln",
+    "sci": "motegi.sci",
+    "notes": {
+      "controlLine": "国土地理院の航空写真でスタートライン付近の位置を確認し、OpenStreetMap のコース中心線に直交する線分として作成 (公式の計測位置と一致するとは限らない)",
+      "sectors": "公式の区切りが分からないため、MotoGP と同じ 4 区間として 1 周を 4 等分した仮の位置。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "sugo",
+    "name": "スポーツランドSUGO (Sportsland SUGO)",
+    "country": "JP",
+    "center": [
+      38.140417,
+      140.776664
+    ],
+    "cln": "sugo.cln",
+    "sci": "sugo.sci",
+    "notes": {
+      "controlLine": "管制塔の前の路面のコントロールライン (航空写真で確認)。2026-10-17 に見直し (以前の線はメインストレートの東の端に置いており、約 220 m ずれていた)",
+      "sectors": "公式のコース図 (2026_racing-course_layout.pdf) の計測地点 S1 833 m・S2 1821 m・S3 2568 m の位置 (OpenStreetMap のコース中心線の上で、計測線からの距離で置いた)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "autopolis",
+    "name": "オートポリス (Autopolis)",
+    "country": "JP",
+    "center": [
+      33.036795,
+      130.972808
+    ],
+    "cln": "autopolis.cln",
+    "sci": "autopolis.sci",
+    "notes": {
+      "controlLine": "国土地理院の航空写真でスタートライン付近の位置を確認し、OpenStreetMap のコース中心線に直交する線分として作成 (公式の計測位置と一致するとは限らない)",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "okayama",
+    "name": "岡山国際サーキット (Okayama International)",
+    "country": "JP",
+    "center": [
+      34.91565,
+      134.221622
+    ],
+    "cln": "okayama.cln",
+    "sci": "okayama.sci",
+    "notes": {
+      "controlLine": "国土地理院の航空写真でスタートライン付近の位置を確認し、OpenStreetMap のコース中心線に直交する線分として作成 (公式の計測位置と一致するとは限らない)",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "sodegaura",
+    "name": "袖ヶ浦フォレストレースウェイ (Sodegaura)",
+    "country": "JP",
+    "center": [
+      35.394188,
+      140.089014
+    ],
+    "cln": "sodegaura.cln",
+    "sci": "sodegaura.sci",
+    "notes": {
+      "controlLine": "国土地理院の航空写真でスタートライン付近の位置を確認し、OpenStreetMap のコース中心線に直交する線分として作成 (公式の計測位置と一致するとは限らない)",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "honjo",
+    "name": "本庄サーキット (Honjo Circuit)",
+    "country": "JP",
+    "center": [
+      36.171078,
+      139.107479
+    ],
+    "cln": "honjo.cln",
+    "sci": "honjo.sci",
+    "notes": {
+      "controlLine": "パドックの横でコースを横切る線 (航空写真で確認)。2026-10-17 に見直し (以前は写真から特定できず、直線の中ほどの仮の位置に置いていた)",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "ebisu_east",
+    "name": "エビスサーキット 東コース (Ebisu East)",
+    "country": "JP",
+    "center": [
+      37.643835,
+      140.372223
+    ],
+    "cln": "ebisu_east.cln",
+    "sci": "ebisu_east.sci",
+    "notes": {
+      "controlLine": "国土地理院の航空写真でスタートライン付近の位置を確認し、OpenStreetMap のコース中心線に直交する線分として作成 (公式の計測位置と一致するとは限らない)",
+      "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線の上)。2026-10-18 作成"
+    }
+  },
+  {
+    "id": "meihan",
+    "name": "名阪スポーツランド (Meihan Sportsland)",
+    "country": "JP",
+    "center": [
+      34.6354,
+      135.998
+    ],
+    "notes": {
+      "controlLine": "施設内に複数のコースがあり、地図上でコースを特定できないため計測線は持たない"
+    }
+  }
+]
