@@ -12,6 +12,7 @@ export interface SyncPin {
   videoTimeSec: number;        // その瞬間における動画内秒 (local time)
   trackId: string;             // 対象動画トラックID
   calculatedOffsetSec: number; // sessionTimeSec - videoTimeSec
+  sessionId?: string;          // ピンを打ったときの基準のログ (sessionTimeSec はこのログの時刻)。古いピンにはない
   createdAt: string;           // ISOタイムスタンプ
   notes?: string;
 }
@@ -34,15 +35,6 @@ export function createSyncPin(
     createdAt: new Date().toISOString(),
     notes,
   };
-}
-
-export function applyPinToTrack(
-  pin: SyncPin,
-  updateOffsetCallback: (trackId: string, newOffsetSec: number) => void
-): number {
-  const newOffsetSec = pin.calculatedOffsetSec;
-  updateOffsetCallback(pin.trackId, newOffsetSec);
-  return newOffsetSec;
 }
 
 export function formatPinTime(sec: number): string {

@@ -70,6 +70,19 @@ function buildMenu() {
         }
       ]
     },
+    // 編集: Mac では、このメニューがないと入力欄やコンソールで ⌘C・⌘V・⌘A が効かない
+    {
+      label: L('編集', 'Edit'),
+      submenu: [
+        { role: 'undo', label: L('取り消す', 'Undo') },
+        { role: 'redo', label: L('やり直す', 'Redo') },
+        { type: 'separator' },
+        { role: 'cut', label: L('カット', 'Cut') },
+        { role: 'copy', label: L('コピー', 'Copy') },
+        { role: 'paste', label: L('ペースト', 'Paste') },
+        { role: 'selectAll', label: L('すべてを選択', 'Select all') }
+      ]
+    },
     {
       label: L('表示', 'View'),
       submenu: [
@@ -138,6 +151,22 @@ function createWindow() {
   });
 
   // アプリ自身のページ以外へは遷移させない (外部ページにアプリの権限を渡さない)
+  // 画面が閉じるのを止めたとき (ロガーのログを消している間など、beforeunload で止める): 確かめてから閉じる。
+  // Electron は、止めたことを何も知らせずに閉じるのをやめるだけなので、ここで聞く
+  mainWindow.webContents.on('will-prevent-unload', (event) => {
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'warning',
+      buttons: [L('閉じない', 'Stay'), L('閉じる', 'Close anyway')],
+      defaultId: 0,
+      cancelId: 0,
+      title: L('処理中です', 'Busy'),
+      message: L('ロガーの処理 (ログの消去など) の途中です。', 'The logger is still working (erasing logs, etc.).'),
+      detail: L('いま閉じると、本体の処理が途中で止まるおそれがあります。終わるまで待つことをおすすめします。', 'Closing now may interrupt the logger. It is best to wait until it finishes.')
+    });
+    // 「閉じる」を選んだら、止めたのを取り消して閉じる
+    if (choice === 1) event.preventDefault();
+  });
+
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (url !== mainWindow.webContents.getURL()) {
       event.preventDefault();
@@ -157,13 +186,42 @@ function createWindow() {
     }
   });
 
-  // シリアルポートの権限: このアプリの画面からの要求で、対象がデジスパイスIV の場合だけ許可する
-  mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission) => {
-    return permission === 'serial' && webContents === mainWindow.webContents;
+  // Web Bluetooth の機器の選択: Electron には選択画面がないので、名前が DS3 / DS4 で始まる機器を自動で選ぶ。
+  // 見つかるまで何度も呼ばれる。10 秒で見つからなければ取りやめる (画面には「見つからなかった」として返る)
+  let bluetoothPick = null;
+  mainWindow.webContents.on('select-bluetooth-device', (event, deviceList, callback) => {
+    event.preventDefault();
+    if (!bluetoothPick || bluetoothPick.callback !== callback) {
+      if (bluetoothPick) clearTimeout(bluetoothPick.timer);
+      bluetoothPick = {
+        callback,
+        timer: setTimeout(() => {
+          bluetoothPick = null;
+          // 探している間にウインドウを閉じていたら、答える先がもうないので何もしない
+          try { callback(''); } catch (e) { console.warn('[メインプロセス] Bluetooth の選択の取りやめに失敗:', e); }
+        }, 10000)
+      };
+    }
+    const ds = (deviceList || []).find(d => /^DS[34]/.test(d.deviceName || ''));
+    if (ds) {
+      clearTimeout(bluetoothPick.timer);
+      bluetoothPick = null;
+      console.log('[メインプロセス] デジスパイスを Bluetooth で自動選択:', ds.deviceName);
+      callback(ds.deviceId);
+    }
   });
 
+  // シリアルポート・Bluetooth の権限: このアプリの画面からの要求だけ許可する (シリアルの機器は下でデジスパイスIV に絞る)
+  mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission) => {
+    return (permission === 'serial' || permission === 'bluetooth') && webContents === mainWindow.webContents;
+  });
+
+  // 機器の権限: シリアルはデジスパイスIV のポートだけ、Bluetooth は名前が DS3 / DS4 で始まる機器だけ許可する
   mainWindow.webContents.session.setDevicePermissionHandler((details) => {
-    return details.deviceType === 'serial' && !!details.device && isLoggerPort(details.device);
+    if (!details.device) return false;
+    if (details.deviceType === 'serial') return isLoggerPort(details.device);
+    if (details.deviceType === 'bluetooth') return /^DS[34]/.test(details.device.deviceName || details.device.name || '');
+    return false;
   });
 
   const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;

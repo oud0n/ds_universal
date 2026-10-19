@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Usb, WifiOff, RefreshCw, Trash2, Download, Save, 
   PlayCircle, AlertTriangle, CheckCircle, Terminal, 
@@ -6,6 +7,8 @@ import {
 } from 'lucide-react';
 import { DigSpiceDevice, LogInfo, DownloadProgress, DeviceConfig } from '../services/digspiceDevice';
 import { LoggerSettingsCard } from './LoggerSettingsCard';
+import { BleLoggerCard } from './BleLoggerCard';
+import { canUseLoggerBle, canUseLoggerUsb } from '../utils/device';
 import { tr, useT } from '../utils/i18n';
 
 // 開発サーバーで `?sim=1` を付けると、実機の代わりにシミュレーターへ接続する
@@ -23,12 +26,17 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
   const [device] = useState<DigSpiceDevice>(() => new DigSpiceDevice());
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isBusy, setIsBusy] = useState<boolean>(false);
+  // ログを消している間 (始めた時刻)。画面全体に「操作しないで」を出し、閉じるのを止める
+  const [erasingSince, setErasingSince] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [logInfo, setLogInfo] = useState<LogInfo | null>(null);
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [downloadedData, setDownloadedData] = useState<{ buffer: Uint8Array; fileName: string } | null>(null);
   const [logs, setLogs] = useState<Array<{ type: 'tx' | 'rx' | 'sys' | 'err'; msg: string; time: string }>>([]);
   // 通信コンソールを開いているか (ふだんはたたんでおく)
   const [consoleOpen, setConsoleOpen] = useState(false);
+  // 開発版だけ: 通信コンソールから命令を 1 行送る (本体の動きを調べるため)
+  const [rawCommand, setRawCommand] = useState('');
 
   const [config, setConfig] = useState<DeviceConfig | null>(null);
   const busyRef = useRef<boolean>(false);
@@ -125,23 +133,38 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
   };
 
   // ログ消去
+  // 消している間は、ウインドウを閉じる・読み直すのを止める (途中で切ると本体の記録が中途半端になるおそれがある)。
+  // 経過の秒を出すため 1 秒ごとに時刻を進める
+  useEffect(() => {
+    if (erasingSince === null) return;
+    const block = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', block);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => { window.removeEventListener('beforeunload', block); clearInterval(timer); };
+  }, [erasingSince]);
+
   const handleErase = async () => {
     if (!isConnected || isBusy) return;
     const ok = window.confirm(
-      tr('⚠️ 【警告】デジスパイスIV 本体の全走行ログを消去します。\n消去したデータは復元できません。\n本当に消去しますか？', '⚠️ WARNING: this erases every driving log on the DigSpice IV.\nErased data cannot be recovered.\nErase anyway?')
+      tr('⚠️ 【警告】デジスパイスIV 本体の全走行ログを消去します。\n消去したデータは復元できません。\n\n消去には 1〜2 分かかります。その間は、画面を閉じたり、USB を抜いたり、ほかの操作をしたりしないでください。\n\n本当に消去しますか？', '⚠️ WARNING: this erases every driving log on the DigSpice IV.\nErased data cannot be recovered.\n\nErasing takes 1-2 minutes. Do not close this window, unplug the USB cable or do anything else until it finishes.\n\nErase anyway?')
     );
     if (!ok) return;
 
     try {
       setIsBusy(true);
+      setNow(Date.now());
+      setErasingSince(Date.now());
       await device.eraseLogs();
+      setErasingSince(null);
       alert(tr('ロガーの全ログ消去が完了しました。', 'All logs on the logger have been erased.'));
       // 消去後の容量と本体設定を読み直す (書き込み位置が先頭に戻る)
       setLogInfo(await device.getLogInfo());
       setConfig(await device.getDeviceConfig());
     } catch (err: any) {
+      setErasingSince(null);
       alert(`${tr('消去エラー', 'Erase error')}: ${err.message}`);
     } finally {
+      setErasingSince(null);
       setIsBusy(false);
     }
   };
@@ -218,7 +241,12 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
   };
 
   return (
-    <div className="flex flex-col h-full bg-surface-0 text-slate-200 overflow-y-auto p-6 space-y-6 max-w-5xl mx-auto select-none">
+    <div className="flex flex-col h-full bg-surface-0 text-slate-200 overflow-y-auto p-4 sm:p-6 space-y-6 max-w-5xl mx-auto select-none">
+      {/* Bluetooth でのつなぎ (iPhone のアプリ・Android の Chrome など)。USB でもつなげる環境では、USB の操作の下に出す */}
+      {canUseLoggerBle && !canUseLoggerUsb && <BleLoggerCard />}
+
+      {/* ここから USB (Web Serial) でのつなぎ */}
+      {canUseLoggerUsb && (<>
       {/* 上部ステータスバー */}
       <div className="bg-gradient-to-r from-surface-3 via-surface-3 to-surface-2 border border-line-3 rounded-2xl p-5 shadow-xl flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
@@ -464,6 +492,41 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
           )}
         </div>
 
+        {consoleOpen && import.meta.env.DEV && (
+          <form
+            className="flex gap-2"
+            onSubmit={e => {
+              e.preventDefault();
+              // 先頭の $ と末尾のチェックサムは付けなくてよい (sendCommand が付ける)
+              const body = rawCommand.trim().replace(/^\$/, '').replace(/\*[0-9A-F]{2}$/i, '');
+              if (!body || !isConnected) return;
+              // ログを消す命令は送らせない (消したログは戻らない)
+              if (/^PMTK184\b|^PMTK182,6\b/i.test(body)) {
+                alert(t('ログを消す命令は、ここからは送れません。', 'Commands that erase logs cannot be sent from here.'));
+                return;
+              }
+              void runBusy(async () => {
+                try {
+                  await device.sendCommand(body);
+                } catch (err: any) {
+                  alert(err.message);
+                }
+              });
+            }}
+          >
+            <input
+              value={rawCommand}
+              onChange={e => setRawCommand(e.target.value)}
+              placeholder={t('開発用: 本体に送る命令 (例: PMTK220,100)', 'Dev: command to send (e.g. PMTK220,100)')}
+              className="flex-1 bg-surface-0 border border-line-2 rounded px-2 py-1 font-mono text-[11px] text-slate-200 select-text"
+              spellCheck={false}
+            />
+            <button type="submit" disabled={!isConnected || isBusy || !rawCommand.trim()} className="px-3 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold disabled:opacity-40 cursor-pointer">
+              {t('送る', 'Send')}
+            </button>
+          </form>
+        )}
+
         {consoleOpen && (
         <div className="h-44 bg-surface-0 rounded-lg p-3 font-mono text-[11px] overflow-y-auto space-y-1 select-text">
           {logs.length === 0 ? (
@@ -492,7 +555,24 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
         </div>
         )}
       </div>
+      </>)}
+      {canUseLoggerBle && canUseLoggerUsb && <BleLoggerCard />}
       {/* G のならし方の設定は、ロガーを使わなくても選べるようデータ管理タブに置く */}
+
+      {/* ログを消している間: 画面全体を覆って、ほかの操作をできなくする */}
+      {erasingSince !== null && createPortal(
+        <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-6" role="alertdialog" aria-modal="true" data-testid="erase-overlay">
+          <div className="max-w-md w-full bg-surface-2 border border-red-500/50 rounded-2xl p-6 shadow-2xl text-center space-y-4">
+            <div className="mx-auto w-10 h-10 rounded-full border-4 border-red-500/30 border-t-red-500 animate-spin" />
+            <h2 className="text-lg font-bold text-red-300">{t('本体のログを消去しています', 'Erasing the logs on the logger')}</h2>
+            <p className="text-sm text-slate-200 leading-relaxed">
+              {t('1〜2 分かかります。終わるまで、画面を閉じたり、USB を抜いたり、ほかの操作をしたりしないでください。', 'This takes 1-2 minutes. Until it finishes, do not close this window, unplug the USB cable or do anything else.')}
+            </p>
+            <p className="text-xs font-mono text-slate-400">{t(`経過 ${Math.max(0, Math.floor((now - erasingSince) / 1000))} 秒`, `${Math.max(0, Math.floor((now - erasingSince) / 1000))} s elapsed`)}</p>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

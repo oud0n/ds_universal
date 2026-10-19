@@ -1,7 +1,7 @@
 import React, { useRef, useState, useCallback, useMemo } from 'react';
 import { Layers, Video, Gauge, MapPin, ChevronDown, ChevronUp } from 'lucide-react';
 import { Session } from '../types/telemetry';
-import { VideoTrack } from '../services/videoSyncManager';
+import { PlacedTrack } from '../services/videoSyncManager';
 import { VideoChapterGroup } from '../services/videoChapterManager';
 import { SyncPin, formatPinTime } from '../services/videoSyncPinManager';
 import { useT } from '../utils/i18n';
@@ -9,8 +9,8 @@ import { useT } from '../utils/i18n';
 export interface MasterTimelineTrackBarProps {
   session: Session | undefined;
   baseLap: any;
-  activeTrack: VideoTrack | undefined;
-  subTrack: VideoTrack | undefined;
+  activeTrack: PlacedTrack | undefined;
+  subTrack: PlacedTrack | undefined;
   chapterGroup: VideoChapterGroup | null;
   pins: SyncPin[];
   currentSessionTimeSec: number; // セッション絶対時間 (秒)
@@ -54,12 +54,15 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
       if (vidEnd > max) max = vidEnd;
     }
 
+    // サブの動画は、ログ・メインの動画と時間が重なるときだけ範囲に入れる (撮影日の違う動画で、範囲が何日にも伸びないように)
     if (subTrack) {
       const subStart = subTrack.syncOffsetSec || 0;
       const subEnd = subStart + (subTrack.durationSec || 0);
 
-      if (subStart < min) min = subStart;
-      if (subEnd > max) max = subEnd;
+      if (subEnd > min && subStart < max) {
+        if (subStart < min) min = subStart;
+        if (subEnd > max) max = subEnd;
+      }
     }
 
     const dur = Math.max(1, max - min);

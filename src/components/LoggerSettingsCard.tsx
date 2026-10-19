@@ -196,6 +196,10 @@ export const LoggerSettingsCard: React.FC<LoggerSettingsCardProps> = ({
                   );
                 })}
               </div>
+              {/* BUG-27: スイッチが BLE のときは、10 Hz・5 Hz にしても記録も BLE の送信も 20 Hz だった。LOG のときは設定どおり (2026-10-19、DS4 v1.01) */}
+              <p className="text-[11px] text-amber-300 leading-relaxed" data-testid="rate-fixed-note">
+                {t('本体のスイッチが BLE のときは、設定によらず 20 Hz で記録・送信します。設定の周期で記録するのは LOG のときです（デジスパイスIV 本体の仕様とみられます。アプリの設定の不具合ではありません）。', 'When the logger\'s switch is set to BLE, it records and transmits at 20 Hz regardless of this setting. The chosen rate applies in LOG mode (this appears to be how the DigSpice IV itself works, not a problem with this app\'s setting).')}
+              </p>
               <p className="text-[10px] text-slate-500 leading-relaxed" data-testid="rate-note">
                 {t('公式ソフトでレートを変えたときと同じ命令を送るため、記録する項目などの本体の記録設定も標準の値に書き直されます。', 'This sends the same commands as changing the rate in the official software, so the logger\'s other recording settings (such as which items are logged) are also reset to their standard values.')}
               </p>
