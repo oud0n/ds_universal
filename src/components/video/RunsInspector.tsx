@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, MapPin } from 'lucide-react';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 import type { Session } from '../../types/telemetry';
 import type { PlayableMedia } from '../../services/playableMedia';
 import { deriveRuns, runOfSession, Run } from '../../services/runs';
@@ -74,6 +75,7 @@ interface RunsInspectorProps {
 
 export const RunsInspector: React.FC<RunsInspectorProps> = ({ sessions, media, onChooseLog, onClose }) => {
   const t = useT();
+  useEscapeKey(true, onClose);
   const [runs, setRuns] = useState<Run[] | null>(null);
   useEffect(() => {
     let alive = true;

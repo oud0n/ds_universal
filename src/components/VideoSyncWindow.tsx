@@ -36,6 +36,7 @@ import { tr, useT } from '../utils/i18n';
 import { fileAccept, isIOS } from '../utils/device';
 import { useCompactLayout, useLandscape } from '../hooks/useCompactLayout';
 import { useWheelScrollX } from '../hooks/useWheelScrollX';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 export type { PipPosition };
 
@@ -334,6 +335,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   // 動画テレメトリ焼き込みエクスポートステート
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
+  // ピン留め同期・書き出しの設定のダイアログは、Esc キーでも閉じる
+  useEscapeKey(showPinModal, () => setShowPinModal(false));
+  useEscapeKey(showExportModal, () => setShowExportModal(false));
   const [exportRange, setExportRange] = useState<'lap' | 'all'>('lap');
   const [exportResolution, setExportResolution] = useState<'1080p' | '720p'>('1080p');
   const [exportFps, setExportFps] = useState<number>(30);
