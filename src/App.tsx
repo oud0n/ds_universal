@@ -1713,7 +1713,7 @@ export const App: React.FC = () => {
       {/* グラフ解析の再生の段 (シークバーと再生のボタン。動画同期の画面の下の段と同じ並び)。スマートフォンでは、この下にタブバー */}
       {currentTab === 'graph' && baseLap && (
         <PlayBar
-          label={`L${baseLap.lapNumber}`}
+          label={baseLap.isWholeSession ? tr('全体', 'All') : `L${baseLap.lapNumber}`}
           currentTime={currentTimeSec}
           endTime={playEndTime}
           isPlaying={isPlaying}
