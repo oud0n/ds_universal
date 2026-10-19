@@ -494,12 +494,17 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     return `${m}/${day} ${hh}:${mm}:${ss}`;
   };
 
-  // 動画再生時間フォーマット (MM:SS)
+  // 動画再生時間フォーマット (M:SS。1 時間を超えたら H:MM:SS、1 日を超えたら日数も付ける。撮影日の違う動画を読むと範囲が何日にもなる)
   const formatDuration = (sec: number): string => {
-    const sClamped = Math.max(0, sec);
-    const m = Math.floor(sClamped / 60);
-    const s = Math.floor(sClamped % 60);
-    return `${m}:${String(s).padStart(2, '0')}`;
+    const sClamped = Math.max(0, Math.floor(sec));
+    const d = Math.floor(sClamped / 86400);
+    const h = Math.floor((sClamped % 86400) / 3600);
+    const m = Math.floor((sClamped % 3600) / 60);
+    const s = sClamped % 60;
+    const ss = String(s).padStart(2, '0');
+    if (sClamped < 3600) return `${m}:${ss}`;
+    const hms = `${h}:${String(m).padStart(2, '0')}:${ss}`;
+    return d > 0 ? `${d}${t('日', 'd')} ${hms}` : hms;
   };
 
   const gpsStartTime = baseSession?.points[0]?.timestamp ? new Date(baseSession.points[0].timestamp) : null;
