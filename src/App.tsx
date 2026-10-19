@@ -1607,6 +1607,8 @@ export const App: React.FC = () => {
                       onPickCompareLap={(sessionId, lapNumber) => handleSelectCarSlot(1, sessionId, lapNumber)}
                       onLoadFiles={loadFiles}
                       viewKey="graph-b"
+                      // 左下にも車載動画を出しているときは、こちらの音を消す (同じ動画の音が二重になるため)
+                      muted={leftBottomMode === 'video' && !collapsed.anim}
                       onSetClockOffset={setSessionClockOffset}
                       compareCars={activeCars}
                     />
