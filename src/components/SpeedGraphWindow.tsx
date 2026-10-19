@@ -111,6 +111,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     return () => observer.disconnect();
   }, []);
 
+  // 右上の値の箱を左へ寄せるか (カーソルを描くときに決める)
+  const [valueBoxOnLeft, setValueBoxOnLeft] = useState(false);
   // 現在位置のカーソルを、上に重ねた canvas に描く (下の canvas を描いた配置を使う)
   const cursorValueRef = useRef(0);
   cursorValueRef.current = xAxisMode === 'distance' ? currentDistance : currentTime;
@@ -129,6 +131,9 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     const ctx = prepareCanvas(canvas, width, height);
     if (!ctx) return;
     const currentCursorX = paddingLeft + ((cursorValueRef.current - domainStart) / domainRange) * plotWidth;
+    // 赤い線が右寄り (グラフの 6 割より右) なら、右上の値の箱を左へ寄せる (描いた配置で決める。同じなら描き直さない)
+    const onLeft = domainRange > 0 && (cursorValueRef.current - domainStart) / domainRange > 0.6;
+    setValueBoxOnLeft(prev => (prev === onLeft ? prev : onLeft));
     if (currentCursorX >= paddingLeft && currentCursorX <= width - paddingRight) {
       ctx.strokeStyle = '#ef4444';
       ctx.lineWidth = 1.5;
@@ -647,6 +652,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     setViewRange([0, 1]);
   };
 
+
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
@@ -769,8 +775,9 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
         <canvas ref={cursorCanvasRef} className="absolute inset-0 pointer-events-none block" />
 
         {/* 右上リアルタイム数値インジケーター (車両がないときは出さない) */}
+        {/* 赤い線が右寄り (グラフの 6 割より右) にあるときは左上に出す (いま見ている所を隠さないように) */}
         {cars.length > 0 && (
-          <div className={`absolute bg-surface-0/86 backdrop-blur-sm border border-line-2 rounded-md flex flex-col gap-1 shadow-md pointer-events-none ${compact ? 'top-1 right-1 p-1 text-[10px]' : 'top-2 right-3 p-2 text-xs min-w-[130px]'}`}>
+          <div className={`absolute bg-surface-0/75 backdrop-blur-sm border border-line-2 rounded-md flex flex-col gap-1 shadow-md pointer-events-none ${compact ? 'top-1 p-1 text-[10px]' : 'top-2 p-2 text-xs min-w-[130px]'} ${valueBoxOnLeft ? (compact ? 'left-[50px]' : 'left-[60px]') : (compact ? 'right-1' : 'right-3')}`}>
             {cars.map((c, idx) => {
               // 現在のポイント検索
               const pts = c.lap.points;
