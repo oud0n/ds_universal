@@ -113,7 +113,8 @@ export const VideoTile: React.FC<VideoTileProps> = ({
     <div
       ref={hostRef}
       onClick={onClick}
-      className={`relative flex items-center justify-center bg-black overflow-hidden ${onClick ? 'cursor-pointer' : ''} ${className}`}
+      // 色の枠は内側に描くので、その幅 (2px) だけ内側に余白を取り、動画が枠に重ならないようにする
+      className={`relative flex items-center justify-center bg-black overflow-hidden ${accent ? 'p-0.5' : ''} ${onClick ? 'cursor-pointer' : ''} ${className}`}
       style={accent ? { boxShadow: `inset 0 0 0 2px ${accent}` } : undefined}
     >
       {src ? (
