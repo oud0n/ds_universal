@@ -9,6 +9,8 @@ import { useT } from '../utils/i18n';
 
 // 段 (目盛り・GPS・動画) の左右の余白。枠の px-2 (8px) と同じ
 const TRACK_INSET_PX = 8;
+/** 枠の直下に置く印 (再生の位置・ピン) の left。段と同じ内側の幅の中の割合 (0〜100) で置く */
+const insetLeft = (percent: number) => `calc(${TRACK_INSET_PX}px + (100% - ${TRACK_INSET_PX * 2}px) * ${percent / 100})`;
 export interface MasterTimelineTrackBarProps {
   session: Session | undefined;
   baseLap: any;
@@ -293,7 +295,7 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
             return (
               <div
                 key={pin.id}
-                style={{ left: `${p}%` }}
+                style={{ left: insetLeft(p) }}
                 className="absolute top-3 bottom-0 w-[1px] bg-amber-400/80 z-25 pointer-events-none"
               >
                 <div
@@ -313,7 +315,7 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
           {/* 6. 再生ヘッド (Playhead / 赤い針) */}
           <div
             // 段と同じ内側 (左右の余白を除いた幅) で置く。枠全体の幅で置くと、右へ行くほど段の箱より先に出て見えていた
-            style={{ left: `calc(${TRACK_INSET_PX}px + (100% - ${TRACK_INSET_PX * 2}px) * ${playheadPercent / 100})` }}
+            style={{ left: insetLeft(playheadPercent) }}
             className="absolute top-0 bottom-0 w-[2px] -ml-px bg-red-500 z-30 pointer-events-none shadow-[0_0_4px_rgba(239,68,68,0.8)]"
           >
             {/* 上部インジケーターヘッド */}
