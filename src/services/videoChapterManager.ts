@@ -1,7 +1,7 @@
 /**
  * GoPro / DJI / アクションカメラ チャプター分割動画（4GB制限分割）自動管理モジュール
  */
-import { VideoTrack } from './videoSyncManager';
+import type { VideoTrack, PlacedTrack } from './videoSyncManager';
 
 export interface ChapterInfo {
   brand: 'gopro' | 'dji' | 'generic';
@@ -10,21 +10,25 @@ export interface ChapterInfo {
   originalFileName: string;
 }
 
-export interface VideoChapterTrack {
-  track: VideoTrack;
+/**
+ * チャプターの動画。T は、保存している動画 (VideoTrack) か、画面の基準のログの時刻に置いた動画 (PlacedTrack)。
+ * 時刻 (baseSyncOffsetSec) は PlacedTrack のグループだけで意味を持つ
+ */
+export interface VideoChapterTrack<T extends VideoTrack = PlacedTrack> {
+  track: T;
   chapterInfo: ChapterInfo;
   chapterIndex: number;
   groupOffsetSec: number; // チャプター1開始からの累積オフセット秒 (チャプター1は0)
   durationSec: number;
 }
 
-export interface VideoChapterGroup {
+export interface VideoChapterGroup<T extends VideoTrack = PlacedTrack> {
   groupId: string;             // 例: "chapter_gopro_0017"
   brand: string;
   sessionId: string;
-  tracks: VideoChapterTrack[]; // chapterIndex 昇順でソート済み
+  tracks: VideoChapterTrack<T>[]; // chapterIndex 昇順でソート済み
   totalDurationSec: number;    // グループ全体の合計再生時間 (秒)
-  baseSyncOffsetSec: number;   // チャプター1の同期オフセット (秒)
+  baseSyncOffsetSec: number;   // チャプター1の同期オフセット (秒)。PlacedTrack のグループだけ (VideoTrack のグループでは 0)
   matchedSessionId: string | null;
 }
 
@@ -121,12 +125,12 @@ export function detectChapterInfo(fileName: string): ChapterInfo | null {
 /**
  * 登録されている全動画トラックをチャプターグループと単独トラックに分類・連結計算
  */
-export function groupVideoTracksByChapter(tracks: VideoTrack[]): {
-  groups: VideoChapterGroup[];
-  standaloneTracks: VideoTrack[];
+export function groupVideoTracksByChapter<T extends VideoTrack>(tracks: T[]): {
+  groups: VideoChapterGroup<T>[];
+  standaloneTracks: T[];
 } {
-  const standaloneTracks: VideoTrack[] = [];
-  const groupMap = new Map<string, { brand: string; sessionId: string; tracks: VideoChapterTrack[] }>();
+  const standaloneTracks: T[] = [];
+  const groupMap = new Map<string, { brand: string; sessionId: string; tracks: VideoChapterTrack<T>[] }>();
 
   tracks.forEach(track => {
     const info = detectChapterInfo(track.fileName);
@@ -153,7 +157,7 @@ export function groupVideoTracksByChapter(tracks: VideoTrack[]): {
     });
   });
 
-  const groups: VideoChapterGroup[] = [];
+  const groups: VideoChapterGroup<T>[] = [];
 
   groupMap.forEach((gData, key) => {
     // もし単一チャプターのみで、チャプター番号も1の場合は単独トラックとしても扱えるが、
@@ -172,11 +176,11 @@ export function groupVideoTracksByChapter(tracks: VideoTrack[]): {
     // オフセットが設定されているトラックを探して逆算
     const matchedTrack = gData.tracks.find(ct => ct.track.matchedSessionId) || gData.tracks[0];
     if (matchedTrack) {
-      baseSyncOffsetSec = (matchedTrack.track.syncOffsetSec || 0) - matchedTrack.groupOffsetSec;
+      baseSyncOffsetSec = ((matchedTrack.track as Partial<PlacedTrack>).syncOffsetSec || 0) - matchedTrack.groupOffsetSec;
       matchedSessionId = matchedTrack.track.matchedSessionId || null;
     }
 
-    const group: VideoChapterGroup = {
+    const group: VideoChapterGroup<T> = {
       groupId: `chapter_${key}`,
       brand: gData.brand,
       sessionId: gData.sessionId,
@@ -190,19 +194,6 @@ export function groupVideoTracksByChapter(tracks: VideoTrack[]): {
   });
 
   return { groups, standaloneTracks };
-}
-
-/**
- * チャプターグループ全体の基準オフセットを変更した際、全チャプターの syncOffsetSec を再計算
- */
-export function syncGroupOffsets(group: VideoChapterGroup, baseSyncOffsetSec: number): void {
-  group.baseSyncOffsetSec = Number(baseSyncOffsetSec.toFixed(3));
-  group.tracks.forEach(ct => {
-    ct.track.syncOffsetSec = Number((group.baseSyncOffsetSec + ct.groupOffsetSec).toFixed(3));
-    if (group.matchedSessionId) {
-      ct.track.matchedSessionId = group.matchedSessionId;
-    }
-  });
 }
 
 /**
@@ -276,10 +267,10 @@ export function resolveChapterPlayback(
 /**
  * 現在のチャプターから次のチャプターを取得 (シームレス連続再生用)
  */
-export function getNextChapter(
-  group: VideoChapterGroup,
+export function getNextChapter<T extends VideoTrack>(
+  group: VideoChapterGroup<T>,
   currentTrackId: string
-): VideoChapterTrack | null {
+): VideoChapterTrack<T> | null {
   const index = group.tracks.findIndex(ct => ct.track.id === currentTrackId);
   if (index !== -1 && index + 1 < group.tracks.length) {
     return group.tracks[index + 1];
@@ -290,10 +281,10 @@ export function getNextChapter(
 /**
  * 現在のチャプターから前のチャプターを取得
  */
-export function getPreviousChapter(
-  group: VideoChapterGroup,
+export function getPreviousChapter<T extends VideoTrack>(
+  group: VideoChapterGroup<T>,
   currentTrackId: string
-): VideoChapterTrack | null {
+): VideoChapterTrack<T> | null {
   const index = group.tracks.findIndex(ct => ct.track.id === currentTrackId);
   if (index !== -1 && index > 0) {
     return group.tracks[index - 1];
@@ -304,10 +295,10 @@ export function getPreviousChapter(
 /**
  * トラックIDから所属するチャプターグループを検索
  */
-export function findChapterGroupForTrack(
-  groups: VideoChapterGroup[],
+export function findChapterGroupForTrack<T extends VideoTrack>(
+  groups: VideoChapterGroup<T>[],
   trackId: string
-): VideoChapterGroup | null {
+): VideoChapterGroup<T> | null {
   for (const group of groups) {
     if (group.tracks.some(ct => ct.track.id === trackId)) {
       return group;

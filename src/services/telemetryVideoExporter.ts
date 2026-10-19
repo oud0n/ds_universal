@@ -40,6 +40,45 @@ export function getSupportedVideoMimeType(): string {
   return 'video/webm';
 }
 
+// 書き出しに動画の音を入れる (Web Audio で動画の音を取り出し、録る stream に足す)。
+// createMediaElementSource は 1 つの動画に 1 回しか作れず、作ると音はその道を通るようになるので、作った道は覚えておき、
+// ふだんの再生でも聞こえるよう、いつもスピーカーにもつないでおく
+let audioCtx: AudioContext | null = null;
+const audioSources = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
+
+/** video の音を stream に足す。書き出しの間は音を出す (消音だと無音で録れるため)。戻り値で元に戻す */
+function attachVideoAudio(stream: MediaStream, video: HTMLVideoElement | null | undefined): () => void {
+  if (!video) return () => {};
+  try {
+    audioCtx ??= new AudioContext();
+    void audioCtx.resume();
+    let source = audioSources.get(video);
+    if (!source) {
+      source = audioCtx.createMediaElementSource(video);
+      source.connect(audioCtx.destination);
+      audioSources.set(video, source);
+      // この動画の音は、これからずっと Web Audio を通る。Web Audio が止められていると (iPhone で裏に回ったときなど)
+      // ふだんの再生で音が出なくなるので、再生するたびに起こし直す
+      video.addEventListener('play', () => { void audioCtx?.resume(); });
+    }
+    const dest = audioCtx.createMediaStreamDestination();
+    source.connect(dest);
+    dest.stream.getAudioTracks().forEach(track => stream.addTrack(track));
+    const wasMuted = video.muted;
+    video.muted = false;
+    const src = source;
+    return () => {
+      try { src.disconnect(dest); } catch { /* つないでいなければよい */ }
+      dest.stream.getTracks().forEach(track => track.stop());
+      video.muted = wasMuted;
+    };
+  } catch (e) {
+    // 音を取り出せなくても、映像だけは書き出す
+    console.warn('[export] 動画の音を書き出しに入れられない:', e);
+    return () => {};
+  }
+}
+
 export function exportBurnedInVideo(options: VideoExportOptions): VideoExportController {
   const {
     videoElement,
@@ -76,6 +115,7 @@ export function exportBurnedInVideo(options: VideoExportOptions): VideoExportCon
 
   const mimeType = getSupportedVideoMimeType();
   const stream = canvas.captureStream(fps);
+  const detachAudio = attachVideoAudio(stream, videoElement);
 
   const chunks: Blob[] = [];
 
@@ -84,6 +124,7 @@ export function exportBurnedInVideo(options: VideoExportOptions): VideoExportCon
   const restoreVideo = () => {
     if (restored) return;
     restored = true;
+    detachAudio();
     videoElement.pause();
     videoElement.playbackRate = origPlaybackRate;
     videoElement.currentTime = origCurrentTime;
@@ -221,4 +262,70 @@ export function downloadBlob(blob: Blob, fileName: string): void {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+/**
+ * canvas に描いたものを、そのまま実時間で録る (枠の並びの書き出し)。動画は呼ぶ側がふだんの再生 (App の時刻) で動かし、
+ * draw はコマごとに枠を canvas に描いて、進み具合を返す。done を返したら録るのをやめる
+ */
+export function recordCanvas(options: {
+  width: number;
+  height: number;
+  fps?: number;
+  bitrate?: number;
+  outputFileName: string;
+  draw: (ctx: CanvasRenderingContext2D) => { currentSec: number; totalSec: number; done: boolean };
+  onProgress?: (progress: { currentSec: number; totalSec: number; percent: number }) => void;
+  /** 音を入れる動画 (メインの枠)。なければ音なし */
+  audioFrom?: HTMLVideoElement | null;
+}): VideoExportController {
+  const { width, height, fps = 30, bitrate = 12_000_000, outputFileName, draw, onProgress, audioFrom } = options;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d', { alpha: false });
+  if (!ctx) return { cancel: () => {}, promise: Promise.reject(new Error('Canvas 2D context を取得できませんでした')) };
+  const mimeType = getSupportedVideoMimeType();
+  const stream = canvas.captureStream(fps);
+  const detachAudio = attachVideoAudio(stream, audioFrom);
+  const chunks: Blob[] = [];
+  let recorder: MediaRecorder;
+  try {
+    recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: bitrate });
+  } catch {
+    recorder = new MediaRecorder(stream);
+  }
+  let cancelled = false;
+  let frame: number | null = null;
+  const promise = new Promise<Blob>((resolve, reject) => {
+    recorder.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+    recorder.onstop = () => {
+      detachAudio();
+      if (cancelled) { reject(new Error('エクスポートがユーザーによりキャンセルされました')); return; }
+      const finalType = mimeType.includes('mp4') ? 'video/mp4' : 'video/webm';
+      const blob = new Blob(chunks, { type: finalType });
+      downloadBlob(blob, outputFileName.replace(/\.(mp4|webm|mov)$/i, '') + (finalType === 'video/mp4' ? '.mp4' : '.webm'));
+      resolve(blob);
+    };
+    recorder.start(250);
+    const loop = () => {
+      if (cancelled) return;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, width, height);
+      const p = draw(ctx);
+      onProgress?.({ currentSec: p.currentSec, totalSec: p.totalSec, percent: Number(Math.min(100, Math.max(0, (p.currentSec / Math.max(0.1, p.totalSec)) * 100)).toFixed(1)) });
+      if (p.done) { recorder.stop(); return; }
+      frame = requestAnimationFrame(loop);
+    };
+    frame = requestAnimationFrame(loop);
+  });
+  return {
+    cancel: () => {
+      if (cancelled || recorder.state === 'inactive') return;
+      cancelled = true;
+      if (frame !== null) cancelAnimationFrame(frame);
+      recorder.stop();
+    },
+    promise
+  };
 }

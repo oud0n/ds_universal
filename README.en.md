@@ -1,10 +1,12 @@
-<p align="center"><img src="build/icon.svg" width="128" height="128" alt="DS Universal icon"></p>
+<p align="center"><img src="build/icon.svg" width="128" height="128" alt="LapLoupe icon"></p>
 
-# DS Universal (`ds_universal`)
+# LapLoupe (formerly DS Universal) — Lap / Track Analyzer
 
 [日本語](README.md) | **English**
 
-**DigSpice IV USB communication and log download, motorsport telemetry analysis, and onboard video sync**
+**An unofficial lap and track analyzer for the DigSpice GPS logger that runs on Mac, Windows and in the browser**
+
+Log download and logger settings for DigSpice IV, racing line / speed / G analysis, and onboard video (GoPro etc.) sync
 
 ![Supported OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon-blue)
 ![Verification](https://img.shields.io/badge/Verified-macOS%20Only-amber)
@@ -24,11 +26,17 @@
 
 The app's screens can be switched between Japanese and English ("JA / EN" at the top right). The first time, it follows your browser's language.
 
+> [!NOTE]
+> ### New name (2026-10-19)
+> The app was renamed from "DS Universal" to **LapLoupe**.
+> Searching for "DS Universal" mostly brings up unrelated, rather undesirable sites such as game console modding tools.
+> The repository name (`ds_universal`) and the browser version's URL stay the same. The name inside the app will be updated step by step.
+
 ---
 
 ## 🏎️ Overview
 
-**DS Universal (`ds_universal`)** is a source-available desktop application for the DigSpice IV, a GPS data logger for circuit driving. It brings together downloading logs from the logger and changing its settings, telemetry analysis of the driving line, speed and G-forces, and onboard video: automatic synchronisation with GoPro footage to the millisecond, two-camera picture-in-picture playback, and exporting MP4 video with the gauges burned in.
+**LapLoupe (formerly DS Universal, `ds_universal`)** is an unofficial, source-available app (desktop and browser) for the DigSpice IV, a GPS data logger for circuit driving whose official analysis software runs only on Windows. a GPS data logger for circuit driving. It brings together downloading logs from the logger and changing its settings, telemetry analysis of the driving line, speed and G-forces, and onboard video: automatic synchronisation with GoPro footage to the millisecond, two-camera picture-in-picture playback, and exporting MP4 video with the gauges burned in.
 
 ---
 
@@ -169,6 +177,31 @@ Then double-click the app as usual, or **Control-click (right-click) it and choo
 ---
 
 ## 📝 Release notes
+
+### v0.12.0 (unreleased)
+
+<!-- Draft. Add PLAN-16 (FIT / TCX) and PLAN-12 (automatic timing line) here once merged -->
+
+**Added**
+
+- **Onboard video rework**: videos and logs are now handled together as "runs".
+  - **Multi-camera**: watch one car's run from up to 4 cameras at the same time (side by side, 2×2, picture-in-picture; click a view to enlarge it).
+  - **Run comparison**: shows the videos of the Car 1-4 laps at the moment each car was at the same point as Car 1. Slower laps play faster, and each view shows its own gauges and the time gap to Car 1. Works with a single video too (another lap of the same video).
+  - **Per-log clock correction**: fixes each logger's GPS delay. "Auto" estimates it by comparing positions with another log of the same run and only applies confident results.
+  - **Same-run check**: videos are no longer attached to another car's log that merely covers the same time (a teammate in the same session).
+  - **Run inspector**: one screen with each run's logs and videos, how each video is timed (GPS / synced / file time) and a map.
+  - **GoPro .LRV**: load the low-res copies too and the small views play lighter.
+  - **Export the layout of views** (with gauges and car labels).
+- **Video on phones**: the phone layout now has the video tab (run comparison stacks 2 views, multi-camera switches by swiping).
+- **Narrow windows**: desktop windows narrower than 600px also use the phone layout.
+- **Trim in log conversion**: for logs that keep recording while parked, the graph first shows only the driving part, and "Export only the driving part" sets the range.
+
+**Fixed**
+
+- A sub video recorded at a different time was pulled to the main video's time.
+- The gauges were misplaced over the main video in split / PiP view.
+- Videos stayed black or stuttered in Safari on iPhone.
+- Saving and loading a sync project could lose the video positions and log clock corrections (sync projects are now format 2.0; 1.0 still loads).
 
 ### v0.11.0
 
