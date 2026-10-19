@@ -18,7 +18,11 @@ export interface PlaybackTarget {
   rate?: number;
 }
 
-const DEADBAND_SEC = 0.016;
+// ずれを詰め始める大きさと、詰め終える大きさ (行ったり来たりしないよう、間をあける)。
+// 速さを変えるのは 0.5 秒に 1 回まで (速さを小刻みに変えると、iPhone の Safari では映像と音が引っかかる)
+const CORRECT_START_SEC = 0.04;
+const CORRECT_STOP_SEC = 0.015;
+const RATE_CHANGE_INTERVAL_MS = 500;
 const MIN_RATE = 0.25;
 const MAX_RATE = 4;
 /** これより大きくずれたら飛ぶ。倍率のある枠 (走行比較) は、速さの変わり目で外れやすいので小さめにする */
@@ -30,6 +34,10 @@ interface Entry {
   /** 最後に出たコマの、動画の中の時刻と、それを受け取った時刻 (performance.now) */
   frame: { mediaTime: number; at: number } | null;
   frameHandle: number | null;
+  /** ずれを詰めているところか */
+  correcting: boolean;
+  /** 最後に速さを変えた時刻 (performance.now) */
+  rateChangedAt: number;
 }
 
 type FrameVideo = HTMLVideoElement & {
@@ -37,8 +45,23 @@ type FrameVideo = HTMLVideoElement & {
   cancelVideoFrameCallback?: (h: number) => void;
 };
 
+/**
+ * 再生を始める。iPhone の Safari は、音の出る動画を、画面に触れた操作の中でしか再生させない (アプリの時刻で後から始めると断られる)。
+ * 断られたら音を消して再生し直す (音のない動画は、操作がなくても再生できる)。音は、画面に触れたときに VideoTile が戻す
+ */
+function playSafely(el: HTMLVideoElement): void {
+  el.play().catch((err: unknown) => {
+    if ((err as { name?: string })?.name === 'NotAllowedError' && !el.muted) {
+      el.muted = true;
+      el.play().catch(() => {});
+    }
+  });
+}
+
 export class PlaybackController {
   private entries = new Map<string, Entry>();
+  // 止めたまま最初のコマを出すために、一度だけ再生して止めた動画 (iPhone の Safari は、再生するまで動画を読み込まず、黒いまま)
+  private primed = new WeakSet<HTMLVideoElement>();
 
   /** 枠の <video> を登録する (ref のコールバックから。null で外す) */
   attach(key: string, el: HTMLVideoElement | null): void {
@@ -46,7 +69,7 @@ export class PlaybackController {
     if (old && old.el === el) return;
     if (old) this.stopFrames(old);
     if (!el) { this.entries.delete(key); return; }
-    const entry: Entry = { el, frame: null, frameHandle: null };
+    const entry: Entry = { el, frame: null, frameHandle: null, correcting: false, rateChangedAt: 0 };
     this.entries.set(key, entry);
     this.watchFrames(entry);
   }
@@ -110,6 +133,16 @@ export class PlaybackController {
     const diff = localTime - this.shownTime(entry); // 正なら動画が遅れている
     // 止めているとき・倍率が範囲の外 (比べる車が止まっている・Car 1 が止まっているなど) は、位置だけ合わせる
     if (!isPlaying || base < MIN_RATE * speed || base > MAX_RATE * speed) {
+      // コマをまだ読んでいない動画 (iPhone) は、音を消して一度だけ再生して止め、止めたままでもコマを出せるようにする
+      if (el.readyState < 2 && !this.primed.has(el)) {
+        this.primed.add(el);
+        const wasMuted = el.muted;
+        const target = localTime;
+        el.muted = true;
+        // 再生が始まったら止めて、今の位置へ移す (移し終えると seeked で、もう一度合わせる)
+        el.play().then(() => { el.pause(); el.muted = wasMuted; el.currentTime = target; }).catch(() => { el.muted = wasMuted; el.currentTime = target; });
+        return;
+      }
       if (!el.paused) el.pause();
       // 止めているときはコマ送り (0.1 秒) にも付いていけるよう、細かく合わせる
       if (Math.abs(diff) > 0.02) el.currentTime = localTime;
@@ -122,11 +155,20 @@ export class PlaybackController {
       if (Math.abs(el.playbackRate - base) > 0.001) el.playbackRate = base;
     } else {
       // 少しのずれは、再生の速さを少し変えて追いつく (毎回飛ぶと映像が止まって見える)
-      const correction = Math.abs(diff) < DEADBAND_SEC ? 0 : Math.max(-0.1, Math.min(0.1, diff * 0.5));
+      if (Math.abs(diff) > CORRECT_START_SEC) entry.correcting = true;
+      else if (Math.abs(diff) < CORRECT_STOP_SEC) entry.correcting = false;
+      const correction = entry.correcting ? Math.max(-0.1, Math.min(0.1, diff * 0.5)) : 0;
       const rate = Math.max(MIN_RATE * speed, Math.min(MAX_RATE * speed, base * (1 + correction)));
-      // 速さを小刻みに変えない (1% より小さい変化は無視する。ただし遊びの中に戻ったら元の速さへ)
-      if (Math.abs(el.playbackRate - rate) > Math.max(0.001, rate * (correction === 0 ? 0.001 : 0.01))) el.playbackRate = rate;
+      // 速さを小刻みに変えない (2% より小さい変化と、前に変えてから 0.5 秒たたないうちの変化はしない。ただし詰め終えたら元の速さへすぐ戻す)
+      const now = performance.now();
+      const big = Math.abs(el.playbackRate - rate) > Math.max(0.001, rate * 0.02);
+      const backToBase = !entry.correcting && Math.abs(el.playbackRate - rate) > 0.001;
+      if (backToBase || (big && now - entry.rateChangedAt >= RATE_CHANGE_INTERVAL_MS)) {
+        el.playbackRate = rate;
+        entry.rateChangedAt = now;
+      }
     }
-    if (el.paused && el.readyState >= 2) el.play().catch(() => {});
+    // 長さが分かっていれば再生を始める (iPhone の Safari は再生を始めるまでコマを読まないので、コマを読むのを待たない)
+    if (el.paused && el.readyState >= 1) playSafely(el);
   }
 }
