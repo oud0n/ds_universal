@@ -29,6 +29,8 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
   const [logs, setLogs] = useState<Array<{ type: 'tx' | 'rx' | 'sys' | 'err'; msg: string; time: string }>>([]);
   // 通信コンソールを開いているか (ふだんはたたんでおく)
   const [consoleOpen, setConsoleOpen] = useState(false);
+  // 開発版だけ: 通信コンソールから命令を 1 行送る (本体の動きを調べるため)
+  const [rawCommand, setRawCommand] = useState('');
 
   const [config, setConfig] = useState<DeviceConfig | null>(null);
   const busyRef = useRef<boolean>(false);
@@ -463,6 +465,41 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
             </button>
           )}
         </div>
+
+        {consoleOpen && import.meta.env.DEV && (
+          <form
+            className="flex gap-2"
+            onSubmit={e => {
+              e.preventDefault();
+              // 先頭の $ と末尾のチェックサムは付けなくてよい (sendCommand が付ける)
+              const body = rawCommand.trim().replace(/^\$/, '').replace(/\*[0-9A-F]{2}$/i, '');
+              if (!body || !isConnected) return;
+              // ログを消す命令は送らせない (消したログは戻らない)
+              if (/^PMTK184\b|^PMTK182,6\b/i.test(body)) {
+                alert(t('ログを消す命令は、ここからは送れません。', 'Commands that erase logs cannot be sent from here.'));
+                return;
+              }
+              void runBusy(async () => {
+                try {
+                  await device.sendCommand(body);
+                } catch (err: any) {
+                  alert(err.message);
+                }
+              });
+            }}
+          >
+            <input
+              value={rawCommand}
+              onChange={e => setRawCommand(e.target.value)}
+              placeholder={t('開発用: 本体に送る命令 (例: PMTK220,100)', 'Dev: command to send (e.g. PMTK220,100)')}
+              className="flex-1 bg-surface-0 border border-line-2 rounded px-2 py-1 font-mono text-[11px] text-slate-200 select-text"
+              spellCheck={false}
+            />
+            <button type="submit" disabled={!isConnected || isBusy || !rawCommand.trim()} className="px-3 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold disabled:opacity-40 cursor-pointer">
+              {t('送る', 'Send')}
+            </button>
+          </form>
+        )}
 
         {consoleOpen && (
         <div className="h-44 bg-surface-0 rounded-lg p-3 font-mono text-[11px] overflow-y-auto space-y-1 select-text">

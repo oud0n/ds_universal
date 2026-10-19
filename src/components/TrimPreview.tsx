@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Flag, RotateCcw } from 'lucide-react';
+import { Flag, RotateCcw, Maximize2, Minimize2, Car } from 'lucide-react';
 import { Session } from '../types/telemetry';
 import { useLang, useT } from '../utils/i18n';
 
@@ -19,6 +19,9 @@ interface TrimPreviewProps {
 const MAX_DRAW_POINTS = 1500;
 // 開始と終了の最小の間隔 (秒)
 const MIN_SPAN_SEC = 1;
+// 走っているとみなす車速 (km/h) と、グラフで走っている部分の前後に付ける余白 (秒)
+const MOVING_KMH = 10;
+const VIEW_MARGIN_SEC = 30;
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
@@ -79,11 +82,35 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
   // 描ける点 (位置と車速が数値のもの)
   const isValid = (p: Session['points'][number]) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude) && Number.isFinite(p.speed);
 
+  // 走っている部分 (ログの先頭からの秒)。走り終わってもロガーを点けたままにしたログ (駐車中の記録が長く続く) で、
+  // グラフが左に寄って見えないよう、はじめはこの部分を (前後に余白を付けて) 大きく出す。「全体を表示」で全体に切り替える
+  const driving = useMemo(() => {
+    const first = pts.find(p => p.speed >= MOVING_KMH);
+    let last: typeof first;
+    for (let i = pts.length - 1; i >= 0; i--) if (pts[i].speed >= MOVING_KMH) { last = pts[i]; break; }
+    return first && last ? { start: first.time - t0, end: last.time - t0 } : null;
+  }, [pts, t0]);
+  // 走っている部分がログの 8 割より短いときだけ、寄せて出せる
+  const canZoom = !!driving && duration > 0 && (driving.end - driving.start) < duration * 0.8;
+  const [showWhole, setShowWhole] = useState(false);
+  useEffect(() => setShowWhole(false), [session.id]);
+  const view: [number, number] = canZoom && !showWhole && driving
+    ? [Math.max(0, driving.start - VIEW_MARGIN_SEC), Math.min(duration, driving.end + VIEW_MARGIN_SEC)]
+    : [0, duration];
+  const viewSpan = Math.max(1e-6, view[1] - view[0]);
+
   // 描く点 (間引いたもの)
   const drawPts = useMemo(() => {
     const step = Math.max(1, Math.ceil(pts.length / MAX_DRAW_POINTS));
     return pts.filter((p, i) => (i % step === 0 || i === pts.length - 1) && isValid(p));
   }, [pts]);
+  // グラフに描く点: 見ている部分の中の点を間引く (寄せて出しても線が粗くならないように)
+  const chartPts = useMemo(() => {
+    const inside = pts.filter(p => p.time - t0 >= view[0] && p.time - t0 <= view[1] && isValid(p));
+    const step = Math.max(1, Math.ceil(inside.length / MAX_DRAW_POINTS));
+    return inside.filter((_, i) => i % step === 0 || i === inside.length - 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pts, t0, view[0], view[1]]);
 
   // コース図: 緯度経度を平面に直して枠に収める
   const MAP_W = 1000;
@@ -123,17 +150,18 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
   const CH_W = 1000;
   const CH_H = 160;
   const maxSpeed = useMemo(() => drawPts.reduce((m, p) => Math.max(m, p.speed), 10), [drawPts]);
-  const xOf = (t: number) => (duration > 0 ? (t / duration) * CH_W : 0);
+  // 見ている部分の外は端にそろえる
+  const xOf = (t: number) => (Math.min(view[1], Math.max(view[0], t)) - view[0]) / viewSpan * CH_W;
   const yOf = (v: number) => CH_H - (v / (maxSpeed * 1.1)) * CH_H;
   const speedPath = useMemo(() => {
-    if (drawPts.length === 0) return '';
-    const line = drawPts.map((p, i) => `${i === 0 ? 'M' : 'L'}${xOf(p.time - t0).toFixed(1)},${yOf(p.speed).toFixed(1)}`).join('');
+    if (chartPts.length === 0) return '';
+    const line = chartPts.map((p, i) => `${i === 0 ? 'M' : 'L'}${xOf(p.time - t0).toFixed(1)},${yOf(p.speed).toFixed(1)}`).join('');
     // 塗りは、最初と最後の点の真下で閉じる
-    const xFirst = xOf(drawPts[0].time - t0).toFixed(1);
-    const xLast = xOf(drawPts[drawPts.length - 1].time - t0).toFixed(1);
+    const xFirst = xOf(chartPts[0].time - t0).toFixed(1);
+    const xLast = xOf(chartPts[chartPts.length - 1].time - t0).toFixed(1);
     return `${line}L${xLast},${CH_H}L${xFirst},${CH_H}Z`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawPts, t0, duration, maxSpeed]);
+  }, [chartPts, t0, view[0], view[1], maxSpeed]);
 
   // グラフ上でなぞっている (タップした) 地点 (ログの先頭からの秒。ラップの番号を押したときはその区切りちょうど)
   const [cursorSec, setCursorSec] = useState<number | null>(null);
@@ -163,7 +191,7 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
   const secFromPointer = (e: React.PointerEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const r = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    return r * duration;
+    return view[0] + r * viewSpan;
   };
 
   // 時刻の入力欄 (入力中の文字は、確定するまで範囲に反映しない)
@@ -226,6 +254,27 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
 
       {/* 車速のグラフ: なぞる (タップする) と地点を選ぶ */}
       <div className="space-y-1">
+        {canZoom && driving && (
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+            <span>
+              {showWhole
+                ? t(`ログ全体 (${formatSec(0)}〜${formatSec(duration)})`, `Whole log (${formatSec(0)}-${formatSec(duration)})`)
+                : t(`走っている部分 (${formatSec(driving.start)}〜${formatSec(driving.end)})。前後は止まっていた記録です`, `Driving part (${formatSec(driving.start)}-${formatSec(driving.end)}). The rest is recorded while stopped`)}
+            </span>
+            <button onClick={() => setShowWhole(v => !v)} className="flex items-center gap-1 px-2 py-0.5 rounded border border-line-3 hover:text-slate-200">
+              {showWhole ? <Minimize2 size={11} /> : <Maximize2 size={11} />}
+              {showWhole ? t('走っている部分を表示', 'Show the driving part') : t('全体を表示', 'Show the whole log')}
+            </button>
+            <button
+              onClick={() => apply(Math.max(0, driving.start - 5), Math.min(duration, driving.end + 5))}
+              className="flex items-center gap-1 px-2 py-0.5 rounded border border-line-3 hover:text-slate-200"
+              title={t('書き出す範囲を、走っている部分 (前後 5 秒を含む) にします', 'Set the export range to the driving part (with 5 s before and after)')}
+            >
+              <Car size={11} />
+              {t('走っている部分だけ書き出す', 'Export only the driving part')}
+            </button>
+          </div>
+        )}
         <svg
           viewBox={`0 0 ${CH_W} ${CH_H}`}
           preserveAspectRatio="none"
@@ -240,7 +289,7 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
           <line x1={xOf(startSec)} x2={xOf(startSec)} y1={0} y2={CH_H} stroke="#22c55e" strokeWidth={2} vectorEffect="non-scaling-stroke" />
           <line x1={xOf(endSec)} x2={xOf(endSec)} y1={0} y2={CH_H} stroke="#ef4444" strokeWidth={2} vectorEffect="non-scaling-stroke" />
           {/* ラップの区切りの目盛り */}
-          {lapMarks.map((m, i) => (
+          {lapMarks.filter(m => m.sec >= view[0] && m.sec <= view[1]).map((m, i) => (
             <line key={i} x1={xOf(m.sec)} x2={xOf(m.sec)} y1={0} y2={CH_H} stroke="var(--ds-canvas-axis)" strokeWidth={1} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
           ))}
           {cursorSec !== null && <line x1={xOf(cursorSec)} x2={xOf(cursorSec)} y1={0} y2={CH_H} stroke="#facc15" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />}
@@ -248,12 +297,12 @@ export const TrimPreview: React.FC<TrimPreviewProps> = ({ session, startSec, end
         {/* ラップの番号 (押すと、そのラップの始まりの地点を選ぶ。「1〜3 周目を切り出す」ときなどに使う) */}
         {lapMarks.length > 0 && (
           <div className="relative h-5 text-[10px] font-mono">
-            {lapMarks.filter(m => m.label).map((m, i) => (
+            {lapMarks.filter(m => m.label && m.sec >= view[0] && m.sec <= view[1]).map((m, i) => (
               <button
                 key={i}
                 onClick={() => setCursorSec(m.sec)}
                 title={m.end ? t('最後のラップの終わりを選ぶ', 'Select the end of the last lap') : t(`${m.label} の始まりを選ぶ`, `Select the start of ${m.label}`)}
-                style={{ left: `${(m.sec / duration) * 100}%` }}
+                style={{ left: `${((m.sec - view[0]) / viewSpan) * 100}%` }}
                 className="absolute -translate-x-1/2 px-1 rounded text-slate-400 hover:text-slate-100 hover:bg-surface-4"
               >
                 {m.label}

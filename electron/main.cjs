@@ -70,6 +70,19 @@ function buildMenu() {
         }
       ]
     },
+    // 編集: Mac では、このメニューがないと入力欄やコンソールで ⌘C・⌘V・⌘A が効かない
+    {
+      label: L('編集', 'Edit'),
+      submenu: [
+        { role: 'undo', label: L('取り消す', 'Undo') },
+        { role: 'redo', label: L('やり直す', 'Redo') },
+        { type: 'separator' },
+        { role: 'cut', label: L('カット', 'Cut') },
+        { role: 'copy', label: L('コピー', 'Copy') },
+        { role: 'paste', label: L('ペースト', 'Paste') },
+        { role: 'selectAll', label: L('すべてを選択', 'Select all') }
+      ]
+    },
     {
       label: L('表示', 'View'),
       submenu: [
