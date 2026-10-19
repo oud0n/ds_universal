@@ -1,10 +1,10 @@
 <p align="center"><img src="build/icon.svg" width="128" height="128" alt="LapLoupe icon"></p>
 
-# LapLoupe (formerly DS Universal)
+# LapLoupe (formerly DS Universal) — Lap / Track Analyzer
 
 [日本語](README.md) | **English**
 
-**An unofficial lap data analyser for the DigSpice GPS logger that runs on Mac, Windows and in the browser**
+**An unofficial lap and track analyzer for the DigSpice GPS logger that runs on Mac, Windows and in the browser**
 
 Log download and logger settings for DigSpice IV, racing line / speed / G analysis, and onboard video (GoPro etc.) sync
 

@@ -1,10 +1,10 @@
 <p align="center"><img src="build/icon.svg" width="128" height="128" alt="LapLoupe のアイコン"></p>
 
-# LapLoupe（ラップルーペ、旧名 DS Universal）
+# LapLoupe（ラップルーペ、旧名 DS Universal）— Lap / Track Analyzer
 
 **日本語** | [English](README.en.md)
 
-**デジスパイス（DigSpice IV）を Mac・Windows・ブラウザで使える、非公式の走行ログ解析ソフト**
+**デジスパイス（DigSpice IV）を Mac・Windows・ブラウザで使える、非公式の走行ログ解析ソフト（ラップ・サーキットの走行解析 / Lap & Track Analyzer）**
 
 デジスパイスのログの吸い出し・本体の設定、走行ライン・車速・G の解析、GoPro などの車載動画との同期
 
