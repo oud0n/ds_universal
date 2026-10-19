@@ -458,8 +458,8 @@ class VideoSyncManager {
     this.setClock(trackId, { ...shiftClock(track.clock, deltaHours * 3600), source: 'manual' });
   }
 
-  /** 動画を出すログを変える (チャプターに分かれていれば全部)。動画の時刻は変えない */
-  public setMatchedSession(trackId: string, sessionId: string): void {
+  /** 動画を出すログを変える (チャプターに分かれていれば全部)。動画の時刻は変えない。null で走行から外す (未割り当て) */
+  public setMatchedSession(trackId: string, sessionId: string | null): void {
     const group = this.getChapterGroupForTrack(trackId);
     const targets = group ? group.tracks.map(ct => ct.track) : this.videos.filter(v => v.id === trackId);
     if (targets.length === 0) return;
