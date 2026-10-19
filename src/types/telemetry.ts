@@ -122,6 +122,8 @@ export interface SelectedCarSlot {
   label: string;
   // 重ね合わせの距離の手動補正 (m)。正なら基準車に対して前 (グラフの右) にずらす
   distanceOffsetM?: number;
+  // 'auto': アプリが入れた (最初に読み込んだログなど)。自動で入れ替えてよいのは、空いている枠とこの枠だけ。ないときは利用者が選んだ
+  setBy?: 'auto';
 }
 
 export interface CircuitPreset {

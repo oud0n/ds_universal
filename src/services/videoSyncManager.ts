@@ -464,21 +464,26 @@ class VideoSyncManager {
   }
 
   /**
-   * 記録の細かいログへ自動で付け替える (LATER-12)。動画と時間の重なるログのうち、記録の細かい (Hz の高い) ログに出す。
+   * 記録の細かいログへ自動で付け替える (LATER-12)。動画と時間の重なるログのうち、今のログと同じ走行 (同じ車) と確かめられた、
+   * 記録のいちばん細かい (Hz の高い) ログに出す。時刻が重なるだけのログ (同じ走行枠のチームメイト) には付け替えない。
    * 利用者が選んだ動画は変えない。付け替えたものを [元のログ, 付け替えたログ] で返す
    */
-  public preferHighestRateSessions(sessions: Session[]): Array<[string, string]> {
+  public async preferHighestRateSessions(sessions: Session[], sameRun: (a: Session, b: Session) => Promise<boolean>): Promise<Array<[string, string]>> {
     const changed: Array<[string, string]> = [];
     const done = new Set<string>();
-    for (const track of this.videos) {
+    for (const track of [...this.videos]) {
       if (done.has(track.id) || track.isSessionChosenManually || !track.matchedSessionId) continue;
       const group = this.getChapterGroupForTrack(track.id);
       (group ? group.tracks.map(ct => ct.track) : [track]).forEach(t => done.add(t.id));
       if (group && group.tracks.some(ct => ct.track.isSessionChosenManually)) continue;
-      const best = overlappingSessions(track, sessions, this)[0];
-      if (best && best.id !== track.matchedSessionId) {
-        changed.push([track.matchedSessionId, best.id]);
-        this.setMatchedSession(track.id, best.id);
+      const current = sessions.find(s => s.id === track.matchedSessionId);
+      if (!current) continue;
+      for (const c of overlappingSessions(track, sessions, this)) {
+        if (c.id === current.id || (c.samplingRate || 0) <= (current.samplingRate || 0)) break;
+        if (!(await sameRun(current, c))) continue;
+        changed.push([current.id, c.id]);
+        this.setMatchedSession(track.id, c.id);
+        break;
       }
     }
     return changed;

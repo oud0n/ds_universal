@@ -8,7 +8,9 @@ import { parseNmea } from './services/nmeaParser';
 import { blobByteSource, goproRecording, NoGoproGpsError, parseGoproGps } from './services/gpmfParser';
 import { sessionStartUtcMs, videoSyncManager, placeTrack } from './services/videoSyncManager';
 import { getAddVideoGpsLog } from './services/videoPrefs';
-import { estimateClockOffset, pickReferenceSession } from './services/clockOffsetEstimator';
+import { referenceCandidates } from './services/clockOffsetEstimator';
+import { analyseSessions, isSameRun } from './services/pairAnalysis';
+import type { ClockEstimateResult } from './components/DataTab';
 import { tr, useT } from './utils/i18n';
 import { inflateXrz, isAimCsv, isXrk, parseAimCsv, parseXrk } from './services/aimFormats';
 import { isIbt, parseIbt } from './services/ibtParser';
@@ -588,13 +590,17 @@ export const App: React.FC = () => {
     if (!getAddVideoGpsLog()) {
       const first = log.points[0]?.timestamp, last = log.points[log.points.length - 1]?.timestamp;
       const a = first ? Date.parse(first) : NaN, b = last ? Date.parse(last) : NaN;
-      const better = latestRef.current.sessions
+      const overlapping = latestRef.current.sessions
         .filter(s => (s.samplingRate || 0) > (log.samplingRate || 0))
         .filter(s => {
           const st = sessionStartUtcMs(s), lp = s.points[s.points.length - 1];
           return st !== null && lp && st < b && a < st + lp.time * 1000;
         })
-        .sort((x, y) => (y.samplingRate || 0) - (x.samplingRate || 0))[0];
+        .sort((x, y) => (y.samplingRate || 0) - (x.samplingRate || 0));
+      // 時刻が重なるだけでなく、同じ走行 (同じ車) と確かめられたログに付ける (同じ走行枠のチームメイトのログに付けない)
+      const gpsAsLog = { id: `gopro-gps:${files[0].name}`, points: log.points } as Session;
+      let better: Session | undefined;
+      for (const s of overlapping) if (await isSameRun(s, gpsAsLog)) { better = s; break; }
       const betterStart = sessionStartUtcMs(better);
       if (better && betterStart !== null) {
         const existing = videoSyncManager.getTracks();
@@ -820,7 +826,8 @@ export const App: React.FC = () => {
               sessionId: newSession.id,
               lapNumber: bestLapNum,
               colorHex: '#ef4444',
-              label: `${newSession.sessionName} (L${bestLapNum})`
+              label: `${newSession.sessionName} (L${bestLapNum})`,
+              setBy: 'auto'
             }
           ];
         } else if (prev.length === 1 && prev[0].slot === 0) {
@@ -832,7 +839,8 @@ export const App: React.FC = () => {
               sessionId: newSession.id,
               lapNumber: bestLapNum,
               colorHex: '#3b82f6',
-              label: `${newSession.sessionName} (L${bestLapNum})`
+              label: `${newSession.sessionName} (L${bestLapNum})`,
+              setBy: 'auto'
             }
           ];
         }
@@ -883,13 +891,16 @@ export const App: React.FC = () => {
   // 基準車 (Car 1) を別のログに切り替える (動画に合わせるログを選んだとき、LATER-12)。
   // 周は、今の Car 1 の周と同じ時刻に走った周 (同じ走行を別のロガーで記録したログなら同じ周) を選ぶ。なければベストラップ。
   // 元の Car 1 のログは空いているスロットに移す (空きがなければ外す)
-  const setBaseSession = (sessionId: string) => {
+  // auto: アプリが自動で切り替える (記録の細かいログへの付け替え)。そのときは、Car 1 が fromId のログで、
+  // アプリが入れた Car 1 のときだけ切り替える (利用者が選んだ Car 1 は変えない)
+  const setBaseSession = (sessionId: string, auto?: { fromId: string }) => {
     const list = latestRef.current.sessions;
     const target = list.find(s => s.id === sessionId);
     if (!target || target.laps.length === 0) return;
     setSelectedCars(prev => {
       const car1 = prev.find(c => c.slot === 0);
       if (car1?.sessionId === sessionId) return prev;
+      if (auto && (car1?.sessionId !== auto.fromId || car1?.setBy !== 'auto')) return prev;
       const from = list.find(s => s.id === car1?.sessionId);
       const fromLap = from?.laps.find(l => l.lapNumber === car1?.lapNumber);
       let lap = target.laps[target.bestLapIndex] ?? target.laps[0];
@@ -901,7 +912,7 @@ export const App: React.FC = () => {
       }
       const COLORS = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b'];
       const rest = prev.filter(c => c.slot !== 0 && c.sessionId !== sessionId);
-      const next = [...rest, { slot: 0, sessionId, lapNumber: lap.lapNumber, colorHex: COLORS[0], label: `${target.sessionName} (L${lap.lapNumber})` }];
+      const next: SelectedCarSlot[] = [...rest, { slot: 0, sessionId, lapNumber: lap.lapNumber, colorHex: COLORS[0], label: `${target.sessionName} (L${lap.lapNumber})`, ...(auto ? { setBy: 'auto' as const } : {}) }];
       if (car1) {
         const free = [1, 2, 3].find(slot => !next.some(c => c.slot === slot));
         if (free !== undefined) next.push({ ...car1, slot: free, colorHex: COLORS[free] });
@@ -920,19 +931,27 @@ export const App: React.FC = () => {
     setSessions(prev => prev.map(x => (x.id === sessionId ? { ...x, clockOffsetSec: value } : x)));
   };
 
-  // 時計の補正を、同じ時間に記録したほかのログ (基準車のログ、なければ記録の細かいログ) との位置の比べから見積もって入れる (BUG-08)
-  const estimateSessionClockOffset = (sessionId: string): { refName: string; offsetSec: number; medianDistanceM: number } | string => {
+  // 時計の補正を、同じ時間に記録したほかのログ (基準車のログ、なければ記録の細かいログ) との位置の比べから見積もる (BUG-08)。
+  // 同じ走行と確かめられたログだけと比べる。確かな見積もり (quality 'auto') だけをそのまま入れ、ほかは案として返す
+  const estimateSessionClockOffset = async (sessionId: string): Promise<ClockEstimateResult | string> => {
     const list = latestRef.current.sessions;
     const s = list.find(x => x.id === sessionId);
     if (!s) return tr('ログが見つかりません', 'Log not found');
-    const ref = pickReferenceSession(s, list, baseSession?.id);
-    if (!ref) return tr('同じ時間に記録したほかのログがありません (1 分以上重なるログが要ります)', 'No other log covers the same time (at least 1 minute of overlap is needed)');
-    const r = estimateClockOffset(ref.points, s.points);
-    if (!r) return tr('走っている区間が短く、見積もれませんでした', 'Too little driving in common to estimate');
-    // 見積もりは 2 つのログの時刻 (補正前) どうしの差。基準のログの補正を足すと、このログの補正になる
-    const value = (ref.clockOffsetSec ?? 0) + r.offsetSec;
-    setSessionClockOffset(sessionId, value);
-    return { refName: ref.sessionName, offsetSec: Number(value.toFixed(3)), medianDistanceM: r.medianDistanceM };
+    const candidates = referenceCandidates(s, list, baseSession?.id);
+    if (candidates.length === 0) return tr('同じ時間に記録したほかのログがありません (1 分以上重なるログが要ります)', 'No other log covers the same time (at least 1 minute of overlap is needed)');
+    let shortOnly = true;
+    for (const ref of candidates) {
+      const r = await analyseSessions(ref, s);
+      if (r && r.reason !== 'short') shortOnly = false;
+      if (!r || !r.sameRun) continue;
+      // 見積もりは 2 つのログの時刻 (補正前) どうしの差。基準のログの補正を足すと、このログの補正になる
+      const value = Number(((ref.clockOffsetSec ?? 0) + r.offsetSec).toFixed(3));
+      if (r.quality === 'auto') setSessionClockOffset(sessionId, value);
+      return { refName: ref.sessionName, offsetSec: value, medianDistanceM: r.medianDistanceM, quality: r.quality, applied: r.quality === 'auto' };
+    }
+    return shortOnly
+      ? tr('走っている区間が短く、見積もれませんでした', 'Too little driving in common to estimate')
+      : tr('同じ時間のログはありますが、同じ車の走行ではないようです (走った線や止まった時刻が合いません)', 'Other logs cover this time, but they do not seem to be the same car (the lines or stops do not match)');
   };
 
   // ログが増えたら、動画を、時間の重なるログのうち記録の細かい (Hz の高い) ログに付け替える (LATER-12)。
@@ -945,10 +964,10 @@ export const App: React.FC = () => {
     sessionCountRef.current = sessions.length;
     videoCountRef.current = videoTracks.length;
     if (!grew) return;
-    const changed = videoSyncManager.preferHighestRateSessions(sessions);
-    const car1 = selectedCars.find(c => c.slot === 0);
-    const hit = changed.find(([from]) => from === car1?.sessionId);
-    if (hit) setBaseSession(hit[1]);
+    // 同じ走行かを確かめてから付け替える (時刻が重なるだけのチームメイトのログには付け替えない)。比べは Web Worker で行う
+    videoSyncManager.preferHighestRateSessions(sessions, isSameRun).then(changed => {
+      for (const [from, to] of changed) setBaseSession(to, { fromId: from });
+    });
   }, [sessions, videoTracks.length]);
 
   // サーキットプリセット選択
