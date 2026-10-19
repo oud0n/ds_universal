@@ -88,6 +88,8 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
   }
 
   const points: TelemetryPoint[] = [];
+  // 時刻を日時の列から求めたか (同じ秒の行の割り振りに使う)
+  let timeFromClock = false;
 
   for (let i = headerIndex + 1; i < lines.length; i++) {
     const rawCols = splitCsvLine(lines[i]);
@@ -98,7 +100,9 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
     const timeIsClock = colTime !== -1 && !/^\s*-?\d+([.,]\d+)?\s*$/.test(timeCell) && Number.isFinite(Date.parse(timeCell));
     const clockCell = timeIsClock ? timeCell : colClock !== -1 ? rawCols[colClock] : '';
     const rowClockMs = clockCell ? Date.parse(clockCell) : NaN;
-    const time = timeIsClock || (colTime === -1 && Number.isFinite(rowClockMs)) ? rowClockMs / 1000
+    const fromClock = timeIsClock || (colTime === -1 && Number.isFinite(rowClockMs));
+    if (fromClock) timeFromClock = true;
+    const time = fromClock ? rowClockMs / 1000
       : colTime !== -1 ? parseFloat(timeCell) : (i - headerIndex - 1) * 0.1;
     // 数値として読めない座標を 0 に置き換えない (その行を捨てる)
     const lat = parseFloat(rawCols[colLat]);
@@ -123,7 +127,8 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
     const sats = colSats !== -1 ? parseInt(rawCols[colSats], 10) : NaN;
 
     const validPosition = Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(lat === 0 && lon === 0);
-    const inOrder = points.length === 0 || time > points[points.length - 1].time;
+    // 日時から求めた時刻は、秒までしか書いていないことがある。同じ秒の行は捨てずに残し、あとで秒の中に割り振る
+    const inOrder = points.length === 0 || time > points[points.length - 1].time || (fromClock && time === points[points.length - 1].time);
     if (Number.isFinite(time) && validPosition && inOrder) {
       points.push({
         index: points.length,
@@ -143,6 +148,20 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
         ...(Number.isFinite(clockMs) ? { timestamp: new Date(clockMs).toISOString() } : {}),
         ...(Number.isInteger(sats) && sats >= 0 ? { satellites: sats } : {})
       });
+    }
+  }
+
+  // 日時の秒が同じ点は、次の秒 (1 秒より先なら 1 秒) までを等間隔に割り振る (GPX・TCX と同じ)
+  if (timeFromClock) {
+    for (let a = 0; a < points.length; ) {
+      let b = a + 1;
+      while (b < points.length && points[b].time === points[a].time) b++;
+      if (b - a > 1) {
+        const next = b < points.length ? Math.min(points[b].time, points[a].time + 1) : points[a].time + 1;
+        const step = (next - points[a].time) / (b - a);
+        for (let k = a + 1; k < b; k++) points[k].time = Number((points[a].time + (k - a) * step).toFixed(3));
+      }
+      a = b;
     }
   }
 

@@ -17,20 +17,27 @@ interface FieldDef { num: number; size: number; baseType: number }
 interface MesgDef { global: number; littleEndian: boolean; fields: FieldDef[]; devSize: number }
 
 export function isFit(bytes: Uint8Array): boolean {
-  return bytes.length >= 12 && (bytes[0] === 12 || bytes[0] === 14) &&
+  // ヘッダーの長さは 12 か 14 (仕様では 12 以上)
+  return bytes.length >= 12 && bytes[0] >= 12 &&
     bytes[8] === 0x2e && bytes[9] === 0x46 && bytes[10] === 0x49 && bytes[11] === 0x54; // ".FIT"
 }
 
-/** フィールドの値を読む (数値の型だけ)。無効値 (すべて 1 のビット・符号つきの最大値) は NaN */
+/**
+ * フィールドの値を読む (数値の型だけ)。無効値は NaN: ふつうの型はすべて 1 のビット (符号つきは最大値)、
+ * 名前に z の付く型 (uint8z・uint16z・uint32z) は 0
+ */
 function readValue(view: DataView, pos: number, f: FieldDef, le: boolean): number {
   const type = f.baseType & 0x1f;
   switch (type) {
-    case 0x00: case 0x02: case 0x0a: { const v = view.getUint8(pos); return v === 0xff && type !== 0x0a ? NaN : v; } // enum / uint8 / uint8z
+    case 0x00: case 0x02: { const v = view.getUint8(pos); return v === 0xff ? NaN : v; } // enum / uint8
+    case 0x0a: { const v = view.getUint8(pos); return v === 0 ? NaN : v; } // uint8z
     case 0x01: { const v = view.getInt8(pos); return v === 0x7f ? NaN : v; } // sint8
     case 0x03: { const v = view.getInt16(pos, le); return v === 0x7fff ? NaN : v; } // sint16
-    case 0x04: case 0x0b: { const v = view.getUint16(pos, le); return v === 0xffff ? NaN : v; } // uint16 / uint16z
+    case 0x04: { const v = view.getUint16(pos, le); return v === 0xffff ? NaN : v; } // uint16
+    case 0x0b: { const v = view.getUint16(pos, le); return v === 0 ? NaN : v; } // uint16z
     case 0x05: { const v = view.getInt32(pos, le); return v === 0x7fffffff ? NaN : v; } // sint32
-    case 0x06: case 0x0c: { const v = view.getUint32(pos, le); return v === 0xffffffff ? NaN : v; } // uint32 / uint32z
+    case 0x06: { const v = view.getUint32(pos, le); return v === 0xffffffff ? NaN : v; } // uint32
+    case 0x0c: { const v = view.getUint32(pos, le); return v === 0 ? NaN : v; } // uint32z
     default: return NaN;
   }
 }
