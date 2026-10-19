@@ -12,8 +12,8 @@
  *   UTC への対応は GPS の測位から Web が作る
  * - バイト列は base64
  *
- * いま入っているのは、デジスパイスとのつなぎ (ペアリング) に要る分だけ (caps・ble・system)。
- * recorder・files・camera などは、作るときにここへ足す
+ * いま入っているのは、デジスパイスとのつなぎ (ペアリング) と、BLE の通知の記録に要る分だけ (caps・ble・recorder・system)。
+ * files・camera などは、作るときにここへ足す
  */
 
 export const CONTRACT_VERSION = 1;
@@ -81,6 +81,31 @@ export interface BleConnectParams {
   highThroughput: boolean;
 }
 
+export interface RecorderStatus {
+  recording: boolean;
+  fileName?: string;
+  deviceId?: string;
+  notifications?: number;
+}
+
+/**
+ * 記録のファイル (CSV の文字):
+ * ```
+ * # ds-ble-capture 1
+ * # <見出しの行>
+ * # started_utc_ms=<端末の時計のミリ秒> started_ns=<単調な時計>
+ * t_ns,device,characteristic,hex
+ * <受け取った時刻 ns>,<機器の ID>,2a67,8520070012…
+ * # state,<t_ns>,reconnecting      (つなぎの状態が変わったとき)
+ * # resumed,<t_ns>,started_utc_ms=… (OS が止めたアプリを起こし直して、続きを書いたとき)
+ * ```
+ */
+export interface RecordingFile {
+  fileName: string;
+  bytes: number;
+  modifiedMs: number;
+}
+
 export interface NativeMethods {
   'caps.get': { params: Record<string, never>; result: Capabilities };
   'ble.permission': { params: { request: boolean }; result: { state: PermissionState } };
@@ -88,6 +113,23 @@ export interface NativeMethods {
   'ble.stopScan': { params: Record<string, never>; result: Record<string, never> };
   'ble.connect': { params: BleConnectParams; result: Record<string, never> };
   'ble.disconnect': { params: { deviceId: string }; result: Record<string, never> };
+  /** つないでいる機器の特性を 1 回読む (Device Information など)。b はバイト列 (base64) */
+  'ble.read': { params: { deviceId: string } & GattCharacteristicRef; result: { b: string } };
+  /**
+   * つないでいる機器の通知を、そのままファイルに書き足し始める (画面が消えていても続く。OS がアプリを止めても、起こし直したときに続ける)。
+   * header は見出しの行 (機器の名前など)。ファイルの形は RecordingFile の説明
+   */
+  'recorder.start': { params: { name: string; deviceId: string; header: string[] }; result: { fileName: string } };
+  'recorder.stop': { params: Record<string, never>; result: { fileName?: string; notifications?: number; bytes?: number } };
+  'recorder.status': { params: Record<string, never>; result: RecorderStatus };
+  'recorder.list': { params: Record<string, never>; result: { files: RecordingFile[] } };
+  /** 記録の中身 (文字)。通勤の 1 時間で数 MB */
+  'recorder.read': { params: { fileName: string }; result: { text: string } };
+  'recorder.remove': { params: { fileName: string }; result: Record<string, never> };
+  /** 記録のファイルを、OS の共有の画面で渡す (AirDrop・「ファイル」に保存など) */
+  'recorder.share': { params: { fileName: string }; result: Record<string, never> };
+  /** Web で作った文 (変換した CSV など) を、ファイルにして共有の画面で渡す */
+  'system.shareText': { params: { fileName: string; text: string }; result: Record<string, never> };
   /** OS の設定の画面 (このアプリの許可) を開く。一度断られた許可は、OS がもう聞いてくれないため */
   'system.openSettings': { params: Record<string, never>; result: Record<string, never> };
 }

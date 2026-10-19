@@ -76,6 +76,11 @@ export const nativeBleCentral: BleCentral = {
     }
   },
 
+  async read(deviceId, ref) {
+    const { b } = await callNative('ble.read', { deviceId, ...ref });
+    return fromBase64(b);
+  },
+
   async openSettings() {
     await callNative('system.openSettings', {});
   }

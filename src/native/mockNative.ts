@@ -19,6 +19,8 @@ export interface MockNativeOptions {
 export interface MockNativeController {
   /** 届いた呼び出し (試験で見る) */
   readonly requests: NativeRequest[];
+  /** 共有の画面に渡したもの (試験で見る) */
+  readonly shared: Array<{ fileName: string; text?: string }>;
   /** 電波が切れたふり。autoReconnect なら 2 秒後につなぎ直す */
   dropConnection(): void;
   uninstall(): void;
@@ -88,7 +90,20 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   const send = (message: NativeResponse | NativeEvent) => {
     later(latency, () => window.dsNative?.receive(JSON.stringify(message)));
   };
-  const emit = <E extends keyof NativeEvents>(event: E, data: NativeEvents[E]) => send({ event, data });
+  // 記録 (ネイティブの recorder のふり。ファイルの代わりにメモリに書く)
+  const files = new Map<string, { lines: string[]; modifiedMs: number }>();
+  let recording: { fileName: string; deviceId: string; lines: string[]; count: number } | null = null;
+  const shared: Array<{ fileName: string; text?: string }> = [];
+  const nowNs = () => Math.round(performance.now() * 1e6);
+  const hex = (u8: Uint8Array) => Array.from(u8, b => b.toString(16).padStart(2, '0')).join('');
+
+  const emit = <E extends keyof NativeEvents>(event: E, data: NativeEvents[E]) => {
+    if (event === 'ble.state' && recording) {
+      const st = data as NativeEvents['ble.state'];
+      if (st.deviceId === recording.deviceId) recording.lines.push(`# state,${nowNs()},${st.state}`);
+    }
+    send({ event, data });
+  };
 
   // 探している間
   let scanTimers: Array<ReturnType<typeof setTimeout>> = [];
@@ -128,6 +143,10 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         const [a, b] = mockFixPackets(valid ? sec - l.validFromSec : 0, startUtcMs + sec * 1000, valid);
         const tNs = Math.round(performance.now() * 1e6);
         items.push({ t: tNs, b: toBase64(a) }, { t: tNs, b: toBase64(b) });
+        if (recording?.deviceId === l.deviceId) {
+          recording.lines.push(`${tNs},${l.deviceId},2a67,${hex(a)}`, `${tNs},${l.deviceId},2a67,${hex(b)}`);
+          recording.count += 2;
+        }
         sent++;
       }
       if (items.length) emit('ble.notify', { deviceId: l.deviceId, characteristic: '2a67', items });
@@ -180,6 +199,10 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
       }
       case 'ble.disconnect': {
         const { deviceId } = req.params as { deviceId: string };
+        if (recording?.deviceId === deviceId) {
+          files.set(recording.fileName, { lines: recording.lines, modifiedMs: Date.now() });
+          recording = null;
+        }
         if (link?.deviceId === deviceId) {
           stopStream();
           link = null;
@@ -187,6 +210,54 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         }
         return {};
       }
+      case 'ble.read': {
+        const p = req.params as { deviceId: string; service: string; characteristic: string };
+        if (link?.deviceId !== p.deviceId || link.pending) throw { code: 'not-connected', message: 'not connected' };
+        const name = MOCK_DEVICES.find(d => d.deviceId === p.deviceId)?.name ?? '';
+        const info: Record<string, string> = { '2a29': 'Mock Maker', '2a24': 'DS4-MOCK', '2a25': name.slice(4), '2a26': '1.0.0' };
+        const text = p.service === '180a' ? info[p.characteristic] : undefined;
+        if (text === undefined) throw { code: 'not-found', message: 'no such characteristic' };
+        return { b: toBase64(new TextEncoder().encode(text)) };
+      }
+      case 'recorder.start': {
+        const p = req.params as { name: string; deviceId: string; header: string[] };
+        if (link?.deviceId !== p.deviceId) throw { code: 'not-connected', message: 'not connected' };
+        if (recording) files.set(recording.fileName, { lines: recording.lines, modifiedMs: Date.now() });
+        let fileName = `${p.name}.csv`;
+        for (let n = 2; files.has(fileName); n++) fileName = `${p.name}_${n}.csv`;
+        const lines = ['# ds-ble-capture 1', ...p.header.map(h => `# ${h}`), `# started_utc_ms=${Date.now()} started_ns=${nowNs()}`, 't_ns,device,characteristic,hex'];
+        recording = { fileName, deviceId: p.deviceId, lines, count: 0 };
+        files.set(fileName, { lines, modifiedMs: Date.now() });
+        return { fileName };
+      }
+      case 'recorder.stop': {
+        if (!recording) return {};
+        const r = recording;
+        recording = null;
+        files.set(r.fileName, { lines: r.lines, modifiedMs: Date.now() });
+        return { fileName: r.fileName, notifications: r.count, bytes: r.lines.join('\n').length };
+      }
+      case 'recorder.status':
+        return recording ? { recording: true, fileName: recording.fileName, deviceId: recording.deviceId, notifications: recording.count } : { recording: false };
+      case 'recorder.list':
+        return { files: [...files].map(([fileName, f]) => ({ fileName, bytes: f.lines.join('\n').length + 1, modifiedMs: f.modifiedMs })) };
+      case 'recorder.read': {
+        const f = files.get((req.params as { fileName: string }).fileName);
+        if (!f) throw { code: 'not-found', message: 'no such file' };
+        return { text: f.lines.join('\n') + '\n' };
+      }
+      case 'recorder.remove': {
+        const { fileName } = req.params as { fileName: string };
+        if (recording?.fileName === fileName) throw { code: 'busy', message: 'recording' };
+        files.delete(fileName);
+        return {};
+      }
+      case 'recorder.share':
+        shared.push({ fileName: (req.params as { fileName: string }).fileName });
+        return {};
+      case 'system.shareText':
+        shared.push(req.params as { fileName: string; text: string });
+        return {};
       case 'system.openSettings':
         return {};
       default:
@@ -215,6 +286,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
 
   return {
     requests,
+    shared,
     dropConnection() {
       if (!link) return;
       stopStream();
