@@ -1,6 +1,6 @@
 /**
- * スマートフォンか (タブレットは含まない)。スマートフォン向けの配置にするかをこれで決める。
- * ウインドウの幅でなく端末の画面の短い辺で決める (600px 未満)。スマートフォンを回しても、パソコンのウインドウを狭くしても変わらない。
+ * スマートフォンか (タブレットは含まない)。端末の画面の短い辺で決める (600px 未満)。スマートフォンを回しても変わらない。
+ * スマートフォン向けの配置は、これに加えてウインドウが狭いときにもする (src/hooks/useCompactLayout.ts)
  * (iPhone は 390〜440px、iPad mini は 744px、パソコンは 800px 以上)
  */
 export const isPhone: boolean = typeof screen !== 'undefined' && Math.min(screen.width, screen.height) < 600;
