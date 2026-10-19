@@ -416,6 +416,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     const pts = baseLap.points;
     const clampLap = (t: number) => pts.length ? Math.max(pts[0].time, Math.min(pts[pts.length - 1].time, t)) : t;
     const d = lapDistanceAtTime(pts, clampLap(baseElapsed));
+    const byTime = win.compareAlign === 'time';
     return cars.map(car => {
       const session = sessions.find(s => s.id === car.slot.sessionId);
       const lap = session?.laps.find(l => l.lapNumber === car.slot.lapNumber);
@@ -429,13 +430,16 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         const dd = lapDistanceAtTime(pts, clampLap(t - baseLap.startTime));
         return dd === null ? null : compareSessionTimeAtDistance(car.lap, lap, dd);
       };
-      const ct = isBase ? sessionTime : d === null || !lap ? null : compareSessionTimeAtDistance(car.lap, lap, d);
+      // Car 1 と同じ地点にいたときの、その車の時刻 (タイム差はいつもこれで出す)
+      const atDistance = isBase ? sessionTime : d === null || !lap ? null : compareSessionTimeAtDistance(car.lap, lap, d);
+      // 映す時刻: 地点で合わせるときは同じ地点の時刻、時間で合わせるときは周の始めから同じ経過時間 (その車の周の長さまで)
+      const ct = isBase || !byTime ? atDistance : !lap ? null : lap.startTime + Math.max(0, Math.min(lap.endTime - lap.startTime, baseElapsed));
       const start = m && session ? mediaStartIn(m, session, sessions) : null;
       const position = !m ? null : ct === null || start === null ? noFootage(m) : positionAtMediaTime(m, ct - start);
       // 速さの倍率: 約 0.5 秒先までの、距離の対応の傾き (遅い車の動画ほど速く回す)
       // 周の終わり 0.5 秒は先の時刻が周の終わりにそろって傾きが 0 になるので、後ろの 0.5 秒で求める
       let rate: number | undefined;
-      if (!isBase && ct !== null) {
+      if (!isBase && ct !== null && !byTime) {
         const nearEnd = pts.length > 0 && baseElapsed + 0.5 > pts[pts.length - 1].time;
         const ahead = nearEnd ? null : timeAt(sessionTime + 0.5), behind = timeAt(sessionTime - 0.5);
         rate = ahead !== null && ahead > ct ? (ahead - ct) / 0.5 : behind !== null && ct > behind ? (ct - behind) / 0.5 : 1;
@@ -443,7 +447,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       return {
         media: m, position, rate, slot: car.slot.slot, color: car.slot.colorHex, chosen: !!chosenId,
         gauge: { session, lap, time: ct ?? sessionTime },
-        delta: isBase || ct === null || !lap ? null : (ct - lap.startTime) - baseElapsed
+        delta: isBase || atDistance === null || !lap ? null : (atDistance - lap.startTime) - baseElapsed
       };
     });
   };
@@ -921,6 +925,27 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               >
                 {t('走行比較', 'Compare')}
               </button>
+            </div>
+          )}
+
+          {/* 走行比較の合わせ方: 同じ地点 (比べる車の動画は速さを変えて回す) / 同じ経過時間 (1 倍で回す) */}
+          {isCompare && (
+            <div className="flex items-center rounded border border-line-3 bg-surface-3 overflow-hidden shrink-0" role="radiogroup" aria-label={t('走行比較の合わせ方', 'Comparison alignment')}>
+              {([
+                ['distance', t('地点', 'Place'), t('Car 1 と同じ地点を走ったときの映像を並べます (比べる車の動画は速さを変えて回します)', 'Show each car at the same point as Car 1 (the other videos run at adjusted speed)')],
+                ['time', t('時間', 'Time'), t('周の始めから同じ経過時間の映像を並べます (どの動画も 1 倍で回るので、差が開くと映る場所がずれます)', 'Show each car at the same time since the lap start (every video runs at 1x, so the views drift apart as the gap grows)')]
+              ] as const).map(([value, label, title]) => (
+                <button
+                  key={value}
+                  role="radio"
+                  aria-checked={win.compareAlign === value}
+                  onClick={() => setWin({ compareAlign: value })}
+                  title={title}
+                  className={`px-2 py-1 text-[10px] font-bold transition-colors cursor-pointer ${win.compareAlign === value ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           )}
 
