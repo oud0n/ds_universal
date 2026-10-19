@@ -6,25 +6,23 @@ import {
   Clock, Gauge, Plus, Trash2, CheckCircle2, ChevronRight,
   Globe, AlertTriangle, Zap, Layers, ChevronLeft,
   Columns, PictureInPicture, MapPin, Download, X,
-  ArrowLeftRight, Volume2, VolumeX, Maximize2
+  ArrowLeftRight, VolumeX, Maximize2
 } from 'lucide-react';
 import { Session, TelemetryPoint, SelectedCarSlot, Lap } from '../types/telemetry';
 import { getAddVideoGpsLog, setAddVideoGpsLog } from '../services/videoPrefs';
 import { videoSyncManager, PlacedTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs, overlappingSessions, placeTrack } from '../services/videoSyncManager';
 import { clockOffsetIn } from '../services/mediaClock';
-import { 
-  resolveChapterPlayback, 
-  getNextChapter, 
-  getPreviousChapter, 
-  groupVideoTracksByChapter,
-  findChapterGroupForTrack
-} from '../services/videoChapterManager';
+import { getNextChapter, getPreviousChapter, groupVideoTracksByChapter } from '../services/videoChapterManager';
 import { 
   SyncPin, 
   createSyncPin, 
   formatPinTime
 } from '../services/videoSyncPinManager';
-import { videoViewStore, useVideoView, useVideoTracks, useSyncPins, VideoViewMode, PipPosition, videoEndSessionSec } from '../services/videoViewStore';
+import { videoViewStore, useVideoView, useVideoTracks, useSyncPins, useWindowView, PipPosition, MAX_CAMERAS, videoEndSessionSec } from '../services/videoViewStore';
+import { PlaybackController } from '../services/playbackController';
+import { buildMedia, positionInMedia, positionAtMediaTime, PlayableMedia, MediaPosition } from '../services/playableMedia';
+import { VideoTile, TileOverlay } from './video/VideoTile';
+import { VideoStage } from './video/VideoStage';
 import { 
   exportBurnedInVideo, 
   VideoExportController 
@@ -34,7 +32,7 @@ import { formatMinSec } from '../utils/timeFormat';
 import { tr, useT } from '../utils/i18n';
 import { fileAccept } from '../utils/device';
 
-export type { VideoViewMode, PipPosition };
+export type { PipPosition };
 
 interface VideoSyncWindowProps {
   sessions: Session[];
@@ -54,6 +52,8 @@ interface VideoSyncWindowProps {
   onChangePlaybackSpeed: (speed: number) => void;
   // 動画に合わせるログを選んだとき (そのログを基準車 Car 1 にする)。LATER-12
   onChooseLog?: (sessionId: string) => void;
+  // ウインドウごとの表示の状態 (並べ方など) を覚えるときの名前
+  viewKey: string;
   // ログの時計の補正を入れる (同期プロジェクトに保存した補正を戻すとき)
   onSetClockOffset?: (sessionId: string, sec: number) => void;
   // 比較の車 (距離の補正・1 周の長さの伸縮を反映した周)。サブの動画の「走行比較」に使う (LATER-11)
@@ -248,21 +248,23 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   playbackSpeed,
   onChangePlaybackSpeed,
   onChooseLog,
+  viewKey,
   onSetClockOffset,
   compareCars
 }) => {
   const t = useT();
-  // 動画の一覧と表示の状態は、どのウインドウでも同じにする (videoViewStore に 1 つだけ持つ)
+  // 動画の一覧と出すカメラは、どのウインドウでも同じにする (videoViewStore に 1 つだけ持つ)。
+  // モード・並べ方・大きく出す枠・メーターは、ウインドウごとに持つ
   const storedTracks = useVideoTracks();
   const view = useVideoView();
-  const { selectedTrackId, subTrackId, viewMode: storedViewMode, pipPosition, isSubMuted, showOverlay, showGForce, subSyncMode, subCompareSlot } = view;
+  const { cameraIds } = view;
   const isAnyExporting = view.isExporting;
-  const setSelectedTrackId = (id: string | null) => videoViewStore.selectMain(id);
-  const setSubTrackId = (id: string | null) => videoViewStore.set({ subTrackId: id });
-  const setViewMode = (m: VideoViewMode) => videoViewStore.set({ viewMode: m });
-  const setPipPosition = (p: PipPosition) => videoViewStore.set({ pipPosition: p });
-  const setIsSubMuted = (v: boolean) => videoViewStore.set({ isSubMuted: v });
-  const setShowOverlay = (v: boolean) => videoViewStore.set({ showOverlay: v });
+  const [win, setWin] = useWindowView(viewKey);
+  const { pipPosition, showOverlay, showGForce } = win;
+  const setShowOverlay = (v: boolean) => setWin({ showOverlay: v });
+  // 全部の <video> を、1 か所で App の時刻に合わせる
+  const playback = useRef(new PlaybackController()).current;
+  const mainVideo = () => playback.element('tile-0');
 
   // シークバースコープ ('lap': 速度ウィンドウ選択中ラップ時間, 'session': セッション全体時間)
   // 動画同期タブはセッション全体の時刻で再生するので、はじめはセッション全体にする (周の表示は周の外に出ると端に止まる)
@@ -270,7 +272,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   const [isDragging, setIsDragging] = useState<boolean>(false);
   // 動画の移動 (seek) が終わった回数。移動中に来た時刻に合わせ直すため、変わったら動画をもう一度合わせる
-  const [seekTick, setSeekTick] = useState(0);
+  const [, setSeekTick] = useState(0);
   const handleSeeked = () => setSeekTick(n => n + 1);
 
   // 手動キーフレーム同期（ピン留め）。コースごとに保存し、どのウインドウでも同じものを出す
@@ -291,13 +293,6 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // 書き出し中にウインドウが閉じられたら (たたむ・表示の切り替え)、書き出しをやめる (動画の要素がなくなるため)
   useEffect(() => () => { exportControllerRef.current?.cancel(); }, []);
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const subVideoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  // メーターを重ねる四角 (メインの動画が映っている部分) と、PinP の小窓がメインの映像に重なる幅 (canvas の座標、1280 の幅に換算)。BUG-23
-  const [overlayBox, setOverlayBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
-  // PinP の小窓がメインの映像に重なる幅 (canvas の座標、1280 の幅に換算)
-  const [pipOverlapW, setPipOverlapW] = useState(0);
   const pipRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
@@ -318,39 +313,42 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     () => storedTracks.map(t => placeTrack(t, baseSession, sessions)),
     [storedTracks, baseSession, sessions]
   );
-  const activeTrack = tracks.find(t => t.id === selectedTrackId);
-  const subTrack = tracks.find(t => t.id === subTrackId);
-  // 走行比較 (LATER-11): サブの動画を比較の車に合わせ、メインの車と同じ地点を走った時刻の映像を出す
-  const compareCar = subSyncMode === 'compare' ? compareCars?.find(c => c.slot.slot === subCompareSlot) : undefined;
+  // カメラ (チャプターに分かれた動画はまとめて 1 つ)。出すのは cameraIds の順。1 つ目がメイン
+  const media = useMemo(() => buildMedia(tracks), [tracks]);
+  const cameras = cameraIds.map(id => media.find(m => m.id === id)).filter((m): m is PlayableMedia => !!m);
+  const mainMedia = cameras[0];
+  const renderSessionTime = isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec;
+  // 走行比較 (LATER-11): 2 つ目のカメラを比較の車に合わせ、メインの車と同じ地点を走った時刻の映像を出す
+  const isCompare = win.mode === 'compare';
+  const compareCar = isCompare ? compareCars?.find(c => c.slot.slot === win.compareSlot) : undefined;
   const compareSession = compareCar ? sessions.find(s => s.id === compareCar.slot.sessionId) : undefined;
   const compareOrigLap = compareSession?.laps.find(l => l.lapNumber === compareCar?.slot.lapNumber);
-  const subCompareOffsetSec = subTrack && compareSession ? clockOffsetIn(subTrack.clock, compareSession, sessions) ?? 0 : 0;
-  /** サブの動画の中の位置 (秒)。走行比較で比較の車がその地点を走っていないときは -1 (映像なし) */
-  const subLocalAt = (effectiveSessionTime: number): number => {
-    if (!subTrack) return -1;
-    if (subSyncMode !== 'compare') return effectiveSessionTime - subTrack.syncOffsetSec;
-    if (!compareCar || !compareOrigLap || !baseLap) return -1;
-    const d = lapDistanceAtTime(baseLap.points, effectiveSessionTime - baseLap.startTime);
+  /** 比較の車の動画の位置。比較の車がその地点を走っていないとき・時刻が決まらないときは映像なし */
+  const comparePosition = (m: PlayableMedia, sessionTime: number): MediaPosition => {
+    const none: MediaPosition = { track: m.tracks[0], localTime: -1, durationSec: m.tracks[0].durationSec, outOfRange: true };
+    if (!compareCar || !compareOrigLap || !baseLap || !compareSession) return none;
+    const d = lapDistanceAtTime(baseLap.points, sessionTime - baseLap.startTime);
     const ct = d === null ? null : compareSessionTimeAtDistance(compareCar.lap, compareOrigLap, d);
-    return ct === null ? -1 : ct - subCompareOffsetSec;
+    const start = clockOffsetIn(m.tracks[0].clock, compareSession, sessions);
+    return ct === null || start === null ? none : positionAtMediaTime(m, ct - start);
   };
-  // sub の動画がないとき (1 本だけのとき・sub を消したとき) は、選んでいた表示に関係なく 1 画面で出す。
-  // 切り替えのボタンは 2 本以上のときだけ出すので、2画面のまま残ると空いた枠を消せなかった (BUG-22)。
-  // 選んでいた表示は覚えておき、sub の動画が戻ったらその表示に戻す
-  // 書き出しの間は表示を変えない (動画の要素が作り直されると、書き出しが古い要素を使い続けるため)
-  const shownViewModeRef = useRef<VideoViewMode>(subTrack ? storedViewMode : 'single');
-  if (!isAnyExporting) shownViewModeRef.current = subTrack ? storedViewMode : 'single';
-  const viewMode = shownViewModeRef.current;
+  const positionOf = (i: number, sessionTime: number): MediaPosition =>
+    i > 0 && isCompare ? comparePosition(cameras[i], sessionTime) : positionInMedia(cameras[i], sessionTime);
+  // 走行比較は、メインと比較の車の 2 枠
+  const tileCount = isCompare ? Math.min(cameras.length, 2) : cameras.length;
+  const positions = Array.from({ length: tileCount }, (_, i) => positionOf(i, renderSessionTime));
+  // 同期の調整・書き出しの対象は、メインのカメラの今のチャプター
+  const activeTrack: PlacedTrack | undefined = positions[0]?.track ?? mainMedia?.tracks[0];
   // グラフ解析に埋め込んだときは、タイムゾーン・再同期の段とタイムラインを、ボタンで開くまで隠す。
   // 狭い枠ではこれらの段が場所を使い切り、動画の映る部分の高さが 0 になっていた (BUG-19)。同期の調整は動画同期の画面でもできる
   const [showSyncTools, setShowSyncTools] = useState(!isGraphEmbedded);
   // GoPro の動画の GPS も走行ログとして加えるか (次に読み込む動画から効く) LATER-12
   const [addVideoGpsLog, setAddVideoGpsLogState] = useState(getAddVideoGpsLog);
 
-  // 現在選択中の動画トラックが属するチャプターグループ
+  // メインのカメラのチャプター (チャプターに分かれた動画のとき)
   const currentGroup = useMemo(
-    () => (selectedTrackId ? findChapterGroupForTrack(groupVideoTracksByChapter(tracks).groups, selectedTrackId) : null),
-    [tracks, selectedTrackId]
+    () => (mainMedia && mainMedia.tracks.length > 1 ? groupVideoTracksByChapter(mainMedia.tracks).groups[0] ?? null : null),
+    [mainMedia]
   );
 
   // タイムスタンプフォーマット関数
@@ -375,15 +373,6 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   };
 
   const gpsStartTime = baseSession?.points[0]?.timestamp ? new Date(baseSession.points[0].timestamp) : null;
-  // サブの動画が今の時刻に映像を持っているか (撮影の前・後、撮影日の違う動画では持たない)
-  const renderSessionTime = isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec;
-  const subLocalTime = subTrack ? subLocalAt(renderSessionTime) : 0;
-  const subOutOfRange = !!subTrack && (subLocalTime < 0 || (subTrack.durationSec > 0 && subLocalTime > subTrack.durationSec));
-  const subNoFootage = subOutOfRange && (
-    <div className="absolute inset-0 z-[5] flex items-center justify-center bg-black/80 text-slate-400 text-[11px] text-center px-2 pointer-events-none">
-      {t('この時刻の映像はありません', 'No footage at this time')}
-    </div>
-  );
   const isLargeOffset = activeTrack ? Math.abs(activeTrack.syncOffsetSec) > 3600 : false;
 
   // 同期プロジェクトから戻した動画の照合先を、後から読み込んだログに読み替える。保存したときのログの時計の補正も戻す
@@ -403,86 +392,19 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       return;
     }
     videoViewStore.autoSelectedSessionId = baseSession.id;
-    if (matchingTrack.id !== selectedTrackId) {
-      setSelectedTrackId(matchingTrack.id);
-    }
+    if (!mainMedia?.tracks.some(t => t.id === matchingTrack.id)) videoViewStore.selectMain(matchingTrack.id);
   }, [baseSession?.id, tracks, isVisible, isAnyExporting]);
 
-  // 再生の基準は App の時刻 (currentTimeSec) だけにする。動画はその時刻に合わせて再生し、ずれたら合わせ直す。
-  // (以前は動画の timeupdate (1 秒に 4 回ほど) で App の時刻を進めていたため、ほかのウインドウの表示がカクつき (#11)、
-  //  動画がないと時刻が進まなかった (#10))
-  const syncVideoElement = (el: HTMLVideoElement | null, localTime: number, durationSec: number) => {
-    if (!el) return;
-    const inRange = localTime >= 0 && (!(durationSec > 0) || localTime <= durationSec);
-    if (!inRange) {
-      // 動画の範囲の外 (撮影の前・後) では止めておく
-      if (!el.paused) el.pause();
-      return;
-    }
-    // 移動中 (seeking) は合わせない。移動が終わったら (seeked) もう一度合わせる
-    if (el.seeking) return;
-    // 動画の本当の長さを超えた位置には移動できない (移動しても終わりに止まり、移動が終わるたびに合わせ直して止まらなくなる)
-    if (Number.isFinite(el.duration) && el.duration > 0 && localTime > el.duration) localTime = el.duration;
-    const diff = localTime - el.currentTime; // 正なら動画が遅れている
-    if (!isPlaying) {
-      if (!el.paused) el.pause();
-      // 止めているときはコマ送り (0.1 秒) にも付いていけるよう、細かく合わせる
-      if (Math.abs(diff) > 0.02) el.currentTime = localTime;
-      if (el.playbackRate !== playbackSpeed) el.playbackRate = playbackSpeed;
-      return;
-    }
-    if (Math.abs(diff) > 0.5) {
-      // 大きくずれたら (シーク・周の始めに戻ったときなど) 飛ぶ
-      el.currentTime = localTime;
-      el.playbackRate = playbackSpeed;
-    } else {
-      // 少しのずれは、再生の速さを少し変えて追いつく (毎回飛ぶと映像が止まって見える)
-      const rate = Math.abs(diff) < 0.03 ? playbackSpeed : playbackSpeed * (1 + Math.max(-0.1, Math.min(0.1, diff * 0.5)));
-      if (Math.abs(el.playbackRate - rate) > 0.001) el.playbackRate = rate;
-    }
-    if (el.paused && el.readyState >= 2) el.play().catch(() => {});
-  };
+  // 出している枠の数 (1 画面ならメインだけ、PinP なら 2 つまで)
+  const shownCount = win.layout === 'single' ? Math.min(1, tileCount) : win.layout === 'pip' ? Math.min(2, tileCount) : tileCount;
 
+  // 動画を App の時刻に合わせる (PlaybackController)。見えていないウインドウ・書き出し中は合わせない (書き出しは動画を自分で動かす)
   useEffect(() => {
-    // 見えていないウインドウ・書き出し中は合わせない (書き出しは動画を自分で動かす)
     if (isExporting) return;
-    if (!isVisible || isAnyExporting) {
-      videoRef.current?.pause();
-      subVideoRef.current?.pause();
-      return;
-    }
-    if (!activeTrack) return;
-    const effectiveSessionTime = isGraphEmbedded && baseLap
-      ? (baseLap.startTime + currentTimeSec)
-      : currentTimeSec;
-
-    // 1. メイン動画 (チャプターグループ対応)
-    if (currentGroup && currentGroup.tracks.length > 1) {
-      const resolution = resolveChapterPlayback(currentGroup, effectiveSessionTime);
-      if (resolution) {
-        if (resolution.activeTrack.track.id !== selectedTrackId) {
-          // 次 (前) のチャプターに切り替える。新しい動画が読み込まれたら、次の時刻の更新で位置を合わせる
-          if (!isAnyExporting) setSelectedTrackId(resolution.activeTrack.track.id);
-        } else if (resolution.isOutOfRange) {
-          // グループの動画の撮影の前・後では止めておく
-          syncVideoElement(videoRef.current, -1, 0);
-        } else {
-          syncVideoElement(videoRef.current, resolution.localVideoTimeSec, resolution.activeTrack.durationSec);
-        }
-      } else {
-        syncVideoElement(videoRef.current, -1, 0);
-      }
-    } else {
-      syncVideoElement(videoRef.current, effectiveSessionTime - activeTrack.syncOffsetSec, activeTrack.durationSec);
-    }
-
-    // 2. サブ動画 (2画面 / PinP 時)
-    if (subTrack && viewMode !== 'single') {
-      syncVideoElement(subVideoRef.current, subLocalAt(effectiveSessionTime), subTrack.durationSec);
-    } else {
-      subVideoRef.current?.pause();
-    }
-  }, [currentTimeSec, activeTrack, activeTrack?.syncOffsetSec, subTrack, subTrack?.syncOffsetSec, tracks, currentGroup, isGraphEmbedded, baseLap, isPlaying, viewMode, playbackSpeed, isVisible, isExporting, isAnyExporting, seekTick, subSyncMode, subCompareSlot, compareCar, compareOrigLap, subCompareOffsetSec]);
+    if (!isVisible || isAnyExporting) { playback.pauseAll(); return; }
+    const targets = new Map(positions.slice(0, shownCount).map((p, i) => [`tile-${i}`, p]));
+    playback.sync(targets, isPlaying, playbackSpeed);
+  });
 
   // 手で合わせる (ずれの入力・微調整・ワンクリック同期・同期ピン)。基準のログの時刻でのずれで入れ、その時刻を基準のログに付ける
   const setOffset = (trackId: string, offsetSec: number) => {
@@ -491,8 +413,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   // ワンクリック同期: 現在の動画フレームを GPS の現在選択タイムに合わせる
   const handleSyncCurrentFrame = () => {
-    if (!videoRef.current || !activeTrack) return;
-    const currentVideoTime = videoRef.current.currentTime;
+    const el = mainVideo();
+    if (!el || !activeTrack) return;
+    const currentVideoTime = el.currentTime;
     const effectiveSessionTime = isGraphEmbedded && baseLap
       ? (baseLap.startTime + currentTimeSec)
       : currentTimeSec;
@@ -508,11 +431,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   // 手動キーフレーム同期 (ピン作成)
   const handleAddPin = () => {
-    if (!videoRef.current || !activeTrack) return;
+    const el = mainVideo();
+    if (!el || !activeTrack) return;
     const effectiveSessionTime = isGraphEmbedded && baseLap
       ? (baseLap.startTime + currentTimeSec)
       : currentTimeSec;
-    const currentVideoTime = videoRef.current.currentTime;
+    const currentVideoTime = el.currentTime;
     
     const pin = createSyncPin(
       newPinName || `${tr('ピン', 'Pin')} ${pins.length + 1}`,
@@ -546,15 +470,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   };
 
   // メインカメラとサブカメラの入れ替え (Swap)
-  const handleSwapCameras = () => videoViewStore.swap();
 
   // テレメトリ動画エクスポート開始
   const handleStartExport = () => {
-    if (!videoRef.current || !activeTrack || isAnyExporting) return;
+    const el = mainVideo();
+    if (!el || !activeTrack || isAnyExporting) return;
     // 書き出しは動画を自分で再生する。ふだんの再生 (App の時刻) は止めておく
     if (isPlaying) onTogglePlay();
-    videoRef.current.pause();
-    subVideoRef.current?.pause();
+    playback.pauseAll();
 
     let startSec = 0;
     let endSec = activeTrack.durationSec;
@@ -576,7 +499,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     setShowExportModal(false);
 
     const controller = exportBurnedInVideo({
-      videoElement: videoRef.current,
+      videoElement: el,
       startTimeSec: startSec,
       endTimeSec: endSec,
       syncOffsetSec: activeTrack.syncOffsetSec,
@@ -683,59 +606,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     e.target.value = '';
   };
 
-  // リアルタイム・テレメトリオーバーレイ描画 (Canvas)
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    // 見えていないウインドウ (別のタブの動画画面) では描かない。見えたら描く
-    if (!canvas || !showOverlay || !isVisible) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    const effectiveTime = isGraphEmbedded && baseLap
-      ? (baseLap.startTime + currentTimeSec)
-      : currentTimeSec;
-
-    drawTelemetryOverlayOnCanvas(ctx, canvas.width, canvas.height, effectiveTime, baseSession, baseLap, showGForce, viewMode === 'pip' && subTrack ? pipPosition : null, pipOverlapW);
-  }, [currentTimeSec, baseLap, baseSession, showOverlay, showGForce, isGraphEmbedded, isVisible, viewMode, pipPosition, subTrack, pipOverlapW]);
-
-  // PinP 位置クラス
-  // メーターを重ねる四角を、メインの動画が実際に映っている部分に合わせる (2画面ではメインの側だけ、黒い帯は除く)
-  useEffect(() => {
-    const video = videoRef.current;
-    const host = canvasRef.current?.parentElement;
-    if (!video || !host) return;
-    const update = () => {
-      const vr = video.getBoundingClientRect(), hr = host.getBoundingClientRect();
-      if (vr.width === 0 || vr.height === 0) return;
-      const vw = video.videoWidth || 16, vh = video.videoHeight || 9;
-      const scale = Math.min(vr.width / vw, vr.height / vh);
-      const w = vw * scale, h = vh * scale;
-      const box = { left: Math.round(vr.left - hr.left + (vr.width - w) / 2), top: Math.round(vr.top - hr.top + (vr.height - h) / 2), width: Math.round(w), height: Math.round(h) };
-      setOverlayBox(prev => (prev && prev.left === box.left && prev.top === box.top && prev.width === box.width && prev.height === box.height ? prev : box));
-      const pr = pipRef.current?.getBoundingClientRect();
-      const bl = vr.left + (vr.width - w) / 2, bt = vr.top + (vr.height - h) / 2;
-      const ow = pr ? Math.max(0, Math.min(pr.right, bl + w) - Math.max(pr.left, bl)) : 0;
-      const oh = pr ? Math.max(0, Math.min(pr.bottom, bt + h) - Math.max(pr.top, bt)) : 0;
-      setPipOverlapW(ow > 0 && oh > 0 ? Math.round((ow * 1280) / w) : 0);
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(video);
-    ro.observe(host);
-    if (pipRef.current) ro.observe(pipRef.current);
-    video.addEventListener('loadedmetadata', update);
-    return () => { ro.disconnect(); video.removeEventListener('loadedmetadata', update); };
-  }, [viewMode, activeTrack?.id, activeTrack?.objectUrl, pipPosition, subTrack?.id, subTrack?.objectUrl]);
-
-  const getPipPosClass = (pos: PipPosition) => {
-    switch (pos) {
-      case 'bottom-right': return 'bottom-4 right-4';
-      case 'bottom-left': return 'bottom-4 left-4';
-      case 'top-right': return 'top-4 right-4';
-      case 'top-left': return 'top-4 left-4';
-    }
+  // メインの枠に重ねるメーター。PinP の小窓がある隅のメーターは、小窓の横へずらす (BUG-23)
+  const mainOverlay: TileOverlay = {
+    tick: renderSessionTime,
+    draw: (ctx, w, h, avoidW) => drawTelemetryOverlayOnCanvas(ctx, w, h, renderSessionTime, baseSession, baseLap, showGForce, win.layout === 'pip' && tileCount > 1 ? pipPosition : null, avoidW)
   };
 
   return (
@@ -774,33 +648,71 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             </span>
           )}
 
-          {/* メイン動画トラック選択 */}
-          {tracks.length > 0 && (
-            <div className="flex items-center gap-1">
-              <span className="text-[10px] text-slate-400 font-medium">Main:</span>
-              <select
-                value={selectedTrackId || ''}
-                onChange={e => setSelectedTrackId(e.target.value)}
-                className="bg-surface-3 border border-line-3 text-xs text-slate-200 rounded px-2 py-1 outline-none max-w-[160px] truncate cursor-pointer"
+          {/* モード: マルチカメラ (同じ時刻のカメラを並べる) / 走行比較 (比較の車が同じ地点を走った時刻) */}
+          {media.length > 0 && (
+            <div className="flex items-center rounded border border-line-3 bg-surface-3 overflow-hidden shrink-0">
+              <button
+                onClick={() => setWin({ mode: 'cameras' })}
+                className={`px-2 py-1 text-[10px] font-bold transition-colors cursor-pointer ${!isCompare ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                title={t('1 台の車の走行を、いくつかのカメラで同じ時刻に見ます', 'Watch one car\'s run from several cameras at the same time')}
               >
-                {tracks.map(t => {
-                  const grp = videoSyncManager.getChapterGroupForTrack(t.id);
-                  const cTrack = grp?.tracks.find(ct => ct.track.id === t.id);
-                  const chapterLabel = cTrack && grp && grp.tracks.length > 1
-                    ? `[Ch ${cTrack.chapterIndex}/${grp.tracks.length}] `
-                    : '';
-                  return (
-                    <option key={t.id} value={t.id}>
-                      {chapterLabel}{t.fileName}
-                    </option>
-                  );
-                })}
+                {t('マルチカメラ', 'Cameras')}
+              </button>
+              <select
+                value={isCompare ? String(win.compareSlot) : ''}
+                onChange={e => setWin({ mode: 'compare', compareSlot: Number(e.target.value) })}
+                disabled={!(compareCars ?? []).some(c => c.slot.slot !== 0)}
+                className={`px-1 py-1 text-[10px] font-bold outline-none cursor-pointer disabled:opacity-40 ${isCompare ? 'bg-red-600 text-white' : 'bg-transparent text-slate-400'}`}
+                title={t('走行比較: 2 つ目のカメラを比較の車 (Car 2〜4) の動画として、メインの車と同じ地点を走ったときの映像を出します', 'Run comparison: the second camera is the comparison car (Car 2-4) and shows the moment it was at the same point as the main car')}
+              >
+                <option value="" disabled>{t('走行比較', 'Compare')}</option>
+                {(compareCars ?? []).filter(c => c.slot.slot !== 0).map(c => (
+                  <option key={c.slot.slot} value={c.slot.slot} className="bg-surface-3 text-slate-200">{t('走行比較', 'Compare')}: Car {c.slot.slot + 1}</option>
+                ))}
               </select>
-              {selectedTrackId && (
+            </div>
+          )}
+
+          {/* カメラの選択。1 つ目がメイン。走行比較では 2 つ目が比較の車の動画 */}
+          {media.length > 0 && (
+            <div className="flex items-center gap-1 pl-2 border-l border-line-2">
+              {cameras.slice(0, isCompare ? 2 : MAX_CAMERAS).map((m, i) => (
+                <div key={i} className="flex items-center">
+                  <span className="text-[10px] text-slate-400 font-medium mr-0.5">
+                    {i === 0 ? t('メイン', 'Main') : isCompare ? `Car ${win.compareSlot + 1}` : `${i + 1}`}
+                  </span>
+                  <select
+                    value={m.id}
+                    onChange={e => videoViewStore.setCamera(i, e.target.value)}
+                    className="bg-surface-3 border border-line-3 text-xs text-slate-200 rounded px-1 py-1 outline-none max-w-[130px] truncate cursor-pointer"
+                  >
+                    {media.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}
+                  </select>
+                  {i > 0 && (
+                    <button
+                      onClick={() => videoViewStore.setCamera(i, null)}
+                      className="p-0.5 text-slate-500 hover:text-slate-200 cursor-pointer"
+                      title={t('この枠を外す', 'Remove this view')}
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+              ))}
+              {cameras.length < Math.min(isCompare ? 2 : MAX_CAMERAS, media.length) && (
                 <button
-                  onClick={() => videoSyncManager.removeTrack(selectedTrackId)}
+                  onClick={() => videoViewStore.setCamera(cameras.length, media.find(x => !cameraIds.includes(x.id))?.id ?? null)}
+                  className="flex items-center gap-0.5 px-1.5 py-1 rounded bg-surface-3 hover:bg-surface-5 text-[10px] text-slate-300 border border-line-3 cursor-pointer"
+                  title={t('カメラの枠を足す', 'Add a camera view')}
+                >
+                  <Plus size={11} />{t('カメラ', 'Camera')}
+                </button>
+              )}
+              {mainMedia && (
+                <button
+                  onClick={() => mainMedia.tracks.forEach(x => videoSyncManager.removeTrack(x.id))}
                   disabled={isAnyExporting}
-                  title={t('動画トラック削除', 'Remove video track')}
+                  title={t('メインの動画を一覧から消す', 'Remove the main video from the list')}
                   className="p-1 hover:bg-red-950/60 text-slate-400 hover:text-red-400 rounded transition-colors cursor-pointer"
                 >
                   <Trash2 size={12} />
@@ -809,79 +721,23 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             </div>
           )}
 
-          {/* 2カメラ / PinP モード切替 & サブ動画選択 */}
-          {tracks.length > 1 && (
-            <div className="flex items-center gap-1 pl-2 border-l border-line-2">
-              <span className="text-[10px] text-slate-400 font-medium">Sub:</span>
-              <select
-                value={subTrackId || ''}
-                onChange={e => setSubTrackId(e.target.value)}
-                className="bg-surface-3 border border-line-3 text-xs text-slate-200 rounded px-2 py-1 outline-none max-w-[130px] truncate cursor-pointer"
-              >
-                {tracks.filter(t => t.id !== selectedTrackId).map(t => (
-                  <option key={t.id} value={t.id}>
-                    {t.fileName}
-                  </option>
-                ))}
-              </select>
-              {/* サブの合わせ方: 同じ時刻 / 走行比較 (比較の車がメインと同じ地点を走った時刻) LATER-11 */}
-              <select
-                value={subSyncMode === 'compare' ? `compare:${subCompareSlot}` : 'time'}
-                onChange={e => {
-                  const v = e.target.value;
-                  if (v === 'time') videoViewStore.set({ subSyncMode: 'time' });
-                  else videoViewStore.set({ subSyncMode: 'compare', subCompareSlot: Number(v.split(':')[1]) });
-                }}
-                title={t('サブの動画の合わせ方。走行比較: 比較の車 (Car 2〜4) の周で、メインと同じ地点を走ったときの映像を出します (サブにはその車のログと同じ時間の動画を選んでください)', 'How the sub video follows. Run comparison: shows the comparison car (Car 2-4) at the same point on its lap as the main car (choose a sub video recorded with that car\'s log)')}
-                className="bg-surface-3 border border-line-3 text-xs text-slate-200 rounded px-2 py-1 outline-none cursor-pointer"
-              >
-                <option value="time">{t('同じ時刻', 'Same time')}</option>
-                {(compareCars ?? []).filter(c => c.slot.slot !== 0).map(c => (
-                  <option key={c.slot.slot} value={`compare:${c.slot.slot}`}>{t('走行比較', 'Run comparison')}: Car {c.slot.slot + 1}</option>
-                ))}
-              </select>
-
-              {/* ビューモードトグル (Single / Split / PinP) */}
-              <div className="flex items-center rounded border border-line-3 bg-surface-3 overflow-hidden ml-1">
+          {/* 並べ方 (枠が 2 つ以上のとき) */}
+          {tileCount > 1 && (
+            <div className="flex items-center rounded border border-line-3 bg-surface-3 overflow-hidden">
+              {([
+                ['single', t('単一', 'Single'), t('メインだけを出す', 'Main only'), null],
+                ['grid', t('並べる', 'Grid'), t('2 つなら左右、3〜4 つなら 2×2 に並べる。枠を押すと大きく出す', 'Side by side for 2, 2×2 for 3-4. Click a view to enlarge it'), <Columns size={11} key="c" />],
+                ['pip', 'PinP', t('メインの上に 2 つ目を小窓で重ねる', 'Show the second view as a small window over the main one'), <PictureInPicture size={11} key="p" />]
+              ] as const).map(([value, label, title, icon]) => (
                 <button
-                  onClick={() => setViewMode('single')}
-                  className={`px-2 py-1 text-[10px] font-bold transition-colors cursor-pointer ${
-                    viewMode === 'single' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title={t('単一カメラ表示', 'Single camera')}
+                  key={value}
+                  onClick={() => setWin({ layout: value, focus: null })}
+                  className={`px-2 py-1 text-[10px] font-bold transition-colors cursor-pointer flex items-center gap-1 ${win.layout === value ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                  title={title}
                 >
-                  {t('単一', 'Single')}
+                  {icon}{label}
                 </button>
-                <button
-                  onClick={() => setViewMode('split')}
-                  className={`px-2 py-1 text-[10px] font-bold transition-colors cursor-pointer flex items-center gap-1 ${
-                    viewMode === 'split' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title={t('左右2画面並列表示 (1:1)', 'Two cameras side by side (1:1)')}
-                >
-                  <Columns size={11} />
-                  {t('2画面', 'Split')}
-                </button>
-                <button
-                  onClick={() => setViewMode('pip')}
-                  className={`px-2 py-1 text-[10px] font-bold transition-colors cursor-pointer flex items-center gap-1 ${
-                    viewMode === 'pip' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title={t('ピクチャー・イン・ピクチャー (PinP)', 'Picture-in-picture (PiP)')}
-                >
-                  <PictureInPicture size={11} />
-                  PinP
-                </button>
-              </div>
-
-              {/* メイン/サブ入替ボタン */}
-              <button
-                onClick={handleSwapCameras}
-                className="p-1 rounded bg-surface-3 hover:bg-surface-4 border border-line-3 text-slate-300 transition-colors cursor-pointer"
-                title={t('メインカメラとサブカメラを瞬時に入れ替え', 'Swap the main and sub cameras')}
-              >
-                <ArrowLeftRight size={12} />
-              </button>
+              ))}
             </div>
           )}
 
@@ -1080,139 +936,65 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
         {activeTrack && activeTrack.objectUrl ? (
           <>
-            {/* ビューポート: Single モード */}
-            {viewMode === 'single' && (
-              <div className="w-full h-full relative flex items-center justify-center bg-black">
-                <video
-                  ref={videoRef}
-                  onSeeked={handleSeeked}
-                  src={activeTrack.objectUrl}
-                  playsInline
-                  className="max-h-full max-w-full object-contain"
-                />
-              </div>
-            )}
-
-            {/* ビューポート: Split (左右2画面 1:1) モード */}
-            {viewMode === 'split' && (
-              <div className="w-full h-full flex flex-row overflow-hidden relative">
-                {/* 左側: メイン動画 */}
-                <div className="flex-1 relative flex items-center justify-center bg-black border-r border-line-1">
-                  <span className="absolute top-2 left-2 z-10 text-[10px] font-mono font-bold bg-black/70 border border-slate-700 px-1.5 py-0.5 rounded text-red-400">
-                    Main: {activeTrack.fileName}
-                  </span>
-                  <video
-                    ref={videoRef}
+            {/* カメラの枠 (VideoStage が並べ、VideoTile が 1 つずつ出す)。メーターはメインの枠に重ねる */}
+            <VideoStage
+              count={tileCount}
+              layout={win.layout}
+              focus={win.focus}
+              pipPosition={pipPosition}
+              pipRef={pipRef}
+              renderTile={(i, size) => {
+                const m = cameras[i];
+                const isMain = i === 0;
+                // 音を出すのは、大きく出している枠 (なければメイン) だけ
+                const sound = win.focus !== null ? i === win.focus : isMain;
+                const car1Color = selectedCars.find(c => c.slot === 0)?.colorHex;
+                return (
+                  <VideoTile
+                    key={`tile-${i}`}
+                    tileKey={`tile-${i}`}
+                    controller={playback}
+                    position={positions[i] ?? null}
+                    muted={!sound}
                     onSeeked={handleSeeked}
-                    src={activeTrack.objectUrl}
-                      playsInline
-                    className="max-h-full max-w-full object-contain"
+                    overlay={isMain && showOverlay && isVisible ? mainOverlay : null}
+                    avoidRef={isMain && win.layout === 'pip' ? pipRef : undefined}
+                    accent={isCompare ? (isMain ? car1Color : compareCar?.slot.colorHex) : undefined}
+                    onClick={win.layout === 'grid' && tileCount > 1 && size !== 'pip' ? () => setWin({ focus: win.focus === i ? null : i }) : undefined}
+                    className="flex-1 w-full h-full"
+                    badge={tileCount > 1 && (
+                      <>
+                        <span className={`truncate ${isMain ? 'text-red-400' : 'text-blue-400'}`}>
+                          {isCompare ? `Car ${isMain ? 1 : win.compareSlot + 1}: ` : ''}{m.label}
+                        </span>
+                        {!isMain && !isCompare && (
+                          <button
+                            onClick={e => { e.stopPropagation(); videoViewStore.makeMain(i); }}
+                            className="text-slate-400 hover:text-amber-300 cursor-pointer"
+                            title={t('この動画をメインにする (メーター・同期の調整の対象)', 'Make this the main video (gauges and sync settings)')}
+                          >
+                            <ArrowLeftRight size={10} />
+                          </button>
+                        )}
+                        {size === 'pip' && (
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              const next: PipPosition = pipPosition === 'bottom-right' ? 'bottom-left' : pipPosition === 'bottom-left' ? 'top-left' : pipPosition === 'top-left' ? 'top-right' : 'bottom-right';
+                              setWin({ pipPosition: next });
+                            }}
+                            className="text-slate-400 hover:text-blue-300 cursor-pointer"
+                            title={t('PinPの四隅表示位置を切り替え', 'Move the PiP window to another corner')}
+                          >
+                            <Maximize2 size={10} />
+                          </button>
+                        )}
+                        {!sound && <VolumeX size={10} className="text-slate-500" />}
+                      </>
+                    )}
                   />
-                </div>
-
-                {/* 右側: サブ動画 */}
-                <div className="flex-1 relative flex items-center justify-center bg-black">
-                  <span className="absolute top-2 left-2 z-10 text-[10px] font-mono font-bold bg-black/70 border border-slate-700 px-1.5 py-0.5 rounded text-blue-400 flex items-center gap-1">
-                    Sub: {subTrack?.fileName || t('未選択', 'none')}
-                    <button
-                      onClick={() => setIsSubMuted(!isSubMuted)}
-                      className="ml-1 text-slate-400 hover:text-slate-200 cursor-pointer"
-                      title={isSubMuted ? t('サブ音声ミュート解除', 'Unmute sub audio') : t('サブ音声をミュート', 'Mute sub audio')}
-                    >
-                      {isSubMuted ? <VolumeX size={11} /> : <Volume2 size={11} />}
-                    </button>
-                  </span>
-                  {subTrack && subTrack.objectUrl ? (
-                    <>
-                      <video
-                        ref={subVideoRef}
-                        onSeeked={handleSeeked}
-                        src={subTrack.objectUrl}
-                        muted={isSubMuted}
-                        playsInline
-                        className="max-h-full max-w-full object-contain"
-                      />
-                      {subNoFootage}
-                    </>
-                  ) : (
-                    <div className="text-slate-500 text-xs text-center p-4">
-                      {t('上部バーでサブ動画トラックを選択してください', 'Select a sub video track in the bar above')}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* ビューポート: PinP (ピクチャー・イン・ピクチャー) モード */}
-            {viewMode === 'pip' && (
-              <div className="w-full h-full relative flex items-center justify-center bg-black">
-                {/* メイン動画 */}
-                <video
-                  ref={videoRef}
-                  onSeeked={handleSeeked}
-                  src={activeTrack.objectUrl}
-                  playsInline
-                  className="max-h-full max-w-full object-contain"
-                />
-
-                {/* フローティング サブ動画 (PinP) */}
-                {subTrack && subTrack.objectUrl && (
-                  <div ref={pipRef} className={`absolute z-20 w-1/4 min-w-[220px] max-w-[340px] aspect-video border border-blue-500/80 bg-black rounded overflow-hidden ${getPipPosClass(pipPosition)}`}>
-                    <video
-                      ref={subVideoRef}
-                      onSeeked={handleSeeked}
-                      src={subTrack.objectUrl}
-                      muted={isSubMuted}
-                      playsInline
-                      className="w-full h-full object-contain"
-                    />
-                    {subNoFootage}
-                    {/* PinP コントロールバー */}
-                    <div className="absolute top-1 left-1 right-1 flex items-center justify-between pointer-events-auto bg-black/70 px-1.5 py-0.5 rounded text-[9px] font-mono text-slate-200">
-                      <span className="truncate max-w-[120px] text-blue-400 font-bold">{subTrack.fileName}</span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={handleSwapCameras}
-                          className="hover:text-amber-300 cursor-pointer"
-                          title={t('メインと入れ替え', 'Swap with main')}
-                        >
-                          <ArrowLeftRight size={10} />
-                        </button>
-                        <button
-                          onClick={() => {
-                            const nextPos: PipPosition = 
-                              pipPosition === 'bottom-right' ? 'bottom-left' :
-                              pipPosition === 'bottom-left' ? 'top-left' :
-                              pipPosition === 'top-left' ? 'top-right' : 'bottom-right';
-                            setPipPosition(nextPos);
-                          }}
-                          className="hover:text-blue-300 cursor-pointer"
-                          title={t('PinPの四隅表示位置を切り替え', 'Move the PiP window to another corner')}
-                        >
-                          <Maximize2 size={10} />
-                        </button>
-                        <button
-                          onClick={() => setIsSubMuted(!isSubMuted)}
-                          className="hover:text-slate-100 cursor-pointer"
-                        >
-                          {isSubMuted ? <VolumeX size={10} /> : <Volume2 size={10} />}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* テレメトリオーバーレイ Canvas */}
-            <canvas
-              ref={canvasRef}
-              width={1280}
-              height={720}
-              style={overlayBox ? { left: overlayBox.left, top: overlayBox.top, width: overlayBox.width, height: overlayBox.height } : undefined}
-              className={`absolute ${overlayBox ? '' : 'inset-0 w-full h-full'} object-contain pointer-events-none z-15 ${
-                showOverlay ? 'opacity-100' : 'opacity-0'
-              } transition-opacity duration-150`}
+                );
+              }}
             />
 
             {/* 録画開始前インジケーター */}
@@ -1266,7 +1048,6 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               onClick={() => {
                 const prev = getPreviousChapter(currentGroup, activeTrack?.id || '');
                 if (prev) {
-                  setSelectedTrackId(prev.track.id);
                   const newSessionTime = prev.track.syncOffsetSec;
                   if (isGraphEmbedded && baseLap) {
                     seekTo(Math.max(0, newSessionTime - baseLap.startTime));
@@ -1289,7 +1070,6 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   <button
                     key={ct.track.id}
                     onClick={() => {
-                      setSelectedTrackId(ct.track.id);
                       const targetSessionTime = ct.track.syncOffsetSec;
                       if (isGraphEmbedded && baseLap) {
                         seekTo(Math.max(0, targetSessionTime - baseLap.startTime));
@@ -1313,7 +1093,6 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               onClick={() => {
                 const next = getNextChapter(currentGroup, activeTrack?.id || '');
                 if (next) {
-                  setSelectedTrackId(next.track.id);
                   const targetSessionTime = next.track.syncOffsetSec;
                   if (isGraphEmbedded && baseLap) {
                     seekTo(Math.max(0, targetSessionTime - baseLap.startTime));
@@ -1344,7 +1123,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             session={baseSession}
             baseLap={baseLap}
             activeTrack={activeTrack}
-            subTrack={subSyncMode === 'compare' ? undefined : subTrack}
+            subTrack={!isCompare && shownCount > 1 ? positions[1]?.track : undefined}
             chapterGroup={currentGroup}
             pins={pins}
             currentSessionTimeSec={effectiveSessionTime}
@@ -1371,7 +1150,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         const logEnd = baseSession && baseSession.points.length > 0 ? baseSession.points[baseSession.points.length - 1].time : 0;
         // App の再生の終わりと同じ (表示しているメインとサブの動画。チャプターに分かれた動画は最後のチャプターまで)
         // サブの動画は、ログの記録と時間が重なるときだけ範囲に入れる (撮影日の違う動画で、範囲が何日にも伸びないように)
-        const subEnd = viewMode !== 'single' && subTrack && subSyncMode !== 'compare' && subTrack.syncOffsetSec < logEnd ? videoEndSessionSec(subTrack) : 0;
+        const subEnds = isCompare ? [] : cameras.slice(1, shownCount).map(m => m.tracks[0]).filter(x => x.syncOffsetSec < logEnd).map(videoEndSessionSec);
+        const subEnd = Math.max(0, ...subEnds);
         const sessionMax = Math.max(logEnd, videoEndSessionSec(activeTrack), subEnd) || 60;
 
         // 周の時刻は、周の始めからの時刻 (動画同期タブでは App の時刻がセッション全体の時刻なので、周の始めを引く)
