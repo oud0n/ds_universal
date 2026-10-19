@@ -1,51 +1,40 @@
 /**
- * 動画のウインドウの表示の状態 (選んでいる動画・2 カメラの表示・メーターの表示・同期ピン)。
- * 動画のウインドウはグラフ画面の左下・右下と動画同期タブに同時に開けるので、状態はここに 1 つだけ持ち、どのウインドウでも同じにする
+ * 動画のウインドウの状態。どのウインドウでも同じもの (出すカメラ・書き出し中か・同期ピン) はここに 1 つだけ持つ。
+ * ウインドウごとのもの (モード・並べ方・大きく出す枠・メーター) は useWindowView で、ウインドウごとに持つ
+ * (グラフ画面の左下・右下と動画同期タブで、別々の並べ方にできるように)
  */
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { videoSyncManager, VideoTrack, PlacedTrack } from './videoSyncManager';
 import { SyncPin, loadPinsFromStorage, savePinsToStorage } from './videoSyncPinManager';
 
-export type VideoViewMode = 'single' | 'split' | 'pip';
 export type PipPosition = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
-// サブの動画の合わせ方。time: 同じ時刻 (撮影の本当の時刻)、compare: 走行比較 (比較の車がメインと同じ地点を走った時刻) LATER-11
-export type SubSyncMode = 'time' | 'compare';
+export type StageLayout = 'single' | 'grid' | 'pip';
+/** cameras: 1 台の車の走行を、いくつかのカメラで同じ時刻に見る。compare: 走行比較 (比較の車が同じ地点を走った時刻) */
+export type VideoMode = 'cameras' | 'compare';
+
+export const MAX_CAMERAS = 4;
 
 export interface VideoViewState {
-  selectedTrackId: string | null;
-  subTrackId: string | null;
-  viewMode: VideoViewMode;
-  pipPosition: PipPosition;
-  isSubMuted: boolean;
-  showOverlay: boolean;
-  showGForce: boolean;
-  subSyncMode: SubSyncMode;
-  // 走行比較で合わせる比較の車のスロット (1: Car 2、2: Car 3、3: Car 4)
-  subCompareSlot: number;
+  /** 出すカメラ (動画の ID。チャプターに分かれた動画は最初のチャプター)。1 つ目がメイン (メーター・同期の調整・書き出しの対象) */
+  cameraIds: string[];
   // 動画を書き出し中か。書き出し中は、どのウインドウも動画の切り替え・再生位置の合わせ直しをしない
   isExporting: boolean;
 }
 
+/** チャプターに分かれた動画は、最初のチャプターの ID にそろえる */
+function leadId(trackId: string): string {
+  return videoSyncManager.getChapterGroupForTrack(trackId)?.tracks[0]?.track.id ?? trackId;
+}
+
 class VideoViewStore {
-  private state: VideoViewState = {
-    selectedTrackId: null,
-    subTrackId: null,
-    viewMode: 'single',
-    pipPosition: 'bottom-right',
-    isSubMuted: true,
-    showOverlay: true,
-    showGForce: true,
-    subSyncMode: 'time',
-    subCompareSlot: 1,
-    isExporting: false
-  };
+  private state: VideoViewState = { cameraIds: [], isExporting: false };
   private listeners = new Set<() => void>();
   private pinCache = new Map<string, SyncPin[]>();
   // 照合した動画を自動で選んだセッション。同じセッションのあいだは選び直さない (タブの切り替え・書き出しの後に、手で選んだ動画を戻さない)
   autoSelectedSessionId: string | null = null;
 
   constructor() {
-    // 動画を足したり消したりしたら、選んでいる動画がなくならないように選び直す
+    // 動画を足したり消したりしたら、出すカメラがなくならないように選び直す
     videoSyncManager.subscribe(() => this.reconcile(videoSyncManager.getTracks()));
   }
 
@@ -58,37 +47,56 @@ class VideoViewStore {
 
   set(patch: Partial<VideoViewState>): void {
     const next = { ...this.state, ...patch };
-    if ((Object.keys(patch) as (keyof VideoViewState)[]).every(k => next[k] === this.state[k])) return;
+    if ((Object.keys(patch) as (keyof VideoViewState)[]).every(k => JSON.stringify(next[k]) === JSON.stringify(this.state[k]))) return;
     this.state = next;
     this.listeners.forEach(l => l());
   }
 
-  /** メインとサブが、今ある動画を指すようにする */
+  /** 出すカメラが、今ある動画 (の最初のチャプター) を指すようにする。動画があれば少なくとも 1 つ出す */
   private reconcile(tracks: VideoTrack[]): void {
-    let { selectedTrackId, subTrackId } = this.state;
-    if (!tracks.some(t => t.id === selectedTrackId)) {
-      selectedTrackId = tracks[0]?.id ?? null;
+    const ids = new Set(tracks.map(t => t.id));
+    const cams: string[] = [];
+    for (const id of this.state.cameraIds) {
+      if (!ids.has(id)) continue;
+      const lead = leadId(id);
+      if (!cams.includes(lead)) cams.push(lead);
+    }
+    if (cams.length === 0 && tracks.length > 0) {
+      cams.push(leadId(tracks[0].id));
       // 選んでいた動画を消したら、次に照合済みの動画を読み込んだときに自動で選び直す
       this.autoSelectedSessionId = null;
     }
-    if (!tracks.some(t => t.id === subTrackId) || subTrackId === selectedTrackId) {
-      subTrackId = tracks.find(t => t.id !== selectedTrackId)?.id ?? null;
-    }
-    this.set({ selectedTrackId, subTrackId });
+    this.set({ cameraIds: cams });
   }
 
-  /** メインの動画を選ぶ。サブと同じになったら、サブを別の動画にする */
+  /** メインのカメラを選ぶ。ほかの枠に出していたら、その枠からは外す */
   selectMain(trackId: string | null): void {
-    const tracks = videoSyncManager.getTracks();
-    let subTrackId = this.state.subTrackId;
-    if (subTrackId === trackId) subTrackId = tracks.find(t => t.id !== trackId)?.id ?? null;
-    this.set({ selectedTrackId: trackId, subTrackId });
+    if (!trackId) return;
+    const id = leadId(trackId);
+    this.set({ cameraIds: [id, ...this.state.cameraIds.filter(c => c !== id)].slice(0, MAX_CAMERAS) });
   }
 
-  swap(): void {
-    const { selectedTrackId, subTrackId } = this.state;
-    if (!selectedTrackId || !subTrackId) return;
-    this.set({ selectedTrackId: subTrackId, subTrackId: selectedTrackId });
+  /** index 番目の枠のカメラを変える (null で枠を外す)。同じカメラがほかの枠にあれば入れ替える */
+  setCamera(index: number, trackId: string | null): void {
+    const cams = [...this.state.cameraIds];
+    if (trackId === null) {
+      if (index > 0) cams.splice(index, 1);
+      this.set({ cameraIds: cams });
+      return;
+    }
+    const id = leadId(trackId);
+    const at = cams.indexOf(id);
+    if (at >= 0 && index < cams.length) cams[at] = cams[index];
+    if (index < cams.length) cams[index] = id; else if (at < 0) cams.push(id);
+    this.set({ cameraIds: cams.slice(0, MAX_CAMERAS) });
+  }
+
+  /** index 番目の枠のカメラをメインにする (メインだったカメラはその枠へ) */
+  makeMain(index: number): void {
+    const cams = [...this.state.cameraIds];
+    if (index <= 0 || index >= cams.length) return;
+    [cams[0], cams[index]] = [cams[index], cams[0]];
+    this.set({ cameraIds: cams });
   }
 
   // 同期ピンはコースごとに保存する。同じ配列を返す (useSyncExternalStore が変化を見分けられるように)
@@ -118,6 +126,42 @@ export function videoEndSessionSec(track: PlacedTrack | null | undefined): numbe
   const me = group && group.tracks.length > 1 ? group.tracks.find(ct => ct.track.id === track.id) : undefined;
   if (group && me) return track.syncOffsetSec - me.groupOffsetSec + group.totalDurationSec;
   return track.syncOffsetSec + (track.durationSec || 0);
+}
+
+/** ウインドウごとの表示の状態 */
+export interface WindowViewState {
+  mode: VideoMode;
+  layout: StageLayout;
+  /** 大きく出している枠 (null: 並べる) */
+  focus: number | null;
+  pipPosition: PipPosition;
+  showOverlay: boolean;
+  showGForce: boolean;
+  /** 走行比較で合わせる比較の車のスロット (1: Car 2、2: Car 3、3: Car 4) */
+  compareSlot: number;
+}
+
+const WINDOW_DEFAULT: WindowViewState = { mode: 'cameras', layout: 'grid', focus: null, pipPosition: 'bottom-right', showOverlay: true, showGForce: true, compareSlot: 1 };
+
+/**
+ * ウインドウごとの表示の状態。key ごとにブラウザに覚える (読めないとき・書けないときは既定のまま。動作には要らない)
+ */
+export function useWindowView(key: string): [WindowViewState, (patch: Partial<WindowViewState>) => void] {
+  const storageKey = `ds_video_window_${key}`;
+  const [state, setState] = useState<WindowViewState>(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      return raw ? { ...WINDOW_DEFAULT, ...JSON.parse(raw), focus: null } : WINDOW_DEFAULT;
+    } catch {
+      return WINDOW_DEFAULT;
+    }
+  });
+  const update = (patch: Partial<WindowViewState>) => setState(prev => {
+    const next = { ...prev, ...patch };
+    try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* 覚えられなくても動く */ }
+    return next;
+  });
+  return [state, update];
 }
 
 export function useVideoView(): VideoViewState {

@@ -336,12 +336,13 @@ export const App: React.FC = () => {
   const videoTracks = useVideoTracks();
   const videoView = useVideoView();
   const logEndTime = baseSession?.points.length ? baseSession.points[baseSession.points.length - 1].time : 0;
-  // 表示している動画を基準車のログの時刻に置いて、その終わりまで進める。サブの動画は、ログの間に始まるときだけ数える
-  // (撮影日の違うサブの動画で、再生の終わりが何日も先にならないように。走行比較のサブは比較の車の時刻なので数えない)
-  const shownVideoEnds = videoTracks
-    .filter(t => t.id === videoView.selectedTrackId || (t.id === videoView.subTrackId && videoView.viewMode !== 'single' && videoView.subSyncMode !== 'compare'))
+  // 出しているカメラを基準車のログの時刻に置いて、その終わりまで進める。メイン以外は、ログの間に始まるときだけ数える
+  // (撮影日の違う動画で、再生の終わりが何日も先にならないように)
+  const shownVideoEnds = videoView.cameraIds
+    .map(id => videoTracks.find(t => t.id === id))
+    .filter((t): t is NonNullable<typeof t> => !!t)
     .map(t => placeTrack(t, baseSession, sessions))
-    .filter(t => t.id === videoView.selectedTrackId || !baseSession || t.syncOffsetSec < logEndTime)
+    .filter((t, i) => i === 0 || !baseSession || t.syncOffsetSec < logEndTime)
     .map(videoEndSessionSec);
   const sessionEndTime = Math.max(logEndTime, ...shownVideoEnds);
   const [clockBase, setClockBase] = useState<'lap' | 'session'>(() => (isVideoTab ? 'session' : 'lap'));
@@ -1392,6 +1393,7 @@ export const App: React.FC = () => {
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
                       onChooseLog={setBaseSession}
+                      viewKey="graph-a"
                       onSetClockOffset={setSessionClockOffset}
                       compareCars={activeCars}
                     />
@@ -1559,6 +1561,7 @@ export const App: React.FC = () => {
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
                       onChooseLog={setBaseSession}
+                      viewKey="graph-b"
                       onSetClockOffset={setSessionClockOffset}
                       compareCars={activeCars}
                     />
@@ -1589,6 +1592,7 @@ export const App: React.FC = () => {
               playbackSpeed={playbackSpeed}
               onChangePlaybackSpeed={setPlaybackSpeed}
               onChooseLog={setBaseSession}
+              viewKey="video-tab"
               onSetClockOffset={setSessionClockOffset}
               compareCars={activeCars}
             />
