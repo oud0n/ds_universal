@@ -43,7 +43,8 @@ import { bleLoggerLink } from './services/bleLoggerLink';
 import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
 import { Freeze } from './components/Freeze';
 import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
-import { BottomTabBar, MobileSeekBar } from './components/MobileNav';
+import { BottomTabBar } from './components/MobileNav';
+import { PlayBar } from './components/PlayBar';
 import { SplitResizer } from './components/SplitResizer';
 import { interpolatePoint } from './utils/telemetrySearch';
 
@@ -1306,13 +1307,6 @@ export const App: React.FC = () => {
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
         sessions={sessions}
-        selectedCars={selectedCars}
-        isPlaying={isPlaying}
-        onTogglePlay={() => setIsPlaying(!isPlaying)}
-        onStepForward={() => handleStep(0.1)}
-        onStepBack={() => handleStep(-0.1)}
-        playbackSpeed={playbackSpeed}
-        onChangePlaybackSpeed={setPlaybackSpeed}
         onOpenFile={() => fileInputRef.current?.click()}
         onOpenDonate={() => setIsDonateModalOpen(true)}
         compact={isCompact}
@@ -1716,9 +1710,21 @@ export const App: React.FC = () => {
         )}
       </main>
 
-      {/* スマートフォン: グラフ解析タブのシークバーと、画面下のタブバー */}
-      {isCompact && currentTab === 'graph' && baseLap && (
-        <MobileSeekBar currentTime={currentTimeSec} endTime={playEndTime} onSeekTime={handleSeekTime} />
+      {/* グラフ解析の再生の段 (シークバーと再生のボタン。動画同期の画面の下の段と同じ並び)。スマートフォンでは、この下にタブバー */}
+      {currentTab === 'graph' && baseLap && (
+        <PlayBar
+          label={`L${baseLap.lapNumber}`}
+          currentTime={currentTimeSec}
+          endTime={playEndTime}
+          isPlaying={isPlaying}
+          onTogglePlay={() => setIsPlaying(!isPlaying)}
+          onSeekTime={handleSeekTime}
+          onStepBack={() => handleStep(-0.1)}
+          onStepForward={() => handleStep(0.1)}
+          playbackSpeed={playbackSpeed}
+          onChangePlaybackSpeed={setPlaybackSpeed}
+          compact={isCompact}
+        />
       )}
       {isCompact && <BottomTabBar currentTab={currentTab} setCurrentTab={setCurrentTab} sessionCount={sessions.length} />}
 
