@@ -450,6 +450,13 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                   {sec.id.endsWith('_finish') && (
                     <p className="text-[10px] text-slate-500">{t('フィニッシュ (計測線まで)。位置は計測線と同じになります', 'Finish (up to the timing line). Its position follows the timing line')}</p>
                   )}
+                  {/* 4 つの欄の名前 (欄に値が入っていると placeholder は見えず、どれが何か分からなかった) */}
+                  <div className="grid grid-cols-4 gap-2 text-[10px] leading-tight text-slate-500" aria-hidden="true">
+                    <span>{t('点A 緯度', 'Lat A')}</span>
+                    <span>{t('点A 経度', 'Lon A')}</span>
+                    <span>{t('点B 緯度', 'Lat B')}</span>
+                    <span>{t('点B 経度', 'Lon B')}</span>
+                  </div>
                   <div className="grid grid-cols-4 gap-2 text-[10px] font-mono">
                     <input
                       type="number"
@@ -457,6 +464,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                       value={sec.latA}
                       onChange={e => handleUpdateSector(idx, 'latA', parseFloat(e.target.value) || 0)}
                       placeholder="Lat A"
+                      aria-label={`${sec.name || `S${idx + 1}`} ${t('点A 緯度', 'Lat A')}`}
                       disabled={sec.id.endsWith('_finish')}
                       className="bg-surface-2 border border-line-3 rounded p-1 disabled:opacity-60"
                     />
@@ -466,6 +474,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                       value={sec.lonA}
                       onChange={e => handleUpdateSector(idx, 'lonA', parseFloat(e.target.value) || 0)}
                       placeholder="Lon A"
+                      aria-label={`${sec.name || `S${idx + 1}`} ${t('点A 経度', 'Lon A')}`}
                       disabled={sec.id.endsWith('_finish')}
                       className="bg-surface-2 border border-line-3 rounded p-1 disabled:opacity-60"
                     />
@@ -475,6 +484,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                       value={sec.latB}
                       onChange={e => handleUpdateSector(idx, 'latB', parseFloat(e.target.value) || 0)}
                       placeholder="Lat B"
+                      aria-label={`${sec.name || `S${idx + 1}`} ${t('点B 緯度', 'Lat B')}`}
                       disabled={sec.id.endsWith('_finish')}
                       className="bg-surface-2 border border-line-3 rounded p-1 disabled:opacity-60"
                     />
@@ -484,6 +494,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                       value={sec.lonB}
                       onChange={e => handleUpdateSector(idx, 'lonB', parseFloat(e.target.value) || 0)}
                       placeholder="Lon B"
+                      aria-label={`${sec.name || `S${idx + 1}`} ${t('点B 経度', 'Lon B')}`}
                       disabled={sec.id.endsWith('_finish')}
                       className="bg-surface-2 border border-line-3 rounded p-1 disabled:opacity-60"
                     />
