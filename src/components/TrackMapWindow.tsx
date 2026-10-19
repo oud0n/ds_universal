@@ -474,36 +474,19 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       const pA = toScreen(controlLine.latA, controlLine.lonA);
       const pB = toScreen(controlLine.latB, controlLine.lonB);
 
-      // 文字の代わりに、チェッカーの模様 (白黒の市松 2 段) の帯で描く。白黒は、明るい画面・暗い画面・地図のどれでも見える
-      const len = Math.hypot(pB.x - pA.x, pB.y - pA.y);
-      const sq = 4;
-      const nx = len > 0 ? -(pB.y - pA.y) / len : 0, ny = len > 0 ? (pB.x - pA.x) / len : 1;
-      ctx.lineCap = 'butt';
-      ctx.lineWidth = sq;
-      [-sq / 2, sq / 2].forEach((off, row) => {
-        const ax = pA.x + nx * off, ay = pA.y + ny * off, bx = pB.x + nx * off, by = pB.y + ny * off;
-        ctx.setLineDash([]);
-        ctx.strokeStyle = '#f5f5f5';
-        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
-        ctx.setLineDash([sq, sq]);
-        ctx.lineDashOffset = row === 0 ? 0 : sq;
-        ctx.strokeStyle = '#111111';
-        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
-      });
-      ctx.setLineDash([]);
-      ctx.lineDashOffset = 0;
-      // 帯の縁取り (細い線) で、地図の上でも帯の形がわかるようにする
-      ctx.lineWidth = 1;
+      // 文字は書かず、模様のない 1 本の太い線で描く (セクターの線は細い点線なので見分けられる)
       ctx.strokeStyle = C.strong;
+      ctx.lineWidth = 6;
+      ctx.lineCap = 'butt';
       ctx.beginPath();
-      ctx.moveTo(pA.x + nx * sq, pA.y + ny * sq); ctx.lineTo(pB.x + nx * sq, pB.y + ny * sq);
-      ctx.moveTo(pA.x - nx * sq, pA.y - ny * sq); ctx.lineTo(pB.x - nx * sq, pB.y - ny * sq);
+      ctx.moveTo(pA.x, pA.y);
+      ctx.lineTo(pB.x, pB.y);
       ctx.stroke();
     }
 
     // 3. セクターゲート (S1, S2, S3...)
     sectors.forEach((sec, idx) => {
-      // 計測線と同じ所 (5 m 以内) にあるセクター (最後のセクターの終わり) は、チェッカーの帯と重なるので線も名前も描かない。
+      // 計測線と同じ所 (5 m 以内) にあるセクター (最後のセクターの終わり) は、計測線と重なるので線も名前も描かない。
       // 画面の上の距離で決めると、拡大の度合いで変わるので、地面の上の距離で決める
       if (controlLine) {
         const dNorth = ((sec.latA + sec.latB) / 2 - (controlLine.latA + controlLine.latB) / 2) * 111320;
