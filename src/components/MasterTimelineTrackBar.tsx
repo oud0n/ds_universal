@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useState, useCallback, useMemo, useEffect } from 'react';
 import { Layers, Video, Gauge, MapPin, ChevronDown, ChevronUp } from 'lucide-react';
 import { Session } from '../types/telemetry';
 import { PlacedTrack } from '../services/videoSyncManager';
@@ -109,16 +109,31 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
     window.addEventListener('mouseup', onMouseUp);
   };
 
-  // 目盛りステップ (秒) の自動算出 (例: 60s, 120s, 300s, 600s)
+  // 段の幅 (目盛りの文字が重ならない間隔を決めるため)
+  const [trackWidth, setTrackWidth] = useState(0);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => setTrackWidth(el.clientWidth));
+    observer.observe(el);
+    setTrackWidth(el.clientWidth);
+    return () => observer.disconnect();
+  }, [isCollapsed]);
+
+  // 目盛りの間隔 (秒)。文字 (「20:00」で 30px ほど) が重ならないよう、1 つの目盛りに 56px 以上あける。
+  // 以前は長さだけで決めていたため、狭い画面 (スマートフォン) で文字が重なり、ずっと長い範囲 (撮影日の違う動画) では目盛りが数千になった
   const rulerTicks = useMemo(() => {
     const ticks: number[] = [];
-    const step = totalDuration > 1800 ? 300 : totalDuration > 600 ? 120 : 60;
+    const maxTicks = Math.max(2, Math.floor((trackWidth || 800) / 56));
+    // 短い範囲 (10 秒より短い) でも目盛りが出るよう、1 秒から
+    const STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600, 43200, 86400];
+    const step = STEPS.find(st => totalDuration / st <= maxTicks) ?? Math.ceil(totalDuration / maxTicks / 86400) * 86400;
     const startTick = Math.ceil(minTime / step) * step;
     for (let t = startTick; t <= maxTime; t += step) {
       ticks.push(t);
     }
     return ticks;
-  }, [minTime, maxTime, totalDuration]);
+  }, [minTime, maxTime, totalDuration, trackWidth]);
 
   const playheadPercent = timeToPercent(currentSessionTimeSec);
 
@@ -162,10 +177,12 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
           <div className="relative h-3 w-full border-b border-line-1">
             {rulerTicks.map((t) => {
               const p = timeToPercent(t);
+              // 両端の目盛りの文字は、枠の外へはみ出して切れないよう、内側へ寄せる (線は目盛りの位置のまま)
+              const edge = p < 2 ? 'start' : p > 98 ? 'end' : null;
               return (
                 <div
                   key={t}
-                  className="absolute top-0 flex flex-col items-center pointer-events-none transform -translate-x-1/2"
+                  className={`absolute top-0 flex flex-col pointer-events-none transform ${edge === 'start' ? 'items-start' : edge === 'end' ? 'items-end -translate-x-full' : 'items-center -translate-x-1/2'}`}
                   style={{ left: `${p}%` }}
                 >
                   <span className="text-[8px] font-mono text-slate-500 leading-none">{formatDuration(t)}</span>
