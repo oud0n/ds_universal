@@ -153,10 +153,23 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       }
     }
 
-    // コースポリラインは、走行の線がないときだけ範囲に入れる。OSM から取ったコース図には、サーキットの敷地の輪郭・ピットロード・
-    // 別のコースも入っていて、それに合わせると走行の線が小さく隅に寄る (2026-10-19、筑波で 900 m 四方の輪郭)
-    if (minLat === 90 && pathPolylines && pathPolylines.length > 0) {
+    // コースポリラインは、走行の線に沿っている線 (25 m 以内) だけを範囲に入れる (走行の線がなければ全部)。
+    // OSM から取ったコース図には、サーキットの敷地の輪郭・別のコースも入っていて、全部に合わせると走行の線が小さく隅に寄る
+    // (2026-10-19、筑波で 900 m 四方の輪郭)。走行の線が 1 周の一部だけでも、そのコースの線は範囲に入るので、コース全体が見える
+    if (pathPolylines && pathPolylines.length > 0) {
+      const hasTrace = minLat !== 90;
+      const basePts = cars[0]?.lap.points ?? [];
+      // 走行の線は 400 点ほどに間引いて比べる (コースの線の点の数 × 走行の線の点の数になるため)
+      const stride = Math.max(1, Math.floor(basePts.length / 400));
+      const trace: Array<[number, number]> = [];
+      for (let i = 0; i < basePts.length; i += stride) trace.push([basePts[i].latitude, basePts[i].longitude]);
+      const mPerDegLat = 111320;
+      const mPerDegLon = 111320 * Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180);
+      const nearTrace = (lat: number, lon: number) =>
+        trace.some(([tl, tn]) => Math.hypot((lat - tl) * mPerDegLat, (lon - tn) * mPerDegLon) < 25);
       for (const poly of pathPolylines) {
+        // 点の 3 割以上が走行の線の近くにある線だけ (敷地の輪郭は所々でコースに近づくので、1 点だけでは決めない)
+        if (hasTrace && trace.length > 0 && poly.filter(([lon, lat]) => nearTrace(lat, lon)).length < poly.length * 0.3) continue;
         for (const [lon, lat] of poly) {
           includePoint(lat, lon);
         }
@@ -415,16 +428,29 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       }
     }
 
-    // 計測線・セクターの名前は、線のコースの外側の端の先に書く (線の真ん中に書くと、走行の線と車の印に重なって読めない)。
-    // 外側は、コース図の真ん中から遠いほうの端とする
+    // 計測線・セクターの名前は、線の端の先に書く (線の真ん中に書くと、走行の線と車の印に重なって読めない)。
+    // 両端のうち、書く所の近くを走行の線が通っていないほうを選ぶ (同じなら、コース図の真ん中から遠いほう)
     const mapCenter = toScreen(latMid, lonMid);
+    const traceScreen: Array<{ x: number; y: number }> = [];
+    {
+      const pts = cars[0]?.lap.points ?? [];
+      const stride = Math.max(1, Math.floor(pts.length / 600));
+      for (let i = 0; i < pts.length; i += stride) traceScreen.push(toScreen(pts[i].latitude, pts[i].longitude));
+    }
+    const crowd = (x: number, y: number) => traceScreen.reduce((n, q) => n + (Math.hypot(q.x - x, q.y - y) < 16 ? 1 : 0), 0);
     const drawGateLabel = (pA: { x: number; y: number }, pB: { x: number; y: number }, text: string, color: string) => {
-      const dA = Math.hypot(pA.x - mapCenter.x, pA.y - mapCenter.y);
-      const dB = Math.hypot(pB.x - mapCenter.x, pB.y - mapCenter.y);
-      const [inner, outer] = dA >= dB ? [pB, pA] : [pA, pB];
-      const len = Math.hypot(outer.x - inner.x, outer.y - inner.y) || 1;
-      const ux = (outer.x - inner.x) / len, uy = (outer.y - inner.y) / len;
-      const x = outer.x + ux * 6, y = outer.y + uy * 6;
+      const len = Math.hypot(pB.x - pA.x, pB.y - pA.y);
+      // 線が短すぎて向きが決まらないときは、線の上に書く
+      const candidates = len < 1
+        ? [{ x: pA.x, y: pA.y - 10, ux: 0, uy: -1, d: 0 }]
+        : [[pA, pB], [pB, pA]].map(([outer, inner]) => {
+            const ux = (outer.x - inner.x) / len, uy = (outer.y - inner.y) / len;
+            return { x: outer.x + ux * 6, y: outer.y + uy * 6, ux, uy, d: Math.hypot(outer.x - mapCenter.x, outer.y - mapCenter.y) };
+          });
+      const best = candidates
+        .map(c => ({ ...c, n: crowd(c.x + c.ux * 12, c.y + c.uy * 8) }))
+        .sort((a, b) => a.n - b.n || b.d - a.d)[0];
+      const { x, y, ux, uy } = best;
       ctx.textAlign = ux > 0.35 ? 'left' : ux < -0.35 ? 'right' : 'center';
       ctx.textBaseline = uy > 0.35 ? 'top' : uy < -0.35 ? 'bottom' : 'middle';
       // 縁取りをして、下の線の上でも読めるようにする
@@ -437,11 +463,9 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     };
 
     // 2. コントロールライン (スタート/フィニッシュ)
-    let finishMid: { x: number; y: number } | null = null;
     if (controlLine) {
       const pA = toScreen(controlLine.latA, controlLine.lonA);
       const pB = toScreen(controlLine.latB, controlLine.lonB);
-      finishMid = { x: (pA.x + pB.x) / 2, y: (pA.y + pB.y) / 2 };
 
       ctx.strokeStyle = C.strong;
       ctx.lineWidth = 3;
@@ -468,8 +492,13 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // 計測線と同じ所にあるセクター (最後のセクターの終わり) は、FINISH と重なるので名前を書かない
-      if (finishMid && Math.hypot((pA.x + pB.x) / 2 - finishMid.x, (pA.y + pB.y) / 2 - finishMid.y) < 14) return;
+      // 計測線と同じ所 (5 m 以内) にあるセクター (最後のセクターの終わり) は、FINISH と重なるので名前を書かない。
+      // 画面の上の距離で決めると、拡大の度合いで変わるので、地面の上の距離で決める
+      if (controlLine) {
+        const dNorth = ((sec.latA + sec.latB) / 2 - (controlLine.latA + controlLine.latB) / 2) * 111320;
+        const dEast = ((sec.lonA + sec.lonB) / 2 - (controlLine.lonA + controlLine.lonB) / 2) * 111320 * cosLat;
+        if (Math.hypot(dNorth, dEast) < 5) return;
+      }
       ctx.font = 'bold 9px sans-serif';
       drawGateLabel(pA, pB, sec.name || `S${idx + 1}`, C.sector);
     });

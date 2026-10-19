@@ -111,6 +111,8 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     return () => observer.disconnect();
   }, []);
 
+  // 右上の値の箱を左へ寄せるか (カーソルを描くときに決める)
+  const [valueBoxOnLeft, setValueBoxOnLeft] = useState(false);
   // 現在位置のカーソルを、上に重ねた canvas に描く (下の canvas を描いた配置を使う)
   const cursorValueRef = useRef(0);
   cursorValueRef.current = xAxisMode === 'distance' ? currentDistance : currentTime;
@@ -129,6 +131,9 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     const ctx = prepareCanvas(canvas, width, height);
     if (!ctx) return;
     const currentCursorX = paddingLeft + ((cursorValueRef.current - domainStart) / domainRange) * plotWidth;
+    // 赤い線が右寄り (グラフの 6 割より右) なら、右上の値の箱を左へ寄せる (描いた配置で決める。同じなら描き直さない)
+    const onLeft = domainRange > 0 && (cursorValueRef.current - domainStart) / domainRange > 0.6;
+    setValueBoxOnLeft(prev => (prev === onLeft ? prev : onLeft));
     if (currentCursorX >= paddingLeft && currentCursorX <= width - paddingRight) {
       ctx.strokeStyle = '#ef4444';
       ctx.lineWidth = 1.5;
@@ -647,10 +652,6 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     setViewRange([0, 1]);
   };
 
-  // 右上の値の箱を左へ寄せるか (赤い線の位置は、前に描いたグラフの配置から求める)
-  const valueLayout = layoutRef.current;
-  const cursorValue = xAxisMode === 'distance' ? currentDistance : currentTime;
-  const valueBoxOnLeft = !!valueLayout && valueLayout.domainRange > 0 && (cursorValue - valueLayout.domainStart) / valueLayout.domainRange > 0.6;
 
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
