@@ -3,6 +3,7 @@
  *  - Racelogic VBO (.vbo) の読み込み
  *  - RaceChrono CSV (v2 / v3 エクスポート) の読み込み
  *  - GPX (.gpx) の読み込み
+ *  - TCX (.tcx、Garmin の Training Center XML) の読み込み
  *  - MoTeC CSV (i2 の CSV エクスポート形式) の読み込み・書き出し
  */
 
@@ -291,7 +292,7 @@ function gpxTag(body: string, name: string): string | undefined {
  * 速度は <speed> (GPX 1.0) か拡張要素 (gpxtpx:speed など) の m/s を使い、なければ位置と時刻から求める
  */
 export function parseGpx(text: string): ImportedLog {
-  const raw: { t: number; lat: number; lon: number; ele: number; speedMs: number; course: number }[] = [];
+  const raw: TrackPoint[] = [];
   const re = /<trkpt\b([^>]*?)(?:\/>|>([\s\S]*?)<\/trkpt>)/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
@@ -311,14 +312,25 @@ export function parseGpx(text: string): ImportedLog {
     });
   }
   if (raw.length === 0) throw new Error(tr('GPX ファイルに航跡 (trkpt) が見つかりません', 'No track points (trkpt) were found in the GPX file'));
-  // 時刻・位置のない点と未測位の点 (0, 0) は、時刻の割り振りと速度の計算より前に除く (前後の点の速度を壊さないため)
-  const valid = raw.filter(p => Number.isFinite(p.t) && Number.isFinite(p.lat) && Number.isFinite(p.lon) && !(p.lat === 0 && p.lon === 0));
-  if (valid.length === 0) throw new Error(tr('GPX ファイルに時刻 (time) と位置のある点がないため読み込めません', 'The GPX file has no points with both a time and a position'));
-  raw.length = 0;
-  // 点の多いログで引数の上限を超えないよう、1 つずつ入れる (push(...valid) は十数万点で失敗する)
-  for (const p of valid) raw.push(p);
+  return trackToLog(raw, tr('GPX ファイル', 'the GPX file'));
+}
 
-  // 時刻が秒単位までしかない GPX では同じ時刻の点が続く。次の時刻までを等間隔に割り振って間引かれないようにする
+/** 航跡の点 (GPX・TCX・FIT で共通)。t は UNIX 秒、speedMs・course は記録がなければ NaN */
+export interface TrackPoint { t: number; lat: number; lon: number; ele: number; speedMs: number; course: number }
+
+/**
+ * 航跡の点を、ログの点にする (GPX・TCX・FIT で共通)。時刻・位置のない点を除き、同じ秒の点を割り振り、
+ * 速度の記録がない点は前後の点から求める
+ */
+export function trackToLog(rawIn: TrackPoint[], formatName: string): ImportedLog {
+  // 時刻・位置のない点と未測位の点 (0, 0) は、時刻の割り振りと速度の計算より前に除く (前後の点の速度を壊さないため)
+  const valid = rawIn.filter(p => Number.isFinite(p.t) && Number.isFinite(p.lat) && Number.isFinite(p.lon) && !(p.lat === 0 && p.lon === 0));
+  if (valid.length === 0) throw new Error(tr(`${formatName} に時刻と位置のある点がないため読み込めません`, `${formatName} has no points with both a time and a position`));
+  // 点の多いログで引数の上限を超えないよう、1 つずつ入れる (push(...valid) は十数万点で失敗する)
+  const raw: TrackPoint[] = [];
+  for (const p of valid) raw.push({ ...p });
+
+  // 時刻が秒単位までしかない形式では同じ時刻の点が続く。次の時刻までを等間隔に割り振って間引かれないようにする
   // 次の時刻が 1 秒より先 (測位の途切れ・区間の切れ目) や、末尾で次の時刻がないときは、1 秒の中に割り振る
   for (let i = 0; i < raw.length; ) {
     let j = i + 1;
@@ -350,7 +362,39 @@ export function parseGpx(text: string): ImportedLog {
       timestamp: new Date(p.t * 1000)
     };
   });
-  return finalizeImportedSamples(samples, tr('GPX ファイル', 'the GPX file'));
+  return finalizeImportedSamples(samples, formatName);
+}
+
+// ============================================================================
+// TCX (Garmin Training Center XML)
+// ============================================================================
+
+export function isTcx(text: string): boolean {
+  return /<TrainingCenterDatabase[\s>]/i.test(text.substring(0, 3000));
+}
+
+/**
+ * TCX の Trackpoint を読む (Activity > Lap > Track > Trackpoint。複数の Lap・Track は連結する)。
+ * 速度は拡張要素 (TPX の Speed、m/s) を使い、なければ位置と時刻から求める。位置のない点 (室内の記録など) は除く
+ */
+export function parseTcx(text: string): ImportedLog {
+  const raw: TrackPoint[] = [];
+  const re = /<(?:[\w-]+:)?Trackpoint\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?Trackpoint>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const body = m[1];
+    const time = gpxTag(body, 'Time');
+    raw.push({
+      t: time ? Date.parse(time) / 1000 : NaN,
+      lat: parseFloat(gpxTag(body, 'LatitudeDegrees') ?? ''),
+      lon: parseFloat(gpxTag(body, 'LongitudeDegrees') ?? ''),
+      ele: parseFloat(gpxTag(body, 'AltitudeMeters') ?? ''),
+      speedMs: parseFloat(gpxTag(body, 'Speed') ?? ''),
+      course: NaN
+    });
+  }
+  if (raw.length === 0) throw new Error(tr('TCX ファイルに Trackpoint が見つかりません', 'No Trackpoint elements were found in the TCX file'));
+  return trackToLog(raw, tr('TCX ファイル', 'the TCX file'));
 }
 
 // ============================================================================

@@ -66,8 +66,8 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
     // 「Time (s)」のように単位が付いた見出しも時刻列として扱う
     const base = hl.replace(/\s*[(\[].*$/, '').trim();
     if (colTime === -1 && (base === '秒' || base === 'time' || base === 'sec' || base === 'seconds' || base === 'elapsed time' || base === 'elapsed_s')) colTime = idx;
-    // 記録日時 (ISO 8601)。このアプリの変換ページが書き出す CSV の列
-    if (colClock === -1 && base === 'time_utc') colClock = idx;
+    // 記録日時 (ISO 8601 など)。このアプリの変換ページの CSV の time_utc や、ほかのアプリ (RaceBox など) の日時の列
+    if (colClock === -1 && ['time_utc', 'utc', 'utc time', 'gps time', 'timestamp', 'datetime', 'date time', 'date/time', 'date_time'].includes(base)) colClock = idx;
     if (colLat === -1 && (hl.includes('緯度') || hl.includes('lat'))) colLat = idx;
     if (colLon === -1 && (hl.includes('経度') || hl.includes('lon') || hl.includes('lng'))) colLon = idx;
     if (colAlt === -1 && (hl.includes('標高') || hl.includes('alt'))) colAlt = idx;
@@ -93,7 +93,13 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
     const rawCols = splitCsvLine(lines[i]);
     if (rawCols.length < 2) continue;
 
-    const time = colTime !== -1 ? parseFloat(rawCols[colTime]) : (i - headerIndex - 1) * 0.1;
+    // 時刻の列が日時 ("2026-08-30T00:57:00.100Z" など) のとき、または時刻の列がなく日時の列があるときは、日時から秒を求める
+    const timeCell = colTime !== -1 ? rawCols[colTime] : '';
+    const timeIsClock = colTime !== -1 && !/^\s*-?\d+([.,]\d+)?\s*$/.test(timeCell) && Number.isFinite(Date.parse(timeCell));
+    const clockCell = timeIsClock ? timeCell : colClock !== -1 ? rawCols[colClock] : '';
+    const rowClockMs = clockCell ? Date.parse(clockCell) : NaN;
+    const time = timeIsClock || (colTime === -1 && Number.isFinite(rowClockMs)) ? rowClockMs / 1000
+      : colTime !== -1 ? parseFloat(timeCell) : (i - headerIndex - 1) * 0.1;
     // 数値として読めない座標を 0 に置き換えない (その行を捨てる)
     const lat = parseFloat(rawCols[colLat]);
     const lon = parseFloat(rawCols[colLon]);
@@ -112,7 +118,7 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
     const combG = colCombG !== -1 ? parseFloat(rawCols[colCombG]) || 0 : 0;
     const radius = colRadius !== -1 ? parseFloat(rawCols[colRadius]) || 9999 : 9999;
 
-    const clockMs = colClock !== -1 ? Date.parse(rawCols[colClock]) : NaN;
+    const clockMs = rowClockMs;
     const heading = colHeading !== -1 ? parseFloat(rawCols[colHeading]) : NaN;
     const sats = colSats !== -1 ? parseInt(rawCols[colSats], 10) : NaN;
 
