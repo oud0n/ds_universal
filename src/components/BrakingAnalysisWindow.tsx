@@ -164,7 +164,7 @@ export const BrakingAnalysisWindow: React.FC<BrakingAnalysisWindowProps> = ({ ca
 
       <div className="flex-1 min-h-0 overflow-auto">
         <table className="w-full text-[11px] font-mono border-collapse">
-          <thead className="sticky top-0 bg-surface-3 text-slate-400">
+          <thead className="sticky top-0 bg-surface-3 text-slate-400 whitespace-nowrap">
             <tr>
               <th className="px-2 py-1 text-left font-medium">{t('区間', 'Zone')}</th>
               <th className="px-2 py-1 text-left font-medium">{t('車両', 'Car')}</th>

@@ -112,39 +112,46 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="bg-surface-1 border-b border-line-1 text-slate-200 px-4 py-2 flex items-center justify-between select-none">
       {/* タブ切り替え (フラットデザイン) */}
-      <div className="flex bg-surface-2 p-0.5 rounded border border-line-2">
+      {/* ウインドウが狭いときは、タブの名前を隠してアイコンだけにする (名前が 2 行に折り返さないように) */}
+      <div className="flex min-w-0 bg-surface-2 p-0.5 rounded border border-line-2">
         <button
           onClick={() => setCurrentTab('graph')}
-          className={`flex items-center gap-1.5 px-3.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+          title={t('グラフ解析', 'Graph')}
+          aria-label={t('グラフ解析', 'Graph')}
+          className={`flex items-center gap-1.5 px-3.5 py-1 rounded text-xs font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
             currentTab === 'graph'
               ? 'bg-red-600 text-white'
               : 'text-slate-400 hover:text-slate-200 hover:bg-surface-4'
           }`}
         >
           <BarChart2 size={14} />
-          {t('グラフ解析', 'Graph')}
+          <span className="hidden lg:inline">{t('グラフ解析', 'Graph')}</span>
         </button>
         <button
           onClick={() => setCurrentTab('video')}
-          className={`flex items-center gap-1.5 px-3.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+          title={t('動画同期', 'Video')}
+          aria-label={t('動画同期', 'Video')}
+          className={`flex items-center gap-1.5 px-3.5 py-1 rounded text-xs font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
             currentTab === 'video'
               ? 'bg-red-600 text-white'
               : 'text-slate-400 hover:text-slate-200 hover:bg-surface-4'
           }`}
         >
           <Video size={14} />
-          {t('動画同期', 'Video')}
+          <span className="hidden lg:inline">{t('動画同期', 'Video')}</span>
         </button>
         <button
           onClick={() => setCurrentTab('data')}
-          className={`flex items-center gap-1.5 px-3.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+          title={t('データ管理', 'Data')}
+          aria-label={sessions.length > 0 ? `${t('データ管理', 'Data')} (${sessions.length})` : t('データ管理', 'Data')}
+          className={`flex items-center gap-1.5 px-3.5 py-1 rounded text-xs font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
             currentTab === 'data'
               ? 'bg-red-600 text-white'
               : 'text-slate-400 hover:text-slate-200 hover:bg-surface-4'
           }`}
         >
           <List size={14} />
-          {t('データ管理', 'Data')}
+          <span className="hidden lg:inline">{t('データ管理', 'Data')}</span>
           {sessions.length > 0 && (
             <span className="ml-1 px-1.5 py-0.2 text-[10px] rounded bg-slate-700 text-slate-300 font-mono">
               {sessions.length}
@@ -153,27 +160,31 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
         <button
           onClick={() => setCurrentTab('convert')}
-          className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+          title={t('ログ変換', 'Convert')}
+          aria-label={t('ログ変換', 'Convert')}
+          className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
             currentTab === 'convert'
               ? 'bg-red-600 text-white'
               : 'text-slate-400 hover:text-slate-200 hover:bg-surface-4'
           }`}
         >
           <Repeat size={14} />
-          {t('ログ変換', 'Convert')}
+          <span className="hidden lg:inline">{t('ログ変換', 'Convert')}</span>
         </button>
         {/* ロガー設定は USB か Bluetooth でつなぐので、どちらもない環境 (iPhone・iPad の Safari・Firefox など) では出さない */}
         {canUseLogger && (
           <button
             onClick={() => setCurrentTab('logger')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+            title={t('ロガー設定', 'Logger')}
+            aria-label={t('ロガー設定', 'Logger')}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
               currentTab === 'logger'
                 ? 'bg-red-600 text-white'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-surface-4'
             }`}
           >
             <Settings size={14} />
-            {t('ロガー設定', 'Logger')}
+            <span className="hidden lg:inline">{t('ロガー設定', 'Logger')}</span>
           </button>
         )}
         <span className="ml-2 self-center"><BleStatusPill onClick={() => setCurrentTab('logger')} /></span>
@@ -182,14 +193,16 @@ export const Header: React.FC<HeaderProps> = ({
       {/* 再生・シークは、グラフ解析の下の段 (PlayBar) に置く */}
 
       {/* ファイル操作 (フラットデザイン) */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 shrink-0 ml-2">
         {/* ファイル読み込み */}
         <button
           onClick={onOpenFile}
-          className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-500 text-white font-bold px-3 py-1.5 rounded transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-500 text-white font-bold px-3 py-1.5 rounded whitespace-nowrap transition-colors cursor-pointer"
+          title={t('ファイル読込', 'Open file')}
+          aria-label={t('ファイル読込', 'Open file')}
         >
           <FolderOpen size={13} />
-          {t('ファイル読込', 'Open file')}
+          <span className="hidden md:inline">{t('ファイル読込', 'Open file')}</span>
         </button>
 
         {/* 開発支援 / Buy Me a Coffee */}
@@ -198,9 +211,10 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={onOpenDonate}
             className="flex items-center gap-1.5 text-xs bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 hover:text-amber-200 border border-amber-500/30 hover:border-amber-400/50 font-medium px-2.5 py-1.5 rounded transition-colors cursor-pointer"
             title={t('Buy Me a Coffee で開発者を支援', 'Support the developer on Buy Me a Coffee')}
+            aria-label={t('開発支援', 'Support')}
           >
             <Coffee size={13} className="text-amber-400" />
-            <span className="hidden sm:inline">{t('開発支援', 'Support')}</span>
+            <span className="hidden xl:inline whitespace-nowrap">{t('開発支援', 'Support')}</span>
           </button>
         )}
 
