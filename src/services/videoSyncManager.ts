@@ -12,6 +12,7 @@ import {
 
 export { sessionStartUtcMs } from './mediaClock';
 import { tr } from '../utils/i18n';
+import { blobByteSource, parseGoproGps } from './gpmfParser';
 
 export type TimezoneMode = 'JST' | 'UTC' | 'LOCAL' | '+8' | '+1' | '-5' | '-8';
 
@@ -229,7 +230,8 @@ class VideoSyncManager {
   }
 
   // 複数動画ファイルの読み込み & 自動解析
-  public async addVideoFiles(files: FileList | File[], sessions: Session[]): Promise<VideoTrack[]> {
+  // readGps: false なら動画の GPS を読まない (呼ぶ側で読んで時刻を入れるとき。同じ動画を 2 回読まないため)
+  public async addVideoFiles(files: FileList | File[], sessions: Session[], readGps = true): Promise<VideoTrack[]> {
     const newTracks: VideoTrack[] = [];
     let relinked = false;
 
@@ -280,6 +282,18 @@ class VideoSyncManager {
 
     // GPSセッションとの自動照合。追加した動画だけを照合し、手で合わせた既存の動画の同期は変えない
     this.autoMatchTracks(sessions, newTracks);
+    // GoPro の動画は、動画自身の GPS の時刻で合わせる (撮影日時は ±1 秒ずれる)。GPS の記録がない動画は撮影日時のまま
+    for (const track of readGps ? newTracks : []) {
+      if (!track.file) continue;
+      try {
+        const gps = await parseGoproGps([blobByteSource(track.file)]);
+        const utcMs = gps.videoStartUtcMs[0];
+        if (Number.isFinite(utcMs)) track.clock = clockAtUtc('gps', utcMs);
+      } catch {
+        // GoPro 以外の動画・測位できていない動画
+      }
+    }
+    if (newTracks.some(t => t.clock.source === 'gps')) this.updateChapterGroupOffsets();
     if (relinked && newTracks.length === 0) this.updateChapterGroupOffsets();
 
     this.notify();
