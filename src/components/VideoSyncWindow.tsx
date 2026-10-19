@@ -27,6 +27,7 @@ import { VideoStage } from './video/VideoStage';
 import { 
   exportBurnedInVideo, 
   recordCanvas,
+  downloadBlob,
   VideoExportController 
 } from '../services/telemetryVideoExporter';
 import { MasterTimelineTrackBar } from './MasterTimelineTrackBar';
@@ -331,11 +332,17 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const [exportDraft, setExportDraft] = useState(false);
   // 枠の並びを録っている間 (ふだんの再生で動画を動かす)
   const stageRecordingRef = useRef(false);
+  const stageStartTimerRef = useRef<number | null>(null);
   const togglePlayRef = useRef(onTogglePlay);
   const [exportProgress, setExportProgress] = useState<{ currentSec: number; totalSec: number; percent: number } | null>(null);
   const exportControllerRef = useRef<VideoExportController | null>(null);
   // 書き出し中にウインドウが閉じられたら (たたむ・表示の切り替え)、書き出しをやめる (動画の要素がなくなるため)
-  useEffect(() => () => { exportControllerRef.current?.cancel(); }, []);
+  // 枠の並びの書き出しで、録り始めるのを待っている間に閉じられたときも、録り始めない
+  useEffect(() => () => {
+    exportControllerRef.current?.cancel();
+    stageRecordingRef.current = false;
+    if (stageStartTimerRef.current !== null) clearTimeout(stageStartTimerRef.current);
+  }, []);
 
   const pipRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -409,10 +416,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       const start = m && session ? mediaStartIn(m, session, sessions) : null;
       const position = !m ? null : ct === null || start === null ? noFootage(m) : positionAtMediaTime(m, ct - start);
       // 速さの倍率: 約 0.5 秒先までの、距離の対応の傾き (遅い車の動画ほど速く回す)
+      // 周の終わり 0.5 秒は先の時刻が周の終わりにそろって傾きが 0 になるので、後ろの 0.5 秒で求める
       let rate: number | undefined;
       if (!isBase && ct !== null) {
-        const ahead = timeAt(sessionTime + 0.5), behind = timeAt(sessionTime - 0.5);
-        rate = ahead !== null ? (ahead - ct) / 0.5 : behind !== null ? (ct - behind) / 0.5 : 1;
+        const nearEnd = pts.length > 0 && baseElapsed + 0.5 > pts[pts.length - 1].time;
+        const ahead = nearEnd ? null : timeAt(sessionTime + 0.5), behind = timeAt(sessionTime - 0.5);
+        rate = ahead !== null && ahead > ct ? (ahead - ct) / 0.5 : behind !== null && ct > behind ? (ct - behind) / 0.5 : 1;
       }
       return {
         media: m, position, rate, slot: car.slot.slot, color: car.slot.colorHex, chosen: !!chosenId,
@@ -468,10 +477,6 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const gpsStartTime = baseSession?.points[0]?.timestamp ? new Date(baseSession.points[0].timestamp) : null;
   const isLargeOffset = activeTrack ? Math.abs(activeTrack.syncOffsetSec) > 3600 : false;
 
-  // 同期プロジェクトから戻した動画の照合先を、後から読み込んだログに読み替える。保存したときのログの時計の補正も戻す
-  useEffect(() => {
-    for (const [id, sec] of videoSyncManager.remapImportedSessions(sessions)) onSetClockOffset?.(id, sec);
-  }, [sessions]);
 
   // 速度ウィンドウのセッション (Car 1) に対応する動画トラックを自動選択
   // 選ぶのは基準のセッションが変わったとき (と、そのセッションの動画を初めて読み込んだとき) だけ。手で選び直した動画はそのままにする
@@ -584,7 +589,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
    */
   const handleStartStageExport = () => {
     if (isAnyExporting || shownCount === 0) return;
-    const range: [number, number] | null = exportRange === 'lap' && baseLap
+    // 走行比較は周の中で比べるので、いつも周の範囲で書き出す (動画全体にすると、周の終わりで比べる車が止まったままになる)
+    const range: [number, number] | null = (exportRange === 'lap' || isCompare) && baseLap
       ? [baseLap.startTime, baseLap.endTime]
       : mainMedia ? [Math.max(0, mainMedia.startSec), mainMedia.endSec] : null;
     if (!range) return;
@@ -612,7 +618,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       videoViewStore.set({ isExporting: false });
     };
     // 枠の動画が開始の位置へ移るのを待ってから、再生して録り始める
-    setTimeout(() => {
+    stageStartTimerRef.current = window.setTimeout(() => {
+      stageStartTimerRef.current = null;
       if (!stageRecordingRef.current) return;
       if (!stageRef.current.isPlaying) togglePlayRef.current();
       // 周の終わりで周の始めに戻ったら (グラフ画面の周の再生)、そこで終える
@@ -752,13 +759,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // プロジェクト保存 / 読込
   const handleExportProject = () => {
     const jsonStr = videoSyncManager.exportProjectJson(sessions, circuitName, pins);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${circuitName || 'telemetry'}_sync_project.dssync.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // 保存が終わる前に URL を消すと、Safari では空のファイルになるので、少し後に消す (downloadBlob)
+    downloadBlob(new Blob([jsonStr], { type: 'application/json' }), `${circuitName || 'telemetry'}_sync_project.dssync.json`);
   };
 
   const handleImportProject = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -8,19 +8,29 @@ import { analyseTimed, toTimed, PairAnalysis, TimedPoint } from './clockOffsetEs
 
 const cache = new Map<string, Promise<PairAnalysis | null>>();
 let worker: Worker | null = null;
+// Worker が動かなかった (読み込めない・落ちた)。以後はその場で計算する
+let workerBroken = false;
 let nextId = 0;
-const pending = new Map<number, (r: PairAnalysis | null) => void>();
+const pending = new Map<number, { resolve: (r: PairAnalysis | null) => void; ref: TimedPoint[]; other: TimedPoint[] }>();
 
 function getWorker(): Worker | null {
-  if (worker || typeof Worker === 'undefined') return worker;
+  if (worker || workerBroken || typeof Worker === 'undefined') return worker;
   try {
     worker = new Worker(new URL('./pairAnalysis.worker.ts', import.meta.url), { type: 'module' });
     worker.onmessage = (e: MessageEvent<{ id: number; result: PairAnalysis | null }>) => {
-      pending.get(e.data.id)?.(e.data.result);
+      pending.get(e.data.id)?.resolve(e.data.result);
       pending.delete(e.data.id);
+    };
+    // Worker が読み込めなかった・落ちたときは、待っている比べをその場で計算して返す (待ったままにしない)
+    worker.onerror = () => {
+      workerBroken = true;
+      worker?.terminate();
+      worker = null;
+      for (const [id, p] of pending) { p.resolve(analyseTimed(p.ref, p.other)); pending.delete(id); }
     };
   } catch {
     worker = null;
+    workerBroken = true;
   }
   return worker;
 }
@@ -46,7 +56,7 @@ export function analyseSessions(reference: Session, other: Session): Promise<Pai
   const p = w
     ? new Promise<PairAnalysis | null>(resolve => {
         const id = ++nextId;
-        pending.set(id, resolve);
+        pending.set(id, { resolve, ref, other: oth });
         const a = pack(ref), b = pack(oth);
         w.postMessage({ id, ref: a, other: b }, [a.buffer, b.buffer]);
       })

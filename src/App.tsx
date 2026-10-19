@@ -940,6 +940,12 @@ export const App: React.FC = () => {
     setSessions(prev => prev.map(x => (x.id === sessionId ? { ...x, clockOffsetSec: value } : x)));
   };
 
+  // 同期プロジェクトから戻した動画の照合先を、後から読み込んだログに読み替え、保存したときのログの時計の補正も戻す。
+  // 動画のウインドウが隠れていても (Freeze で描き直さない) 戻すよう、ここで行う
+  useEffect(() => {
+    for (const [id, sec] of videoSyncManager.remapImportedSessions(sessions)) setSessionClockOffset(id, sec);
+  }, [sessions]);
+
   // 時計の補正を、同じ時間に記録したほかのログ (基準車のログ、なければ記録の細かいログ) との位置の比べから見積もる (BUG-08)。
   // 同じ走行と確かめられたログだけと比べる。確かな見積もり (quality 'auto') だけをそのまま入れ、ほかは案として返す
   const estimateSessionClockOffset = async (sessionId: string): Promise<ClockEstimateResult | string> => {
@@ -952,7 +958,7 @@ export const App: React.FC = () => {
     for (const ref of candidates) {
       const r = await analyseSessions(ref, s);
       if (r && r.reason !== 'short') shortOnly = false;
-      if (!r || !r.sameRun) continue;
+      if (!r || !r.sameRun || r.quality === 'reject') continue;
       // 見積もりは 2 つのログの時刻 (補正前) どうしの差。基準のログの補正を足すと、このログの補正になる
       const value = Number(((ref.clockOffsetSec ?? 0) + r.offsetSec).toFixed(3));
       if (r.quality === 'auto') setSessionClockOffset(sessionId, value);
