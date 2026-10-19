@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Session, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { CIRCUIT_PRESETS } from '../services/circuitDatabase';
 import {
@@ -37,6 +37,9 @@ interface DataTabProps {
   onRemoveSession: (sessionId: string) => void;
   onOpenInConvert: (sessionId: string) => void;
   onEditSessionName: (sessionId: string, newName: string) => void;
+  // ログの時計の補正 (秒) を変える / 同じ時間のほかのログとの比べから見積もる (BUG-08)
+  onSetClockOffset?: (sessionId: string, sec: number) => void;
+  onEstimateClockOffset?: (sessionId: string) => Promise<ClockEstimateResult | string>;
   onSelectCircuitPreset: (presetId: string) => void;
   onOpenCircuitEditor: () => void;
   onLoadPthFile: () => void;
@@ -48,6 +51,93 @@ interface DataTabProps {
   gFilterLevel: GFilterLevel;
   onChangeGFilterLevel: (level: GFilterLevel) => void;
 }
+
+/** 時計の補正の見積もり。applied: 確かな見積もりなので入れた。入れていないもの (quality 'suggest') は「入れる」で入れる */
+export interface ClockEstimateResult {
+  refName: string;
+  offsetSec: number;
+  medianDistanceM: number;
+  quality: 'auto' | 'suggest' | 'reject';
+  applied: boolean;
+}
+
+/**
+ * ログの時計の補正 (BUG-08)。ロガーごとの GPS の受信・記録の遅れを直す。動画との同期と、同じ時間のほかのログとの時刻の換算に効く。
+ * 「自動」は、同じ時間に記録したほかのログ (基準車のログ、なければ記録の細かいログ) と位置を比べて見積もる
+ */
+const ClockOffsetControl: React.FC<{
+  session: Session;
+  onSet: (sessionId: string, sec: number) => void;
+  onEstimate?: (sessionId: string) => Promise<ClockEstimateResult | string>;
+}> = ({ session, onSet, onEstimate }) => {
+  const t = useT();
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  // 確かでない見積もり (案)。「入れる」で入れる
+  const [suggestion, setSuggestion] = useState<number | null>(null);
+  const value = session.clockOffsetSec ?? 0;
+  // 入力中の文字はそのまま持つ (「-」や「0.」を打った途中で 0 に戻さないため)。外から値が変わったら入れ直す
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => {
+    if (parseFloat(draft) !== value) setDraft(String(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  return (
+    <span
+      className="flex items-center gap-1 text-[11px] text-slate-400"
+      title={t('このログの時計の補正 (秒)。ロガーごとの GPS の遅れを直します。+ ならこのログの時刻を早めます。動画との同期と、同じ時間のほかのログとの時刻合わせに効きます', 'Clock correction for this log (seconds). Fixes the GPS delay of each logger; + moves this log earlier. Affects video sync and time matching with other logs of the same session')}
+    >
+      <span>{t('時計の補正', 'Clock')}</span>
+      <input
+        type="number"
+        step={0.01}
+        value={draft}
+        onChange={e => {
+          setDraft(e.target.value);
+          const v = parseFloat(e.target.value);
+          if (Number.isFinite(v)) onSet(session.id, v);
+          setNote('');
+        }}
+        onBlur={() => setDraft(String(value))}
+        className="w-16 bg-surface-0 border border-line-3 rounded px-1 text-right font-mono text-slate-200"
+      />
+      <span>{t('秒', 's')}</span>
+      {onEstimate && (
+        <button
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setSuggestion(null);
+            setNote(t('見積もり中…', 'Estimating…'));
+            const r = await onEstimate(session.id);
+            if (typeof r === 'string') setNote(r);
+            else {
+              const sec = `${r.offsetSec >= 0 ? '+' : ''}${r.offsetSec.toFixed(3)}`;
+              setNote(r.applied
+                ? t(`${r.refName} と比べて ${sec} 秒 (位置の差 ${r.medianDistanceM} m)`, `${sec} s against ${r.refName} (position gap ${r.medianDistanceM} m)`)
+                : t(`${r.refName} と比べると ${sec} 秒。位置の差が大きいか、ずれがはっきりしないので入れていません (位置の差 ${r.medianDistanceM} m)`, `${sec} s against ${r.refName}, not applied: the position gap is large or the offset is unclear (gap ${r.medianDistanceM} m)`));
+              if (!r.applied) setSuggestion(r.offsetSec);
+            }
+            setBusy(false);
+          }}
+          className="px-1.5 rounded border border-line-3 hover:text-slate-200 disabled:opacity-50"
+          title={t('同じ時間に記録したほかのログと位置を比べて、時計のずれを見積もって入れます', 'Estimate the clock offset by comparing positions with another log of the same time')}
+        >
+          {t('自動', 'Auto')}
+        </button>
+      )}
+      {note && <span className="text-slate-500">{note}</span>}
+      {suggestion !== null && (
+        <button
+          onClick={() => { onSet(session.id, suggestion); setSuggestion(null); setNote(''); }}
+          className="px-1.5 rounded border border-amber-500/60 text-amber-300 hover:text-amber-200"
+        >
+          {t('入れる', 'Apply')}
+        </button>
+      )}
+    </span>
+  );
+};
 
 export const DataTab: React.FC<DataTabProps> = ({
   sessions,
@@ -62,6 +152,8 @@ export const DataTab: React.FC<DataTabProps> = ({
   onRemoveSession,
   onOpenInConvert,
   onEditSessionName,
+  onSetClockOffset,
+  onEstimateClockOffset,
   onSelectCircuitPreset,
   onOpenCircuitEditor,
   onLoadPthFile,
@@ -114,7 +206,8 @@ export const DataTab: React.FC<DataTabProps> = ({
           {/* サーキットプリセット選択 */}
           <select
             onChange={e => onSelectCircuitPreset(e.target.value)}
-            className="bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg px-3 py-2 outline-none focus:border-red-500 transition-colors"
+            // 選択肢の名前が長いと、選択肢に合わせて広がって画面からはみ出すので、幅を枠に収める
+            className="w-full sm:w-auto max-w-full min-w-0 truncate bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg px-3 py-2 outline-none focus:border-red-500 transition-colors"
           >
             <option value="">{t('-- サーキットプリセット選択 --', '-- Select a circuit preset --')}</option>
             {/* 国内と海外に分ける (数が多いので) */}
@@ -319,6 +412,9 @@ export const DataTab: React.FC<DataTabProps> = ({
                 <span className="text-xs text-slate-400 font-mono">
                   {session.samplingRate}Hz | {t(`計${session.laps.length}周`, `${session.laps.length} laps`)} | {session.totalDistance.toFixed(2)}km
                 </span>
+                {onSetClockOffset && (
+                  <ClockOffsetControl session={session} onSet={onSetClockOffset} onEstimate={onEstimateClockOffset} />
+                )}
               </div>
 
               {/* 変換画面へ・削除 */}

@@ -6,12 +6,18 @@ import { parseDigispiceRawBinary } from './services/rawBinaryParser';
 import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
 import { blobByteSource, goproRecording, NoGoproGpsError, parseGoproGps } from './services/gpmfParser';
-import { videoSyncManager } from './services/videoSyncManager';
+import { sessionStartUtcMs, videoSyncManager, placeTracks, isProxyFileName } from './services/videoSyncManager';
+import { getAddVideoGpsLog } from './services/videoPrefs';
+import { referenceCandidates } from './services/clockOffsetEstimator';
+import { analyseSessions, isSameRun } from './services/pairAnalysis';
+import type { ClockEstimateResult } from './components/DataTab';
 import { tr, useT } from './utils/i18n';
 import { inflateXrz, isAimCsv, isXrk, parseAimCsv, parseXrk } from './services/aimFormats';
 import { isIbt, parseIbt } from './services/ibtParser';
-import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
+import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isTcx, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseTcx, parseVbo } from './services/externalFormats';
+import { parseFit } from './services/fitParser';
 import { parsePth, parseCln } from './services/pthParser';
+import { AUTO_CONTROL_LINE_NAME, createAutoControlLine, createEqualSectors } from './services/autoCourseLines';
 import { countGateCrossings, createVirtualControlLine, extractLaps, firstGateCrossingTime, gateDirection, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
 import { ConvertTab } from './components/ConvertTab';
 import { CIRCUIT_PRESETS, ALL_CIRCUITS, findMatchingCircuit, resolveCircuitPolylines, findUserPolylines } from './services/circuitDatabase';
@@ -32,8 +38,10 @@ import { LoggerTab } from './components/LoggerTab';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
 import { DonateModal } from './components/DonateModal';
 import { useResizableSplit } from './hooks/useResizableSplit';
-import { canUseLoggerUsb, fileAccept } from './utils/device';
+import { canUseLogger, canUseLoggerBle, fileAccept } from './utils/device';
+import { bleLoggerLink } from './services/bleLoggerLink';
 import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
+import { Freeze } from './components/Freeze';
 import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
 import { BottomTabBar, MobileSeekBar } from './components/MobileNav';
 import { SplitResizer } from './components/SplitResizer';
@@ -105,7 +113,7 @@ export const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<'graph' | 'data' | 'logger' | 'video' | 'convert'>(() => {
     const h = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : '';
     // ロガーと USB でつなげない環境 (スマートフォン・タブレット・Safari など) ではロガー設定を出さないので、#logger でもグラフ解析を開く
-    if (h === 'logger' && !canUseLoggerUsb) return 'graph';
+    if (h === 'logger' && !canUseLogger) return 'graph';
     return h === 'convert' || h === 'data' || h === 'logger' || h === 'video' ? h : 'graph';
   });
   const currentTabRef = useRef(currentTab);
@@ -146,9 +154,11 @@ export const App: React.FC = () => {
       return next;
     });
   };
+
+  // 登録してあるデジスパイスに、Bluetooth で自動でつなぐ
   useEffect(() => {
-    if (isCompact && currentTab === 'video') setCurrentTab('graph');
-  }, [isCompact, currentTab]);
+    if (canUseLoggerBle) void bleLoggerLink.start();
+  }, []);
 
   // グラフ画面・左下モード ('replay' | 'video')
   const [leftBottomMode, setLeftBottomMode] = useState<'replay' | 'video'>('replay');
@@ -328,14 +338,19 @@ export const App: React.FC = () => {
   // 時刻の基準: グラフ画面では選んでいる周の中の時刻 ('lap')、動画同期タブではセッション全体の時刻 ('session')。
   // データ管理などほかのタブでは直前の基準のままにする (行って戻っても再生位置が変わらないように)
   // 動画同期タブでは、ログがなくても (動画だけでも) 再生できるよう、表示している動画の終わりまで進める
-  const isVideoTab = !isCompact && currentTab === 'video';
+  const isVideoTab = currentTab === 'video';
   const videoTracks = useVideoTracks();
   const videoView = useVideoView();
-  const shownVideoIds = [videoView.selectedTrackId, videoView.viewMode !== 'single' ? videoView.subTrackId : null];
-  const sessionEndTime = Math.max(
-    baseSession?.points.length ? baseSession.points[baseSession.points.length - 1].time : 0,
-    ...videoTracks.filter(t => shownVideoIds.includes(t.id)).map(videoEndSessionSec)
-  );
+  const logEndTime = baseSession?.points.length ? baseSession.points[baseSession.points.length - 1].time : 0;
+  // 出しているカメラを基準車のログの時刻に置いて、その終わりまで進める。メイン以外は、ログの間に始まるときだけ数える
+  // (撮影日の違う動画で、再生の終わりが何日も先にならないように)
+  const placedVideos = placeTracks(videoTracks, baseSession, sessions);
+  const shownVideoEnds = videoView.cameraIds
+    .map(id => placedVideos.find(t => t.id === id))
+    .filter((t): t is NonNullable<typeof t> => !!t)
+    .filter((t, i) => i === 0 || !baseSession || t.syncOffsetSec < logEndTime)
+    .map(videoEndSessionSec);
+  const sessionEndTime = Math.max(logEndTime, ...shownVideoEnds);
   const [clockBase, setClockBase] = useState<'lap' | 'session'>(() => (isVideoTab ? 'session' : 'lap'));
   const wantClockBase: 'lap' | 'session' = isVideoTab ? 'session' : currentTab === 'graph' ? 'lap' : clockBase;
   if (wantClockBase !== clockBase) {
@@ -367,8 +382,15 @@ export const App: React.FC = () => {
     }
 
     lastTimeRef.current = performance.now();
+    // スマートフォンでは、画面を描き直すのを 1 秒に 20 回までにする (毎コマ描き直すと、動画のコマが落ちる)。
+    // 動画は自分で再生し、この時刻に合わせて少しずつ直すだけなので、なめらかなまま。メーターとグラフの印は 1 秒に 20 回動く
+    const minStepMs = isCompact ? 50 : 0;
 
     const loop = (now: number) => {
+      if (now - lastTimeRef.current < minStepMs) {
+        animRef.current = requestAnimationFrame(loop);
+        return;
+      }
       // requestAnimationFrame の時刻はフレームの開始時刻なので、再生開始時に記録した時刻より前のことがある (負にしない)
       const dtSec = Math.max(0, ((now - lastTimeRef.current) / 1000) * playbackSpeed);
       lastTimeRef.current = now;
@@ -405,7 +427,7 @@ export const App: React.FC = () => {
     return () => {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
-  }, [isPlaying, playbackSpeed, baseLap, baseSession, playEndTime, sessionEndTime, isSessionClock]);
+  }, [isPlaying, playbackSpeed, baseLap, baseSession, playEndTime, sessionEndTime, isSessionClock, isCompact]);
 
   // キーボードショートカット (Space: 再生/停止, F / →: コマ送り, B / ←: コマ戻し, Shift で 1 秒単位)
   useEffect(() => {
@@ -540,7 +562,9 @@ export const App: React.FC = () => {
   // 選んだファイルを読み込む。動画は 1 回の撮影ごと (チャプターをまとめて) に 1 つのログにする。失敗したファイルは知らせて続ける
   const loadFiles = async (files: File[]) => {
     const groups = new Map<string, File[]>();
-    for (const file of files) {
+    // GoPro の低画質のファイル (.LRV) は、動画同期で元の動画と組にする (ログにはしない)
+    const proxies = files.filter(f => isProxyFileName(f.name));
+    for (const file of files.filter(f => !isProxyFileName(f.name))) {
       if (!isVideoFileName(file.name)) {
         try {
           await loadFileData(file.name, await file.arrayBuffer());
@@ -561,11 +585,15 @@ export const App: React.FC = () => {
         alert(tr(`ファイル ${group.map(f => f.name).join('・')} の読み込みに失敗しました: ${err.message}`, `Could not load ${group.map(f => f.name).join(', ')}: ${err.message}`));
       }
     }
+    if (proxies.length > 0) await videoSyncManager.addVideoFiles(proxies, latestRef.current.sessions, false);
   };
 
   // GoPro の動画 (1 回の撮影のチャプター、順に並べたもの) の GPS を走行ログとして読み込み、同じ動画を動画同期にも登録する。
   // GPS と映像は同じ時計なので、撮影時刻からの照合でなく、GPS の時刻から求めたずれで合わせる
   const loadGoproVideos = async (files: File[]) => {
+    // もう動画同期に登録してある動画なら何もしない (GPS のログを二重に読み込まない。動画同期のタブの「動画追加」から入れ直したときなど)
+    const registered = videoSyncManager.getTracks();
+    if (files.every(f => registered.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size))) return;
     let log;
     try {
       log = await parseGoproGps(files.map(blobByteSource));
@@ -577,6 +605,39 @@ export const App: React.FC = () => {
       if (toAdd.length > 0) await videoSyncManager.addVideoFiles(toAdd, latestRef.current.sessions);
       return;
     }
+    // 「動画の GPS も走行ログとして加える」を切っていて、同じ時間に、より記録の細かいログがあれば、GPS のログは加えず、
+    // GPS の時刻で動画をそのログに合わせるだけにする (LATER-12)
+    if (!getAddVideoGpsLog()) {
+      const first = log.points[0]?.timestamp, last = log.points[log.points.length - 1]?.timestamp;
+      const a = first ? Date.parse(first) : NaN, b = last ? Date.parse(last) : NaN;
+      const overlapping = latestRef.current.sessions
+        .filter(s => (s.samplingRate || 0) > (log.samplingRate || 0))
+        .filter(s => {
+          const st = sessionStartUtcMs(s), lp = s.points[s.points.length - 1];
+          return st !== null && lp && st < b && a < st + lp.time * 1000;
+        })
+        .sort((x, y) => (y.samplingRate || 0) - (x.samplingRate || 0));
+      // 時刻が重なるだけでなく、同じ走行 (同じ車) と確かめられたログに付ける (同じ走行枠のチームメイトのログに付けない)
+      const gpsAsLog = { id: `gopro-gps:${files[0].name}`, points: log.points } as Session;
+      let better: Session | undefined;
+      for (const s of overlapping) if (await isSameRun(s, gpsAsLog)) { better = s; break; }
+      const betterStart = sessionStartUtcMs(better);
+      if (better && betterStart !== null) {
+        const existing = videoSyncManager.getTracks();
+        const toAdd = files.filter(f => !existing.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size));
+        if (toAdd.length < files.length) return;
+        const before = new Set(existing.map(t => t.id));
+        const tracks = await videoSyncManager.addVideoFiles(toAdd, latestRef.current.sessions, false);
+        const added = files
+          .map((f, i) => ({ track: tracks.find(t => !before.has(t.id) && t.file === f), startMs: log.videoStartUtcMs[i] }))
+          .filter((x): x is { track: NonNullable<typeof x.track>; startMs: number } => !!x.track);
+        for (const x of added) videoSyncManager.setMatchedSession(x.track.id, better.id);
+        // 動画の時刻は、動画自身の GPS の時刻 (UTC) で持つ (細かいログの時計の補正を変えても、動画の GPS の時刻のまま)
+        const firstFix = added.find(x => Number.isFinite(x.startMs));
+        if (firstFix) videoSyncManager.setGpsClock(firstFix.track.id, { utcMs: firstFix.startMs });
+        return;
+      }
+    }
     const session = (await loadFileData(files[0].name, null, log))[0];
     if (!session?.points[0]?.timestamp) return;
     const t0 = Date.parse(session.points[0].timestamp);
@@ -587,16 +648,17 @@ export const App: React.FC = () => {
     const toAdd = files.filter(f => !existing.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size));
     if (toAdd.length < files.length) return;
     const before = new Set(existing.map(t => t.id));
-    const tracks = await videoSyncManager.addVideoFiles(toAdd, [...latestRef.current.sessions.filter(s => s.id !== session.id), session]);
+    const tracks = await videoSyncManager.addVideoFiles(toAdd, [...latestRef.current.sessions.filter(s => s.id !== session.id), session], false);
     // 新しく加わった動画だけを合わせる (同期プロジェクトから戻した動画は、保存した同期のまま)
     const added = files
       .map((f, i) => ({ track: tracks.find(t => !before.has(t.id) && t.file === f), startMs: log.videoStartUtcMs[i] }))
       .filter((a): a is { track: NonNullable<typeof a.track>; startMs: number } => !!a.track);
     if (added.length === 0) return;
     for (const a of added) videoSyncManager.setMatchedSession(a.track.id, session.id);
-    // チャプターのずれは動画の長さでそろうので、測位できた最初の動画で合わせる
+    // チャプターのずれは動画の長さでそろうので、測位できた最初の動画で合わせる。時刻は GPS のログに付ける
+    // (そのログの時計の補正を変えると、同じ時計の動画も一緒に動く)
     const first = added.find(a => Number.isFinite(a.startMs));
-    if (first) videoSyncManager.updateOffset(first.track.id, (first.startMs - t0) / 1000);
+    if (first) videoSyncManager.setGpsClock(first.track.id, { session, offsetSec: (first.startMs - t0) / 1000 });
   };
 
   // データファイル読み込みロジック。読み込んだログはセッションとして加え、加えたセッションを返す
@@ -638,6 +700,12 @@ export const App: React.FC = () => {
       rawPoints = parsed.points;
       samplingRate = parsed.samplingRate;
       startDate = parsed.startDate;
+    } else if (ext === 'fit') {
+      // Garmin などの FIT (腕時計・サイクルコンピューターの記録)
+      const parsed = parseFit(new Uint8Array(buffer));
+      rawPoints = parsed.points;
+      samplingRate = parsed.samplingRate;
+      startDate = parsed.startDate;
     } else if (ext === 'ibt') {
       // iRacing のテレメトリ。コースに出ていた間ごとに分ける (ピットへの移動などで区切る)
       const bytes = new Uint8Array(buffer);
@@ -645,7 +713,7 @@ export const App: React.FC = () => {
       const parsed = parseIbt(bytes);
       parts = parsed.parts;
       meta = { vehicleName: parsed.vehicleName, driverName: parsed.driverName, trackName: parsed.trackName };
-    } else if (['vbo', 'csv', 'txt', 'gpx', 'nmea', 'log'].includes(ext || '')) {
+    } else if (['vbo', 'csv', 'txt', 'gpx', 'tcx', 'nmea', 'log'].includes(ext || '')) {
       // テキストの形式は拡張子で決めつけず、中身の先頭で判別する (.txt の NMEA・VBO、.log の CSV なども読めるように)。
       // 判別できないときは拡張子に従う
       const text = new TextDecoder('utf-8').decode(buffer);
@@ -656,14 +724,16 @@ export const App: React.FC = () => {
         /^(?=[^\n]*(lat|緯度))(?=[^\n]*(lon|lng|経度))[^\n]*,/im.test(text.slice(0, 4000));
       const kind =
         isGpx(text) ? 'gpx'
+        : isTcx(text) ? 'tcx'
         : isVbo(text) ? 'vbo'
         : /^\s*\$G[PNLAB][A-Z]{3},/m.test(head) ? 'nmea'
         : csvLike ? 'csv'
-        : ext === 'vbo' || ext === 'gpx' || ext === 'nmea' ? ext
+        : ext === 'vbo' || ext === 'gpx' || ext === 'tcx' || ext === 'nmea' ? ext
         : ext === 'log' ? 'nmea'
         : 'csv';
       let parsed: { points: any[]; samplingRate: number; startDate?: Date };
       if (kind === 'gpx') parsed = parseGpx(text);
+      else if (kind === 'tcx') parsed = parseTcx(text);
       else if (kind === 'vbo') parsed = parseVbo(text);
       else if (kind === 'nmea') parsed = parseNmea(text);
       else {
@@ -738,9 +808,17 @@ export const App: React.FC = () => {
       const hintForThisCourse = !matchedCircuit || !hint.name || hint.name === matchedCircuit.name;
       const hintPolylines = hintForThisCourse && hint.polylines && passesNearPolylines({ points: rawPoints } as Session, hint.polylines, 2000) ? hint.polylines : undefined;
 
-      // コースが分からず計測線もないときは、このログの走り始めに仮の計測線を置く。
-      // 後から読み込むログもこの線の通過点を 0 m にそろえるので、開始位置の違うログを重ねてもずれない
-      if (!cl) cl = createVirtualControlLine(rawPoints);
+      // コースが分からず計測線もないときは、計測線を自動で置く (PLAN-12): 周回しているログなら、ピットロードの横の直線
+      // (メインストレート) の真ん中に、毎周通ることを確かめて置く。セクターがなければ、速い周を距離で 3 等分した所に置く。
+      // 周回していないログは、走り始めに仮の計測線を置く。後から読み込むログもこの線の通過点を 0 m にそろえるので、開始位置の違うログを重ねてもずれない
+      if (!cl) {
+        cl = createAutoControlLine(rawPoints) ?? createVirtualControlLine(rawPoints);
+        if (cl?.name === AUTO_CONTROL_LINE_NAME && sec.length === 0) {
+          const full = extractLaps(rawPoints, cl, []).laps.filter(l => !l.isPartialLap && !l.isWholeSession);
+          const fastest = full.reduce<typeof full[number] | undefined>((a, l) => (!a || l.lapTime < a.lapTime ? l : a), undefined);
+          if (fastest) sec = createEqualSectors(rawPoints, fastest, cl);
+        }
+      }
       // 出どころの分からない手がかりのコース図は、手で読み込んだものとして扱う (一括設置で置き換えないように)
       const hintSource: PolylineSource | undefined = hintPolylines ? (hint.polylinesSource ?? 'manual') : undefined;
       courseRef.current = { cl, sec, name: circName, polylines: hintPolylines, polylinesSource: hintSource };
@@ -784,7 +862,8 @@ export const App: React.FC = () => {
               sessionId: newSession.id,
               lapNumber: bestLapNum,
               colorHex: '#ef4444',
-              label: `${newSession.sessionName} (L${bestLapNum})`
+              label: `${newSession.sessionName} (L${bestLapNum})`,
+              setBy: 'auto'
             }
           ];
         } else if (prev.length === 1 && prev[0].slot === 0) {
@@ -796,7 +875,8 @@ export const App: React.FC = () => {
               sessionId: newSession.id,
               lapNumber: bestLapNum,
               colorHex: '#3b82f6',
-              label: `${newSession.sessionName} (L${bestLapNum})`
+              label: `${newSession.sessionName} (L${bestLapNum})`,
+              setBy: 'auto'
             }
           ];
         }
@@ -804,8 +884,8 @@ export const App: React.FC = () => {
       });
     }
 
-    // 変換ページから読み込んだときは、そのまま変換ページに留まる
-    if (currentTabRef.current !== 'convert') setCurrentTab('graph');
+    // 変換ページ・動画同期から読み込んだときは、そのページに留まる (動画同期では、読み込んだ動画をそのまま見るため)
+    if (currentTabRef.current !== 'convert' && currentTabRef.current !== 'video') setCurrentTab('graph');
     return added;
   };
 
@@ -843,6 +923,94 @@ export const App: React.FC = () => {
       })
     );
   };
+
+  // 基準車 (Car 1) を別のログに切り替える (動画に合わせるログを選んだとき、LATER-12)。
+  // 周は、今の Car 1 の周と同じ時刻に走った周 (同じ走行を別のロガーで記録したログなら同じ周) を選ぶ。なければベストラップ。
+  // 元の Car 1 のログは空いているスロットに移す (空きがなければ外す)
+  // auto: アプリが自動で切り替える (記録の細かいログへの付け替え)。そのときは、Car 1 が fromId のログで、
+  // アプリが入れた Car 1 のときだけ切り替える (利用者が選んだ Car 1 は変えない)
+  const setBaseSession = (sessionId: string, auto?: { fromId: string }) => {
+    const list = latestRef.current.sessions;
+    const target = list.find(s => s.id === sessionId);
+    if (!target || target.laps.length === 0) return;
+    setSelectedCars(prev => {
+      const car1 = prev.find(c => c.slot === 0);
+      if (car1?.sessionId === sessionId) return prev;
+      if (auto && (car1?.sessionId !== auto.fromId || car1?.setBy !== 'auto')) return prev;
+      const from = list.find(s => s.id === car1?.sessionId);
+      const fromLap = from?.laps.find(l => l.lapNumber === car1?.lapNumber);
+      let lap = target.laps[target.bestLapIndex] ?? target.laps[0];
+      const fs = sessionStartUtcMs(from), ts = sessionStartUtcMs(target);
+      if (fromLap && fs !== null && ts !== null) {
+        const want = fs + fromLap.startTime * 1000;
+        const near = [...target.laps].sort((a, b) => Math.abs(ts + a.startTime * 1000 - want) - Math.abs(ts + b.startTime * 1000 - want))[0];
+        if (near && Math.abs(ts + near.startTime * 1000 - want) < 10000) lap = near;
+      }
+      const COLORS = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b'];
+      const rest = prev.filter(c => c.slot !== 0 && c.sessionId !== sessionId);
+      const next: SelectedCarSlot[] = [...rest, { slot: 0, sessionId, lapNumber: lap.lapNumber, colorHex: COLORS[0], label: `${target.sessionName} (L${lap.lapNumber})`, ...(auto ? { setBy: 'auto' as const } : {}) }];
+      if (car1) {
+        const free = [1, 2, 3].find(slot => !next.some(c => c.slot === slot));
+        if (free !== undefined) next.push({ ...car1, slot: free, colorHex: COLORS[free] });
+      }
+      return next.sort((a, b) => a.slot - b.slot);
+    });
+  };
+
+  // ログの時計の補正 (BUG-08)。そのログに時刻を付けた動画 (そのログで合わせた動画・そのログの GPS の動画) は一緒に動き、
+  // ほかの動画は動かない (mediaClock.ts)。動画のずれを直す処理は要らない
+  const setSessionClockOffset = (sessionId: string, sec: number) => {
+    const s = latestRef.current.sessions.find(x => x.id === sessionId);
+    if (!s || !Number.isFinite(sec)) return;
+    const value = Number(sec.toFixed(3));
+    if (value === (s.clockOffsetSec ?? 0)) return;
+    setSessions(prev => prev.map(x => (x.id === sessionId ? { ...x, clockOffsetSec: value } : x)));
+  };
+
+  // 同期プロジェクトから戻した動画の照合先を、後から読み込んだログに読み替え、保存したときのログの時計の補正も戻す。
+  // 動画のウインドウが隠れていても (Freeze で描き直さない) 戻すよう、ここで行う
+  useEffect(() => {
+    for (const [id, sec] of videoSyncManager.remapImportedSessions(sessions)) setSessionClockOffset(id, sec);
+  }, [sessions]);
+
+  // 時計の補正を、同じ時間に記録したほかのログ (基準車のログ、なければ記録の細かいログ) との位置の比べから見積もる (BUG-08)。
+  // 同じ走行と確かめられたログだけと比べる。確かな見積もり (quality 'auto') だけをそのまま入れ、ほかは案として返す
+  const estimateSessionClockOffset = async (sessionId: string): Promise<ClockEstimateResult | string> => {
+    const list = latestRef.current.sessions;
+    const s = list.find(x => x.id === sessionId);
+    if (!s) return tr('ログが見つかりません', 'Log not found');
+    const candidates = referenceCandidates(s, list, baseSession?.id);
+    if (candidates.length === 0) return tr('同じ時間に記録したほかのログがありません (1 分以上重なるログが要ります)', 'No other log covers the same time (at least 1 minute of overlap is needed)');
+    let shortOnly = true;
+    for (const ref of candidates) {
+      const r = await analyseSessions(ref, s);
+      if (r && r.reason !== 'short') shortOnly = false;
+      if (!r || !r.sameRun || r.quality === 'reject') continue;
+      // 見積もりは 2 つのログの時刻 (補正前) どうしの差。基準のログの補正を足すと、このログの補正になる
+      const value = Number(((ref.clockOffsetSec ?? 0) + r.offsetSec).toFixed(3));
+      if (r.quality === 'auto') setSessionClockOffset(sessionId, value);
+      return { refName: ref.sessionName, offsetSec: value, medianDistanceM: r.medianDistanceM, quality: r.quality, applied: r.quality === 'auto' };
+    }
+    return shortOnly
+      ? tr('走っている区間が短く、見積もれませんでした', 'Too little driving in common to estimate')
+      : tr('同じ時間のログはありますが、同じ車の走行ではないようです (走った線や止まった時刻が合いません)', 'Other logs cover this time, but they do not seem to be the same car (the lines or stops do not match)');
+  };
+
+  // ログが増えたら、動画を、時間の重なるログのうち記録の細かい (Hz の高い) ログに付け替える (LATER-12)。
+  // Car 1 が付け替える前のログなら、Car 1 も付け替える
+  // 動画がログより後に加わったとき (ログと動画を一緒に読み込んだとき) も同じにする
+  const sessionCountRef = useRef(0);
+  const videoCountRef = useRef(0);
+  useEffect(() => {
+    const grew = sessions.length > sessionCountRef.current || videoTracks.length > videoCountRef.current;
+    sessionCountRef.current = sessions.length;
+    videoCountRef.current = videoTracks.length;
+    if (!grew) return;
+    // 同じ走行かを確かめてから付け替える (時刻が重なるだけのチームメイトのログには付け替えない)。比べは Web Worker で行う
+    videoSyncManager.preferHighestRateSessions(sessions, isSameRun).then(changed => {
+      for (const [from, to] of changed) setBaseSession(to, { fromId: from });
+    });
+  }, [sessions, videoTracks.length]);
 
   // サーキットプリセット選択
   const handleSelectCircuitPreset = (presetId: string) => {
@@ -1009,7 +1177,7 @@ export const App: React.FC = () => {
         ref={fileInputRef}
         onChange={handleFilesSelected}
         multiple
-        accept={fileAccept('.dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx,.xrk,.xrz,.ibt,.mp4,.mov')}
+        accept={fileAccept('.dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx,.xrk,.xrz,.ibt,.fit,.tcx,.mp4,.mov,.lrv')}
         className="hidden"
       />
       <input
@@ -1156,6 +1324,7 @@ export const App: React.FC = () => {
         {isCompact ? (
           // スマートフォン: 速度ウインドウを上 (横向きでは左) に固定し、もう片方は切り替えて 1 つずつ表示する
           <div className={`h-full w-full gap-2 overflow-hidden ${currentTab === 'graph' ? 'flex' : 'hidden'} ${isLandscape ? 'flex-row' : 'flex-col'}`}>
+            <Freeze active={currentTab === 'graph'}>
             <div className={isLandscape ? 'w-1/2 h-full min-w-0' : 'h-[42%] min-h-[180px] shrink-0'}>
               {speedGraphEl}
             </div>
@@ -1184,12 +1353,14 @@ export const App: React.FC = () => {
                   ))}
               </div>
             </div>
+            </Freeze>
           </div>
         ) : (
           <div
             ref={horizSplit.containerRef}
             className={`flex-row h-full w-full overflow-hidden select-none ${currentTab === 'graph' ? 'flex' : 'hidden'}`}
           >
+            <Freeze active={currentTab === 'graph'}>
             {/* 左側 / メイン: 速度ウインドウ & アニメーション/動画 (上下分割) */}
             <div
               ref={leftVertSplit.containerRef}
@@ -1265,6 +1436,12 @@ export const App: React.FC = () => {
                       isVisible={currentTab === 'graph'}
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
+                      onChooseLog={setBaseSession}
+                      onPickCompareLap={(sessionId, lapNumber) => handleSelectCarSlot(1, sessionId, lapNumber)}
+                      onLoadFiles={loadFiles}
+                      viewKey="graph-a"
+                      onSetClockOffset={setSessionClockOffset}
+                      compareCars={activeCars}
                     />
                   )}
                 </div>
@@ -1429,39 +1606,53 @@ export const App: React.FC = () => {
                       isVisible={currentTab === 'graph'}
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
+                      onChooseLog={setBaseSession}
+                      onPickCompareLap={(sessionId, lapNumber) => handleSelectCarSlot(1, sessionId, lapNumber)}
+                      onLoadFiles={loadFiles}
+                      viewKey="graph-b"
+                      onSetClockOffset={setSessionClockOffset}
+                      compareCars={activeCars}
                     />
                   )}
                 </div>
                 )}
               </div>
             </div>
+            </Freeze>
           </div>
         )}
 
-        {/* 動画同期タブ。スマートフォン向けの配置では出さない (隠したまま動画が再生され続けないよう、外す) */}
-        {!isCompact && (
-          <div className={`h-full w-full overflow-hidden ${currentTab === 'video' ? 'block' : 'hidden'}`}>
-            <VideoSyncWindow
-              sessions={sessions}
-              selectedCars={selectedCars}
-              currentTimeSec={currentTimeSec}
-              currentDistanceKm={currentDistanceKm}
-              isPlaying={isPlaying}
-              onSeekTime={handleSeekTime}
-              onTogglePlay={() => setIsPlaying(!isPlaying)}
-              circuitName={currentCircuitName}
-              targetSessionId={baseSession?.id}
-              targetLap={baseLap}
-              isGraphEmbedded={false}
-              isVisible={currentTab === 'video'}
-              playbackSpeed={playbackSpeed}
-              onChangePlaybackSpeed={setPlaybackSpeed}
-            />
-          </div>
-        )}
+        {/* 動画同期タブ。見えていないときは動画を止め、10 秒たったら動画を手放す (VideoTile) */}
+        <div className={`h-full w-full overflow-hidden ${currentTab === 'video' ? 'block' : 'hidden'}`}>
+          <Freeze active={currentTab === 'video'}>
+          <VideoSyncWindow
+            sessions={sessions}
+            selectedCars={selectedCars}
+            currentTimeSec={currentTimeSec}
+            currentDistanceKm={currentDistanceKm}
+            isPlaying={isPlaying}
+            onSeekTime={handleSeekTime}
+            onTogglePlay={() => setIsPlaying(!isPlaying)}
+            circuitName={currentCircuitName}
+            targetSessionId={baseSession?.id}
+            targetLap={baseLap}
+            isGraphEmbedded={false}
+            isVisible={currentTab === 'video'}
+            playbackSpeed={playbackSpeed}
+            onChangePlaybackSpeed={setPlaybackSpeed}
+            onChooseLog={setBaseSession}
+            onPickCompareLap={(sessionId, lapNumber) => handleSelectCarSlot(1, sessionId, lapNumber)}
+            onLoadFiles={loadFiles}
+            viewKey="video-tab"
+            onSetClockOffset={setSessionClockOffset}
+            compareCars={activeCars}
+          />
+          </Freeze>
+        </div>
 
         {/* データ管理タブ */}
         <div className={`h-full w-full overflow-hidden ${currentTab === 'data' ? 'block' : 'hidden'}`}>
+          <Freeze active={currentTab === 'data'}>
           <DataTab
             sessions={sessions}
             selectedCars={selectedCars}
@@ -1485,6 +1676,8 @@ export const App: React.FC = () => {
             onEditSessionName={(id, name) => {
               setSessions(prev => prev.map(s => (s.id === id ? { ...s, sessionName: name } : s)));
             }}
+            onSetClockOffset={setSessionClockOffset}
+            onEstimateClockOffset={estimateSessionClockOffset}
             onSelectCircuitPreset={handleSelectCircuitPreset}
             onOpenCircuitEditor={() => setIsCircuitEditorOpen(true)}
             onLoadPthFile={() => pthInputRef.current?.click()}
@@ -1494,6 +1687,7 @@ export const App: React.FC = () => {
             gFilterLevel={gFilterLevel}
             onChangeGFilterLevel={handleChangeGFilterLevel}
           />
+          </Freeze>
         </div>
 
         {/* ログ変換タブ */}
@@ -1509,13 +1703,15 @@ export const App: React.FC = () => {
           />
         )}
 
-        {/* ロガー設定タブ (マウント状態を維持し、USBシリアル切断を防止)。スマートフォン・タブレットでは出さない */}
-        {canUseLoggerUsb && (
+        {/* ロガー設定タブ (マウント状態を維持し、USBシリアル切断を防止)。USB も Bluetooth も使えない環境では出さない */}
+        {canUseLogger && (
           <div className={`h-full w-full overflow-hidden ${currentTab === 'logger' ? 'block' : 'hidden'}`}>
+            <Freeze active={currentTab === 'logger'}>
             <LoggerTab
               onLoadSession={(fileName, buffer) => loadFileData(fileName, buffer)}
               onNavigateToGraph={() => setCurrentTab('graph')}
             />
+            </Freeze>
           </div>
         )}
       </main>
