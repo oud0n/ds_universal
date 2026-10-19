@@ -608,7 +608,7 @@ export const App: React.FC = () => {
         const toAdd = files.filter(f => !existing.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size));
         if (toAdd.length < files.length) return;
         const before = new Set(existing.map(t => t.id));
-        const tracks = await videoSyncManager.addVideoFiles(toAdd, latestRef.current.sessions);
+        const tracks = await videoSyncManager.addVideoFiles(toAdd, latestRef.current.sessions, false);
         const added = files
           .map((f, i) => ({ track: tracks.find(t => !before.has(t.id) && t.file === f), startMs: log.videoStartUtcMs[i] }))
           .filter((x): x is { track: NonNullable<typeof x.track>; startMs: number } => !!x.track);
@@ -629,7 +629,7 @@ export const App: React.FC = () => {
     const toAdd = files.filter(f => !existing.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size));
     if (toAdd.length < files.length) return;
     const before = new Set(existing.map(t => t.id));
-    const tracks = await videoSyncManager.addVideoFiles(toAdd, [...latestRef.current.sessions.filter(s => s.id !== session.id), session]);
+    const tracks = await videoSyncManager.addVideoFiles(toAdd, [...latestRef.current.sessions.filter(s => s.id !== session.id), session], false);
     // 新しく加わった動画だけを合わせる (同期プロジェクトから戻した動画は、保存した同期のまま)
     const added = files
       .map((f, i) => ({ track: tracks.find(t => !before.has(t.id) && t.file === f), startMs: log.videoStartUtcMs[i] }))
