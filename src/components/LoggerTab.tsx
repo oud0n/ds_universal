@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import { DigSpiceDevice, LogInfo, DownloadProgress, DeviceConfig } from '../services/digspiceDevice';
 import { LoggerSettingsCard } from './LoggerSettingsCard';
+import { BleLoggerCard } from './BleLoggerCard';
+import { canUseLoggerBle, canUseLoggerUsb } from '../utils/device';
 import { tr, useT } from '../utils/i18n';
 
 // 開発サーバーで `?sim=1` を付けると、実機の代わりにシミュレーターへ接続する
@@ -220,7 +222,12 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
   };
 
   return (
-    <div className="flex flex-col h-full bg-surface-0 text-slate-200 overflow-y-auto p-6 space-y-6 max-w-5xl mx-auto select-none">
+    <div className="flex flex-col h-full bg-surface-0 text-slate-200 overflow-y-auto p-4 sm:p-6 space-y-6 max-w-5xl mx-auto select-none">
+      {/* Bluetooth でのつなぎ (iPhone のアプリ・Chrome など) */}
+      {canUseLoggerBle && <BleLoggerCard />}
+
+      {/* ここから USB (Web Serial) でのつなぎ */}
+      {canUseLoggerUsb && (<>
       {/* 上部ステータスバー */}
       <div className="bg-gradient-to-r from-surface-3 via-surface-3 to-surface-2 border border-line-3 rounded-2xl p-5 shadow-xl flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
@@ -529,6 +536,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
         </div>
         )}
       </div>
+      </>)}
       {/* G のならし方の設定は、ロガーを使わなくても選べるようデータ管理タブに置く */}
     </div>
   );

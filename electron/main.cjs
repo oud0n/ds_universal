@@ -170,9 +170,27 @@ function createWindow() {
     }
   });
 
-  // シリアルポートの権限: このアプリの画面からの要求で、対象がデジスパイスIV の場合だけ許可する
+  // Web Bluetooth の機器の選択: Electron には選択画面がないので、名前が DS3 / DS4 で始まる機器を自動で選ぶ。
+  // 見つかるまで何度も呼ばれる。10 秒で見つからなければ取りやめる (画面には「見つからなかった」として返る)
+  let bluetoothPick = null;
+  mainWindow.webContents.on('select-bluetooth-device', (event, deviceList, callback) => {
+    event.preventDefault();
+    if (!bluetoothPick || bluetoothPick.callback !== callback) {
+      if (bluetoothPick) clearTimeout(bluetoothPick.timer);
+      bluetoothPick = { callback, timer: setTimeout(() => { bluetoothPick = null; callback(''); }, 10000) };
+    }
+    const ds = (deviceList || []).find(d => /^DS[34]/.test(d.deviceName || ''));
+    if (ds) {
+      clearTimeout(bluetoothPick.timer);
+      bluetoothPick = null;
+      console.log('[メインプロセス] デジスパイスを Bluetooth で自動選択:', ds.deviceName);
+      callback(ds.deviceId);
+    }
+  });
+
+  // シリアルポート・Bluetooth の権限: このアプリの画面からの要求だけ許可する (シリアルの機器は下でデジスパイスIV に絞る)
   mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission) => {
-    return permission === 'serial' && webContents === mainWindow.webContents;
+    return (permission === 'serial' || permission === 'bluetooth') && webContents === mainWindow.webContents;
   });
 
   mainWindow.webContents.session.setDevicePermissionHandler((details) => {

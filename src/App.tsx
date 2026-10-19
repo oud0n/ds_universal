@@ -38,7 +38,8 @@ import { LoggerTab } from './components/LoggerTab';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
 import { DonateModal } from './components/DonateModal';
 import { useResizableSplit } from './hooks/useResizableSplit';
-import { canUseLoggerUsb, fileAccept } from './utils/device';
+import { canUseLogger, canUseLoggerBle, fileAccept } from './utils/device';
+import { bleLoggerLink } from './services/bleLoggerLink';
 import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
 import { Freeze } from './components/Freeze';
 import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
@@ -112,7 +113,7 @@ export const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<'graph' | 'data' | 'logger' | 'video' | 'convert'>(() => {
     const h = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : '';
     // ロガーと USB でつなげない環境 (スマートフォン・タブレット・Safari など) ではロガー設定を出さないので、#logger でもグラフ解析を開く
-    if (h === 'logger' && !canUseLoggerUsb) return 'graph';
+    if (h === 'logger' && !canUseLogger) return 'graph';
     return h === 'convert' || h === 'data' || h === 'logger' || h === 'video' ? h : 'graph';
   });
   const currentTabRef = useRef(currentTab);
@@ -153,6 +154,11 @@ export const App: React.FC = () => {
       return next;
     });
   };
+
+  // 登録してあるデジスパイスに、Bluetooth で自動でつなぐ
+  useEffect(() => {
+    if (canUseLoggerBle) void bleLoggerLink.start();
+  }, []);
 
   // グラフ画面・左下モード ('replay' | 'video')
   const [leftBottomMode, setLeftBottomMode] = useState<'replay' | 'video'>('replay');
@@ -1697,8 +1703,8 @@ export const App: React.FC = () => {
           />
         )}
 
-        {/* ロガー設定タブ (マウント状態を維持し、USBシリアル切断を防止)。スマートフォン・タブレットでは出さない */}
-        {canUseLoggerUsb && (
+        {/* ロガー設定タブ (マウント状態を維持し、USBシリアル切断を防止)。USB も Bluetooth も使えない環境では出さない */}
+        {canUseLogger && (
           <div className={`h-full w-full overflow-hidden ${currentTab === 'logger' ? 'block' : 'hidden'}`}>
             <Freeze active={currentTab === 'logger'}>
             <LoggerTab
