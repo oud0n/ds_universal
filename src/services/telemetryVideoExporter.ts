@@ -222,3 +222,65 @@ export function downloadBlob(blob: Blob, fileName: string): void {
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
+
+/**
+ * canvas に描いたものを、そのまま実時間で録る (枠の並びの書き出し)。動画は呼ぶ側がふだんの再生 (App の時刻) で動かし、
+ * draw はコマごとに枠を canvas に描いて、進み具合を返す。done を返したら録るのをやめる
+ */
+export function recordCanvas(options: {
+  width: number;
+  height: number;
+  fps?: number;
+  bitrate?: number;
+  outputFileName: string;
+  draw: (ctx: CanvasRenderingContext2D) => { currentSec: number; totalSec: number; done: boolean };
+  onProgress?: (progress: { currentSec: number; totalSec: number; percent: number }) => void;
+}): VideoExportController {
+  const { width, height, fps = 30, bitrate = 12_000_000, outputFileName, draw, onProgress } = options;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d', { alpha: false });
+  if (!ctx) return { cancel: () => {}, promise: Promise.reject(new Error('Canvas 2D context を取得できませんでした')) };
+  const mimeType = getSupportedVideoMimeType();
+  const stream = canvas.captureStream(fps);
+  const chunks: Blob[] = [];
+  let recorder: MediaRecorder;
+  try {
+    recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: bitrate });
+  } catch {
+    recorder = new MediaRecorder(stream);
+  }
+  let cancelled = false;
+  let frame: number | null = null;
+  const promise = new Promise<Blob>((resolve, reject) => {
+    recorder.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+    recorder.onstop = () => {
+      if (cancelled) { reject(new Error('エクスポートがユーザーによりキャンセルされました')); return; }
+      const finalType = mimeType.includes('mp4') ? 'video/mp4' : 'video/webm';
+      const blob = new Blob(chunks, { type: finalType });
+      downloadBlob(blob, outputFileName.replace(/\.(mp4|webm|mov)$/i, '') + (finalType === 'video/mp4' ? '.mp4' : '.webm'));
+      resolve(blob);
+    };
+    recorder.start(250);
+    const loop = () => {
+      if (cancelled) return;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, width, height);
+      const p = draw(ctx);
+      onProgress?.({ currentSec: p.currentSec, totalSec: p.totalSec, percent: Number(Math.min(100, Math.max(0, (p.currentSec / Math.max(0.1, p.totalSec)) * 100)).toFixed(1)) });
+      if (p.done) { recorder.stop(); return; }
+      frame = requestAnimationFrame(loop);
+    };
+    frame = requestAnimationFrame(loop);
+  });
+  return {
+    cancel: () => {
+      if (cancelled || recorder.state === 'inactive') return;
+      cancelled = true;
+      if (frame !== null) cancelAnimationFrame(frame);
+      recorder.stop();
+    },
+    promise
+  };
+}

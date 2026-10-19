@@ -68,6 +68,9 @@ export interface VideoTrack {
   /** 動画の時刻 (mediaClock.ts)。チャプターに分かれた動画は、同じ時計でチャプターの長さずつ進む */
   clock: VideoClock;
   isAutoMatched: boolean;
+  /** GoPro の低画質のファイル (.LRV)。小さな枠・下書きの書き出しに使う。時刻の基準は元の動画と同じ */
+  proxyUrl?: string;
+  proxyFileName?: string;
   // 利用者が「動画に合わせるログ」を選んだもの。記録の細かいログへの自動の付け替えをしない (LATER-12)
   isSessionChosenManually?: boolean;
   notes?: string;
@@ -86,6 +89,18 @@ export interface PlacedTrack extends VideoTrack {
 export function placeTrack(track: VideoTrack, session: Session | null | undefined, sessions: Session[]): PlacedTrack {
   const offset = clockOffsetIn(track.clock, session, sessions);
   return { ...track, syncOffsetSec: offset ?? 0, isPlaced: offset !== null };
+}
+
+/**
+ * 動画をまとめて置く。ログがないとき (動画だけを読み込んだとき) は、いちばん早く始まる動画の頭を 0 秒として、撮影の時刻の差で並べる
+ * (時刻の分からない動画は 0 秒から)。動画だけでも再生できるように
+ */
+export function placeTracks(tracks: VideoTrack[], session: Session | null | undefined, sessions: Session[]): PlacedTrack[] {
+  if (session) return tracks.map(t => placeTrack(t, session, sessions));
+  const starts = tracks.map(t => clockStartUtcMs(t.clock, sessions));
+  const known = starts.filter((x): x is number => x !== null);
+  const origin = known.length ? Math.min(...known) : 0;
+  return tracks.map((t, i) => ({ ...t, syncOffsetSec: starts[i] === null ? 0 : Number(((starts[i]! - origin) / 1000).toFixed(3)), isPlaced: true }));
 }
 
 /** 手で合わせた (同期ピン・ずれの入力) 動画か。自動の照合では変えない */
@@ -156,6 +171,16 @@ function creationUtcMs(track: VideoTrack): number | null {
 }
 
 const SOURCE_RANK: Record<ClockSource, number> = { manual: 2, gps: 1, creation: 0 };
+
+/** GoPro の動画 (GX010015.MP4・GH010015.MP4) と低画質のファイル (GL010015.LRV) を組にする名前。組にならないものは null */
+export function proxyKey(fileName: string): string | null {
+  const v = /^G[XH](\d{2})(\d{4})\.(mp4|mov)$/i.exec(fileName);
+  if (v) return `GL${v[1]}${v[2]}`;
+  const l = /^GL(\d{2})(\d{4})\.lrv$/i.exec(fileName);
+  return l ? `GL${l[1]}${l[2]}` : null;
+}
+
+export const isProxyFileName = (name: string): boolean => /\.lrv$/i.test(name);
 
 class VideoSyncManager {
   private videos: VideoTrack[] = [];
@@ -229,14 +254,31 @@ class VideoSyncManager {
     this.listeners.forEach(l => l());
   }
 
-  // 複数動画ファイルの読み込み & 自動解析
+  // 元の動画より先に読み込んだ低画質のファイル (組にする名前 → ファイル)
+  private pendingProxies = new Map<string, File>();
+
+  private attachProxy(track: VideoTrack, file: File): void {
+    if (track.proxyUrl) URL.revokeObjectURL(track.proxyUrl);
+    track.proxyUrl = URL.createObjectURL(file);
+    track.proxyFileName = file.name;
+  }
+
+  // 複数動画ファイルの読み込み & 自動解析。GoPro の低画質のファイル (.LRV) は、元の動画に組にする (動画としては加えない)
   // readGps: false なら動画の GPS を読まない (呼ぶ側で読んで時刻を入れるとき。同じ動画を 2 回読まないため)
   public async addVideoFiles(files: FileList | File[], sessions: Session[], readGps = true): Promise<VideoTrack[]> {
     const newTracks: VideoTrack[] = [];
     let relinked = false;
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    for (const file of Array.from(files).filter(f => isProxyFileName(f.name))) {
+      const key = proxyKey(file.name);
+      if (!key) continue;
+      const track = this.videos.find(v => proxyKey(v.fileName) === key);
+      if (track) this.attachProxy(track, file); else this.pendingProxies.set(key, file);
+    }
+    const videoFiles = Array.from(files).filter(f => !isProxyFileName(f.name));
+
+    for (let i = 0; i < videoFiles.length; i++) {
+      const file = videoFiles[i];
       const meta: VideoMetadata = await parseVideoMetadata(file);
 
       // 同期プロジェクトから戻した、ファイルのまだない動画と同じファイルなら、そこにつなぐ (保存した同期を引き継ぐ)
@@ -274,6 +316,9 @@ class VideoSyncManager {
       };
       const utc = creationUtcMs(track);
       if (utc !== null) track.clock = clockAtUtc('creation', utc);
+      const key = proxyKey(file.name);
+      const proxy = key ? this.pendingProxies.get(key) : undefined;
+      if (key && proxy) { this.attachProxy(track, proxy); this.pendingProxies.delete(key); }
 
       newTracks.push(track);
     }
@@ -509,6 +554,7 @@ class VideoSyncManager {
     if (track?.objectUrl) {
       URL.revokeObjectURL(track.objectUrl);
     }
+    if (track?.proxyUrl) URL.revokeObjectURL(track.proxyUrl);
     this.videos = this.videos.filter(v => v.id !== trackId);
     this.notify();
   }

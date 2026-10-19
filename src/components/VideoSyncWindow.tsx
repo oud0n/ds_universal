@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { Session, TelemetryPoint, SelectedCarSlot, Lap } from '../types/telemetry';
 import { getAddVideoGpsLog, setAddVideoGpsLog } from '../services/videoPrefs';
-import { videoSyncManager, PlacedTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs, overlappingSessions, placeTrack } from '../services/videoSyncManager';
+import { videoSyncManager, PlacedTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs, overlappingSessions, placeTracks } from '../services/videoSyncManager';
 import { clockOffsetIn, sessionStartUtcMs } from '../services/mediaClock';
 import { RunsInspector, syncBadgeOf, BADGE_CLASS } from './video/RunsInspector';
 import { getNextChapter, getPreviousChapter, groupVideoTracksByChapter } from '../services/videoChapterManager';
@@ -26,12 +26,14 @@ import { VideoTile, TileOverlay } from './video/VideoTile';
 import { VideoStage } from './video/VideoStage';
 import { 
   exportBurnedInVideo, 
+  recordCanvas,
   VideoExportController 
 } from '../services/telemetryVideoExporter';
 import { MasterTimelineTrackBar } from './MasterTimelineTrackBar';
 import { formatMinSec } from '../utils/timeFormat';
 import { tr, useT } from '../utils/i18n';
 import { fileAccept } from '../utils/device';
+import { useCompactLayout, useLandscape } from '../hooks/useCompactLayout';
 
 export type { PipPosition };
 
@@ -69,6 +71,26 @@ function lapDistanceAtTime(points: TelemetryPoint[], t: number): number | null {
   const a = points[lo], b = points[hi];
   const f = b.time === a.time ? 0 : (t - a.time) / (b.time - a.time);
   return a.distance + (b.distance - a.distance) * f;
+}
+
+/** 枠の並びの書き出しの、枠ごとの四角 (VideoStage と同じ並べ方) */
+function stageRects(count: number, layout: string, W: number, H: number, pip: PipPosition): { x: number; y: number; w: number; h: number }[] {
+  if (count <= 1 || layout === 'single') return [{ x: 0, y: 0, w: W, h: H }];
+  if (layout === 'pip') {
+    const w = W * 0.28, h = H * 0.28, m = W * 0.02;
+    const x = pip.endsWith('right') ? W - w - m : m, y = pip.startsWith('bottom') ? H - h - m : m;
+    return [{ x: 0, y: 0, w: W, h: H }, { x, y, w, h }];
+  }
+  if (count === 2) return [{ x: 0, y: H / 4, w: W / 2, h: H / 2 }, { x: W / 2, y: H / 4, w: W / 2, h: H / 2 }];
+  return [0, 1, 2, 3].slice(0, count).map(i => ({ x: (i % 2) * W / 2, y: Math.floor(i / 2) * H / 2, w: W / 2, h: H / 2 }));
+}
+
+/** 動画のコマを四角に収めて描く (縦横の比は変えない) */
+function drawContain(ctx: CanvasRenderingContext2D, el: HTMLVideoElement, r: { x: number; y: number; w: number; h: number }): void {
+  const vw = el.videoWidth || 16, vh = el.videoHeight || 9;
+  const s = Math.min(r.w / vw, r.h / vh);
+  const w = vw * s, h = vh * s;
+  ctx.drawImage(el, r.x + (r.w - w) / 2, r.y + (r.h - h) / 2, w, h);
 }
 
 /** ログの点 (ログの先頭からの時刻) で、時刻 t の位置 [緯度, 経度] を補間で求める。範囲の外は null */
@@ -271,6 +293,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const { cameraIds } = view;
   const isAnyExporting = view.isExporting;
   const [win, setWin] = useWindowView(viewKey);
+  // スマートフォン向けの配置 (枠は 1 つずつ・走行比較は縦に 2 つ。VideoStage)
+  const isCompactLayout = useCompactLayout();
+  const isLandscape = useLandscape();
   const { pipPosition, showOverlay, showGForce } = win;
   const setShowOverlay = (v: boolean) => setWin({ showOverlay: v });
   // 全部の <video> を、1 か所で App の時刻に合わせる
@@ -299,6 +324,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const [exportResolution, setExportResolution] = useState<'1080p' | '720p'>('1080p');
   const [exportFps, setExportFps] = useState<number>(30);
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  // 枠の並びの書き出しで、低画質のファイル (.LRV) を使う (下書き)
+  const [draftExport, setDraftExport] = useState(false);
+  // 書き出しの設定: 枠の並びで書き出すか、下書きにするか
+  const [exportStage, setExportStage] = useState(true);
+  const [exportDraft, setExportDraft] = useState(false);
+  // 枠の並びを録っている間 (ふだんの再生で動画を動かす)
+  const stageRecordingRef = useRef(false);
+  const togglePlayRef = useRef(onTogglePlay);
   const [exportProgress, setExportProgress] = useState<{ currentSec: number; totalSec: number; percent: number } | null>(null);
   const exportControllerRef = useRef<VideoExportController | null>(null);
   // 書き出し中にウインドウが閉じられたら (たたむ・表示の切り替え)、書き出しをやめる (動画の要素がなくなるため)
@@ -321,7 +354,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // 別のログに付いた動画・撮影時刻の違うサブの動画も、基準のログの時刻のまま正しく出る (BUG-21)。
   // 画面・書き出し・タイムライン・チャプターの移動は、すべてこの置いた位置 (syncOffsetSec) を使う
   const tracks: PlacedTrack[] = useMemo(
-    () => storedTracks.map(t => placeTrack(t, baseSession, sessions)),
+    () => placeTracks(storedTracks, baseSession, sessions),
     [storedTracks, baseSession, sessions]
   );
   // カメラ (チャプターに分かれた動画はまとめて 1 つ)。出すのは cameraIds の順。1 つ目がメイン
@@ -355,7 +388,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     const cars = [...(compareCars ?? [])].sort((a, b) => a.slot.slot - b.slot.slot);
     if (!baseLap) return [];
     const baseElapsed = sessionTime - baseLap.startTime;
-    const d = lapDistanceAtTime(baseLap.points, baseElapsed);
+    // 周の外の時刻は周の始め・終わりにそろえる (周の終わりでは、比べる車も周の終わりのコマで止める)
+    const pts = baseLap.points;
+    const clampLap = (t: number) => pts.length ? Math.max(pts[0].time, Math.min(pts[pts.length - 1].time, t)) : t;
+    const d = lapDistanceAtTime(pts, clampLap(baseElapsed));
     return cars.map(car => {
       const session = sessions.find(s => s.id === car.slot.sessionId);
       const lap = session?.laps.find(l => l.lapNumber === car.slot.lapNumber);
@@ -366,7 +402,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       const timeAt = (t: number): number | null => {
         if (isBase) return t;
         if (!lap) return null;
-        const dd = lapDistanceAtTime(baseLap.points, t - baseLap.startTime);
+        const dd = lapDistanceAtTime(pts, clampLap(t - baseLap.startTime));
         return dd === null ? null : compareSessionTimeAtDistance(car.lap, lap, dd);
       };
       const ct = isBase ? sessionTime : d === null || !lap ? null : compareSessionTimeAtDistance(car.lap, lap, d);
@@ -396,7 +432,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const hasStage = isCompare ? tileCount > 0 : !!(activeTrack && activeTrack.objectUrl);
   // グラフ解析に埋め込んだときは、タイムゾーン・再同期の段とタイムラインを、ボタンで開くまで隠す。
   // 狭い枠ではこれらの段が場所を使い切り、動画の映る部分の高さが 0 になっていた (BUG-19)。同期の調整は動画同期の画面でもできる
-  const [showSyncTools, setShowSyncTools] = useState(!isGraphEmbedded);
+  const [showSyncTools, setShowSyncTools] = useState(!isGraphEmbedded && !isCompactLayout);
   // 走行の確認 (RunsInspector) を開いているか
   const [showRuns, setShowRuns] = useState(false);
   // GoPro の動画の GPS も走行ログとして加えるか (次に読み込む動画から効く) LATER-12
@@ -453,12 +489,22 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   }, [baseSession?.id, tracks, isVisible, isAnyExporting]);
 
   // 出している枠の数 (1 画面ならメインだけ、PinP なら 2 つまで)
-  const shownCount = win.layout === 'single' ? Math.min(1, tileCount) : win.layout === 'pip' ? Math.min(2, tileCount) : tileCount;
+  // スマートフォンでは、どの枠を出していても合わせられるよう、全部の枠を数える (出していない枠は <video> がないので何もしない)
+  const shownCount = isCompactLayout ? tileCount : win.layout === 'single' ? Math.min(1, tileCount) : win.layout === 'pip' ? Math.min(2, tileCount) : tileCount;
+
+  // 走行比較で、Car 1 が周の終わりに来たら周の始めに戻す (動画同期のタブはセッション全体の時刻で進むため。グラフ画面は App が戻す)
+  useEffect(() => {
+    if (!isCompare || isGraphEmbedded || !baseLap || !isVisible || isAnyExporting) return;
+    if (isPlaying && renderSessionTime > baseLap.endTime) seekTo(baseLap.startTime);
+    else if (renderSessionTime < baseLap.startTime - 0.5 || renderSessionTime > baseLap.endTime + 0.5) seekTo(baseLap.startTime);
+  }, [isCompare, renderSessionTime, baseLap?.startTime, baseLap?.endTime, isPlaying, isVisible]);
 
   // 動画を App の時刻に合わせる (PlaybackController)。見えていないウインドウ・書き出し中は合わせない (書き出しは動画を自分で動かす)
   useEffect(() => {
-    if (isExporting) return;
-    if (!isVisible || isAnyExporting) { playback.pauseAll(); return; }
+    // 枠の並びの書き出しは、ふだんの再生のまま録るので、合わせ続ける
+    const recordingStage = stageRecordingRef.current;
+    if (isExporting && !recordingStage) return;
+    if (!isVisible || (isAnyExporting && !recordingStage)) { playback.pauseAll(); return; }
     const targets = new Map<string, PlaybackTarget>();
     tiles.slice(0, shownCount).forEach((x, i) => { if (x.position) targets.set(`tile-${i}`, { ...x.position, rate: x.rate }); });
     playback.sync(targets, isPlaying, playbackSpeed);
@@ -529,8 +575,91 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   // メインカメラとサブカメラの入れ替え (Swap)
 
+  // 枠の並びの書き出しが、コマごとに読む今の状態 (描くたびに入れ直す)
+  const stageRef = useRef<{ time: number; tiles: Tile[]; count: number; isPlaying: boolean }>({ time: 0, tiles: [], count: 0, isPlaying: false });
+
+  /**
+   * 枠の並びで書き出す (docs/video_sets_design.md の 9)。開始の位置へ移ってから、ふだんの再生で動画を動かし、
+   * 見えている枠とメーターを 1 つの絵に描いて実時間で録る。下書きは .LRV の低画質のファイルで録る (軽い)
+   */
+  const handleStartStageExport = () => {
+    if (isAnyExporting || shownCount === 0) return;
+    const range: [number, number] | null = exportRange === 'lap' && baseLap
+      ? [baseLap.startTime, baseLap.endTime]
+      : mainMedia ? [Math.max(0, mainMedia.startSec), mainMedia.endSec] : null;
+    if (!range) return;
+    const [start, end] = range;
+    const W = exportResolution === '1080p' ? 1920 : 1280, H = exportResolution === '1080p' ? 1080 : 720;
+    const layout = isCompactLayout ? (isCompare && !isLandscape ? 'grid' : 'single') : win.layout;
+    const count = layout === 'single' ? 1 : layout === 'pip' ? Math.min(2, shownCount) : Math.min(4, shownCount);
+    const rects = stageRects(count, layout, W, H, pipPosition);
+    const firstTile = isCompactLayout && layout === 'single' ? bigTile : 0;
+    if (isPlaying) onTogglePlay();
+    setShowExportModal(false);
+    setDraftExport(exportDraft);
+    setIsExporting(true);
+    videoViewStore.set({ isExporting: true });
+    stageRecordingRef.current = true;
+    seekTo(isGraphEmbedded && baseLap ? start - baseLap.startTime : start);
+    const stopPlayback = () => { if (stageRef.current.isPlaying) togglePlayRef.current(); };
+    const finish = () => {
+      stageRecordingRef.current = false;
+      exportControllerRef.current = null;
+      stopPlayback();
+      setDraftExport(false);
+      setIsExporting(false);
+      setExportProgress(null);
+      videoViewStore.set({ isExporting: false });
+    };
+    // 枠の動画が開始の位置へ移るのを待ってから、再生して録り始める
+    setTimeout(() => {
+      if (!stageRecordingRef.current) return;
+      if (!stageRef.current.isPlaying) togglePlayRef.current();
+      // 周の終わりで周の始めに戻ったら (グラフ画面の周の再生)、そこで終える
+      let lastTime = start;
+      const controller = recordCanvas({
+        width: W,
+        height: H,
+        fps: exportFps,
+        outputFileName: `${circuitName || 'race'}_${isCompare ? 'compare' : 'cameras'}${exportDraft ? '_draft' : ''}.mp4`,
+        onProgress: p => setExportProgress(p),
+        draw: ctx => {
+          const st = stageRef.current;
+          rects.forEach((r, k) => {
+            const i = k === 0 ? firstTile : k;
+            const tile = st.tiles[i];
+            const el = playback.element(`tile-${i}`);
+            if (tile && el && el.readyState >= 2 && !tile.position?.outOfRange) drawContain(ctx, el, r);
+            const ov = tile ? overlayFor(tile, i) : null;
+            if (ov) {
+              ctx.save();
+              ctx.translate(r.x, r.y);
+              ctx.scale(r.w / 1280, r.h / 720);
+              ov.draw(ctx, 1280, 720, 0);
+              ctx.restore();
+            }
+            if (isCompare && tile) {
+              const label = `Car ${(tile.slot ?? 0) + 1}${tile.delta !== undefined && tile.delta !== null ? `  ${tile.delta >= 0 ? '+' : '−'}${Math.abs(tile.delta).toFixed(2)}` : ''}`;
+              ctx.font = `bold ${Math.round(r.h / 22)}px sans-serif`;
+              ctx.fillStyle = 'rgba(0,0,0,0.6)';
+              ctx.fillRect(r.x + 8, r.y + 8, ctx.measureText(label).width + 16, r.h / 16);
+              ctx.fillStyle = tile.color ?? '#fff';
+              ctx.fillText(label, r.x + 16, r.y + 8 + r.h / 22);
+            }
+          });
+          const wrapped = st.time < lastTime - 1;
+          lastTime = st.time;
+          return { currentSec: st.time - start, totalSec: end - start, done: wrapped || st.time >= end - 0.02 || (!st.isPlaying && st.time > start + 0.5) };
+        }
+      });
+      exportControllerRef.current = controller;
+      controller.promise.then(finish).catch(err => { console.warn('Export finished or cancelled:', err); finish(); });
+    }, 1200);
+  };
+
   // テレメトリ動画エクスポート開始
   const handleStartExport = () => {
+    if (exportStage && tileCount > 1) { handleStartStageExport(); return; }
     const el = mainVideo();
     if (!el || !activeTrack || isAnyExporting) return;
     // 書き出しは動画を自分で再生する。ふだんの再生 (App の時刻) は止めておく
@@ -665,6 +794,16 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   };
 
   // メインの枠に重ねるメーター。PinP の小窓がある隅のメーターは、小窓の横へずらす (BUG-23)
+  // 元の画質で出すのは大きく出している枠 (なければメイン) だけ。ほかの枠・スマートフォン・下書きの書き出しは、
+  // GoPro の低画質のファイル (.LRV) があればそれを出す (4K の動画をいくつも読むと、引っかかるため)
+  const bigTile = win.focus ?? 0;
+  const proxyFor = (i: number) => isCompactLayout || draftExport || (tileCount > 1 && i !== bigTile);
+  // 4K の元の動画を 3 つ以上同時に出しているとき (.LRV がない)、知らせる
+  const heavyCount = Array.from({ length: shownCount }, (_, i) => i).filter(i => {
+    const el = playback.element(`tile-${i}`);
+    return el && el.videoWidth >= 3800 && !(proxyFor(i) && positions[i]?.track.proxyUrl);
+  }).length;
+
   // メインの動画自身の GPS のログ (GoPro の GPS をログとして加えたとき) と、基準車のログの位置が、2 秒続けて 10 m より離れていたら知らせる。
   // 動画を別の車のログに付けている (取り違え) か、時刻が大きくずれている
   const gpsMismatchM = (() => {
@@ -682,6 +821,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     }
     return min > 10 ? Math.round(min) : null;
   })();
+
+  stageRef.current = { time: renderSessionTime, tiles, count: shownCount, isPlaying };
+  // 書き出しの終わりで再生を止めるときは、その時の再生の状態で切り替える (書き出しを始めたときの関数は古い状態を持つため)
+  togglePlayRef.current = onTogglePlay;
 
   // 枠に重ねるメーター (その枠の車のログ・時刻)。マルチカメラではメインの枠だけ
   const overlayFor = (x: Tile, i: number): TileOverlay | null => {
@@ -711,7 +854,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
           {/* グラフ解析に埋め込んだときだけ: タイムゾーン・再同期の段とタイムラインを開く / 閉じる。
               狭い枠で右側が切れても押せるよう、いちばん左に置く */}
-          {isGraphEmbedded && activeTrack && (
+          {(isGraphEmbedded || isCompactLayout) && activeTrack && (
             <button
               onClick={() => setShowSyncTools(v => !v)}
               aria-pressed={showSyncTools}
@@ -1057,6 +1200,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               focus={win.focus}
               pipPosition={pipPosition}
               pipRef={pipRef}
+              compact={isCompactLayout ? { stackTwo: isCompare && !isLandscape } : undefined}
+              onFocus={i => setWin({ focus: i })}
               renderTile={(i, size) => {
                 const x = tiles[i];
                 const isMain = i === 0;
@@ -1069,6 +1214,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     controller={playback}
                     position={positions[i] ?? null}
                     muted={!sound}
+                    useProxy={proxyFor(i)}
+                    active={isVisible}
                     onSeeked={handleSeeked}
                     overlay={overlayFor(x, i)}
                     avoidRef={isMain && win.layout === 'pip' ? pipRef : undefined}
@@ -1141,6 +1288,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 );
               }}
             />
+
+            {heavyCount >= 3 && (
+              <div className="absolute top-2 right-2 z-30 bg-amber-950/90 border border-amber-600 text-amber-200 px-2 py-1 rounded text-[11px] max-w-xs">
+                {t('4K の動画を 3 つ以上同時に再生しています。引っかかるときは、GoPro の .LRV ファイルも一緒に読み込むと、小さな枠は低画質で軽く出せます', 'Three or more 4K videos are playing at once. If playback stutters, also load the GoPro .LRV files so the small views use the light low-res copies')}
+              </div>
+            )}
 
             {/* 録画開始前インジケーター */}
             {!isCompare && activeTrack && renderSessionTime < activeTrack.syncOffsetSec && (
@@ -1289,7 +1442,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         const effectiveSessionTime = isGraphEmbedded && baseLap ? (baseLap.startTime + currentTimeSec) : currentTimeSec;
         // グラフ画面の動画は選んだ周の中だけで再生する (App の時刻が周の時刻なので、周の外へは動かせない)。
         // ログ全体を見るのは動画同期タブ
-        const isLapMode = (seekbarScope === 'lap' || isGraphEmbedded) && baseLap;
+        // 走行比較は周の中で比べるので、いつも周の時刻にする
+        const isLapMode = (seekbarScope === 'lap' || isGraphEmbedded || isCompare) && baseLap;
         
         // セッション全体は、ログの終わりか動画の終わりの遅いほうまで
         const logEnd = baseSession && baseSession.points.length > 0 ? baseSession.points[baseSession.points.length - 1].time : 0;
@@ -1365,7 +1519,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       })()}
 
       {/* 6. 下部同期調整 ＆ 再生コントロールバー (フラットデザイン) */}
-      <div className="h-12 bg-surface-1 border-t border-line-1 px-3 flex items-center justify-between gap-3 shrink-0">
+      <div className="min-h-12 py-1 bg-surface-1 border-t border-line-1 px-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 shrink-0">
         {/* 再生ボタン群 */}
         <div className="flex items-center gap-1.5">
           <button
@@ -1403,8 +1557,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           </select>
         </div>
 
-        {/* 同期オフセット微調整 & ピン選択 */}
-        {activeTrack && (
+        {/* 同期オフセット微調整 & ピン選択。スマートフォンでは「同期の調整」を開いたときだけ出す (場所を取るため) */}
+        {activeTrack && (!isCompactLayout || showSyncTools) && (
           <div className="flex flex-wrap items-center gap-2 text-xs bg-surface-3 px-3 py-1 rounded border border-line-2">
             {/* 登録済みピンのクイックジャンプドロップダウン */}
             {pins.length > 0 && (
@@ -1606,6 +1760,28 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               </div>
             </div>
 
+            {/* 枠の並びで書き出す (枠が 2 つ以上のとき) */}
+            {tileCount > 1 && (
+              <div className="space-y-1.5 text-[11px]">
+                <label className="flex items-start gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={exportStage} onChange={e => setExportStage(e.target.checked)} className="mt-0.5" />
+                  <span>{t('今の枠の並びで書き出す (メーター・Car の札も入れます。再生しながら実時間で録ります)', 'Export the current layout of views (with gauges and car labels; recorded in real time while playing)')}</span>
+                </label>
+                {exportStage && (
+                  <label className={`flex items-start gap-1.5 ${tiles.some(x => x.media?.tracks.some(tr => tr.proxyUrl)) ? 'cursor-pointer' : 'opacity-50'}`}>
+                    <input
+                      type="checkbox"
+                      checked={exportDraft}
+                      disabled={!tiles.some(x => x.media?.tracks.some(tr => tr.proxyUrl))}
+                      onChange={e => setExportDraft(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>{t('下書き: GoPro の .LRV (低画質のファイル) で軽く録る。.LRV を読み込んだ動画だけ', 'Draft: record with the GoPro .LRV low-res copies (lighter). Only for videos whose .LRV is loaded')}</span>
+                  </label>
+                )}
+              </div>
+            )}
+
             {/* 解像度 & フレームレート選択 */}
             <div className="grid grid-cols-2 gap-2 pt-1">
               <div className="space-y-1">
@@ -1702,7 +1878,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         ref={fileInputRef}
         onChange={handleAddVideos}
         multiple
-        accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
+        accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.lrv"
         className="hidden"
       />
       <input
