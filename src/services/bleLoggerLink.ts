@@ -239,7 +239,10 @@ export class BleLoggerLink {
     const registered = this.snap.registered;
     if (!central || !registered) return;
     this.assembler.reset();
-    this.update({ error: null, permissionDenied: false });
+    // 新しくつなぐときは、前のつなぎの測位と途切れを持ち越さない (前の日の測位との差を途切れと数えないため)。
+    // つなぎ直し (BLE の層が切れて戻る) の間は持ち越して、途切れを残す
+    this.fixTimes = [];
+    this.update({ error: null, permissionDenied: false, lastFix: null, gaps: [], rateHz: 0 });
     this.setLinkState('connecting');
     try {
       await central.connect(

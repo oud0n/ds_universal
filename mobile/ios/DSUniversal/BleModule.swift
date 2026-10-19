@@ -16,8 +16,8 @@ final class BleModule: NSObject {
     private var central: CBCentralManager!
     let recorder = BleRecorder()
 
-    /// 電源が入る (poweredOn) まで待っている処理
-    private var whenPoweredOn: [() -> Void] = []
+    /// 電源が入る (poweredOn) まで待っている処理と、入らなかったときに失敗を返す先
+    private var whenPoweredOn: [(work: () -> Void, done: (Result<[String: Any], NativeError>) -> Void)] = []
     /// 許可を聞いている最中の答え待ち
     private var permissionWaiters: [(String) -> Void] = []
 
@@ -120,7 +120,24 @@ final class BleModule: NSObject {
         case .unauthorized: done(.failure(NativeError(.permissionDenied)))
         case .unsupported: done(.failure(NativeError(.notSupported)))
         case .poweredOff: done(.failure(NativeError(.io, "Bluetooth is off")))
-        default: whenPoweredOn.append(work)
+        default: whenPoweredOn.append((work: work, done: done))
+        }
+    }
+
+    /// 待っていた処理を、電源が入ったら行い、使えないと分かったら失敗で返す (返さないと Web が答えを待ち続ける)
+    private func drainWhenPoweredOn(_ state: CBManagerState) {
+        let failure: NativeError?
+        switch state {
+        case .poweredOn: failure = nil
+        case .unauthorized: failure = NativeError(.permissionDenied)
+        case .unsupported: failure = NativeError(.notSupported)
+        case .poweredOff: failure = NativeError(.io, "Bluetooth is off")
+        default: return // まだ分からない (unknown・resetting) ときは待ち続ける
+        }
+        let waiting = whenPoweredOn
+        whenPoweredOn.removeAll()
+        for item in waiting {
+            if let failure { item.done(.failure(failure)) } else { item.work() }
         }
     }
 
@@ -170,13 +187,14 @@ final class BleModule: NSObject {
                 done(.failure(NativeError(.notFound)))
                 return
             }
-            // 記録を戻してもうつながっている機器なら、つなぎ直さずに、そのまま Web に知らせる
-            if let link = links[id], link.peripheral.state == .connected, !link.userClosed {
-                emitState(id, "connected")
+            // つないでいる・つなぎかけの機器 (記録を戻したとき・画面を読み直したとき) は、切らずに同じつなぎを使う。
+            // 切ってからつなぐと、古いつなぎが切れた知らせを、新しいつなぎが切れたと取り違えてしまう
+            if let link = links[id], !link.userClosed {
+                links[id] = Link(peripheral: link.peripheral, notify: notify, autoReconnect: autoReconnect)
+                emitState(id, link.peripheral.state == .connected ? "connected" : "connecting")
                 done(.success([:]))
                 return
             }
-            if let old = links[id] { central.cancelPeripheralConnection(old.peripheral) }
             open(peripheral, notify: notify, autoReconnect: autoReconnect)
             done(.success([:]))
         }, done: done)
@@ -329,11 +347,7 @@ extension BleModule: @preconcurrency CBCentralManagerDelegate {
             permissionWaiters.forEach { $0(state) }
             permissionWaiters.removeAll()
         }
-        if central.state == .poweredOn {
-            let works = whenPoweredOn
-            whenPoweredOn.removeAll()
-            works.forEach { $0() }
-        }
+        drainWhenPoweredOn(central.state)
     }
 
     func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
