@@ -193,7 +193,14 @@ function createWindow() {
     event.preventDefault();
     if (!bluetoothPick || bluetoothPick.callback !== callback) {
       if (bluetoothPick) clearTimeout(bluetoothPick.timer);
-      bluetoothPick = { callback, timer: setTimeout(() => { bluetoothPick = null; callback(''); }, 10000) };
+      bluetoothPick = {
+        callback,
+        timer: setTimeout(() => {
+          bluetoothPick = null;
+          // 探している間にウインドウを閉じていたら、答える先がもうないので何もしない
+          try { callback(''); } catch (e) { console.warn('[メインプロセス] Bluetooth の選択の取りやめに失敗:', e); }
+        }, 10000)
+      };
     }
     const ds = (deviceList || []).find(d => /^DS[34]/.test(d.deviceName || ''));
     if (ds) {
@@ -209,8 +216,12 @@ function createWindow() {
     return (permission === 'serial' || permission === 'bluetooth') && webContents === mainWindow.webContents;
   });
 
+  // 機器の権限: シリアルはデジスパイスIV のポートだけ、Bluetooth は名前が DS3 / DS4 で始まる機器だけ許可する
   mainWindow.webContents.session.setDevicePermissionHandler((details) => {
-    return details.deviceType === 'serial' && !!details.device && isLoggerPort(details.device);
+    if (!details.device) return false;
+    if (details.deviceType === 'serial') return isLoggerPort(details.device);
+    if (details.deviceType === 'bluetooth') return /^DS[34]/.test(details.device.deviceName || details.device.name || '');
+    return false;
   });
 
   const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
