@@ -11,16 +11,18 @@ settings:
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    # 開発中に読み込む Web (Mac の開発サーバー)。空なら公開版のページを読む
-    DS_WEB_URL: ""
+    # 開発中に読み込む Web (Mac の開発サーバー)。作るときの環境変数で渡す (例: DS_WEB_URL=http://192.168.1.13:5192/ xcodegen)。
+    # 空なら公開版のページを読む。IP アドレスは人ごとに違うので、ここには書かない
+    DS_WEB_URL: "${DS_WEB_URL}"
 targets:
   DSUniversal:
     type: application
     platform: iOS
     sources:
-      - DSUniversal
-    info:
-      path: DSUniversal/Info.plist
+      - path: DSUniversal
+        excludes:
+          - Info.plist
+    # Info.plist は手で書いたものを使う (XcodeGen の info: を使うと、作るたびに上書きされる)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.oud0n.dsuniversal
