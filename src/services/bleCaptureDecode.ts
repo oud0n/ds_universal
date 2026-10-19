@@ -132,7 +132,12 @@ export function decodeCapture(text: string): DecodedCapture {
   const ratios = valid
     .filter(r => r.speedFromPositionsKmh !== null && r.speedFromPositionsKmh / 3.6 >= MOVING_MS)
     .map(r => r.fix.speedKmh / (r.speedFromPositionsKmh as number));
-  const altitudes = valid.map(r => r.fix.altitude);
+  // Math.min(...配列) は、要素が多いと (Safari では 6 万 5 千ほど) 引数が多すぎて落ちるので、1 つずつ見る
+  let altMin = Infinity, altMax = -Infinity;
+  for (const r of valid) {
+    if (r.fix.altitude < altMin) altMin = r.fix.altitude;
+    if (r.fix.altitude > altMax) altMax = r.fix.altitude;
+  }
 
   return {
     rows,
@@ -146,7 +151,7 @@ export function decodeCapture(text: string): DecodedCapture {
       states,
       speedRatioMedian: median(ratios),
       speedRatioSamples: ratios.length,
-      altitudeRangeM: altitudes.length ? { min: Math.min(...altitudes), max: Math.max(...altitudes) } : null
+      altitudeRangeM: valid.length ? { min: altMin, max: altMax } : null
     }
   };
 }

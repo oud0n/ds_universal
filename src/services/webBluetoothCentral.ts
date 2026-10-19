@@ -89,6 +89,8 @@ export const webBluetoothCentral: BleCentral = {
   async connect(deviceId: string, notify: GattCharacteristicRef, handlers: BleLinkHandlers) {
     links.get(deviceId)?.cleanup();
     const device = await findDevice(deviceId);
+    // 探している間に、もう一度 connect が呼ばれていたら、そちらのつなぎを片づけてから始める (つなぎを 2 つ持たない)
+    links.get(deviceId)?.cleanup();
     if (!device?.gatt) {
       throw new NativeError('not-found', tr(
         '前に選んだ機器が見つかりません。「探す」からもう一度選んでください。',
