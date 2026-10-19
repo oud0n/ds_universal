@@ -22,7 +22,7 @@ function lineSegmentIntersection(
   return { intersects, t, u, side: Math.sign(d) };
 }
 
-type Gate = { latA: number; lonA: number; latB: number; lonB: number };
+export type Gate = { latA: number; lonA: number; latB: number; lonB: number };
 
 /**
  * ゲートを通過する向きを決める。コースデータの線には向きがないので、ログの中で多い方の向きをコースの進行方向とみなす
@@ -52,7 +52,7 @@ export function gateDirection(points: TelemetryPoint[], gate: Gate): number {
 /**
  * 軌跡とコントロールラインの交差通過イベント
  */
-interface CrossingEvent {
+export interface CrossingEvent {
   index: number;
   time: number;
   distance: number;
@@ -62,7 +62,7 @@ interface CrossingEvent {
 /**
  * 線分ゲート（コントロールラインまたはセクターライン）を通過した点を検出
  */
-function findGateCrossings(
+export function findGateCrossings(
   points: TelemetryPoint[],
   gate: Gate,
   minIntervalSec = 10, // 短時間での重複通過を防止
