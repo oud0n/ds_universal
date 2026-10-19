@@ -1,6 +1,5 @@
 import React from 'react';
 import { BarChart2, List, Repeat, Settings, Video } from 'lucide-react';
-import { formatMinSec } from '../utils/timeFormat';
 import { useLandscape } from '../hooks/useCompactLayout';
 import { canUseLogger } from '../utils/device';
 import { useT } from '../utils/i18n';
@@ -48,27 +47,4 @@ export const BottomTabBar: React.FC<{
   );
 };
 
-/** スマートフォン用のシークバー (グラフ解析タブで、指で再生位置を動かす) */
-export const MobileSeekBar: React.FC<{
-  currentTime: number;
-  endTime: number;
-  onSeekTime: (t: number) => void;
-}> = ({ currentTime, endTime, onSeekTime }) => {
-  const landscape = useLandscape();
-  const t = useT();
-  return (
-    <div className={`shrink-0 flex items-center gap-3 px-3 bg-surface-1 border-t border-line-1 ${landscape ? 'py-0.5' : 'py-2'}`}>
-      <input
-        type="range"
-        min={0}
-        max={Math.max(endTime, 0.1)}
-        step={0.05}
-        value={Math.min(currentTime, endTime)}
-        onChange={e => onSeekTime(Number(e.target.value))}
-        className="flex-1 accent-red-500 h-6"
-        aria-label={t('再生位置', 'Playback position')}
-      />
-      <span className="text-xs font-mono text-slate-300 w-16 text-right">{formatMinSec(currentTime, 1)}</span>
-    </div>
-  );
-};
+
