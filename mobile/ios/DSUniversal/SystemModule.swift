@@ -51,14 +51,23 @@ final class SystemModule {
     func startObservingAppState() {
         guard observers.isEmpty else { return }
         let center = NotificationCenter.default
+        // 画面ロックで、守られたファイルが読み書きできなくなる・戻る (記録のファイルに書けなくなっていないかを見るため)
+        observers.append(center.addObserver(forName: UIApplication.protectedDataWillBecomeUnavailableNotification, object: nil, queue: .main) { _ in
+            DebugLog.write("protectedData unavailable (locked)")
+        })
+        observers.append(center.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: .main) { _ in
+            DebugLog.write("protectedData available (unlocked)")
+        })
         observers.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
+                DebugLog.write("active footprint=\(String(format: "%.0f", DebugLog.footprintMB()))MB")
                 self?.core.webActive = true
                 self?.core.emit("system.appState", ["state": "active"])
             }
         })
         observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
+                DebugLog.write("background footprint=\(String(format: "%.0f", DebugLog.footprintMB()))MB")
                 self?.core.emit("system.appState", ["state": "background"])
                 self?.core.webActive = false
                 self?.core.ble.recorder.flush()

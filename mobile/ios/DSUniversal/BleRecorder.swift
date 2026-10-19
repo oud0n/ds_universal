@@ -1,3 +1,4 @@
+import UIKit
 import Foundation
 
 /// BLE の通知を、そのままファイルに書き足す (約束の recorder.*)。読み方は持たない (読むのは Web)。
@@ -30,6 +31,7 @@ final class BleRecorder {
     private var buffer = ""
     private var flushTimer: Timer?
     private var lastFlushNs: UInt64 = 0
+    private var lastStatusNs: UInt64 = 0
 
     static var directory: URL {
         let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("ble-captures", isDirectory: true)
@@ -65,6 +67,7 @@ final class BleRecorder {
         handle = try FileHandle(forWritingTo: url)
         try handle?.seekToEnd()
         active = Active(fileName: fileName, deviceId: deviceId, notify: notify, notifications: 0)
+        DebugLog.write("recorder start \(fileName)")
         save()
         startTimer()
         return fileName
@@ -100,6 +103,7 @@ final class BleRecorder {
     @discardableResult
     func stop() -> [String: Any] {
         guard let a = active else { return [:] }
+        DebugLog.write("recorder stop \(a.fileName) notifications=\(a.notifications)")
         flush()
         try? handle?.close()
         handle = nil
@@ -114,10 +118,23 @@ final class BleRecorder {
     /// 書き足しを待っている分をファイルに書く (1 秒ごとと、裏に回るとき)
     func flush() {
         guard !buffer.isEmpty, let handle else { return }
-        try? handle.write(contentsOf: Data(buffer.utf8))
+        do {
+            try handle.write(contentsOf: Data(buffer.utf8))
+        } catch {
+            DebugLog.write("recorder write failed: \(error.localizedDescription)")
+        }
         buffer = ""
         lastFlushNs = MonoClock.nowNs()
         save()
+        // 30 秒ごとに、記録の進みとメモリの量を残す (裏で止められたときの手がかり)
+        if lastFlushNs &- lastStatusNs > 30_000_000_000 {
+            lastStatusNs = lastFlushNs
+            let n = active?.notifications ?? 0
+            Task { @MainActor in
+                let state = UIApplication.shared.applicationState == .background ? "background" : "foreground"
+                DebugLog.write("recording notifications=\(n) state=\(state) footprint=\(String(format: "%.0f", DebugLog.footprintMB()))MB")
+            }
+        }
     }
 
     func list() -> [[String: Any]] {
