@@ -354,7 +354,7 @@ export const DataTab: React.FC<DataTabProps> = ({
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs font-bold text-slate-300">{t('G のならし方', 'G smoothing')}</span>
           <div className="flex bg-surface-1 rounded p-0.5 border border-line-3" role="radiogroup" aria-label={t('G のならし方', 'G smoothing')}>
-            {([['weak', t('弱', 'Light')], ['standard', t('標準（推奨）', 'Standard (recommended)')], ['strong', t('強', 'Strong')]] as const).map(([value, label]) => (
+            {([['weak', t('弱', 'Light')], ['standard', t('標準', 'Standard')], ['strong', t('強（推奨）', 'Strong (recommended)')]] as const).map(([value, label]) => (
               <button
                 key={value}
                 role="radio"
