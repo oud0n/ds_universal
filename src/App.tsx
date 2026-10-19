@@ -11,7 +11,7 @@ import { getAddVideoGpsLog } from './services/videoPrefs';
 import { referenceCandidates } from './services/clockOffsetEstimator';
 import { analyseSessions, isSameRun } from './services/pairAnalysis';
 import type { ClockEstimateResult } from './components/DataTab';
-import { tr, useT } from './utils/i18n';
+import { circuitLabel, tr, useT } from './utils/i18n';
 import { inflateXrz, isAimCsv, isXrk, parseAimCsv, parseXrk } from './services/aimFormats';
 import { isIbt, parseIbt } from './services/ibtParser';
 import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isTcx, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseTcx, parseVbo } from './services/externalFormats';
@@ -133,6 +133,8 @@ export const App: React.FC = () => {
   const isCompact = useCompactLayout();
   const isLandscape = useLandscape();
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('map');
+  // グラフ解析の「周回を区切れていません」の注意を閉じたセッション
+  const [wholeLapNoticeClosed, setWholeLapNoticeClosed] = useState('');
 
   // パソコン表示で、たたんでいるウインドウ (anim: 左下のアニメーション / 動画、map: 全コース、sub: 右下の GG など)。端末に保存する
   const [collapsed, setCollapsed] = useState<{ anim: boolean; map: boolean; sub: boolean }>(() => {
@@ -1036,12 +1038,24 @@ export const App: React.FC = () => {
     });
   }, [sessions, videoTracks.length]);
 
-  // サーキットプリセット選択
-  const handleSelectCircuitPreset = (presetId: string) => {
+  // サーキットプリセット選択。当てはめなかったときは false
+  const handleSelectCircuitPreset = (presetId: string): boolean => {
     const p = CIRCUIT_PRESETS.find(c => c.id === presetId);
-    if (!p) return;
+    if (!p) return false;
     // そのコースの近く (15 km 以内) のログだけに反映する。近くのログがなければ、基準車のセッションに反映する (利用者の指定を優先)
-    const ids = targetSessionIds(s => passesNearPoint(s.points, p.centerLat, p.centerLon, COURSE_MATCH_RADIUS_M));
+    const near = (s: Session) => passesNearPoint(s.points, p.centerLat, p.centerLon, COURSE_MATCH_RADIUS_M);
+    // 読み込んだログがどれもそのコースを走っていないときは、当てはめる前に確かめる。
+    // 違うコースの計測線は一度も通らないので、周回を区切れず、ログ全体が 1 周になる (issue #17)
+    const loaded = latestRef.current.sessions;
+    if (loaded.length > 0 && !loaded.some(near)) {
+      const name = circuitLabel(p.name);
+      const ok = window.confirm(tr(
+        `読み込んだログに、「${name}」の近くを走ったものがありません。\n当てはめると計測線を通らないため、周回を区切れず、ログ全体が 1 周として表示されます。\n\nそれでも基準車のログに当てはめますか？`,
+        `None of the loaded logs was driven near "${name}".\nIf you apply it, the timing line is never crossed, so laps cannot be split and the whole log is shown as one lap.\n\nApply it to the reference car's log anyway?`
+      ));
+      if (!ok) return false;
+    }
+    const ids = targetSessionIds(near);
     // 計測線を持たないプリセット (名阪) では、各セッションの計測線 (仮の計測線・コース編集で置いた線) を残す
     const keepLine = (s?: Session) => p.controlLine ?? s?.controlLine;
     const first = latestRef.current.sessions.find(s => s.id === ids[0]);
@@ -1058,6 +1072,7 @@ export const App: React.FC = () => {
         }
       }).catch(console.warn);
     }
+    return true;
   };
 
   // ---- コースの設定をセッションごとに反映するための補助 ----
@@ -1382,6 +1397,16 @@ export const App: React.FC = () => {
                 {T('ファイルを選ぶ', 'Choose files')}
               </button>
             </div>
+          </div>
+        )}
+        {/* 計測線はあるのに周回を区切れず、ログ全体を 1 周として表示しているときの注意 (違うコースを当てはめた・計測線がコースの外にあるなど。issue #17) */}
+        {currentTab === 'graph' && baseLap?.isWholeSession && baseSession?.controlLine && wholeLapNoticeClosed !== baseSession.id && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 w-max max-w-[calc(100%-2rem)] flex items-start gap-2 px-3 py-2 rounded-lg text-xs text-amber-200 bg-surface-2/95 border border-amber-500/50 shadow-lg">
+            <span>
+              {T('計測線を 2 回以上通過していないため、周回を区切れず、ログ全体を 1 周として表示しています。データ管理で、コースと計測線の位置を確認してください。',
+                'The timing line was not crossed twice or more, so laps could not be split and the whole log is shown as one lap. Check the course and the timing line position in Data.')}
+            </span>
+            <button onClick={() => setWholeLapNoticeClosed(baseSession.id)} className="shrink-0 text-amber-300 hover:text-amber-100 cursor-pointer" title={T('閉じる', 'Close')} aria-label={T('閉じる', 'Close')}>×</button>
           </div>
         )}
         {/* グラフ解析タブ */}
