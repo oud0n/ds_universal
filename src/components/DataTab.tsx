@@ -39,7 +39,7 @@ interface DataTabProps {
   onEditSessionName: (sessionId: string, newName: string) => void;
   // ログの時計の補正 (秒) を変える / 同じ時間のほかのログとの比べから見積もる (BUG-08)
   onSetClockOffset?: (sessionId: string, sec: number) => void;
-  onEstimateClockOffset?: (sessionId: string) => { refName: string; offsetSec: number; medianDistanceM: number } | string;
+  onEstimateClockOffset?: (sessionId: string) => Promise<ClockEstimateResult | string>;
   onSelectCircuitPreset: (presetId: string) => void;
   onOpenCircuitEditor: () => void;
   onLoadPthFile: () => void;
@@ -52,6 +52,15 @@ interface DataTabProps {
   onChangeGFilterLevel: (level: GFilterLevel) => void;
 }
 
+/** 時計の補正の見積もり。applied: 確かな見積もりなので入れた。入れていないもの (quality 'suggest') は「入れる」で入れる */
+export interface ClockEstimateResult {
+  refName: string;
+  offsetSec: number;
+  medianDistanceM: number;
+  quality: 'auto' | 'suggest' | 'reject';
+  applied: boolean;
+}
+
 /**
  * ログの時計の補正 (BUG-08)。ロガーごとの GPS の受信・記録の遅れを直す。動画との同期と、同じ時間のほかのログとの時刻の換算に効く。
  * 「自動」は、同じ時間に記録したほかのログ (基準車のログ、なければ記録の細かいログ) と位置を比べて見積もる
@@ -59,11 +68,13 @@ interface DataTabProps {
 const ClockOffsetControl: React.FC<{
   session: Session;
   onSet: (sessionId: string, sec: number) => void;
-  onEstimate?: (sessionId: string) => { refName: string; offsetSec: number; medianDistanceM: number } | string;
+  onEstimate?: (sessionId: string) => Promise<ClockEstimateResult | string>;
 }> = ({ session, onSet, onEstimate }) => {
   const t = useT();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
+  // 確かでない見積もり (案)。「入れる」で入れる
+  const [suggestion, setSuggestion] = useState<number | null>(null);
   const value = session.clockOffsetSec ?? 0;
   // 入力中の文字はそのまま持つ (「-」や「0.」を打った途中で 0 に戻さないため)。外から値が変わったら入れ直す
   const [draft, setDraft] = useState(String(value));
@@ -94,15 +105,20 @@ const ClockOffsetControl: React.FC<{
       {onEstimate && (
         <button
           disabled={busy}
-          onClick={() => {
+          onClick={async () => {
             setBusy(true);
+            setSuggestion(null);
             setNote(t('見積もり中…', 'Estimating…'));
-            // 画面に「見積もり中」を出してから計算する (数秒かかることがある)
-            setTimeout(() => {
-              const r = onEstimate(session.id);
-              setNote(typeof r === 'string' ? r : t(`${r.refName} と比べて ${r.offsetSec >= 0 ? '+' : ''}${r.offsetSec.toFixed(3)} 秒 (位置の差 ${r.medianDistanceM} m)`, `${r.offsetSec >= 0 ? '+' : ''}${r.offsetSec.toFixed(3)} s against ${r.refName} (position gap ${r.medianDistanceM} m)`));
-              setBusy(false);
-            }, 30);
+            const r = await onEstimate(session.id);
+            if (typeof r === 'string') setNote(r);
+            else {
+              const sec = `${r.offsetSec >= 0 ? '+' : ''}${r.offsetSec.toFixed(3)}`;
+              setNote(r.applied
+                ? t(`${r.refName} と比べて ${sec} 秒 (位置の差 ${r.medianDistanceM} m)`, `${sec} s against ${r.refName} (position gap ${r.medianDistanceM} m)`)
+                : t(`${r.refName} と比べると ${sec} 秒。位置の差が大きいか、ずれがはっきりしないので入れていません (位置の差 ${r.medianDistanceM} m)`, `${sec} s against ${r.refName}, not applied: the position gap is large or the offset is unclear (gap ${r.medianDistanceM} m)`));
+              if (!r.applied) setSuggestion(r.offsetSec);
+            }
+            setBusy(false);
           }}
           className="px-1.5 rounded border border-line-3 hover:text-slate-200 disabled:opacity-50"
           title={t('同じ時間に記録したほかのログと位置を比べて、時計のずれを見積もって入れます', 'Estimate the clock offset by comparing positions with another log of the same time')}
@@ -111,6 +127,14 @@ const ClockOffsetControl: React.FC<{
         </button>
       )}
       {note && <span className="text-slate-500">{note}</span>}
+      {suggestion !== null && (
+        <button
+          onClick={() => { onSet(session.id, suggestion); setSuggestion(null); setNote(''); }}
+          className="px-1.5 rounded border border-amber-500/60 text-amber-300 hover:text-amber-200"
+        >
+          {t('入れる', 'Apply')}
+        </button>
+      )}
     </span>
   );
 };
