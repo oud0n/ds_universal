@@ -296,6 +296,9 @@ class VideoSyncManager {
         }
         placeholder.notes = undefined;
         this.remapTrack(placeholder, sessions);
+        const pKey = proxyKey(file.name);
+        const pFile = pKey ? this.pendingProxies.get(pKey) : undefined;
+        if (pKey && pFile) { this.attachProxy(placeholder, pFile); this.pendingProxies.delete(pKey); }
         relinked = true;
         continue;
       }
@@ -415,7 +418,10 @@ class VideoSyncManager {
         }
       }
 
-      const start = sessionStartUtcMs(bestSession);
+      // 撮影日時は、ログの時刻のまま (時計の補正を引く前) の先頭と比べて求めた差なので、ログの時刻のままの先頭に足す
+      // (補正を引いた先頭に足すと、カメラの時刻にロガーの時計の補正が混ざる)
+      const raw = bestSession?.points[0]?.timestamp ? Date.parse(bestSession.points[0].timestamp) : NaN;
+      const start = Number.isFinite(raw) ? raw : null;
       if (bestSession && start !== null) {
         track.matchedSessionId = bestSession.id;
         track.clock = clockAtUtc('creation', start + bestOffset * 1000);

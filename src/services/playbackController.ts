@@ -38,6 +38,8 @@ interface Entry {
   correcting: boolean;
   /** 最後に速さを変えた時刻 (performance.now) */
   rateChangedAt: number;
+  /** 合わせている動画のファイル。チャプターや .LRV で同じ <video> のファイルが替わったら、出たコマの記録と一度だけの再生をやり直す */
+  src: string;
 }
 
 type FrameVideo = HTMLVideoElement & {
@@ -69,7 +71,7 @@ export class PlaybackController {
     if (old && old.el === el) return;
     if (old) this.stopFrames(old);
     if (!el) { this.entries.delete(key); return; }
-    const entry: Entry = { el, frame: null, frameHandle: null, correcting: false, rateChangedAt: 0 };
+    const entry: Entry = { el, frame: null, frameHandle: null, correcting: false, rateChangedAt: 0, src: el.currentSrc || el.src };
     this.entries.set(key, entry);
     this.watchFrames(entry);
   }
@@ -119,6 +121,13 @@ export class PlaybackController {
 
   private syncEntry(entry: Entry, t: PlaybackTarget, isPlaying: boolean, speed: number): void {
     const el = entry.el;
+    const src = el.currentSrc || el.src;
+    if (entry.src !== src) {
+      entry.src = src;
+      entry.frame = null;
+      entry.correcting = false;
+      this.primed.delete(el);
+    }
     let localTime = t.localTime;
     if (localTime < 0 || (t.durationSec > 0 && localTime > t.durationSec)) {
       if (!el.paused) el.pause();

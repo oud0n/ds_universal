@@ -186,7 +186,7 @@ function judge(e: ClockOffsetEstimate, movingSec: number, windows: WindowEstimat
     : stopMismatchSec > SAME_RUN.maxStopMismatchSec ? 'stops'
     : e.medianDistanceM > QUALITY.suggestMaxDistanceM ? 'far'
     : null;
-  if (reason) return { sameRun: reason === 'far', quality: 'reject', reason };
+  if (reason) return { sameRun: false, quality: 'reject', reason };
   const offsets = good.map(w => w.offsetSec);
   const spread = Math.max(...offsets) - Math.min(...offsets);
   const sure = e.medianDistanceM <= QUALITY.autoMaxDistanceM &&
