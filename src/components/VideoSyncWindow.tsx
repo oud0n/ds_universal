@@ -58,6 +58,8 @@ interface VideoSyncWindowProps {
   onChooseLog?: (sessionId: string) => void;
   // 走行比較で Car 2 がいないとき、Car 2 に入れる周 (同じログの別の周) を選ぶ
   onPickCompareLap?: (sessionId: string, lapNumber: number) => void;
+  /** ファイルを読み込む (ヘッダーの「読込」と同じ。GoPro の動画は GPS を走行ログにしてから動画同期に登録する) */
+  onLoadFiles?: (files: File[]) => Promise<void>;
   // ウインドウごとの表示の状態 (並べ方など) を覚えるときの名前
   viewKey: string;
   // ログの時計の補正を入れる (同期プロジェクトに保存した補正を戻すとき)
@@ -285,6 +287,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   onChangePlaybackSpeed,
   onChooseLog,
   onPickCompareLap,
+  onLoadFiles,
   viewKey,
   onSetClockOffset,
   compareCars
@@ -372,7 +375,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const cameras = cameraIds.map(id => media.find(m => m.id === id)).filter((m): m is PlayableMedia => !!m);
   const mainMedia = cameras[0];
   const renderSessionTime = isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec;
-  const isCompare = win.mode === 'compare';
+  // 走行比較は周がないと何も映せないので、周がないとき (GPS のない動画だけを読み込んだときなど) はマルチカメラで出す。
+  // 選んだ表示 (win.mode) は変えないので、周のあるログを読み込めば走行比較に戻る
+  const isCompare = win.mode === 'compare' && !!baseLap;
   // Car 2 がいないときに走行比較を押したら、Car 1 と同じログの、Car 1 の周以外でいちばん速い周を Car 2 に入れる
   // (動画 1 本・ログ 1 つでも、同じ動画の別の周どうしを比べられるように)
   const autoCompareLap = baseSession && baseLap
@@ -737,17 +742,20 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       });
   };
 
-  // 動画ファイル一括処理
-  // (選んでいる動画は videoViewStore が選び直す)
+  // 動画ファイル一括処理。ヘッダーの「読込」と同じ道を通す (GoPro の動画は、GPS を走行ログにしてから登録する。
+  // 動画同期だけに登録すると、ログがないときに周が出ない)。選んでいる動画は videoViewStore が選び直す
   const processFiles = async (fileList: FileList | File[]) => {
-    await videoSyncManager.addVideoFiles(fileList, sessions);
+    if (onLoadFiles) await onLoadFiles(Array.from(fileList));
+    else await videoSyncManager.addVideoFiles(fileList, sessions);
   };
 
   const handleAddVideos = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    await processFiles(files);
+    // 読み込みの間に選び直せるよう、先に一覧を写してから入力を空にする
+    const list = Array.from(files);
     e.target.value = '';
+    await processFiles(list);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -860,7 +868,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       {/* グラフ解析に埋め込んだ狭い枠では、右側のボタンが切れないよう横にスクロールできるようにする */}
       {/* ボタンの文字は折り返さない。入りきらないときは横にスクロールし、広い画面でだけ文字を出すボタンもある */}
       <div className="h-11 bg-surface-1 border-b border-line-1 px-3 flex items-center justify-between gap-2 shrink-0 overflow-x-auto overflow-y-hidden [&_button]:whitespace-nowrap [&_button]:shrink-0">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 shrink-0">
           <span className="text-xs font-bold text-slate-100 flex items-center gap-1.5 shrink-0 whitespace-nowrap" title={t('車載動画同期', 'Onboard video sync')}>
             <Video size={15} className="text-red-500" />
             <span className="hidden 2xl:inline">{t('車載動画同期', 'Onboard video sync')}</span>
@@ -916,9 +924,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
           {/* 走行比較: Car ごとの動画 (既定は、その車のログの時刻で周を映している動画) */}
           {isCompare && media.length > 0 && (
-            <div className="flex items-center gap-1 pl-2 border-l border-line-2">
+            <div className="flex items-center gap-1 pl-2 border-l border-line-2 shrink-0">
               {tiles.map(x => (
-                <div key={x.slot} className="flex items-center">
+                <div key={x.slot} className="flex items-center shrink-0 whitespace-nowrap">
                   <span className="text-[10px] font-bold mr-0.5" style={{ color: x.color }}>Car {(x.slot ?? 0) + 1}</span>
                   <select
                     value={x.chosen && x.media ? x.media.id : ''}
@@ -936,9 +944,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
           {/* カメラの選択。1 つ目がメイン */}
           {!isCompare && media.length > 0 && (
-            <div className="flex items-center gap-1 pl-2 border-l border-line-2">
+            <div className="flex items-center gap-1 pl-2 border-l border-line-2 shrink-0">
               {cameras.map((m, i) => (
-                <div key={i} className="flex items-center">
+                <div key={i} className="flex items-center shrink-0 whitespace-nowrap">
                   <span className="text-[10px] text-slate-400 font-medium mr-0.5">
                     {i === 0 ? t('メイン', 'Main') : `${i + 1}`}
                   </span>
@@ -1895,7 +1903,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         ref={fileInputRef}
         onChange={handleAddVideos}
         multiple
-        accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.lrv"
+        // iPhone では動画の種類を指定すると「写真」から選ぶ画面になり、iOS が変換して GoPro の GPS が消えることがあるので、指定しない
+        accept={fileAccept('video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.lrv')}
         className="hidden"
       />
       <input
