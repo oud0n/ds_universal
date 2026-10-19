@@ -28,10 +28,13 @@ const MAX_RATE = 4;
 /** これより大きくずれたら飛ぶ。倍率のある枠 (走行比較) は、速さの変わり目で外れやすいので小さめにする */
 const JUMP_SEC = 0.5;
 const JUMP_SEC_RATED = 0.25;
+// 速さを変えずにおく音のある動画 (Safari) は、これより遅れたら飛ぶ (再生を始めた直後の出遅れ 0.2〜0.5 秒を残さないため)
+const JUMP_SEC_AUDIBLE_FIXED = 0.2;
 // 音を出している動画のずれを詰め始める大きさ (音を消した動画より大きくして、速さを変える回数を減らす)
 const CORRECT_START_SEC_AUDIBLE = 0.08;
-// 飛ぶときに、移動にかかる時間の分だけ先へ飛ぶ (移動のあいだも App の時刻は進むので、ちょうどの位置へ飛ぶと遅れたまま着き、また飛ぶ)。その上限
-const MAX_SEEK_LEAD_SEC = 0.4;
+// 飛ぶときに、移動にかかる時間の分だけ先へ飛ぶ (移動のあいだも App の時刻は進むので、ちょうどの位置へ飛ぶと遅れたまま着き、また飛ぶ)。その上限。
+// パソコンの Safari の音のある動画は、移動して動き出すまで 0.5〜0.7 秒かかる (音を消すと 0.05 秒ほど) (2026-10-20)
+const MAX_SEEK_LEAD_SEC = 0.8;
 
 interface Entry {
   el: HTMLVideoElement;
@@ -44,8 +47,12 @@ interface Entry {
   rateChangedAt: number;
   /** 合わせている動画のファイル。チャプターや .LRV で同じ <video> のファイルが替わったら、出たコマの記録と一度だけの再生をやり直す */
   src: string;
-  /** 再生中に飛んだ時刻 (performance.now)。移動が終わったら、かかった時間を seekLead にする */
+  /** 再生中に飛んだ時刻 (performance.now)。移動が終わって次のコマが出たら、かかった時間を seekLead にする */
   seekStartedAt: number | null;
+  /** 移動が終わり (seeked)、次のコマが出るのを待っている。Safari は seeked のあとも、しばらく動き出さない */
+  seekDone: boolean;
+  /** 再生中に飛んだ先 (動画の秒) */
+  seekTarget: number;
   /** 再生中に飛ぶとき、先へずらす秒数 (前の移動にかかった時間) */
   seekLead: number;
   onSeeked: () => void;
@@ -72,7 +79,7 @@ function playSafely(el: HTMLVideoElement): void {
 export class PlaybackController {
   /**
    * 音を出している動画も、再生の速さを少し変えてずれを詰めるか。
-   * iPhone・iPad の Safari は、音のある動画の速さを変えると映像が重くなるので false にする
+   * Safari (iPhone・iPad・パソコンとも) は、音のある動画の速さを変えると映像が重くなる (コマが 1 秒に数枚まで落ちる) ので false にする
    */
   constructor(private readonly adjustAudibleRate = true) {}
 
@@ -88,11 +95,12 @@ export class PlaybackController {
     if (!el) { this.entries.delete(key); return; }
     const entry: Entry = {
       el, frame: null, frameHandle: null, correcting: false, rateChangedAt: 0, src: el.currentSrc || el.src,
-      seekStartedAt: null, seekLead: 0,
+      seekStartedAt: null, seekDone: false, seekTarget: 0, seekLead: 0,
       onSeeked: () => {
         if (entry.seekStartedAt === null) return;
-        entry.seekLead = Math.min(MAX_SEEK_LEAD_SEC, (performance.now() - entry.seekStartedAt) / 1000);
-        entry.seekStartedAt = null;
+        // コマが出たのを知らせてもらえるときは、次のコマが出るまで待って測る (watchFrames)
+        if ((el as FrameVideo).requestVideoFrameCallback) entry.seekDone = true;
+        else this.noteSeekTime(entry, performance.now());
       },
     };
     el.addEventListener('seeked', entry.onSeeked);
@@ -118,6 +126,15 @@ export class PlaybackController {
   }
 
   /** 出たコマの時刻を覚える (currentTime は出ているコマより先に進んでいることがあるため) */
+  /** 飛んでから動き出すまでの時間を覚える。ばらつくので、前の値とならす */
+  private noteSeekTime(entry: Entry, at: number): void {
+    if (entry.seekStartedAt === null) return;
+    const sec = Math.min(MAX_SEEK_LEAD_SEC, Math.max(0, (at - entry.seekStartedAt) / 1000));
+    entry.seekLead = entry.seekLead > 0 ? (entry.seekLead + sec) / 2 : sec;
+    entry.seekStartedAt = null;
+    entry.seekDone = false;
+  }
+
   private watchFrames(entry: Entry): void {
     const v = entry.el as FrameVideo;
     if (!v.requestVideoFrameCallback) return;
@@ -129,6 +146,7 @@ export class PlaybackController {
       // Chrome はこれから出す時刻 (少し先)、Safari は出したあとに知らせる。大きく外れた値は使わない
       const at = shown !== undefined && Number.isFinite(shown) && Math.abs(now - shown) < 100 ? shown : now;
       entry.frame = { mediaTime: meta.mediaTime, at };
+      if (entry.seekDone) this.noteSeekTime(entry, at);
       entry.frameHandle = v.requestVideoFrameCallback!(onFrame);
     };
     entry.frameHandle = v.requestVideoFrameCallback(onFrame);
@@ -158,6 +176,7 @@ export class PlaybackController {
       entry.correcting = false;
       entry.seekLead = 0;
       entry.seekStartedAt = null;
+      entry.seekDone = false;
       this.primed.delete(el);
     }
     let localTime = t.localTime;
@@ -190,27 +209,38 @@ export class PlaybackController {
         el.currentTime = localTime;
         // 再生中に飛んだ移動の時間を測りかけていたら、やめる (止めたあとの移動の時間を、再生中の移動の時間として覚えないように)
         entry.seekStartedAt = null;
+        entry.seekDone = false;
       }
       if (el.playbackRate !== speed) el.playbackRate = speed;
       return;
     }
-    if (Math.abs(diff) > (rated ? JUMP_SEC_RATED : JUMP_SEC)) {
+    const audible = !el.muted;
+    // 飛ぶずれの大きさ。速さで詰められない音のある動画は、小さなずれでも飛ぶ
+    const jump = rated ? JUMP_SEC_RATED : audible && !this.adjustAudibleRate ? JUMP_SEC_AUDIBLE_FIXED : JUMP_SEC;
+    // 前に飛んだ移動がまだ終わらず動き出していないあいだは、近くへはもう一度飛ばない
+    // (動き出すまで currentTime が止まって遅れて見えるので、飛び直し続けて、移動にかかる時間も覚えられなくなる)。
+    // 見ている位置を大きく動かしたとき (飛んだ先から 1 秒より離れた) と、1.5 秒たっても動き出さないときは飛ぶ
+    const seeking = entry.seekStartedAt !== null && performance.now() - entry.seekStartedAt < 1500
+      && Math.abs(localTime - entry.seekTarget) < 1;
+    if (seeking) {
+      if (Math.abs(el.playbackRate - base) > 0.001) el.playbackRate = base;
+    } else if (Math.abs(diff) > jump) {
       // 大きくずれたら (シーク・周の始めに戻ったときなど) 飛ぶ。前の移動にかかった時間の分だけ先へ
-      // 先へずらすのは、飛ぶ大きさの半分まで (移動が前より早く終わったときに、行き過ぎてまた飛ぶことがないように。速い再生・走行比較の枠も)
-      const jump = rated ? JUMP_SEC_RATED : JUMP_SEC;
-      const lead = Math.min(entry.seekLead * base, jump / 2);
-      el.currentTime = Number.isFinite(el.duration) && el.duration > 0 ? Math.min(el.duration, localTime + lead) : localTime + lead;
+      const lead = Math.min(entry.seekLead * base, MAX_SEEK_LEAD_SEC);
+      const target = Number.isFinite(el.duration) && el.duration > 0 ? Math.min(el.duration, localTime + lead) : localTime + lead;
+      el.currentTime = target;
+      entry.seekTarget = target;
       entry.seekStartedAt = performance.now();
+      entry.seekDone = false;
       entry.correcting = false;
       // 移動の前に出ていたコマの記録は使わない (移動が終わってすぐ合わせ直すと、前の位置を見てもう一度飛ぶため)。次のコマが出るまでは currentTime で測る
       entry.frame = null;
       if (Math.abs(el.playbackRate - base) > 0.001) el.playbackRate = base;
     } else {
       // 少しのずれは、再生の速さを少し変えて追いつく (毎回飛ぶと映像が止まって見える)。
-      // iPhone・iPad では、音を出している動画は速さを変えずにおく (速さを変えると、Safari は音の高さを保つ処理をして、映像が重くなる)。
-      // パソコンでは音のある動画も詰める (再生を始めた直後の出遅れ 0.1〜0.5 秒が、飛ぶ大きさに届かずに残るため)。
+      // Safari では、音を出している動画は速さを変えずにおく (速さを変えると、音の高さを保つ処理をして、映像が重くなる)。上で小さなずれでも飛ぶ。
+      // Chrome・Electron では音のある動画も詰める (再生を始めた直後の出遅れ 0.1〜0.5 秒が、飛ぶ大きさに届かずに残るため)。
       // 音のある動画は、詰め始めるずれを大きめにして、速さを変える回数を減らす
-      const audible = !el.muted;
       if (audible && !this.adjustAudibleRate) entry.correcting = false;
       else if (Math.abs(diff) > (audible ? CORRECT_START_SEC_AUDIBLE : CORRECT_START_SEC)) entry.correcting = true;
       else if (Math.abs(diff) < CORRECT_STOP_SEC) entry.correcting = false;

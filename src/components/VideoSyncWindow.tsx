@@ -33,7 +33,7 @@ import {
 import { MasterTimelineTrackBar } from './MasterTimelineTrackBar';
 import { formatMinSec } from '../utils/timeFormat';
 import { tr, useT } from '../utils/i18n';
-import { fileAccept, isIOS } from '../utils/device';
+import { fileAccept, isIOS, isWebKitBrowser } from '../utils/device';
 import { useCompactLayout, useLandscape } from '../hooks/useCompactLayout';
 import { useWheelScrollX } from '../hooks/useWheelScrollX';
 import { useEscapeKey } from '../hooks/useEscapeKey';
@@ -312,7 +312,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const setShowOverlay = (v: boolean) => setWin({ showOverlay: v });
   // 全部の <video> を、1 か所で App の時刻に合わせる
   // iPhone・iPad では、音のある動画の速さは変えない (映像が重くなるため)
-  const playback = useRef(new PlaybackController(!isIOS)).current;
+  const playback = useRef(new PlaybackController(!isIOS && !isWebKitBrowser)).current;
   // 上の段は、入りきらないときに横にスクロールする。マウスのホイールでも動かせるようにする
   const toolbarScrollRef = useWheelScrollX<HTMLDivElement>();
   const mainVideo = () => playback.element('tile-0');
