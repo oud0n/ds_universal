@@ -151,6 +151,22 @@ function createWindow() {
   });
 
   // アプリ自身のページ以外へは遷移させない (外部ページにアプリの権限を渡さない)
+  // 画面が閉じるのを止めたとき (ロガーのログを消している間など、beforeunload で止める): 確かめてから閉じる。
+  // Electron は、止めたことを何も知らせずに閉じるのをやめるだけなので、ここで聞く
+  mainWindow.webContents.on('will-prevent-unload', (event) => {
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'warning',
+      buttons: [L('閉じない', 'Stay'), L('閉じる', 'Close anyway')],
+      defaultId: 0,
+      cancelId: 0,
+      title: L('処理中です', 'Busy'),
+      message: L('ロガーの処理 (ログの消去など) の途中です。', 'The logger is still working (erasing logs, etc.).'),
+      detail: L('いま閉じると、本体の処理が途中で止まるおそれがあります。終わるまで待つことをおすすめします。', 'Closing now may interrupt the logger. It is best to wait until it finishes.')
+    });
+    // 「閉じる」を選んだら、止めたのを取り消して閉じる
+    if (choice === 1) event.preventDefault();
+  });
+
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (url !== mainWindow.webContents.getURL()) {
       event.preventDefault();

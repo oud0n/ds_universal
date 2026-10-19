@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Usb, WifiOff, RefreshCw, Trash2, Download, Save, 
   PlayCircle, AlertTriangle, CheckCircle, Terminal, 
@@ -25,6 +26,9 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
   const [device] = useState<DigSpiceDevice>(() => new DigSpiceDevice());
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isBusy, setIsBusy] = useState<boolean>(false);
+  // ログを消している間 (始めた時刻)。画面全体に「操作しないで」を出し、閉じるのを止める
+  const [erasingSince, setErasingSince] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [logInfo, setLogInfo] = useState<LogInfo | null>(null);
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [downloadedData, setDownloadedData] = useState<{ buffer: Uint8Array; fileName: string } | null>(null);
@@ -129,23 +133,38 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
   };
 
   // ログ消去
+  // 消している間は、ウインドウを閉じる・読み直すのを止める (途中で切ると本体の記録が中途半端になるおそれがある)。
+  // 経過の秒を出すため 1 秒ごとに時刻を進める
+  useEffect(() => {
+    if (erasingSince === null) return;
+    const block = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', block);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => { window.removeEventListener('beforeunload', block); clearInterval(timer); };
+  }, [erasingSince]);
+
   const handleErase = async () => {
     if (!isConnected || isBusy) return;
     const ok = window.confirm(
-      tr('⚠️ 【警告】デジスパイスIV 本体の全走行ログを消去します。\n消去したデータは復元できません。\n本当に消去しますか？', '⚠️ WARNING: this erases every driving log on the DigSpice IV.\nErased data cannot be recovered.\nErase anyway?')
+      tr('⚠️ 【警告】デジスパイスIV 本体の全走行ログを消去します。\n消去したデータは復元できません。\n\n消去には 1〜2 分かかります。その間は、画面を閉じたり、USB を抜いたり、ほかの操作をしたりしないでください。\n\n本当に消去しますか？', '⚠️ WARNING: this erases every driving log on the DigSpice IV.\nErased data cannot be recovered.\n\nErasing takes 1-2 minutes. Do not close this window, unplug the USB cable or do anything else until it finishes.\n\nErase anyway?')
     );
     if (!ok) return;
 
     try {
       setIsBusy(true);
+      setNow(Date.now());
+      setErasingSince(Date.now());
       await device.eraseLogs();
+      setErasingSince(null);
       alert(tr('ロガーの全ログ消去が完了しました。', 'All logs on the logger have been erased.'));
       // 消去後の容量と本体設定を読み直す (書き込み位置が先頭に戻る)
       setLogInfo(await device.getLogInfo());
       setConfig(await device.getDeviceConfig());
     } catch (err: any) {
+      setErasingSince(null);
       alert(`${tr('消去エラー', 'Erase error')}: ${err.message}`);
     } finally {
+      setErasingSince(null);
       setIsBusy(false);
     }
   };
@@ -538,6 +557,21 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
       </div>
       </>)}
       {/* G のならし方の設定は、ロガーを使わなくても選べるようデータ管理タブに置く */}
+
+      {/* ログを消している間: 画面全体を覆って、ほかの操作をできなくする */}
+      {erasingSince !== null && createPortal(
+        <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-6" role="alertdialog" aria-modal="true" data-testid="erase-overlay">
+          <div className="max-w-md w-full bg-surface-2 border border-red-500/50 rounded-2xl p-6 shadow-2xl text-center space-y-4">
+            <div className="mx-auto w-10 h-10 rounded-full border-4 border-red-500/30 border-t-red-500 animate-spin" />
+            <h2 className="text-lg font-bold text-red-300">{t('本体のログを消去しています', 'Erasing the logs on the logger')}</h2>
+            <p className="text-sm text-slate-200 leading-relaxed">
+              {t('1〜2 分かかります。終わるまで、画面を閉じたり、USB を抜いたり、ほかの操作をしたりしないでください。', 'This takes 1-2 minutes. Until it finishes, do not close this window, unplug the USB cable or do anything else.')}
+            </p>
+            <p className="text-xs font-mono text-slate-400">{t(`経過 ${Math.max(0, Math.floor((now - erasingSince) / 1000))} 秒`, `${Math.max(0, Math.floor((now - erasingSince) / 1000))} s elapsed`)}</p>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
