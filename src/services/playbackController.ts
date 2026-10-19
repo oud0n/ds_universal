@@ -53,12 +53,12 @@ interface Entry {
   seekStartedAt: number | null;
   /** 移動が終わり (seeked)、次のコマが出るのを待っている。Safari は seeked のあとも、しばらく動き出さない */
   seekDone: boolean;
-  /** 再生中に飛んだ先 (動画の秒) */
-  seekTarget: number;
-  /** seekLead を測ったときに音を出していたか。音の有無で移動にかかる時間が大きく違うので、変わったら測り直す */
-  audible: boolean;
-  /** 再生中に飛ぶとき、先へずらす秒数 (前の移動にかかった時間) */
-  seekLead: number;
+  /** 飛んだときの App の時刻 (動画の秒)。待っているあいだに App の時刻がどこまで進むはずかを見る */
+  seekFrom: number;
+  /** 飛んだときに音を出していたか (移動にかかった時間を、どちらの seekLead として覚えるか) */
+  seekAudible: boolean;
+  /** 再生中に飛ぶとき、先へずらす秒数 (前の移動にかかった時間)。[音を消しているとき, 音を出しているとき] (Safari では 10 倍ほど違う) */
+  seekLead: [number, number];
   onSeeked: () => void;
 }
 
@@ -99,7 +99,7 @@ export class PlaybackController {
     if (!el) { this.entries.delete(key); return; }
     const entry: Entry = {
       el, frame: null, frameHandle: null, correcting: false, rateChangedAt: 0, src: el.currentSrc || el.src,
-      seekStartedAt: null, seekDone: false, seekTarget: 0, seekLead: 0, audible: !el.muted,
+      seekStartedAt: null, seekDone: false, seekFrom: 0, seekAudible: false, seekLead: [0, 0],
       onSeeked: () => {
         if (entry.seekStartedAt === null) return;
         // コマが出たのを知らせてもらえるときは、次のコマが出るまで待って測る (watchFrames)
@@ -139,7 +139,8 @@ export class PlaybackController {
     // 1.5 秒より長いのは、途中で止めた・タブを隠したなどで、移動の時間ではないので覚えない
     if (!(sec >= 0) || sec > SEEK_HOLD_MS / 1000) return;
     const lead = Math.min(MAX_SEEK_LEAD_SEC, sec);
-    entry.seekLead = entry.seekLead > 0 ? (entry.seekLead + lead) / 2 : lead;
+    const i = entry.seekAudible ? 1 : 0;
+    entry.seekLead[i] = entry.seekLead[i] > 0 ? (entry.seekLead[i] + lead) / 2 : lead;
   }
 
   /** 出たコマの時刻を覚える (currentTime は出ているコマより先に進んでいることがあるため) */
@@ -182,7 +183,7 @@ export class PlaybackController {
       entry.src = src;
       entry.frame = null;
       entry.correcting = false;
-      entry.seekLead = 0;
+      entry.seekLead = [0, 0];
       entry.seekStartedAt = null;
       entry.seekDone = false;
       this.primed.delete(el);
@@ -221,24 +222,24 @@ export class PlaybackController {
       return;
     }
     const audible = !el.muted;
-    if (audible !== entry.audible) { entry.audible = audible; entry.seekLead = 0; }
     // 飛ぶずれの大きさ。速さで詰められない音のある動画は、小さなずれでも飛ぶ
     const jump = rated ? JUMP_SEC_RATED : audible && !this.adjustAudibleRate ? JUMP_SEC_AUDIBLE_FIXED : JUMP_SEC;
     // 前に飛んだ移動がまだ終わらず動き出していないあいだは、近くへはもう一度飛ばない
     // (動き出すまで currentTime が止まって遅れて見えるので、飛び直し続けて、移動にかかる時間も覚えられなくなる)。
-    // 見ている位置を大きく動かしたとき (飛んだ先から、待っているあいだに進む分より 1 秒以上離れた) と、1.5 秒たっても動き出さないときは飛ぶ
+    // 見ている位置を動かしたとき (App の時刻が、飛んだときから進むはずの位置より 1 秒以上離れた) と、1.5 秒たっても動き出さないときは飛ぶ
     const waitedMs = entry.seekStartedAt === null ? Infinity : performance.now() - entry.seekStartedAt;
-    const seeking = waitedMs < SEEK_HOLD_MS && Math.abs(localTime - entry.seekTarget) < 1 + base * waitedMs / 1000;
+    const seeking = waitedMs < SEEK_HOLD_MS && Math.abs(localTime - (entry.seekFrom + base * waitedMs / 1000)) < 1;
     if (seeking) {
       if (Math.abs(el.playbackRate - base) > 0.001) el.playbackRate = base;
     } else if (Math.abs(diff) > jump) {
       // 大きくずれたら (シーク・周の始めに戻ったときなど) 飛ぶ。前の移動にかかった時間の分だけ先へ
-      let lead = Math.min(entry.seekLead * base, MAX_SEEK_LEAD_SEC);
+      let lead = Math.min(entry.seekLead[audible ? 1 : 0] * base, MAX_SEEK_LEAD_SEC);
       // 終わりの近くでは先へずらさない (終わりで止まった動画を見て、飛び直し続けないように)
       if (Number.isFinite(el.duration) && el.duration > 0 && localTime + lead >= el.duration) lead = 0;
       const target = localTime + lead;
       el.currentTime = target;
-      entry.seekTarget = target;
+      entry.seekFrom = localTime;
+      entry.seekAudible = audible;
       entry.seekStartedAt = performance.now();
       entry.seekDone = false;
       entry.correcting = false;
