@@ -6,12 +6,13 @@ import {
   Clock, Gauge, Plus, Trash2, CheckCircle2, ChevronRight,
   Globe, AlertTriangle, Zap, Layers, ChevronLeft,
   Columns, PictureInPicture, MapPin, Download, X,
-  ArrowLeftRight, VolumeX, Maximize2
+  ArrowLeftRight, VolumeX, Maximize2, ListChecks
 } from 'lucide-react';
 import { Session, TelemetryPoint, SelectedCarSlot, Lap } from '../types/telemetry';
 import { getAddVideoGpsLog, setAddVideoGpsLog } from '../services/videoPrefs';
 import { videoSyncManager, PlacedTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs, overlappingSessions, placeTrack } from '../services/videoSyncManager';
-import { clockOffsetIn } from '../services/mediaClock';
+import { clockOffsetIn, sessionStartUtcMs } from '../services/mediaClock';
+import { RunsInspector, syncBadgeOf, BADGE_CLASS } from './video/RunsInspector';
 import { getNextChapter, getPreviousChapter, groupVideoTracksByChapter } from '../services/videoChapterManager';
 import { 
   SyncPin, 
@@ -68,6 +69,16 @@ function lapDistanceAtTime(points: TelemetryPoint[], t: number): number | null {
   const a = points[lo], b = points[hi];
   const f = b.time === a.time ? 0 : (t - a.time) / (b.time - a.time);
   return a.distance + (b.distance - a.distance) * f;
+}
+
+/** ログの点 (ログの先頭からの時刻) で、時刻 t の位置 [緯度, 経度] を補間で求める。範囲の外は null */
+function positionAtTime(points: TelemetryPoint[], t: number): [number, number] | null {
+  if (points.length < 2 || t < points[0].time || t > points[points.length - 1].time) return null;
+  let lo = 0, hi = points.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (points[mid].time <= t) lo = mid; else hi = mid; }
+  const a = points[lo], b = points[hi];
+  const f = b.time === a.time ? 0 : (t - a.time) / (b.time - a.time);
+  return [a.latitude + (b.latitude - a.latitude) * f, a.longitude + (b.longitude - a.longitude) * f];
 }
 
 /**
@@ -386,6 +397,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // グラフ解析に埋め込んだときは、タイムゾーン・再同期の段とタイムラインを、ボタンで開くまで隠す。
   // 狭い枠ではこれらの段が場所を使い切り、動画の映る部分の高さが 0 になっていた (BUG-19)。同期の調整は動画同期の画面でもできる
   const [showSyncTools, setShowSyncTools] = useState(!isGraphEmbedded);
+  // 走行の確認 (RunsInspector) を開いているか
+  const [showRuns, setShowRuns] = useState(false);
   // GoPro の動画の GPS も走行ログとして加えるか (次に読み込む動画から効く) LATER-12
   const [addVideoGpsLog, setAddVideoGpsLogState] = useState(getAddVideoGpsLog);
 
@@ -652,6 +665,24 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   };
 
   // メインの枠に重ねるメーター。PinP の小窓がある隅のメーターは、小窓の横へずらす (BUG-23)
+  // メインの動画自身の GPS のログ (GoPro の GPS をログとして加えたとき) と、基準車のログの位置が、2 秒続けて 10 m より離れていたら知らせる。
+  // 動画を別の車のログに付けている (取り違え) か、時刻が大きくずれている
+  const gpsMismatchM = (() => {
+    if (isCompare || !mainMedia || !baseSession) return null;
+    const gpsLog = sessions.find(s => s.fileName === mainMedia.tracks[0].fileName && s.id !== baseSession.id);
+    const b0 = sessionStartUtcMs(baseSession), g0 = sessionStartUtcMs(gpsLog);
+    if (!gpsLog || b0 === null || g0 === null) return null;
+    let min = Infinity;
+    for (const dt of [0, 1, 2]) {
+      const t = renderSessionTime - dt;
+      const a = positionAtTime(baseSession.points, t), g = positionAtTime(gpsLog.points, t + (b0 - g0) / 1000);
+      if (!a || !g) return null;
+      const dx = (a[1] - g[1]) * 111320 * Math.cos(a[0] * Math.PI / 180), dy = (a[0] - g[0]) * 111320;
+      min = Math.min(min, Math.hypot(dx, dy));
+    }
+    return min > 10 ? Math.round(min) : null;
+  })();
+
   // 枠に重ねるメーター (その枠の車のログ・時刻)。マルチカメラではメインの枠だけ
   const overlayFor = (x: Tile, i: number): TileOverlay | null => {
     const g = x.gauge;
@@ -664,14 +695,18 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   return (
     // 枠が狭くて全部の段が入らないときは、動画を潰さずにウインドウの中をスクロールさせる
-    <div className={`flex flex-col h-full bg-surface-0 text-slate-200 select-none font-sans ${isGraphEmbedded ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'}`}>
+    <div className={`relative flex flex-col h-full bg-surface-0 text-slate-200 select-none font-sans ${isGraphEmbedded ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'}`}>
+      {showRuns && (
+        <RunsInspector sessions={sessions} media={media} onChooseLog={onChooseLog} onClose={() => setShowRuns(false)} />
+      )}
       {/* 1. 上部コントロールバー (フラットデザイン) */}
       {/* グラフ解析に埋め込んだ狭い枠では、右側のボタンが切れないよう横にスクロールできるようにする */}
-      <div className={`h-11 bg-surface-1 border-b border-line-1 px-3 flex items-center justify-between gap-2 shrink-0 ${isGraphEmbedded ? 'overflow-x-auto overflow-y-hidden' : ''}`}>
+      {/* ボタンの文字は折り返さない。入りきらないときは横にスクロールし、広い画面でだけ文字を出すボタンもある */}
+      <div className="h-11 bg-surface-1 border-b border-line-1 px-3 flex items-center justify-between gap-2 shrink-0 overflow-x-auto overflow-y-hidden [&_button]:whitespace-nowrap [&_button]:shrink-0">
         <div className="flex items-center gap-2.5">
-          <span className="text-xs font-bold text-slate-100 flex items-center gap-1.5 shrink-0">
+          <span className="text-xs font-bold text-slate-100 flex items-center gap-1.5 shrink-0 whitespace-nowrap" title={t('車載動画同期', 'Onboard video sync')}>
             <Video size={15} className="text-red-500" />
-            {t('車載動画同期', 'Onboard video sync')}
+            <span className="hidden 2xl:inline">{t('車載動画同期', 'Onboard video sync')}</span>
           </span>
 
           {/* グラフ解析に埋め込んだときだけ: タイムゾーン・再同期の段とタイムラインを開く / 閉じる。
@@ -811,10 +846,23 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           <button
             onClick={() => fileInputRef.current?.click()}
             className="flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-5 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer"
+            title={t('動画追加', 'Add video')}
           >
             <Plus size={12} />
-            {t('動画追加', 'Add video')}
+            <span className="hidden xl:inline">{t('動画追加', 'Add video')}</span>
           </button>
+
+          {/* 走行の確認 (ログと動画の組み合わせ・時刻の出どころ・地図) */}
+          {media.length > 0 && (
+            <button
+              onClick={() => setShowRuns(true)}
+              className="flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-5 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer"
+              title={t('走行の確認: 同じ走行のログと動画、動画の時刻の出どころ、地図', 'Runs: logs and videos of each run, how each video is timed, and a map')}
+            >
+              <ListChecks size={12} />
+              <span className="hidden xl:inline">{t('走行の確認', 'Runs')}</span>
+            </button>
+          )}
         </div>
 
         {/* 右側アクション群 (ピン留め・MP4エクスポート・プロジェクト保存) */}
@@ -827,7 +875,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               title={t('現在の動画フレームとGPS時刻を同期ピンとして固定', 'Pin the current video frame and GPS time as a sync point')}
             >
               <MapPin size={12} className="text-amber-400" />
-              {t('ピン留め同期', 'Pin sync')} ({pins.length})
+              <span className="hidden xl:inline">{t('ピン留め同期', 'Pin sync')}</span> ({pins.length})
             </button>
           )}
 
@@ -839,7 +887,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               title={t('メーターオーバーレイ付きの動画をMP4形式で書き出し', 'Export the video with the gauge overlay as MP4')}
             >
               <Download size={12} />
-              {t('動画書き出し', 'Export video')}
+              <span className="hidden xl:inline">{t('動画書き出し', 'Export video')}</span>
             </button>
           )}
 
@@ -1028,7 +1076,18 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     emptyText={isCompare ? t('この周を映している動画がありません', 'No video covers this lap') : undefined}
                     onClick={win.layout === 'grid' && tileCount > 1 && size !== 'pip' ? () => setWin({ focus: win.focus === i ? null : i }) : undefined}
                     className="flex-1 w-full h-full"
-                    badge={(tileCount > 1 || isCompare) && (
+                    children={isMain && gpsMismatchM !== null ? (
+                      <button
+                        onClick={e => { e.stopPropagation(); setShowRuns(true); }}
+                        className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-red-950/90 border border-red-600 text-red-200 px-2 py-1 rounded text-[11px] cursor-pointer"
+                        title={t('押すと走行の確認を開きます', 'Click to open the run inspector')}
+                      >
+                        <AlertTriangle size={12} className="text-red-400 shrink-0" />
+                        {t(`動画の GPS と ${baseSession?.sessionName ?? ''} の位置が ${gpsMismatchM} m 離れています (別の車のログか、時刻のずれ)`, `The video's GPS is ${gpsMismatchM} m from ${baseSession?.sessionName ?? ''} (another car's log, or a time offset)`)}
+                      </button>
+                    ) : undefined}
+                    badge={(
+
                       <>
                         {isCompare ? (
                           <>
@@ -1064,6 +1123,18 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                           </button>
                         )}
                         {!sound && <VolumeX size={10} className="text-slate-500" />}
+                        {x.media && (() => {
+                          const b = syncBadgeOf(x.position?.track ?? x.media.tracks[0], t);
+                          return (
+                            <button
+                              onClick={e => { e.stopPropagation(); setShowRuns(true); }}
+                              className={`px-1 rounded border text-[9px] font-normal cursor-pointer ${BADGE_CLASS[b.level]}`}
+                              title={`${b.title} (${t('押すと走行の確認を開きます', 'click to open the run inspector')})`}
+                            >
+                              {b.label}
+                            </button>
+                          );
+                        })()}
                       </>
                     )}
                   />
