@@ -57,6 +57,9 @@ function attachVideoAudio(stream: MediaStream, video: HTMLVideoElement | null | 
       source = audioCtx.createMediaElementSource(video);
       source.connect(audioCtx.destination);
       audioSources.set(video, source);
+      // この動画の音は、これからずっと Web Audio を通る。Web Audio が止められていると (iPhone で裏に回ったときなど)
+      // ふだんの再生で音が出なくなるので、再生するたびに起こし直す
+      video.addEventListener('play', () => { void audioCtx?.resume(); });
     }
     const dest = audioCtx.createMediaStreamDestination();
     source.connect(dest);
