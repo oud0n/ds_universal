@@ -49,7 +49,8 @@ export const isIOS: boolean = typeof navigator !== 'undefined'
  * Mac の Safari は、再生中に毎コマ (1 秒 60 回) 画面を描き直すと、動画のコマが落ちる (Chrome では落ちない。2026-10-19)
  */
 export const isWebKitBrowser: boolean = typeof navigator !== 'undefined'
-  && /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Edg|Electron/.test(navigator.userAgent);
+  // パソコンの Chrome・Edge は "Chrome/"・"Edg/" を名乗る。iPhone・iPad の Chrome (CriOS)・Edge (EdgiOS) は中身が WebKit なので含める
+  && /AppleWebKit/.test(navigator.userAgent) && !/Chrome\/|Chromium|Edg\/|Electron/.test(navigator.userAgent);
 
 /**
  * 再生中に画面を描き直す間隔の下限 (ミリ秒) を、URL の ?redraw=<ms> で試しに変える (重さを比べるため)。なければ null
@@ -57,7 +58,7 @@ export const isWebKitBrowser: boolean = typeof navigator !== 'undefined'
 export const redrawIntervalOverride: number | null = (() => {
   if (typeof window === 'undefined') return null;
   const v = new URLSearchParams(window.location.search).get('redraw');
-  const n = v === null ? NaN : Number(v);
+  const n = v === null || v.trim() === '' ? NaN : Number(v);
   return Number.isFinite(n) && n >= 0 && n <= 1000 ? n : null;
 })();
 
