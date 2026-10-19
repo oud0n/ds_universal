@@ -496,9 +496,12 @@ export const DataTab: React.FC<DataTabProps> = ({
                             lap.isBestLap ? 'bg-amber-950/20' : ''
                           }`}
                         >
-                          <td className="py-2.5 px-3 font-bold flex items-center gap-1.5">
-                            {lap.isBestLap && <Trophy size={13} className="text-amber-400" />}
-                            Lap {lap.lapNumber}
+                          {/* td 自体を flex にすると、表の行の中で縦の位置がずれる (ほかの欄より上に寄る) ので、中で並べる */}
+                          <td className="py-2.5 px-3 font-bold">
+                            <span className="inline-flex items-center gap-1.5">
+                              {lap.isBestLap && <Trophy size={13} className="text-amber-400" />}
+                              Lap {lap.lapNumber}
+                            </span>
                           </td>
                           <td
                             className={`py-2.5 px-3 font-bold ${
@@ -567,9 +570,11 @@ export const DataTab: React.FC<DataTabProps> = ({
                   {session.theoreticalBestTime > 0 && session.sectors.length > 0 && (
                     <tfoot className="bg-surface-1 text-amber-300 font-mono font-bold text-[11px] border-t-2 border-amber-500/40">
                       <tr>
-                        <td className="py-2 px-3 flex items-center gap-1">
-                          <Trophy size={13} className="text-amber-400" />
-                          {t('仮想ベスト', 'Theoretical best')}
+                        <td className="py-2 px-3">
+                          <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                            <Trophy size={13} className="text-amber-400" />
+                            {t('仮想ベスト', 'Theoretical best')}
+                          </span>
                         </td>
                         <td className="py-2 px-3 text-amber-400 text-sm">
                           {formatTime(session.theoreticalBestTime)}
