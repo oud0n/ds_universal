@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, Repeat, BarChart2, List, Video, Coffee, Sun, Moon, Monitor, MoreHorizontal, Contrast } from 'lucide-react';
-import { SelectedCarSlot, Session } from '../types/telemetry';
+import { FolderOpen, Settings, Repeat, BarChart2, List, Video, Coffee, Sun, Moon, Monitor, MoreHorizontal, Contrast } from 'lucide-react';
+import { Session } from '../types/telemetry';
 import { ThemeSetting, setThemeSetting, useThemeSetting } from '../utils/theme';
 import { canUseLogger } from '../utils/device';
 import { BleStatusPill } from './BleLoggerCard';
@@ -24,13 +24,6 @@ interface HeaderProps {
   currentTab: 'graph' | 'data' | 'logger' | 'video' | 'convert';
   setCurrentTab: (tab: 'graph' | 'data' | 'logger' | 'video' | 'convert') => void;
   sessions: Session[];
-  selectedCars: SelectedCarSlot[];
-  isPlaying: boolean;
-  onTogglePlay: () => void;
-  onStepForward: () => void;
-  onStepBack: () => void;
-  playbackSpeed: number;
-  onChangePlaybackSpeed: (speed: number) => void;
   onOpenFile: () => void;
   onOpenDonate?: () => void;
   // スマートフォン向けの配置 (タブは画面下のタブバーに出し、ここには再生操作とメニューだけを置く)
@@ -41,13 +34,6 @@ export const Header: React.FC<HeaderProps> = ({
   currentTab,
   setCurrentTab,
   sessions,
-  selectedCars,
-  isPlaying,
-  onTogglePlay,
-  onStepForward,
-  onStepBack,
-  playbackSpeed,
-  onChangePlaybackSpeed,
   onOpenFile,
   onOpenDonate,
   compact = false
@@ -67,34 +53,6 @@ export const Header: React.FC<HeaderProps> = ({
           <FolderOpen size={16} />
           {t('読込', 'Open')}
         </button>
-
-        {currentTab === 'graph' && selectedCars.length > 0 && (
-          <div className="flex items-center gap-1">
-            <button onClick={onStepBack} aria-label={t('コマ戻し', 'Step back')} className="p-1.5 rounded text-slate-300">
-              <SkipBack size={18} />
-            </button>
-            <button
-              onClick={onTogglePlay}
-              aria-label={t('再生 / 一時停止', 'Play / pause')}
-              className={`p-1.5 rounded ${isPlaying ? 'bg-amber-500 text-slate-950' : 'bg-red-600 text-white'}`}
-            >
-              {isPlaying ? <Pause size={18} /> : <Play size={18} />}
-            </button>
-            <button onClick={onStepForward} aria-label={t('コマ送り', 'Step forward')} className="p-1.5 rounded text-slate-300">
-              <SkipForward size={18} />
-            </button>
-            <select
-              value={playbackSpeed}
-              onChange={e => onChangePlaybackSpeed(Number(e.target.value))}
-              aria-label={t('再生速度', 'Playback speed')}
-              className="bg-surface-3 border border-line-3 rounded text-xs font-mono text-slate-200 px-1 py-1.5"
-            >
-              {[0.5, 1, 2, 4].map(s => (
-                <option key={s} value={s}>{s}x</option>
-              ))}
-            </select>
-          </div>
-        )}
 
         <BleStatusPill onClick={() => setCurrentTab('logger')} />
 
@@ -221,53 +179,7 @@ export const Header: React.FC<HeaderProps> = ({
         <span className="ml-2 self-center"><BleStatusPill onClick={() => setCurrentTab('logger')} /></span>
       </div>
 
-      {/* アニメーション再生コントロール (フラットデザイン) */}
-      {currentTab === 'graph' && selectedCars.length > 0 && (
-        <div className="hidden lg:flex items-center gap-2 bg-surface-2 px-2.5 py-1 rounded border border-line-2">
-          <button
-            onClick={onStepBack}
-            title={t('コマ戻し (B / ←キー、Shift で 1 秒)', 'Step back (B / ← key, Shift for 1 s)')}
-            className="p-1 hover:bg-surface-4 rounded text-slate-300 hover:text-fg transition-colors cursor-pointer"
-          >
-            <SkipBack size={14} />
-          </button>
-          <button
-            onClick={onTogglePlay}
-            title={t('再生 / 一時停止 (SPACEキー)', 'Play / pause (Space)')}
-            className={`p-1.5 rounded transition-colors cursor-pointer ${
-              isPlaying ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold' : 'bg-red-600 hover:bg-red-500 text-white'
-            }`}
-          >
-            {isPlaying ? <Pause size={14} /> : <Play size={14} className="ml-0.5" />}
-          </button>
-          <button
-            onClick={onStepForward}
-            title={t('コマ送り (F / →キー、Shift で 1 秒)', 'Step forward (F / → key, Shift for 1 s)')}
-            className="p-1 hover:bg-surface-4 rounded text-slate-300 hover:text-fg transition-colors cursor-pointer"
-          >
-            <SkipForward size={14} />
-          </button>
-
-          <div className="h-4 w-[1px] bg-slate-700 mx-1"></div>
-
-          {/* 再生速度 */}
-          <div className="flex items-center gap-0.5 text-[11px] font-mono text-slate-400">
-            {[0.5, 1, 2, 4].map(s => (
-              <button
-                key={s}
-                onClick={() => onChangePlaybackSpeed(s)}
-                className={`px-1.5 py-0.5 rounded cursor-pointer transition-colors ${
-                  playbackSpeed === s
-                    ? 'bg-red-600 text-white font-bold'
-                    : 'hover:bg-surface-4 text-slate-400'
-                }`}
-              >
-                {s}x
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* 再生・シークは、グラフ解析の下の段 (PlayBar) に置く */}
 
       {/* ファイル操作 (フラットデザイン) */}
       <div className="flex items-center gap-2">
