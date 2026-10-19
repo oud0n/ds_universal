@@ -47,6 +47,9 @@
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
+		<!-- 開発用: Tailscale の IP (100.x) の開発サーバーを http で読むため。アプリに Web を入れて app:// で読むようにしたら外す (App Store の審査で理由を聞かれる) -->
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>開発中に、Mac の開発サーバーの画面を読み込むために使います。</string>
