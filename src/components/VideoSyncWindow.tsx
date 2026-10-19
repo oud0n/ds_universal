@@ -500,7 +500,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   // 動画再生時間フォーマット (M:SS。1 時間を超えたら H:MM:SS、1 日を超えたら日数も付ける。撮影日の違う動画を読むと範囲が何日にもなる)
   const formatDuration = (sec: number): string => {
-    const sClamped = Math.max(0, Math.floor(sec));
+    // 動画がログより前から始まるときは、負の時刻になる (以前はどれも 0:00 になり、目盛りが同じ文字で並んだ)
+    if (sec < 0) return `-${formatDuration(-sec)}`;
+    const sClamped = Math.floor(sec);
     const d = Math.floor(sClamped / 86400);
     const h = Math.floor((sClamped % 86400) / 3600);
     const m = Math.floor((sClamped % 3600) / 60);

@@ -125,7 +125,8 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
   const rulerTicks = useMemo(() => {
     const ticks: number[] = [];
     const maxTicks = Math.max(2, Math.floor((trackWidth || 800) / 56));
-    const STEPS = [10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600, 43200, 86400];
+    // 短い範囲 (10 秒より短い) でも目盛りが出るよう、1 秒から
+    const STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600, 43200, 86400];
     const step = STEPS.find(st => totalDuration / st <= maxTicks) ?? Math.ceil(totalDuration / maxTicks / 86400) * 86400;
     const startTick = Math.ceil(minTime / step) * step;
     for (let t = startTick; t <= maxTime; t += step) {
