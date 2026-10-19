@@ -154,8 +154,11 @@ export class PlaybackController {
       el.currentTime = localTime;
       if (Math.abs(el.playbackRate - base) > 0.001) el.playbackRate = base;
     } else {
-      // 少しのずれは、再生の速さを少し変えて追いつく (毎回飛ぶと映像が止まって見える)
-      if (Math.abs(diff) > CORRECT_START_SEC) entry.correcting = true;
+      // 少しのずれは、再生の速さを少し変えて追いつく (毎回飛ぶと映像が止まって見える)。
+      // 音を出している動画は速さを変えずにおく (速さを変えると、Safari は音の高さを保つ処理をして、iPhone では映像が重くなる)。
+      // 音を出すのはふつう基準の枠で、App の時刻と同じ速さで進むので、ずれるのはまれ。大きくずれたら上で飛ぶ
+      if (!el.muted) entry.correcting = false;
+      else if (Math.abs(diff) > CORRECT_START_SEC) entry.correcting = true;
       else if (Math.abs(diff) < CORRECT_STOP_SEC) entry.correcting = false;
       const correction = entry.correcting ? Math.max(-0.1, Math.min(0.1, diff * 0.5)) : 0;
       const rate = Math.max(MIN_RATE * speed, Math.min(MAX_RATE * speed, base * (1 + correction)));
