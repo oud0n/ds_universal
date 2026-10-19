@@ -126,7 +126,8 @@ export class PlaybackController {
       // 動画がいつも遅れて見え、速さを変え続けてしまう (2026-10-19)。先の時刻 (Chrome) や大きく外れた値はそのまま使わない
       const now = performance.now();
       const shown = meta.expectedDisplayTime;
-      const at = shown !== undefined && Number.isFinite(shown) && Math.abs(now - shown) < 100 ? Math.min(now, shown) : now;
+      // Chrome はこれから出す時刻 (少し先)、Safari は出したあとに知らせる。大きく外れた値は使わない
+      const at = shown !== undefined && Number.isFinite(shown) && Math.abs(now - shown) < 100 ? shown : now;
       entry.frame = { mediaTime: meta.mediaTime, at };
       entry.frameHandle = v.requestVideoFrameCallback!(onFrame);
     };
@@ -185,16 +186,24 @@ export class PlaybackController {
       }
       if (!el.paused) el.pause();
       // 止めているときはコマ送り (0.1 秒) にも付いていけるよう、細かく合わせる
-      if (Math.abs(diff) > 0.02) el.currentTime = localTime;
+      if (Math.abs(diff) > 0.02) {
+        el.currentTime = localTime;
+        // 再生中に飛んだ移動の時間を測りかけていたら、やめる (止めたあとの移動の時間を、再生中の移動の時間として覚えないように)
+        entry.seekStartedAt = null;
+      }
       if (el.playbackRate !== speed) el.playbackRate = speed;
       return;
     }
     if (Math.abs(diff) > (rated ? JUMP_SEC_RATED : JUMP_SEC)) {
       // 大きくずれたら (シーク・周の始めに戻ったときなど) 飛ぶ。前の移動にかかった時間の分だけ先へ
-      const lead = entry.seekLead * base;
+      // 先へずらすのは、飛ぶ大きさの半分まで (移動が前より早く終わったときに、行き過ぎてまた飛ぶことがないように。速い再生・走行比較の枠も)
+      const jump = rated ? JUMP_SEC_RATED : JUMP_SEC;
+      const lead = Math.min(entry.seekLead * base, jump / 2);
       el.currentTime = Number.isFinite(el.duration) && el.duration > 0 ? Math.min(el.duration, localTime + lead) : localTime + lead;
       entry.seekStartedAt = performance.now();
       entry.correcting = false;
+      // 移動の前に出ていたコマの記録は使わない (移動が終わってすぐ合わせ直すと、前の位置を見てもう一度飛ぶため)。次のコマが出るまでは currentTime で測る
+      entry.frame = null;
       if (Math.abs(el.playbackRate - base) > 0.001) el.playbackRate = base;
     } else {
       // 少しのずれは、再生の速さを少し変えて追いつく (毎回飛ぶと映像が止まって見える)。
