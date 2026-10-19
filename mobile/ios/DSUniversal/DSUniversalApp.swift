@@ -4,6 +4,9 @@ import WebKit
 /// アプリの外側の枠。中身は WKWebView で動く今の Web (docs/iphone_app_design.md の 2)
 @main
 struct DSUniversalApp: App {
+    /// 起動時に BLE と記録を用意する (OS が裏で起こしたときは、画面は作られない)
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     var body: some Scene {
         WindowGroup {
             WebContainer()

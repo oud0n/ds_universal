@@ -16,6 +16,7 @@ import { tr } from '../utils/i18n';
 interface WbCharacteristic extends EventTarget {
   value?: DataView;
   startNotifications(): Promise<WbCharacteristic>;
+  readValue(): Promise<DataView>;
 }
 interface WbService {
   getCharacteristic(uuid: number | string): Promise<WbCharacteristic>;
@@ -144,5 +145,13 @@ export const webBluetoothCentral: BleCentral = {
   async disconnect(deviceId) {
     links.get(deviceId)?.cleanup();
     links.delete(deviceId);
+  },
+
+  async read(deviceId, ref) {
+    const gatt = known.get(deviceId)?.gatt;
+    if (!gatt?.connected) throw new NativeError('not-connected', tr('つながっていません。', 'Not connected.'));
+    const service = await gatt.getPrimaryService(uuidForWeb(ref.service));
+    const v = await (await service.getCharacteristic(uuidForWeb(ref.characteristic))).readValue();
+    return new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength));
   }
 };

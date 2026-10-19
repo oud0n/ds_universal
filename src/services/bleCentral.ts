@@ -50,6 +50,8 @@ export interface BleCentral {
   stopScan(): Promise<void>;
   connect(deviceId: string, notify: GattCharacteristicRef, handlers: BleLinkHandlers): Promise<void>;
   disconnect(deviceId: string): Promise<void>;
+  /** つないでいる機器の特性を 1 回読む (Device Information など) */
+  read(deviceId: string, ref: GattCharacteristicRef): Promise<Uint8Array>;
   /** 許可を断られたときに、OS の設定の画面を開ける (ネイティブだけ) */
   openSettings?: () => Promise<void>;
 }

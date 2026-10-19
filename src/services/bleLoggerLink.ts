@@ -23,6 +23,16 @@ import { tr } from '../utils/i18n';
 export const DIGSPICE_NAME_PREFIXES = ['DS3', 'DS4'];
 
 const SERVICE = LOCATION_AND_NAVIGATION_SERVICE.toString(16).padStart(4, '0');
+/** 標準の Device Information (メーカー・型番・シリアル番号・版) */
+const DEVICE_INFORMATION_SERVICE = '180a';
+const DEVICE_INFORMATION: Array<[string, string]> = [
+  ['manufacturer', '2a29'],
+  ['model', '2a24'],
+  ['serial', '2a25'],
+  ['hardware', '2a27'],
+  ['firmware', '2a26'],
+  ['software', '2a28']
+];
 const CHARACTERISTIC = LOCATION_AND_SPEED_CHARACTERISTIC.toString(16).padStart(4, '0');
 
 const STORAGE_KEY = 'ds_ble_logger_device';
@@ -67,6 +77,8 @@ export interface LoggerLinkSnapshot {
   error: string | null;
   /** 許可を断られたので、設定の画面への案内を出す */
   permissionDenied: boolean;
+  /** 本体の情報 (Device Information。読めたものだけ) */
+  deviceInfo: Record<string, string>;
 }
 
 /** デバイス名 (DS4B + 7 桁) の番号の部分。デジスパイスの名前でなければ名前のまま */
@@ -108,6 +120,8 @@ export class BleLoggerLink {
   private staleTimer: ReturnType<typeof setTimeout> | null = null;
   private listeners = new Set<() => void>();
   private fixListeners = new Set<(fix: BleFix, receivedMs: number) => void>();
+  private rawListeners = new Set<(items: BleNotification[]) => void>();
+  private stateListeners = new Set<(state: BleLinkState) => void>();
   private snap: LoggerLinkSnapshot;
   private ready: Promise<void> | null = null;
 
@@ -122,7 +136,8 @@ export class BleLoggerLink {
       rateHz: 0,
       gaps: [],
       error: null,
-      permissionDenied: false
+      permissionDenied: false,
+      deviceInfo: {}
     };
   }
 
@@ -139,6 +154,23 @@ export class BleLoggerLink {
   onFix(fn: (fix: BleFix, receivedMs: number) => void): () => void {
     this.fixListeners.add(fn);
     return () => { this.fixListeners.delete(fn); };
+  }
+
+  /** 届いた通知をそのまま受け取る (ブラウザでの記録に使う) */
+  onRaw(fn: (items: BleNotification[]) => void): () => void {
+    this.rawListeners.add(fn);
+    return () => { this.rawListeners.delete(fn); };
+  }
+
+  /** つなぎの状態が変わったとき (BLE の層からの状態そのまま) */
+  onLinkState(fn: (state: BleLinkState) => void): () => void {
+    this.stateListeners.add(fn);
+    return () => { this.stateListeners.delete(fn); };
+  }
+
+  /** BLE の層 (記録の手段を選ぶのに使う) */
+  getCentral(): BleCentral | null {
+    return this.central;
   }
 
   // ---- 操作 ----
@@ -161,7 +193,7 @@ export class BleLoggerLink {
     this.update({ scanning: true, found: [], error: null });
     try {
       await central.scan(
-        { namePrefixes: DIGSPICE_NAME_PREFIXES, services: [SERVICE] },
+        { namePrefixes: DIGSPICE_NAME_PREFIXES, services: [SERVICE, DEVICE_INFORMATION_SERVICE] },
         d => {
           const found = this.snap.found.filter(f => f.id !== d.id);
           found.push(d);
@@ -218,8 +250,13 @@ export class BleLoggerLink {
             if (state !== 'connected') this.assembler.reset();
             if (error) this.update({ error: messageOf(error) });
             this.setLinkState(state);
+            this.stateListeners.forEach(fn => fn(state));
+            if (state === 'connected') void this.readDeviceInfo();
           },
-          onNotify: items => this.handleNotify(items)
+          onNotify: items => {
+            this.rawListeners.forEach(fn => fn(items));
+            this.handleNotify(items);
+          }
         }
       );
     } catch (e) {
@@ -234,6 +271,24 @@ export class BleLoggerLink {
     if (!central || !registered || this.linkState === 'idle') return;
     this.setLinkState('idle');
     await central.disconnect(registered.id).catch(e => console.warn('[ble] 切るときに失敗:', e));
+  }
+
+  /** 本体の情報を読む (つながるたび。読めないものは飛ばす) */
+  private async readDeviceInfo(): Promise<void> {
+    const central = this.central;
+    const registered = this.snap.registered;
+    if (!central || !registered) return;
+    const info: Record<string, string> = {};
+    for (const [key, characteristic] of DEVICE_INFORMATION) {
+      try {
+        const bytes = await central.read(registered.id, { service: DEVICE_INFORMATION_SERVICE, characteristic });
+        const text = new TextDecoder().decode(bytes).replace(/\0+$/, '').trim();
+        if (text) info[key] = text;
+      } catch {
+        // 本体にない・読めない項目は飛ばす
+      }
+    }
+    if (Object.keys(info).length) this.update({ deviceInfo: info });
   }
 
   async openSettings(): Promise<void> {

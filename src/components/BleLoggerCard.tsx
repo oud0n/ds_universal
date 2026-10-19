@@ -2,6 +2,7 @@ import React, { useEffect, useSyncExternalStore } from 'react';
 import { Bluetooth, BluetoothSearching, Unlink, RefreshCw, Settings, Signal } from 'lucide-react';
 import { bleLoggerLink, loggerSerial, type LoggerLinkStatus } from '../services/bleLoggerLink';
 import { useT } from '../utils/i18n';
+import { BleCapturePanel } from './BleCapturePanel';
 
 export function useLoggerLink() {
   return useSyncExternalStore(bleLoggerLink.subscribe, bleLoggerLink.getSnapshot);
@@ -83,6 +84,11 @@ export const BleLoggerCard: React.FC = () => {
               <div className="text-[10px] text-slate-500">{t('登録した機器', 'Registered device')}</div>
               <div className="font-mono text-sm text-slate-100">{registered.name}</div>
               <div className="text-[11px] text-slate-400">{t('シリアル番号', 'Serial')}: <span className="font-mono">{loggerSerial(registered.name)}</span></div>
+              {Object.keys(snap.deviceInfo).length > 0 && (
+                <div className="text-[10px] text-slate-500 font-mono" data-testid="ble-device-info">
+                  {Object.entries(snap.deviceInfo).map(([k, v]) => `${k}: ${v}`).join(' / ')}
+                </div>
+              )}
             </div>
             <div className="flex gap-2">
               {linked ? (
@@ -123,6 +129,8 @@ export const BleLoggerCard: React.FC = () => {
               </div>
             </div>
           )}
+
+          <BleCapturePanel snap={snap} />
         </div>
       )}
 

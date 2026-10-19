@@ -17,13 +17,12 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
     static let handlerName = "dsNative"
 
     private weak var webView: WKWebView?
-    private lazy var ble = BleModule(bridge: self)
-    private lazy var system = SystemModule(bridge: self)
+    private let core = NativeCore.shared
 
     func attach(to webView: WKWebView) {
         self.webView = webView
         webView.configuration.userContentController.add(self, name: Self.handlerName)
-        system.startObservingAppState()
+        core.sink = { [weak self] event, data in self?.emit(event, data) }
     }
 
     // MARK: - Web から
@@ -56,10 +55,10 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
                 "deviceKind": DeviceKind.current,
                 "features": ["ble": true]
             ]))
-        case let m where m.hasPrefix("ble."):
-            ble.handle(method: m, params: params, done: done)
+        case let m where m.hasPrefix("ble.") || m.hasPrefix("recorder."):
+            core.ble.handle(method: m, params: params, done: done)
         case let m where m.hasPrefix("system."):
-            system.handle(method: m, params: params, done: done)
+            core.system.handle(method: m, params: params, done: done)
         default:
             done(.failure(NativeError(.notSupported, "unknown method \(method)")))
         }
