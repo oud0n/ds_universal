@@ -1,11 +1,19 @@
 name: Deploy web version to GitHub Pages
 
-# ブラウザ版 (解析画面とログ変換ページ) を GitHub Pages に公開する
+# ブラウザ版 (解析画面とログ変換ページ) を GitHub Pages に公開する。
+# main を /ds_universal/ に、試験版のブランチを /ds_universal/preview/ に出す (スマホなどで、マージする前のブランチを試すため)。
+# 試験版のブランチは、手で動かすときの preview_ref か、リポジトリの変数 PREVIEW_REF。どちらもなければ試験版は出さない。
+# 公開できるのは main の workflow からだけ (github-pages の環境の設定) なので、試験版も main のこの workflow が作る
 on:
   push:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      preview_ref:
+        description: '/preview/ に出すブランチ (空なら変数 PREVIEW_REF)'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -23,6 +31,8 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      PREVIEW_REF: ${{ inputs.preview_ref || vars.PREVIEW_REF || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,6 +54,35 @@ jobs:
         env:
           # ブラウザ版だけにアクセス数の計測 (GoatCounter) を入れる (vite.config.ts)
           PAGES_BUILD: '1'
+
+      # 試験版: ブランチを別のフォルダに取り出して作り、dist/preview に置く。試験版を作れなくても、本番は出す
+      - name: Checkout preview branch
+        id: preview_checkout
+        if: env.PREVIEW_REF != ''
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PREVIEW_REF }}
+          path: preview-src
+
+      - name: Build preview
+        id: preview_build
+        if: env.PREVIEW_REF != '' && steps.preview_checkout.outcome == 'success'
+        continue-on-error: true
+        working-directory: preview-src
+        # 試験版にはアクセス数の計測を入れない (PAGES_BUILD を付けない)
+        run: |
+          npm ci
+          npm run build
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+      - name: Place preview
+        if: env.PREVIEW_REF != ''
+        # 保存の名前を分けるスクリプトを差し込み、dist/preview に置く (.github/pages-preview/place-preview.mjs)
+        run: node .github/pages-preview/place-preview.mjs
+        env:
+          BUILD_OK: ${{ steps.preview_build.outcome }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
