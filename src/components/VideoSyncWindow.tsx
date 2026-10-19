@@ -35,6 +35,7 @@ import { formatMinSec } from '../utils/timeFormat';
 import { tr, useT } from '../utils/i18n';
 import { fileAccept, isIOS } from '../utils/device';
 import { useCompactLayout, useLandscape } from '../hooks/useCompactLayout';
+import { useWheelScrollX } from '../hooks/useWheelScrollX';
 
 export type { PipPosition };
 
@@ -311,6 +312,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // 全部の <video> を、1 か所で App の時刻に合わせる
   // iPhone・iPad では、音のある動画の速さは変えない (映像が重くなるため)
   const playback = useRef(new PlaybackController(!isIOS)).current;
+  // 上の段は、入りきらないときに横にスクロールする。マウスのホイールでも動かせるようにする
+  const toolbarScrollRef = useWheelScrollX<HTMLDivElement>();
   const mainVideo = () => playback.element('tile-0');
 
   // シークバースコープ ('lap': 速度ウィンドウ選択中ラップ時間, 'session': セッション全体時間)
@@ -877,7 +880,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       {/* 1. 上部コントロールバー (フラットデザイン) */}
       {/* グラフ解析に埋め込んだ狭い枠では、右側のボタンが切れないよう横にスクロールできるようにする */}
       {/* ボタンの文字は折り返さない。入りきらないときは横にスクロールし、広い画面でだけ文字を出すボタンもある */}
-      <div className="h-11 bg-surface-1 border-b border-line-1 px-3 flex items-center justify-between gap-2 shrink-0 overflow-x-auto overflow-y-hidden [&_button]:whitespace-nowrap [&_button]:shrink-0">
+      <div ref={toolbarScrollRef} className="h-11 bg-surface-1 border-b border-line-1 px-3 flex items-center justify-between gap-2 shrink-0 overflow-x-auto overflow-y-hidden [&_button]:whitespace-nowrap [&_button]:shrink-0">
         <div className="flex items-center gap-2.5 shrink-0">
           <span className="text-xs font-bold text-slate-100 flex items-center gap-1.5 shrink-0 whitespace-nowrap" title={t('車載動画同期', 'Onboard video sync')}>
             <Video size={15} className="text-red-500" />

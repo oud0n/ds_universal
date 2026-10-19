@@ -144,21 +144,22 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       if (lon > maxLon) maxLon = lon;
     };
 
-    // コースポリライン
-    if (pathPolylines && pathPolylines.length > 0) {
-      for (const poly of pathPolylines) {
-        for (const [lon, lat] of poly) {
-          includePoint(lat, lon);
-        }
-      }
-    }
-
     // 車両ポイント。基準車から遠く離れた場所 (別のコース) のログは表示範囲に入れない (基準車のコースが小さく潰れるため)
     const origin = cars[0]?.lap.points[0];
     for (const car of cars) {
       if (origin && car !== cars[0] && !passesNearPoint(car.lap.points, origin.latitude, origin.longitude, NEAR_BASE_RADIUS_M)) continue;
       for (const p of car.lap.points) {
         includePoint(p.latitude, p.longitude);
+      }
+    }
+
+    // コースポリラインは、走行の線がないときだけ範囲に入れる。OSM から取ったコース図には、サーキットの敷地の輪郭・ピットロード・
+    // 別のコースも入っていて、それに合わせると走行の線が小さく隅に寄る (2026-10-19、筑波で 900 m 四方の輪郭)
+    if (minLat === 90 && pathPolylines && pathPolylines.length > 0) {
+      for (const poly of pathPolylines) {
+        for (const [lon, lat] of poly) {
+          includePoint(lat, lon);
+        }
       }
     }
 
@@ -414,10 +415,33 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       }
     }
 
+    // 計測線・セクターの名前は、線のコースの外側の端の先に書く (線の真ん中に書くと、走行の線と車の印に重なって読めない)。
+    // 外側は、コース図の真ん中から遠いほうの端とする
+    const mapCenter = toScreen(latMid, lonMid);
+    const drawGateLabel = (pA: { x: number; y: number }, pB: { x: number; y: number }, text: string, color: string) => {
+      const dA = Math.hypot(pA.x - mapCenter.x, pA.y - mapCenter.y);
+      const dB = Math.hypot(pB.x - mapCenter.x, pB.y - mapCenter.y);
+      const [inner, outer] = dA >= dB ? [pB, pA] : [pA, pB];
+      const len = Math.hypot(outer.x - inner.x, outer.y - inner.y) || 1;
+      const ux = (outer.x - inner.x) / len, uy = (outer.y - inner.y) / len;
+      const x = outer.x + ux * 6, y = outer.y + uy * 6;
+      ctx.textAlign = ux > 0.35 ? 'left' : ux < -0.35 ? 'right' : 'center';
+      ctx.textBaseline = uy > 0.35 ? 'top' : uy < -0.35 ? 'bottom' : 'middle';
+      // 縁取りをして、下の線の上でも読めるようにする
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = C.bg;
+      ctx.strokeText(text, x, y);
+      ctx.fillStyle = color;
+      ctx.fillText(text, x, y);
+      ctx.textBaseline = 'alphabetic';
+    };
+
     // 2. コントロールライン (スタート/フィニッシュ)
+    let finishMid: { x: number; y: number } | null = null;
     if (controlLine) {
       const pA = toScreen(controlLine.latA, controlLine.lonA);
       const pB = toScreen(controlLine.latB, controlLine.lonB);
+      finishMid = { x: (pA.x + pB.x) / 2, y: (pA.y + pB.y) / 2 };
 
       ctx.strokeStyle = C.strong;
       ctx.lineWidth = 3;
@@ -426,11 +450,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       ctx.lineTo(pB.x, pB.y);
       ctx.stroke();
 
-      // チェッカー柄またはラベル
-      ctx.fillStyle = C.strong;
       ctx.font = 'bold 10px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('FINISH', (pA.x + pB.x) / 2, (pA.y + pB.y) / 2 - 6);
+      drawGateLabel(pA, pB, 'FINISH', C.strong);
     }
 
     // 3. セクターゲート (S1, S2, S3...)
@@ -447,10 +468,10 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      ctx.fillStyle = C.sector;
+      // 計測線と同じ所にあるセクター (最後のセクターの終わり) は、FINISH と重なるので名前を書かない
+      if (finishMid && Math.hypot((pA.x + pB.x) / 2 - finishMid.x, (pA.y + pB.y) / 2 - finishMid.y) < 14) return;
       ctx.font = 'bold 9px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(sec.name || `S${idx + 1}`, (pA.x + pB.x) / 2, (pA.y + pB.y) / 2 - 5);
+      drawGateLabel(pA, pB, sec.name || `S${idx + 1}`, C.sector);
     });
 
     // 4. 車両の走行ライン (GPSトラック)
@@ -756,8 +777,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         </div>
       </div>
 
-      {/* Canvas */}
-      <div className={`relative flex-1 w-full h-full ${compact ? 'min-h-0' : 'min-h-[220px]'}`}>
+      {/* Canvas。ウインドウの残りの高さに合わせる (h-full・最低の高さを付けると、上の段が 2 行になったときに枠の外へはみ出し、コース図の下が切れる) */}
+      <div className="relative flex-1 w-full min-h-0">
         <canvas
           ref={canvasRef}
           {...pointerHandlers}
