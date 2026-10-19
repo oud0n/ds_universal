@@ -747,7 +747,7 @@ export const App: React.FC = () => {
         if (cl?.name === AUTO_CONTROL_LINE_NAME && sec.length === 0) {
           const full = extractLaps(rawPoints, cl, []).laps.filter(l => !l.isPartialLap && !l.isWholeSession);
           const fastest = full.reduce<typeof full[number] | undefined>((a, l) => (!a || l.lapTime < a.lapTime ? l : a), undefined);
-          if (fastest) sec = createEqualSectors(rawPoints, fastest);
+          if (fastest) sec = createEqualSectors(rawPoints, fastest, cl);
         }
       }
       // 出どころの分からない手がかりのコース図は、手で読み込んだものとして扱う (一括設置で置き換えないように)
