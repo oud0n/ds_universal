@@ -3,6 +3,8 @@
  * チャプターの中の位置を決める。動画は基準のログの時刻に置いたもの (PlacedTrack) を使う
  */
 import type { PlacedTrack } from './videoSyncManager';
+import type { Lap, Session } from '../types/telemetry';
+import { clockOffsetIn } from './mediaClock';
 import { groupVideoTracksByChapter, resolveChapterPlayback } from './videoChapterManager';
 
 export interface PlayableMedia {
@@ -67,4 +69,24 @@ export function positionInMedia(media: PlayableMedia, sessionTime: number): Medi
 /** メディアの中の位置 (先頭からの秒) に出す位置。走行比較で、比較の車の時刻から決めた位置に使う */
 export function positionAtMediaTime(media: PlayableMedia, mediaSec: number): MediaPosition {
   return positionInMedia(media, media.startSec + mediaSec);
+}
+
+/** その車のログの時刻での、メディアの最初のコマの位置 (秒)。決まらなければ null */
+export function mediaStartIn(media: PlayableMedia, session: Session, sessions: Session[]): number | null {
+  return clockOffsetIn(media.tracks[0].clock, session, sessions);
+}
+
+/**
+ * その周を映している動画: そのログの時刻に置いて、周と重なる時間がいちばん長いもの。重なるものがなければ undefined
+ * (走行比較で、Car ごとの枠に出す動画)
+ */
+export function mediaForLap(media: PlayableMedia[], session: Session, lap: Lap, sessions: Session[]): PlayableMedia | undefined {
+  let best: PlayableMedia | undefined, bestOverlap = 0;
+  for (const m of media) {
+    const start = mediaStartIn(m, session, sessions);
+    if (start === null) continue;
+    const overlap = Math.min(lap.endTime, start + (m.endSec - m.startSec)) - Math.max(lap.startTime, start);
+    if (overlap > bestOverlap) { best = m; bestOverlap = overlap; }
+  }
+  return best;
 }

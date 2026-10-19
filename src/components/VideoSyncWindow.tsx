@@ -19,8 +19,8 @@ import {
   formatPinTime
 } from '../services/videoSyncPinManager';
 import { videoViewStore, useVideoView, useVideoTracks, useSyncPins, useWindowView, PipPosition, MAX_CAMERAS, videoEndSessionSec } from '../services/videoViewStore';
-import { PlaybackController } from '../services/playbackController';
-import { buildMedia, positionInMedia, positionAtMediaTime, PlayableMedia, MediaPosition } from '../services/playableMedia';
+import { PlaybackController, PlaybackTarget } from '../services/playbackController';
+import { buildMedia, positionInMedia, positionAtMediaTime, mediaForLap, mediaStartIn, PlayableMedia, MediaPosition } from '../services/playableMedia';
 import { VideoTile, TileOverlay } from './video/VideoTile';
 import { VideoStage } from './video/VideoStage';
 import { 
@@ -318,27 +318,71 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const cameras = cameraIds.map(id => media.find(m => m.id === id)).filter((m): m is PlayableMedia => !!m);
   const mainMedia = cameras[0];
   const renderSessionTime = isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec;
-  // 走行比較 (LATER-11): 2 つ目のカメラを比較の車に合わせ、メインの車と同じ地点を走った時刻の映像を出す
   const isCompare = win.mode === 'compare';
-  const compareCar = isCompare ? compareCars?.find(c => c.slot.slot === win.compareSlot) : undefined;
-  const compareSession = compareCar ? sessions.find(s => s.id === compareCar.slot.sessionId) : undefined;
-  const compareOrigLap = compareSession?.laps.find(l => l.lapNumber === compareCar?.slot.lapNumber);
-  /** 比較の車の動画の位置。比較の車がその地点を走っていないとき・時刻が決まらないときは映像なし */
-  const comparePosition = (m: PlayableMedia, sessionTime: number): MediaPosition => {
-    const none: MediaPosition = { track: m.tracks[0], localTime: -1, durationSec: m.tracks[0].durationSec, outOfRange: true };
-    if (!compareCar || !compareOrigLap || !baseLap || !compareSession) return none;
-    const d = lapDistanceAtTime(baseLap.points, sessionTime - baseLap.startTime);
-    const ct = d === null ? null : compareSessionTimeAtDistance(compareCar.lap, compareOrigLap, d);
-    const start = clockOffsetIn(m.tracks[0].clock, compareSession, sessions);
-    return ct === null || start === null ? none : positionAtMediaTime(m, ct - start);
+
+  /**
+   * 枠 1 つ分。マルチカメラ: 出すカメラごと (時刻は Car 1 の時刻のまま、メーターはメインだけ)。
+   * 走行比較: Car 1〜4 ごと (docs/video_sets_design.md の 6)。Car 1 の時刻 → Car 1 の周の中の距離 (グラフと同じ合わせ方) →
+   * Car k がその距離に来た時刻 → その動画の中の位置。動画は、その車のログの時刻で周を映しているもの (選べる)
+   */
+  interface Tile {
+    media?: PlayableMedia;
+    position: MediaPosition | null;
+    /** 再生の速さの倍率 (走行比較: 距離の対応の傾き) */
+    rate?: number;
+    /** メーターに出す車のログ・周・時刻 */
+    gauge?: { session: Session | undefined; lap: Lap | undefined; time: number };
+    slot?: number;
+    color?: string;
+    /** Car 1 とのタイム差 (秒、+ なら遅い) */
+    delta?: number | null;
+    /** 選んだ動画か (false: 自動) */
+    chosen?: boolean;
+  }
+  const noFootage = (m: PlayableMedia): MediaPosition => ({ track: m.tracks[0], localTime: -1, durationSec: m.tracks[0].durationSec, outOfRange: true });
+  const compareTiles = (sessionTime: number): Tile[] => {
+    const cars = [...(compareCars ?? [])].sort((a, b) => a.slot.slot - b.slot.slot);
+    if (!baseLap) return [];
+    const baseElapsed = sessionTime - baseLap.startTime;
+    const d = lapDistanceAtTime(baseLap.points, baseElapsed);
+    return cars.map(car => {
+      const session = sessions.find(s => s.id === car.slot.sessionId);
+      const lap = session?.laps.find(l => l.lapNumber === car.slot.lapNumber);
+      const chosenId = view.compareCameras[car.slot.slot];
+      const m = (chosenId ? media.find(x => x.id === chosenId) : undefined) ?? (session && lap ? mediaForLap(media, session, lap, sessions) : undefined);
+      const isBase = car.slot.slot === 0;
+      // その車の、その距離での時刻 (ログの時刻)。Car 1 は今の時刻そのもの
+      const timeAt = (t: number): number | null => {
+        if (isBase) return t;
+        if (!lap) return null;
+        const dd = lapDistanceAtTime(baseLap.points, t - baseLap.startTime);
+        return dd === null ? null : compareSessionTimeAtDistance(car.lap, lap, dd);
+      };
+      const ct = isBase ? sessionTime : d === null || !lap ? null : compareSessionTimeAtDistance(car.lap, lap, d);
+      const start = m && session ? mediaStartIn(m, session, sessions) : null;
+      const position = !m ? null : ct === null || start === null ? noFootage(m) : positionAtMediaTime(m, ct - start);
+      // 速さの倍率: 約 0.5 秒先までの、距離の対応の傾き (遅い車の動画ほど速く回す)
+      let rate: number | undefined;
+      if (!isBase && ct !== null) {
+        const ahead = timeAt(sessionTime + 0.5), behind = timeAt(sessionTime - 0.5);
+        rate = ahead !== null ? (ahead - ct) / 0.5 : behind !== null ? (ct - behind) / 0.5 : 1;
+      }
+      return {
+        media: m, position, rate, slot: car.slot.slot, color: car.slot.colorHex, chosen: !!chosenId,
+        gauge: { session, lap, time: ct ?? sessionTime },
+        delta: isBase || ct === null || !lap ? null : (ct - lap.startTime) - baseElapsed
+      };
+    });
   };
-  const positionOf = (i: number, sessionTime: number): MediaPosition =>
-    i > 0 && isCompare ? comparePosition(cameras[i], sessionTime) : positionInMedia(cameras[i], sessionTime);
-  // 走行比較は、メインと比較の車の 2 枠
-  const tileCount = isCompare ? Math.min(cameras.length, 2) : cameras.length;
-  const positions = Array.from({ length: tileCount }, (_, i) => positionOf(i, renderSessionTime));
+  const tiles: Tile[] = isCompare
+    ? compareTiles(renderSessionTime)
+    : cameras.map((m, i) => ({ media: m, position: positionInMedia(m, renderSessionTime), gauge: i === 0 ? { session: baseSession, lap: baseLap, time: renderSessionTime } : undefined }));
+  const tileCount = tiles.length;
+  const positions = tiles.map(x => x.position);
   // 同期の調整・書き出しの対象は、メインのカメラの今のチャプター
   const activeTrack: PlacedTrack | undefined = positions[0]?.track ?? mainMedia?.tracks[0];
+  // 走行比較で動画のない枠も出す (メーターだけ)。マルチカメラでカメラがないときは、動画を読み込む案内を出す
+  const hasStage = isCompare ? tileCount > 0 : !!(activeTrack && activeTrack.objectUrl);
   // グラフ解析に埋め込んだときは、タイムゾーン・再同期の段とタイムラインを、ボタンで開くまで隠す。
   // 狭い枠ではこれらの段が場所を使い切り、動画の映る部分の高さが 0 になっていた (BUG-19)。同期の調整は動画同期の画面でもできる
   const [showSyncTools, setShowSyncTools] = useState(!isGraphEmbedded);
@@ -402,7 +446,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   useEffect(() => {
     if (isExporting) return;
     if (!isVisible || isAnyExporting) { playback.pauseAll(); return; }
-    const targets = new Map(positions.slice(0, shownCount).map((p, i) => [`tile-${i}`, p]));
+    const targets = new Map<string, PlaybackTarget>();
+    tiles.slice(0, shownCount).forEach((x, i) => { if (x.position) targets.set(`tile-${i}`, { ...x.position, rate: x.rate }); });
     playback.sync(targets, isPlaying, playbackSpeed);
   });
 
@@ -607,9 +652,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   };
 
   // メインの枠に重ねるメーター。PinP の小窓がある隅のメーターは、小窓の横へずらす (BUG-23)
-  const mainOverlay: TileOverlay = {
-    tick: renderSessionTime,
-    draw: (ctx, w, h, avoidW) => drawTelemetryOverlayOnCanvas(ctx, w, h, renderSessionTime, baseSession, baseLap, showGForce, win.layout === 'pip' && tileCount > 1 ? pipPosition : null, avoidW)
+  // 枠に重ねるメーター (その枠の車のログ・時刻)。マルチカメラではメインの枠だけ
+  const overlayFor = (x: Tile, i: number): TileOverlay | null => {
+    const g = x.gauge;
+    if (!g || !showOverlay || !isVisible) return null;
+    return {
+      tick: g.time,
+      draw: (ctx, w, h, avoidW) => drawTelemetryOverlayOnCanvas(ctx, w, h, g.time, g.session, g.lap, showGForce, i === 0 && win.layout === 'pip' && tileCount > 1 ? pipPosition : null, avoidW)
+    };
   };
 
   return (
@@ -658,28 +708,44 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               >
                 {t('マルチカメラ', 'Cameras')}
               </button>
-              <select
-                value={isCompare ? String(win.compareSlot) : ''}
-                onChange={e => setWin({ mode: 'compare', compareSlot: Number(e.target.value) })}
-                disabled={!(compareCars ?? []).some(c => c.slot.slot !== 0)}
-                className={`px-1 py-1 text-[10px] font-bold outline-none cursor-pointer disabled:opacity-40 ${isCompare ? 'bg-red-600 text-white' : 'bg-transparent text-slate-400'}`}
-                title={t('走行比較: 2 つ目のカメラを比較の車 (Car 2〜4) の動画として、メインの車と同じ地点を走ったときの映像を出します', 'Run comparison: the second camera is the comparison car (Car 2-4) and shows the moment it was at the same point as the main car')}
+              <button
+                onClick={() => setWin({ mode: 'compare', focus: null })}
+                disabled={(compareCars ?? []).length < 2 || !baseLap}
+                className={`px-2 py-1 text-[10px] font-bold transition-colors cursor-pointer disabled:opacity-40 ${isCompare ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                title={t('走行比較: Car 1〜4 の周の動画を、Car 1 と同じ地点を走ったときの映像で並べます。2 台以上の Car を選ぶと使えます', 'Run comparison: shows the videos of the Car 1-4 laps at the moment each car was at the same point as Car 1. Needs two or more cars')}
               >
-                <option value="" disabled>{t('走行比較', 'Compare')}</option>
-                {(compareCars ?? []).filter(c => c.slot.slot !== 0).map(c => (
-                  <option key={c.slot.slot} value={c.slot.slot} className="bg-surface-3 text-slate-200">{t('走行比較', 'Compare')}: Car {c.slot.slot + 1}</option>
-                ))}
-              </select>
+                {t('走行比較', 'Compare')}
+              </button>
             </div>
           )}
 
-          {/* カメラの選択。1 つ目がメイン。走行比較では 2 つ目が比較の車の動画 */}
-          {media.length > 0 && (
+          {/* 走行比較: Car ごとの動画 (既定は、その車のログの時刻で周を映している動画) */}
+          {isCompare && media.length > 0 && (
             <div className="flex items-center gap-1 pl-2 border-l border-line-2">
-              {cameras.slice(0, isCompare ? 2 : MAX_CAMERAS).map((m, i) => (
+              {tiles.map(x => (
+                <div key={x.slot} className="flex items-center">
+                  <span className="text-[10px] font-bold mr-0.5" style={{ color: x.color }}>Car {(x.slot ?? 0) + 1}</span>
+                  <select
+                    value={x.chosen && x.media ? x.media.id : ''}
+                    onChange={e => videoViewStore.setCompareCamera(x.slot ?? 0, e.target.value || null)}
+                    className="bg-surface-3 border border-line-3 text-xs text-slate-200 rounded px-1 py-1 outline-none max-w-[120px] truncate cursor-pointer"
+                    title={t('この車の枠に出す動画。自動: この車のログの時刻で、周を映している動画', 'Video for this car. Auto: the video that covers the lap in this car\'s log time')}
+                  >
+                    <option value="">{t('自動', 'Auto')}{!x.chosen ? `: ${x.media?.label ?? t('なし', 'none')}` : ''}</option>
+                    {media.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* カメラの選択。1 つ目がメイン */}
+          {!isCompare && media.length > 0 && (
+            <div className="flex items-center gap-1 pl-2 border-l border-line-2">
+              {cameras.map((m, i) => (
                 <div key={i} className="flex items-center">
                   <span className="text-[10px] text-slate-400 font-medium mr-0.5">
-                    {i === 0 ? t('メイン', 'Main') : isCompare ? `Car ${win.compareSlot + 1}` : `${i + 1}`}
+                    {i === 0 ? t('メイン', 'Main') : `${i + 1}`}
                   </span>
                   <select
                     value={m.id}
@@ -699,7 +765,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   )}
                 </div>
               ))}
-              {cameras.length < Math.min(isCompare ? 2 : MAX_CAMERAS, media.length) && (
+              {cameras.length < Math.min(MAX_CAMERAS, media.length) && (
                 <button
                   onClick={() => videoViewStore.setCamera(cameras.length, media.find(x => !cameraIds.includes(x.id))?.id ?? null)}
                   className="flex items-center gap-0.5 px-1.5 py-1 rounded bg-surface-3 hover:bg-surface-5 text-[10px] text-slate-300 border border-line-3 cursor-pointer"
@@ -934,7 +1000,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           </div>
         )}
 
-        {activeTrack && activeTrack.objectUrl ? (
+        {hasStage ? (
           <>
             {/* カメラの枠 (VideoStage が並べ、VideoTile が 1 つずつ出す)。メーターはメインの枠に重ねる */}
             <VideoStage
@@ -944,11 +1010,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               pipPosition={pipPosition}
               pipRef={pipRef}
               renderTile={(i, size) => {
-                const m = cameras[i];
+                const x = tiles[i];
                 const isMain = i === 0;
                 // 音を出すのは、大きく出している枠 (なければメイン) だけ
                 const sound = win.focus !== null ? i === win.focus : isMain;
-                const car1Color = selectedCars.find(c => c.slot === 0)?.colorHex;
                 return (
                   <VideoTile
                     key={`tile-${i}`}
@@ -957,16 +1022,25 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     position={positions[i] ?? null}
                     muted={!sound}
                     onSeeked={handleSeeked}
-                    overlay={isMain && showOverlay && isVisible ? mainOverlay : null}
+                    overlay={overlayFor(x, i)}
                     avoidRef={isMain && win.layout === 'pip' ? pipRef : undefined}
-                    accent={isCompare ? (isMain ? car1Color : compareCar?.slot.colorHex) : undefined}
+                    accent={isCompare ? x.color : undefined}
+                    emptyText={isCompare ? t('この周を映している動画がありません', 'No video covers this lap') : undefined}
                     onClick={win.layout === 'grid' && tileCount > 1 && size !== 'pip' ? () => setWin({ focus: win.focus === i ? null : i }) : undefined}
                     className="flex-1 w-full h-full"
-                    badge={tileCount > 1 && (
+                    badge={(tileCount > 1 || isCompare) && (
                       <>
-                        <span className={`truncate ${isMain ? 'text-red-400' : 'text-blue-400'}`}>
-                          {isCompare ? `Car ${isMain ? 1 : win.compareSlot + 1}: ` : ''}{m.label}
-                        </span>
+                        {isCompare ? (
+                          <>
+                            <span className="font-bold" style={{ color: x.color }}>Car {(x.slot ?? 0) + 1}</span>
+                            {x.delta !== undefined && x.delta !== null && (
+                              <span className={x.delta > 0 ? 'text-red-300' : 'text-emerald-300'}>{x.delta >= 0 ? '+' : '−'}{Math.abs(x.delta).toFixed(2)}</span>
+                            )}
+                            {x.media && <span className="truncate text-slate-400 font-normal">{x.media.label}</span>}
+                          </>
+                        ) : (
+                          <span className={`truncate ${isMain ? 'text-red-400' : 'text-blue-400'}`}>{x.media?.label}</span>
+                        )}
                         {!isMain && !isCompare && (
                           <button
                             onClick={e => { e.stopPropagation(); videoViewStore.makeMain(i); }}
@@ -998,7 +1072,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             />
 
             {/* 録画開始前インジケーター */}
-            {(isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec) < activeTrack.syncOffsetSec && (
+            {!isCompare && activeTrack && renderSessionTime < activeTrack.syncOffsetSec && (
               <div className="absolute top-3 bg-amber-950/90 border border-amber-600 text-amber-200 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-medium z-20">
                 <Clock size={14} className="text-amber-400 animate-pulse shrink-0" />
                 <span>{t('動画開始まであと', 'Video starts in')} <strong className="font-mono text-amber-300">{(activeTrack.syncOffsetSec - (isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec)).toFixed(1)}s</strong></span>
