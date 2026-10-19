@@ -72,7 +72,13 @@ export const BleCapturePanel: React.FC<{ snap: LoggerLinkSnapshot }> = ({ snap }
   const decodeAndExport = (fileName: string) => run(async () => {
     const decoded = decodeCapture(await backend.read(fileName));
     setSummary({ fileName, s: decoded.summary });
-    await backend.exportText(fileName.replace(/\.csv$/, '') + '-decoded.csv', decodedCaptureCsv(decoded));
+    // 記録中のファイルは、その時点までの中身になる。止めたあとのものと取り違えないよう、名前と見出しに「途中まで」と時刻を入れる
+    const now = new Date();
+    const hhmm = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+    const partial = status.recording && status.fileName === fileName;
+    const name = fileName.replace(/\.csv$/, '') + (partial ? `-partial-${hhmm}` : '') + '-decoded.csv';
+    const note = partial ? `# partial: recording was still running; contents up to ${now.toISOString()}\n` : '';
+    await backend.exportText(name, note + decodedCaptureCsv(decoded));
   });
 
   const showSummary = (fileName: string) => run(async () => {
