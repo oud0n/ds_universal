@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { X, Coffee, ExternalLink, Copy, Check, Heart, Star, Smartphone, Sparkles } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { openExternalUrl } from '../utils/url';
 import { useT } from '../utils/i18n';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface DonateModalProps {
   isOpen: boolean;
@@ -16,14 +17,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
   const t = useT();
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  useEscapeKey(isOpen, onClose);
 
   if (!isOpen) return null;
 

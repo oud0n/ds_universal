@@ -41,6 +41,7 @@ import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
 import { bleLoggerLink } from './services/bleLoggerLink';
 import { useWheelScrollX } from './hooks/useWheelScrollX';
+import { isDialogOpen } from './hooks/useEscapeKey';
 import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
 import { Freeze } from './components/Freeze';
 import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
@@ -442,8 +443,9 @@ export const App: React.FC = () => {
   // キーボードショートカット (Space: 再生/停止, F / →: コマ送り, B / ←: コマ戻し, Shift で 1 秒単位)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // 入力フォーム操作中は無視
+      // 入力フォーム操作中・ダイアログを開いているあいだは無視 (後ろの画面の再生が動かないように)
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+      if (isDialogOpen()) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
 
       const step = e.shiftKey ? 1 : 0.1;

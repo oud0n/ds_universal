@@ -6,6 +6,11 @@ import { useEffect, useRef } from 'react';
  */
 const stack: Array<{ current: () => void }> = [];
 
+/** Esc で閉じるダイアログ・パネルが開いているか (開いているあいだは、再生のキー操作を後ろの画面に効かせない) */
+export function isDialogOpen(): boolean {
+  return stack.length > 0;
+}
+
 export function useEscapeKey(active: boolean, onClose: () => void): void {
   const ref = useRef(onClose);
   ref.current = onClose;
