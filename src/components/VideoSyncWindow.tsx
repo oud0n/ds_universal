@@ -1492,7 +1492,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       {/* 6. 速度ウィンドウ完全同期 シークバー (Lap/Session切替対応) */}
       {(() => {
         // グラフ解析に埋め込んだときは、グラフ解析の下の段 (PlayBar) でシーク・再生するので出さない (二重にしない)
-        if (isGraphEmbedded) return null;
+        if (isGraphEmbedded && baseLap) return null;
         const effectiveSessionTime = isGraphEmbedded && baseLap ? (baseLap.startTime + currentTimeSec) : currentTimeSec;
         // グラフ画面の動画は選んだ周の中だけで再生する (App の時刻が周の時刻なので、周の外へは動かせない)。
         // ログ全体を見るのは動画同期タブ
@@ -1574,10 +1574,11 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
       {/* 6. 下部同期調整 ＆ 再生コントロールバー (フラットデザイン)。グラフ解析に埋め込んだときは、再生のボタンはグラフ解析の下の段に任せ、
           同期の調整を出すときだけこの段を出す */}
-      {(!isGraphEmbedded || (activeTrack && (!isCompactLayout || showSyncTools))) && (
+      {(!isGraphEmbedded || !baseLap || (activeTrack && (!isCompactLayout || showSyncTools))) && (
       <div className="min-h-12 py-1 bg-surface-1 border-t border-line-1 px-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 shrink-0">
         {/* 再生ボタン群 */}
-        {!isGraphEmbedded && (
+        {/* グラフ解析で周を選んでいるときは、グラフ解析の下の段に任せる (周がないときは、その段が出ないのでここに出す) */}
+        {!(isGraphEmbedded && baseLap) && (
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => seekTo(Math.max(0, currentTimeSec - 1.0))}

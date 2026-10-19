@@ -41,6 +41,8 @@ export const PlayBar: React.FC<{
         step={0.05}
         value={Math.max(0, Math.min(currentTime, end))}
         onChange={e => onSeekTime(Number(e.target.value))}
+        // 触り終わったら注目を外す (入力欄に注目があると、スペース・矢印キーの再生・コマ送りが効かないため)
+        onPointerUp={e => e.currentTarget.blur()}
         className={`flex-1 min-w-0 cursor-pointer accent-red-500 ${compact ? 'h-6' : 'h-1'}`}
         aria-label={t('再生位置', 'Playback position')}
       />
@@ -76,7 +78,7 @@ export const PlayBar: React.FC<{
       </button>
       <select
         value={String(playbackSpeed)}
-        onChange={e => onChangePlaybackSpeed(Number(e.target.value))}
+        onChange={e => { onChangePlaybackSpeed(Number(e.target.value)); e.currentTarget.blur(); }}
         className="bg-surface-3 border border-line-3 text-[11px] font-mono text-slate-300 rounded px-1.5 py-1 outline-none ml-1.5 cursor-pointer"
         aria-label={t('再生速度', 'Playback speed')}
       >
