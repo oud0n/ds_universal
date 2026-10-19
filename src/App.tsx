@@ -583,6 +583,9 @@ export const App: React.FC = () => {
   // GoPro の動画 (1 回の撮影のチャプター、順に並べたもの) の GPS を走行ログとして読み込み、同じ動画を動画同期にも登録する。
   // GPS と映像は同じ時計なので、撮影時刻からの照合でなく、GPS の時刻から求めたずれで合わせる
   const loadGoproVideos = async (files: File[]) => {
+    // もう動画同期に登録してある動画なら何もしない (GPS のログを二重に読み込まない。動画同期のタブの「動画追加」から入れ直したときなど)
+    const registered = videoSyncManager.getTracks();
+    if (files.every(f => registered.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size))) return;
     let log;
     try {
       log = await parseGoproGps(files.map(blobByteSource));
@@ -1615,7 +1618,7 @@ export const App: React.FC = () => {
             onChangePlaybackSpeed={setPlaybackSpeed}
             onChooseLog={setBaseSession}
             onPickCompareLap={(sessionId, lapNumber) => handleSelectCarSlot(1, sessionId, lapNumber)}
-                      onLoadFiles={loadFiles}
+            onLoadFiles={loadFiles}
             viewKey="video-tab"
             onSetClockOffset={setSessionClockOffset}
             compareCars={activeCars}
