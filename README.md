@@ -1,10 +1,12 @@
-<p align="center"><img src="build/icon.svg" width="128" height="128" alt="DS Universal のアイコン"></p>
+<p align="center"><img src="build/icon.svg" width="128" height="128" alt="LapLoupe のアイコン"></p>
 
-# DS Universal (`ds_universal`)
+# LapLoupe（ラップルーペ、旧名 DS Universal）
 
 **日本語** | [English](README.en.md)
 
-**デジスパイスIV（DigSpice IV）USB通信・ログ吸い出し ＆ モータースポーツ・テレメトリ解析・車載動画同期スイート**
+**デジスパイス（DigSpice IV）を Mac・Windows・ブラウザで使える、非公式の走行ログ解析ソフト**
+
+デジスパイスのログの吸い出し・本体の設定、走行ライン・車速・G の解析、GoPro などの車載動画との同期
 
 ![対応OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon-blue)
 ![検証状況](https://img.shields.io/badge/Verified-macOS%20Only-amber)
@@ -22,11 +24,17 @@
 > **サポート対象プラットフォーム**: Windows (x64) / macOS (Apple Silicon, arm64)。  
 > Linux および Intel Mac（Rosetta 2 経由での実行を含む）はサポート対象外で、バイナリも配布していません。
 
+> [!NOTE]
+> ### 名前を変えました（2026-10-19）
+> 「DS Universal」から **LapLoupe（ラップルーペ）** に名前を変えました。
+> 「DS Universal」で検索すると、ゲーム機の改造ソフトなど、このアプリと関係のない、あまり好ましくないサイトばかりが出てくるためです。
+> リポジトリの名前（`ds_universal`）とブラウザ版の URL は変わりません。アプリの中の表記は、順に新しい名前に直します。
+
 ---
 
 ## 🏎️ 概要
 
-**DS Universal (`ds_universal`)** は、サーキット走行用GPSデータロガー「デジスパイスIV」のデータ吸い出し・設定変更から、走行軌跡・車速・Gフォースの本格テレメトリ解析、さらにはGoPro車載動画とのミリ秒精度自動同期・2カメラPinP再生・メーター焼き込みMP4エクスポートまでを1つに統合した、ソースコード公開のデスクトップアプリケーションです。
+**LapLoupe（旧名 DS Universal、`ds_universal`）** は、公式の解析ソフトが Windows 専用のデジスパイスを、Mac でもブラウザでも使えるようにする非公式のソフトです。サーキット走行用GPSデータロガー「デジスパイスIV」のデータ吸い出し・設定変更から、走行軌跡・車速・Gフォースの本格テレメトリ解析、さらにはGoPro車載動画とのミリ秒精度自動同期・2カメラPinP再生・メーター焼き込みMP4エクスポートまでを1つに統合した、ソースコード公開のアプリです（デスクトップ版とブラウザ版）。
 
 ---
 
