@@ -1,10 +1,12 @@
-<p align="center"><img src="build/icon.svg" width="128" height="128" alt="DS Universal icon"></p>
+<p align="center"><img src="build/icon.svg" width="128" height="128" alt="LapLoupe icon"></p>
 
-# DS Universal (`ds_universal`)
+# LapLoupe (formerly DS Universal)
 
 [日本語](README.md) | **English**
 
-**DigSpice IV USB communication and log download, motorsport telemetry analysis, and onboard video sync**
+**An unofficial lap data analyser for the DigSpice GPS logger that runs on Mac, Windows and in the browser**
+
+Log download and logger settings for DigSpice IV, racing line / speed / G analysis, and onboard video (GoPro etc.) sync
 
 ![Supported OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon-blue)
 ![Verification](https://img.shields.io/badge/Verified-macOS%20Only-amber)
@@ -24,11 +26,17 @@
 
 The app's screens can be switched between Japanese and English ("JA / EN" at the top right). The first time, it follows your browser's language.
 
+> [!NOTE]
+> ### New name (2026-10-19)
+> The app was renamed from "DS Universal" to **LapLoupe**.
+> Searching for "DS Universal" mostly brings up unrelated, rather undesirable sites such as game console modding tools.
+> The repository name (`ds_universal`) and the browser version's URL stay the same. The name inside the app will be updated step by step.
+
 ---
 
 ## 🏎️ Overview
 
-**DS Universal (`ds_universal`)** is a source-available desktop application for the DigSpice IV, a GPS data logger for circuit driving. It brings together downloading logs from the logger and changing its settings, telemetry analysis of the driving line, speed and G-forces, and onboard video: automatic synchronisation with GoPro footage to the millisecond, two-camera picture-in-picture playback, and exporting MP4 video with the gauges burned in.
+**LapLoupe (formerly DS Universal, `ds_universal`)** is an unofficial, source-available app (desktop and browser) for the DigSpice IV, a GPS data logger for circuit driving whose official analysis software runs only on Windows. a GPS data logger for circuit driving. It brings together downloading logs from the logger and changing its settings, telemetry analysis of the driving line, speed and G-forces, and onboard video: automatic synchronisation with GoPro footage to the millisecond, two-camera picture-in-picture playback, and exporting MP4 video with the gauges burned in.
 
 ---
 
