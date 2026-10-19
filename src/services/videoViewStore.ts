@@ -147,9 +147,16 @@ export interface WindowViewState {
   pipPosition: PipPosition;
   showOverlay: boolean;
   showGForce: boolean;
+  /**
+   * 走行比較の合わせ方。distance: Car 1 と同じ地点を走ったときの映像 (比べる車の動画は速さを変えて回す)。
+   * time: 周の始めからの同じ経過時間の映像 (比べる車も 1 倍で回す。差が開くと映る場所がずれる)
+   */
+  compareAlign: CompareAlign;
 }
 
-const WINDOW_DEFAULT: WindowViewState = { mode: 'cameras', layout: 'grid', focus: null, pipPosition: 'bottom-right', showOverlay: true, showGForce: true };
+export type CompareAlign = 'distance' | 'time';
+
+const WINDOW_DEFAULT: WindowViewState = { mode: 'cameras', layout: 'grid', focus: null, pipPosition: 'bottom-right', showOverlay: true, showGForce: true, compareAlign: 'distance' };
 
 /**
  * ウインドウごとの表示の状態。key ごとにブラウザに覚える (読めないとき・書けないときは既定のまま。動作には要らない)
