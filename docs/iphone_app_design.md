@@ -167,6 +167,54 @@ iPhone の動きのセンサー（CoreMotion: 重力の向き・加速度・回�
   デジスパイスのログを、あとで iPhone のセンサーの記録と時刻で合わせることもできる（2 つのログの比べと同じ考え）。
 - **確かめること**: 車の振動でセンサーがどのくらいぶれるか（ホルダーの固さによる）、付けた向きの自動の補正がどのくらいで決まるか。実車で記録して確かめる。
 
+## 7.6 ネイティブとの約束（窓口の仕様）と Android への移植
+
+Android のアプリも同じ Web を使えるよう、Web とネイティブの間の約束を先に決め、iPhone（Swift）と Android（Kotlin）はその約束を作るだけにする。
+**ネイティブ側には、解析・周の判定・機器ごとのデータの読み方を入れない**（入れたものは両方で書くことになるため）。
+
+### 決まり
+
+- **約束は TypeScript で書く**（`src/native/contract.ts`）。名前・引数・返す値・知らせ（イベント）の形をここで決め、版の番号を付ける。
+  ネイティブは起動時に版の番号と「できること」を返す。Web は「できること」で画面を出し分け、端末の種類では分けない。
+- **やりとりの形**: JSON の 1 通ごとに `id` を付け、呼び出しには `id` つきの答えが返る（Promise）。ネイティブからの知らせは `event` の名前つき。
+  バイト列は base64 にする。20 Hz の通知などは、ネイティブで 100 ms ごとにまとめて 1 通にする。
+- **時計**: ネイティブが付ける時刻は、すべて**同じ単調な時計**（起動からのナノ秒）。iPhone は `mach_absolute_time`（カメラのコマ・BLE・センサーと同じ）、
+  Android は `SystemClock.elapsedRealtimeNanos`（CameraX のコマ・センサーの時刻と同じ）。UTC への対応は、GPS の測位から Web が作る。
+- **エラー**: 決まった符号（`permission-denied`・`not-supported`・`not-connected`・`io`・`busy`）と、利用者に見せる文言（日本語・英語）を返す。
+- **許可**: 許可が要る機能（Bluetooth・カメラ・位置・ローカルネットワーク・マイク）は、使う直前に Web から頼み、状態（許可・拒否・未確認）を返す。
+
+### 約束の中身
+
+| まとまり | 呼び出し | 知らせ | iPhone | Android |
+|---|---|---|---|---|
+| `caps` | `getCapabilities()`: 版・端末の種類 (phone / tablet / foldable)・できること | 折りたたみの開閉・幅の変化 | | |
+| `ble` | `scan(名前の頭・サービス)`・`stopScan`・`connect(id)`・`subscribe(id, サービス, 特性)`・`write`・`disconnect` | `ble.device`・`ble.state`・`ble.notify`（受け取った時刻つきのバイト列をまとめたもの） | CoreBluetooth | android.bluetooth.le（Android 12 からは近くの機器の許可） |
+| `serial` | `list()`・`open(id, 速さ)`・`write`・`close` | `serial.data`・`serial.lost` | なし（iPhone は USB で機器とつなげない） | USB ホスト（usb-serial-for-android）。デジスパイスの USB の設定・吸い出しが、Android ではできる見込み |
+| `socket` | `connect(host, port, tcp/udp)`・`send`・`close` | `socket.data`・`socket.lost` | Network.framework | java.net / OkHttp |
+| `recorder` | `start(走行 id, 出どころの一覧)`・`stop()`・`list()`・`read(走行 id, 位置, 長さ)` | `recorder.state` | ファイルに書き足す | フォアグラウンドサービスで書き足す |
+| `files` | `list(場所)`・`read`・`write`・`remove`・`pick(種類)`・`share`・`mediaUrl(path)`（動画を範囲で読める URL） | `files.opened`（ほかのアプリから開いた） | Documents・iCloud Drive・`app://` | アプリのフォルダ・SAF・`WebViewAssetLoader` |
+| `camera` | `start(画質, fps)`・`stop()`・`preview(出す・出さない, 四角)` | `camera.state`・`camera.thermal` | AVFoundation | CameraX |
+| `motion` | `start(Hz)`・`stop()` | `motion.samples`（時刻・加速度・重力・回転） | CoreMotion | SensorManager |
+| `location` | `start()`・`stop()` | `location.fixes` | CoreLocation | FusedLocationProvider（GMS のない端末は LocationManager） |
+| `speech` | `speak(文, 言語)` | | AVSpeechSynthesizer | TextToSpeech |
+| `system` | `keepAwake(bool)`・`haptics` | `system.appState`（前・裏）・`system.thermal` | | |
+
+- **記録（`recorder`）は出どころをまとめて受け持つ**: 走っている間、`ble`・`location`・`motion` から届いたものを、解析せずに時刻つきでファイルに書き足す。
+  画面が出ている間は、同じものを知らせでも Web に渡す。画面に戻ったら、Web は `recorder.read` で抜けた分を読み直す。
+- **ブラウザ版・Electron 版の窓口**: 同じ約束を Web だけで作る（`ble` はなし、`serial` は Web Serial、`files` はファイルの選択と書き出し、`camera` はなし）。
+  画面は窓口しか呼ばないので、ブラウザ版とアプリで画面の作りが分かれない。
+- **試すための窓口**: ネイティブのふりをする窓口（TypeScript）を作り、記録したバイト列を流す（今の BLE の解析の確かめと同じ）。
+  約束の試験をこの窓口で走らせ、iPhone・Android の窓口にも同じ試験をかける。
+
+### Android への移植で考えておくこと
+
+- **同じものが使える**: Web のすべて（画面・解析・BLE のデータの読み方）。Android の WebView は Chrome と同じ仕組みなので、Safari 向けの直しの多くは要らない。
+- **書き直すもの**: 上の表の Kotlin の列。作業の大きさは、iPhone のネイティブの部分と同じくらい（設計は済んでいるので、それより少し小さい）。
+- **Android のほうが楽なもの**: 画面を消したあとの記録（常駐の通知を出すフォアグラウンドサービスで続けられる）、USB でのデジスパイスとのつなぎ。
+- **Android のほうが手間なもの**: 機種ごとの違い（BLE・カメラ・GPS）。確かめる端末を何台か用意するか、試してくれる人が要る。HEVC の動画を再生できるかは機種しだい。
+- **配り方**: Google Play の内部テスト（TestFlight にあたる）。開発者の登録は 1 回 25 USD。
+- **入れないもの**: ネイティブで解析・周の判定をしない、Safari 向けの直しを「iPhone かどうか」で入れない（「その制限があるか」で入れる）。
+
 ## 8. 進め方（案、レビューを受けて並べ直した）
 
 1. **枠と保存**: Swift の枠と WKWebView、`app://` での読み込み（動画の範囲の読み出しを含む）、窓口（bridge）の最初の形。
