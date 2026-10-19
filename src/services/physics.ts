@@ -320,7 +320,8 @@ let gFilterLevel: GFilterLevel = (() => {
   } catch {
     // 保存先が使えないときは既定のまま
   }
-  return 'standard';
+  // 既定は「強」(フリクションサークルの「なめらか」が ON)。2026-10-19 に「標準」から変えた (選んだことのある人は、選んだまま)
+  return 'strong';
 })();
 
 export function getGFilterLevel(): GFilterLevel {
