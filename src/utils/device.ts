@@ -45,6 +45,24 @@ export const isIOS: boolean = typeof navigator !== 'undefined'
   && (/iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
 
 /**
+ * 描き直しの重いブラウザか (Mac・iPhone の Safari などの WebKit)。Chrome・Edge・Electron は Chromium なので含めない。
+ * Mac の Safari は、再生中に毎コマ (1 秒 60 回) 画面を描き直すと、動画のコマが落ちる (Chrome では落ちない。2026-10-19)
+ */
+export const isWebKitBrowser: boolean = typeof navigator !== 'undefined'
+  // パソコンの Chrome・Edge は "Chrome/"・"Edg/" を名乗る。iPhone・iPad の Chrome (CriOS)・Edge (EdgiOS) は中身が WebKit なので含める
+  && /AppleWebKit/.test(navigator.userAgent) && !/Chrome\/|Chromium|Edg\/|Electron/.test(navigator.userAgent);
+
+/**
+ * 再生中に画面を描き直す間隔の下限 (ミリ秒) を、URL の ?redraw=<ms> で試しに変える (重さを比べるため)。なければ null
+ */
+export const redrawIntervalOverride: number | null = (() => {
+  if (typeof window === 'undefined') return null;
+  const v = new URLSearchParams(window.location.search).get('redraw');
+  const n = v === null || v.trim() === '' ? NaN : Number(v);
+  return Number.isFinite(n) && n >= 0 && n <= 1000 ? n : null;
+})();
+
+/**
  * ファイルの入力欄の accept。iOS では付けない (undefined)。
  * iOS のファイルの選択画面は、accept に .bon4 など iOS が知らない拡張子を並べると、そのファイルを灰色にして選べなくする
  * (ds4_convert でも同じだった)。iOS ではどのファイルも選べるようにして、読み込むときに中身で判定する

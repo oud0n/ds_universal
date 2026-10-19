@@ -38,7 +38,7 @@ import { LoggerTab } from './components/LoggerTab';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
 import { DonateModal } from './components/DonateModal';
 import { useResizableSplit } from './hooks/useResizableSplit';
-import { canUseLogger, canUseLoggerBle, fileAccept } from './utils/device';
+import { canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
 import { bleLoggerLink } from './services/bleLoggerLink';
 import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
 import { Freeze } from './components/Freeze';
@@ -384,8 +384,11 @@ export const App: React.FC = () => {
 
     lastTimeRef.current = performance.now();
     // スマートフォンでは、画面を描き直すのを 1 秒に 20 回までにする (毎コマ描き直すと、動画のコマが落ちる)。
-    // 動画は自分で再生し、この時刻に合わせて少しずつ直すだけなので、なめらかなまま。メーターとグラフの印は 1 秒に 20 回動く
-    const minStepMs = isCompact ? 50 : 0;
+    // パソコンの Safari (WebKit) も、毎コマ描き直すと動画のコマが落ちるので 1 秒に 30 回まで。Chrome・Electron は毎コマ。
+    // 動画は自分で再生し、この時刻に合わせて少しずつ直すだけなので、なめらかなまま。URL の ?redraw=<ms> で試しに変えられる
+    // 間隔はコマの間隔 (60 Hz で 16.7 ms) の倍数より少し短くする (ちょうどにすると、ぶれで 1 コマ多く待つことがある):
+    // スマートフォンは 3 コマに 1 回 (45 ms)、パソコンの Safari は 2 コマに 1 回 (30 ms)
+    const minStepMs = redrawIntervalOverride ?? (isCompact ? 45 : isWebKitBrowser ? 30 : 0);
 
     const loop = (now: number) => {
       if (now - lastTimeRef.current < minStepMs) {
