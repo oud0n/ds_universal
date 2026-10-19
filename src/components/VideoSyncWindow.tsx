@@ -335,9 +335,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   // 動画テレメトリ焼き込みエクスポートステート
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
-  // ピン留め同期・書き出しの設定のダイアログは、Esc キーでも閉じる
-  useEscapeKey(showPinModal, () => setShowPinModal(false));
-  useEscapeKey(showExportModal, () => setShowExportModal(false));
+  // ピン留め同期・書き出しの設定のダイアログは、Esc キーでも閉じる (隠れたタブのウインドウのものは対象にしない。
+  // 開いたまま数えると、ほかのタブで再生のキー操作が効かなくなる)
+  useEscapeKey(showPinModal && isVisible, () => setShowPinModal(false));
+  useEscapeKey(showExportModal && isVisible, () => setShowExportModal(false));
   const [exportRange, setExportRange] = useState<'lap' | 'all'>('lap');
   const [exportResolution, setExportResolution] = useState<'1080p' | '720p'>('1080p');
   const [exportFps, setExportFps] = useState<number>(30);
@@ -501,7 +502,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // 動画再生時間フォーマット (M:SS。1 時間を超えたら H:MM:SS、1 日を超えたら日数も付ける。撮影日の違う動画を読むと範囲が何日にもなる)
   const formatDuration = (sec: number): string => {
     // 動画がログより前から始まるときは、負の時刻になる (以前はどれも 0:00 になり、目盛りが同じ文字で並んだ)
-    if (sec < 0) return `-${formatDuration(-sec)}`;
+    if (sec <= -1) return `-${formatDuration(-sec)}`;
+    if (sec < 0) return '0:00';
     const sClamped = Math.floor(sec);
     const d = Math.floor(sClamped / 86400);
     const h = Math.floor((sClamped % 86400) / 3600);
@@ -886,7 +888,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     // 枠が狭くて全部の段が入らないときは、動画を潰さずにウインドウの中をスクロールさせる
     <div className={`relative flex flex-col h-full bg-surface-0 text-slate-200 select-none font-sans ${isGraphEmbedded ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'}`}>
       {showRuns && (
-        <RunsInspector sessions={sessions} media={media} onChooseLog={onChooseLog} onClose={() => setShowRuns(false)} />
+        <RunsInspector sessions={sessions} media={media} onChooseLog={onChooseLog} onClose={() => setShowRuns(false)} visible={isVisible} />
       )}
       {/* 1. 上部コントロールバー (フラットデザイン) */}
       {/* グラフ解析に埋め込んだ狭い枠では、右側のボタンが切れないよう横にスクロールできるようにする */}

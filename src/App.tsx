@@ -108,9 +108,10 @@ const MOBILE_PANELS: { id: MobilePanel; label: [string, string] }[] = ([
   { id: 'drift', label: ['ドリフト', 'Drift'] }
 ] as { id: MobilePanel; label: [string, string] }[]).filter(p => SHOW_DRIFT || p.id !== 'drift');
 
-/** 文字を入れる欄か (そこに落とした文字は、ふつうどおり欄に入れる) */
+/** 文字を入れる欄か (そこに落とした文字・リンクは、ふつうどおり欄に入れる。ファイルはどこに落としても読み込む) */
+const TEXT_INPUT_TYPES = new Set(['text', 'search', 'url', 'email', 'tel', 'password', 'number']);
 const isTextField = (t: EventTarget | null): boolean =>
-  t instanceof HTMLElement && (t.isContentEditable || t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && (t as HTMLInputElement).type !== 'file'));
+  t instanceof HTMLElement && (t.isContentEditable || t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && TEXT_INPUT_TYPES.has((t as HTMLInputElement).type)));
 
 export const App: React.FC = () => {
   // 画面の文言 (言語を切り替えると描き直す)
@@ -1204,7 +1205,7 @@ export const App: React.FC = () => {
         // ウインドウの外へ出たとき (relatedTarget がない) は、数え残しがあっても消す
         if (--dragDepthRef.current <= 0 || !e.relatedTarget) { dragDepthRef.current = 0; setFileDragOver(false); }
       }}
-      onDragOver={e => { if (!isTextField(e.target)) e.preventDefault(); }}
+      onDragOver={e => { if (e.dataTransfer.types.includes('Files') || !isTextField(e.target)) e.preventDefault(); }}
       onDrop={e => {
         dragDepthRef.current = 0;
         setFileDragOver(false);
