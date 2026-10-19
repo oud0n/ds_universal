@@ -857,8 +857,8 @@ export const App: React.FC = () => {
       });
     }
 
-    // 変換ページから読み込んだときは、そのまま変換ページに留まる
-    if (currentTabRef.current !== 'convert') setCurrentTab('graph');
+    // 変換ページ・動画同期から読み込んだときは、そのページに留まる (動画同期では、読み込んだ動画をそのまま見るため)
+    if (currentTabRef.current !== 'convert' && currentTabRef.current !== 'video') setCurrentTab('graph');
     return added;
   };
 
@@ -1411,6 +1411,7 @@ export const App: React.FC = () => {
                       onChangePlaybackSpeed={setPlaybackSpeed}
                       onChooseLog={setBaseSession}
                       onPickCompareLap={(sessionId, lapNumber) => handleSelectCarSlot(1, sessionId, lapNumber)}
+                      onLoadFiles={loadFiles}
                       viewKey="graph-a"
                       onSetClockOffset={setSessionClockOffset}
                       compareCars={activeCars}
@@ -1580,6 +1581,7 @@ export const App: React.FC = () => {
                       onChangePlaybackSpeed={setPlaybackSpeed}
                       onChooseLog={setBaseSession}
                       onPickCompareLap={(sessionId, lapNumber) => handleSelectCarSlot(1, sessionId, lapNumber)}
+                      onLoadFiles={loadFiles}
                       viewKey="graph-b"
                       onSetClockOffset={setSessionClockOffset}
                       compareCars={activeCars}
@@ -1613,6 +1615,7 @@ export const App: React.FC = () => {
             onChangePlaybackSpeed={setPlaybackSpeed}
             onChooseLog={setBaseSession}
             onPickCompareLap={(sessionId, lapNumber) => handleSelectCarSlot(1, sessionId, lapNumber)}
+                      onLoadFiles={loadFiles}
             viewKey="video-tab"
             onSetClockOffset={setSessionClockOffset}
             compareCars={activeCars}
