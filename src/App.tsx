@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, FolderOpen } from 'lucide-react';
 import { CompareAxis, Lap, Session, TelemetryPoint, SelectedCarSlot, ControlLine, Sector, CircuitPreset, PolylineSource } from './types/telemetry';
 import { parseDtb } from './services/dtbParser';
 import { parseDigispiceRawBinary } from './services/rawBinaryParser';
@@ -166,6 +166,9 @@ export const App: React.FC = () => {
   const [leftBottomMode, setLeftBottomMode] = useState<'replay' | 'video'>('replay');
   // 右下のタブの帯 (入りきらないときに横にスクロールする)
   const subTabsScrollRef = useWheelScrollX<HTMLDivElement>();
+  // ファイルを画面の上に持ってきているか (落とせることを知らせる)。子の要素に入るたびに enter / leave が来るので、深さを数える
+  const [fileDragOver, setFileDragOver] = useState(false);
+  const dragDepthRef = useRef(0);
 
   // サブウインドウ表示モード ('all' | 'track_friction' | 'replay_focus' | 'video')
   const [subWindowMode, setSubWindowMode] = useState<'all' | 'track_friction' | 'replay_focus' | 'video' | 'corner' | 'braking'>('all');
@@ -1177,7 +1180,26 @@ export const App: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col h-dvh w-screen overflow-hidden bg-surface-0 text-slate-100">
+    <div
+      className="relative flex flex-col h-dvh w-screen overflow-hidden bg-surface-0 text-slate-100"
+      // ファイルは、どの画面に落としても読み込む (受け口のない所に落とすと、ブラウザ・Electron がそのファイルを開いてアプリの画面から離れてしまう)。
+      // 動画同期・ログ変換の受け口が受け取ったもの (preventDefault 済み) は、ここでは読まない
+      onDragEnter={e => { if (e.dataTransfer.types.includes('Files')) { dragDepthRef.current++; setFileDragOver(true); } }}
+      onDragLeave={e => { if (e.dataTransfer.types.includes('Files') && --dragDepthRef.current <= 0) { dragDepthRef.current = 0; setFileDragOver(false); } }}
+      onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
+      onDrop={e => {
+        dragDepthRef.current = 0;
+        setFileDragOver(false);
+        if (e.defaultPrevented) return;
+        e.preventDefault();
+        if (e.dataTransfer.files.length > 0) loadFiles(Array.from(e.dataTransfer.files));
+      }}
+    >
+      {fileDragOver && (
+        <div className="absolute inset-0 z-[60] pointer-events-none border-4 border-dashed border-red-500/70 bg-black/30 flex items-center justify-center">
+          <span className="px-4 py-2 rounded-lg bg-surface-2 border border-line-3 text-sm font-bold text-slate-100 shadow-lg">{T('ドロップして読み込む', 'Drop to load')}</span>
+        </div>
+      )}
       {/* 非表示ファイル入力 */}
       <input
         type="file"
@@ -1319,7 +1341,26 @@ export const App: React.FC = () => {
       />
 
       {/* メインコンテンツ */}
-      <main className={`flex-1 overflow-hidden ${isCompact ? 'p-2' : 'p-3'}`}>
+      <main className={`relative flex-1 overflow-hidden ${isCompact ? 'p-2' : 'p-3'}`}>
+        {/* ログを読み込む前のグラフ解析: 読み込み方を案内する (何もない画面で、どうすればよいか分からないため) */}
+        {currentTab === 'graph' && sessions.length === 0 && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none p-4 bg-surface-0/60">
+            <div className="pointer-events-auto max-w-md w-full bg-surface-2 border border-line-2 rounded-xl p-5 text-center shadow-xl">
+              <h2 className="text-sm font-bold text-slate-100">{T('走行ログを読み込む', 'Load a driving log')}</h2>
+              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                {T('ロガーのログ (.bnx4 / .bon4 / .dtb)・NMEA・CSV・VBO・GPX・AiM・iRacing・GoPro の動画を、ここにドロップするか、ボタンから選んでください。',
+                  'Drop a logger file (.bnx4 / .bon4 / .dtb), NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video here, or choose one with the button.')}
+              </p>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-xs text-white font-bold cursor-pointer"
+              >
+                <FolderOpen size={14} />
+                {T('ファイルを選ぶ', 'Choose files')}
+              </button>
+            </div>
+          </div>
+        )}
         {/* グラフ解析タブ */}
         {isCompact ? (
           // スマートフォン: 速度ウインドウを上 (横向きでは左) に固定し、もう片方は切り替えて 1 つずつ表示する
