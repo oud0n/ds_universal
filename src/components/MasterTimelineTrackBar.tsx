@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useState, useCallback, useMemo, useEffect } from 'react';
 import { Layers, Video, Gauge, MapPin, ChevronDown, ChevronUp } from 'lucide-react';
 import { Session } from '../types/telemetry';
 import { PlacedTrack } from '../services/videoSyncManager';
@@ -109,16 +109,30 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
     window.addEventListener('mouseup', onMouseUp);
   };
 
-  // 目盛りステップ (秒) の自動算出 (例: 60s, 120s, 300s, 600s)
+  // 段の幅 (目盛りの文字が重ならない間隔を決めるため)
+  const [trackWidth, setTrackWidth] = useState(0);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => setTrackWidth(el.clientWidth));
+    observer.observe(el);
+    setTrackWidth(el.clientWidth);
+    return () => observer.disconnect();
+  }, [isCollapsed]);
+
+  // 目盛りの間隔 (秒)。文字 (「20:00」で 30px ほど) が重ならないよう、1 つの目盛りに 56px 以上あける。
+  // 以前は長さだけで決めていたため、狭い画面 (スマートフォン) で文字が重なり、ずっと長い範囲 (撮影日の違う動画) では目盛りが数千になった
   const rulerTicks = useMemo(() => {
     const ticks: number[] = [];
-    const step = totalDuration > 1800 ? 300 : totalDuration > 600 ? 120 : 60;
+    const maxTicks = Math.max(2, Math.floor((trackWidth || 800) / 56));
+    const STEPS = [10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600, 43200, 86400];
+    const step = STEPS.find(st => totalDuration / st <= maxTicks) ?? Math.ceil(totalDuration / maxTicks / 86400) * 86400;
     const startTick = Math.ceil(minTime / step) * step;
     for (let t = startTick; t <= maxTime; t += step) {
       ticks.push(t);
     }
     return ticks;
-  }, [minTime, maxTime, totalDuration]);
+  }, [minTime, maxTime, totalDuration, trackWidth]);
 
   const playheadPercent = timeToPercent(currentSessionTimeSec);
 
