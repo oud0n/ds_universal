@@ -66,8 +66,8 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
     // 「Time (s)」のように単位が付いた見出しも時刻列として扱う
     const base = hl.replace(/\s*[(\[].*$/, '').trim();
     if (colTime === -1 && (base === '秒' || base === 'time' || base === 'sec' || base === 'seconds' || base === 'elapsed time' || base === 'elapsed_s')) colTime = idx;
-    // 記録日時 (ISO 8601)。このアプリの変換ページが書き出す CSV の列
-    if (colClock === -1 && base === 'time_utc') colClock = idx;
+    // 記録日時 (ISO 8601 など)。このアプリの変換ページの CSV の time_utc や、ほかのアプリ (RaceBox など) の日時の列
+    if (colClock === -1 && ['time_utc', 'utc', 'utc time', 'gps time', 'timestamp', 'datetime', 'date time', 'date/time', 'date_time'].includes(base)) colClock = idx;
     if (colLat === -1 && (hl.includes('緯度') || hl.includes('lat'))) colLat = idx;
     if (colLon === -1 && (hl.includes('経度') || hl.includes('lon') || hl.includes('lng'))) colLon = idx;
     if (colAlt === -1 && (hl.includes('標高') || hl.includes('alt'))) colAlt = idx;
@@ -88,12 +88,22 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
   }
 
   const points: TelemetryPoint[] = [];
+  // 時刻を日時の列から求めたか (同じ秒の行の割り振りに使う)
+  let timeFromClock = false;
 
   for (let i = headerIndex + 1; i < lines.length; i++) {
     const rawCols = splitCsvLine(lines[i]);
     if (rawCols.length < 2) continue;
 
-    const time = colTime !== -1 ? parseFloat(rawCols[colTime]) : (i - headerIndex - 1) * 0.1;
+    // 時刻の列が日時 ("2026-08-30T00:57:00.100Z" など) のとき、または時刻の列がなく日時の列があるときは、日時から秒を求める
+    const timeCell = colTime !== -1 ? rawCols[colTime] : '';
+    const timeIsClock = colTime !== -1 && !/^\s*-?\d+([.,]\d+)?\s*$/.test(timeCell) && Number.isFinite(Date.parse(timeCell));
+    const clockCell = timeIsClock ? timeCell : colClock !== -1 ? rawCols[colClock] : '';
+    const rowClockMs = clockCell ? Date.parse(clockCell) : NaN;
+    const fromClock = timeIsClock || (colTime === -1 && Number.isFinite(rowClockMs));
+    if (fromClock) timeFromClock = true;
+    const time = fromClock ? rowClockMs / 1000
+      : colTime !== -1 ? parseFloat(timeCell) : (i - headerIndex - 1) * 0.1;
     // 数値として読めない座標を 0 に置き換えない (その行を捨てる)
     const lat = parseFloat(rawCols[colLat]);
     const lon = parseFloat(rawCols[colLon]);
@@ -112,12 +122,13 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
     const combG = colCombG !== -1 ? parseFloat(rawCols[colCombG]) || 0 : 0;
     const radius = colRadius !== -1 ? parseFloat(rawCols[colRadius]) || 9999 : 9999;
 
-    const clockMs = colClock !== -1 ? Date.parse(rawCols[colClock]) : NaN;
+    const clockMs = rowClockMs;
     const heading = colHeading !== -1 ? parseFloat(rawCols[colHeading]) : NaN;
     const sats = colSats !== -1 ? parseInt(rawCols[colSats], 10) : NaN;
 
     const validPosition = Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(lat === 0 && lon === 0);
-    const inOrder = points.length === 0 || time > points[points.length - 1].time;
+    // 日時から求めた時刻は、秒までしか書いていないことがある。同じ秒の行は捨てずに残し、あとで秒の中に割り振る
+    const inOrder = points.length === 0 || time > points[points.length - 1].time || (fromClock && time === points[points.length - 1].time);
     if (Number.isFinite(time) && validPosition && inOrder) {
       points.push({
         index: points.length,
@@ -137,6 +148,20 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
         ...(Number.isFinite(clockMs) ? { timestamp: new Date(clockMs).toISOString() } : {}),
         ...(Number.isInteger(sats) && sats >= 0 ? { satellites: sats } : {})
       });
+    }
+  }
+
+  // 日時の秒が同じ点は、次の秒 (1 秒より先なら 1 秒) までを等間隔に割り振る (GPX・TCX と同じ)
+  if (timeFromClock) {
+    for (let a = 0; a < points.length; ) {
+      let b = a + 1;
+      while (b < points.length && points[b].time === points[a].time) b++;
+      if (b - a > 1) {
+        const next = b < points.length ? Math.min(points[b].time, points[a].time + 1) : points[a].time + 1;
+        const step = (next - points[a].time) / (b - a);
+        for (let k = a + 1; k < b; k++) points[k].time = Number((points[a].time + (k - a) * step).toFixed(3));
+      }
+      a = b;
     }
   }
 

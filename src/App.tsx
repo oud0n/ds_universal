@@ -14,7 +14,8 @@ import type { ClockEstimateResult } from './components/DataTab';
 import { tr, useT } from './utils/i18n';
 import { inflateXrz, isAimCsv, isXrk, parseAimCsv, parseXrk } from './services/aimFormats';
 import { isIbt, parseIbt } from './services/ibtParser';
-import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseVbo } from './services/externalFormats';
+import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isTcx, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseTcx, parseVbo } from './services/externalFormats';
+import { parseFit } from './services/fitParser';
 import { parsePth, parseCln } from './services/pthParser';
 import { countGateCrossings, createVirtualControlLine, extractLaps, firstGateCrossingTime, gateDirection, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
 import { ConvertTab } from './components/ConvertTab';
@@ -692,6 +693,12 @@ export const App: React.FC = () => {
       rawPoints = parsed.points;
       samplingRate = parsed.samplingRate;
       startDate = parsed.startDate;
+    } else if (ext === 'fit') {
+      // Garmin などの FIT (腕時計・サイクルコンピューターの記録)
+      const parsed = parseFit(new Uint8Array(buffer));
+      rawPoints = parsed.points;
+      samplingRate = parsed.samplingRate;
+      startDate = parsed.startDate;
     } else if (ext === 'ibt') {
       // iRacing のテレメトリ。コースに出ていた間ごとに分ける (ピットへの移動などで区切る)
       const bytes = new Uint8Array(buffer);
@@ -699,7 +706,7 @@ export const App: React.FC = () => {
       const parsed = parseIbt(bytes);
       parts = parsed.parts;
       meta = { vehicleName: parsed.vehicleName, driverName: parsed.driverName, trackName: parsed.trackName };
-    } else if (['vbo', 'csv', 'txt', 'gpx', 'nmea', 'log'].includes(ext || '')) {
+    } else if (['vbo', 'csv', 'txt', 'gpx', 'tcx', 'nmea', 'log'].includes(ext || '')) {
       // テキストの形式は拡張子で決めつけず、中身の先頭で判別する (.txt の NMEA・VBO、.log の CSV なども読めるように)。
       // 判別できないときは拡張子に従う
       const text = new TextDecoder('utf-8').decode(buffer);
@@ -710,14 +717,16 @@ export const App: React.FC = () => {
         /^(?=[^\n]*(lat|緯度))(?=[^\n]*(lon|lng|経度))[^\n]*,/im.test(text.slice(0, 4000));
       const kind =
         isGpx(text) ? 'gpx'
+        : isTcx(text) ? 'tcx'
         : isVbo(text) ? 'vbo'
         : /^\s*\$G[PNLAB][A-Z]{3},/m.test(head) ? 'nmea'
         : csvLike ? 'csv'
-        : ext === 'vbo' || ext === 'gpx' || ext === 'nmea' ? ext
+        : ext === 'vbo' || ext === 'gpx' || ext === 'tcx' || ext === 'nmea' ? ext
         : ext === 'log' ? 'nmea'
         : 'csv';
       let parsed: { points: any[]; samplingRate: number; startDate?: Date };
       if (kind === 'gpx') parsed = parseGpx(text);
+      else if (kind === 'tcx') parsed = parseTcx(text);
       else if (kind === 'vbo') parsed = parseVbo(text);
       else if (kind === 'nmea') parsed = parseNmea(text);
       else {
@@ -1153,7 +1162,7 @@ export const App: React.FC = () => {
         ref={fileInputRef}
         onChange={handleFilesSelected}
         multiple
-        accept={fileAccept('.dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx,.xrk,.xrz,.ibt,.mp4,.mov,.lrv')}
+        accept={fileAccept('.dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx,.xrk,.xrz,.ibt,.fit,.tcx,.mp4,.mov,.lrv')}
         className="hidden"
       />
       <input
