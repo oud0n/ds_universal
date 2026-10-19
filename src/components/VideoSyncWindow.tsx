@@ -10,17 +10,18 @@ import {
 } from 'lucide-react';
 import { Session, TelemetryPoint, SelectedCarSlot, Lap } from '../types/telemetry';
 import { getAddVideoGpsLog, setAddVideoGpsLog } from '../services/videoPrefs';
-import { videoSyncManager, VideoTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs, sessionStartUtcMs, trackOffsetInSession, overlappingSessions } from '../services/videoSyncManager';
+import { videoSyncManager, PlacedTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs, overlappingSessions, placeTrack } from '../services/videoSyncManager';
+import { clockOffsetIn } from '../services/mediaClock';
 import { 
   resolveChapterPlayback, 
   getNextChapter, 
   getPreviousChapter, 
-  VideoChapterGroup 
+  groupVideoTracksByChapter,
+  findChapterGroupForTrack
 } from '../services/videoChapterManager';
 import { 
   SyncPin, 
   createSyncPin, 
-  applyPinToTrack, 
   formatPinTime
 } from '../services/videoSyncPinManager';
 import { videoViewStore, useVideoView, useVideoTracks, useSyncPins, VideoViewMode, PipPosition, videoEndSessionSec } from '../services/videoViewStore';
@@ -53,6 +54,8 @@ interface VideoSyncWindowProps {
   onChangePlaybackSpeed: (speed: number) => void;
   // 動画に合わせるログを選んだとき (そのログを基準車 Car 1 にする)。LATER-12
   onChooseLog?: (sessionId: string) => void;
+  // ログの時計の補正を入れる (同期プロジェクトに保存した補正を戻すとき)
+  onSetClockOffset?: (sessionId: string, sec: number) => void;
   // 比較の車 (距離の補正・1 周の長さの伸縮を反映した周)。サブの動画の「走行比較」に使う (LATER-11)
   compareCars?: { slot: SelectedCarSlot; lap: Lap }[];
 }
@@ -245,11 +248,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   playbackSpeed,
   onChangePlaybackSpeed,
   onChooseLog,
+  onSetClockOffset,
   compareCars
 }) => {
   const t = useT();
   // 動画の一覧と表示の状態は、どのウインドウでも同じにする (videoViewStore に 1 つだけ持つ)
-  const tracks = useVideoTracks();
+  const storedTracks = useVideoTracks();
   const view = useVideoView();
   const { selectedTrackId, subTrackId, viewMode: storedViewMode, pipPosition, isSubMuted, showOverlay, showGForce, subSyncMode, subCompareSlot } = view;
   const isAnyExporting = view.isExporting;
@@ -307,23 +311,20 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // (周の外の時刻にすると、次のコマで周の始めに戻ってしまう)
   const seekTo = (t: number) => onSeekTime(isGraphEmbedded && baseLap ? Math.min(Math.max(0, t), baseLap.lapTime) : t);
 
-  const activeTrack = tracks.find(t => t.id === selectedTrackId);
-  // サブの動画は、基準のログの時刻での位置 (撮影の本当の時刻で換算したずれ) で扱う。
-  // 別の走行のログに照合された動画や、撮影時刻の違う動画が、メインの時刻に引っ張られないように (BUG-21)
-  // メインの動画も、基準のログの時刻へ本当の時刻 (UTC) で換算する。別のログ (同じ時間の GoPro の GPS のログなど) に付いた動画を
-  // メインにしたとき、そのログの中のずれのまま基準のログの時刻で再生して、ログの始まりの差だけずれていた。ふだんは 0
-  const mainShiftSec = activeTrack ? trackOffsetInSession(activeTrack, baseSession, sessions) - activeTrack.syncOffsetSec : 0;
-  const rawSubTrack = tracks.find(t => t.id === subTrackId);
-  const subOffsetSec = rawSubTrack ? trackOffsetInSession(rawSubTrack, baseSession, sessions) : 0;
-  const subTrack = useMemo(
-    () => (rawSubTrack && rawSubTrack.syncOffsetSec !== subOffsetSec ? { ...rawSubTrack, syncOffsetSec: subOffsetSec } : rawSubTrack),
-    [rawSubTrack, subOffsetSec]
+  // 動画は、基準のログ (Car 1) の時刻に置いて扱う (mediaClock.ts)。どのログに時刻を付けた動画も、撮影の本当の時刻で換算するので、
+  // 別のログに付いた動画・撮影時刻の違うサブの動画も、基準のログの時刻のまま正しく出る (BUG-21)。
+  // 画面・書き出し・タイムライン・チャプターの移動は、すべてこの置いた位置 (syncOffsetSec) を使う
+  const tracks: PlacedTrack[] = useMemo(
+    () => storedTracks.map(t => placeTrack(t, baseSession, sessions)),
+    [storedTracks, baseSession, sessions]
   );
+  const activeTrack = tracks.find(t => t.id === selectedTrackId);
+  const subTrack = tracks.find(t => t.id === subTrackId);
   // 走行比較 (LATER-11): サブの動画を比較の車に合わせ、メインの車と同じ地点を走った時刻の映像を出す
   const compareCar = subSyncMode === 'compare' ? compareCars?.find(c => c.slot.slot === subCompareSlot) : undefined;
   const compareSession = compareCar ? sessions.find(s => s.id === compareCar.slot.sessionId) : undefined;
   const compareOrigLap = compareSession?.laps.find(l => l.lapNumber === compareCar?.slot.lapNumber);
-  const subCompareOffsetSec = rawSubTrack && compareSession ? trackOffsetInSession(rawSubTrack, compareSession, sessions) : 0;
+  const subCompareOffsetSec = subTrack && compareSession ? clockOffsetIn(subTrack.clock, compareSession, sessions) ?? 0 : 0;
   /** サブの動画の中の位置 (秒)。走行比較で比較の車がその地点を走っていないときは -1 (映像なし) */
   const subLocalAt = (effectiveSessionTime: number): number => {
     if (!subTrack) return -1;
@@ -347,7 +348,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const [addVideoGpsLog, setAddVideoGpsLogState] = useState(getAddVideoGpsLog);
 
   // 現在選択中の動画トラックが属するチャプターグループ
-  const currentGroup = selectedTrackId ? videoSyncManager.getChapterGroupForTrack(selectedTrackId) : null;
+  const currentGroup = useMemo(
+    () => (selectedTrackId ? findChapterGroupForTrack(groupVideoTracksByChapter(tracks).groups, selectedTrackId) : null),
+    [tracks, selectedTrackId]
+  );
 
   // タイムスタンプフォーマット関数
   const formatTzDate = (d: Date | null | undefined, tz: string): string => {
@@ -382,9 +386,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   );
   const isLargeOffset = activeTrack ? Math.abs(activeTrack.syncOffsetSec) > 3600 : false;
 
-  // 同期プロジェクトから戻した動画の照合先を、後から読み込んだログに読み替える
+  // 同期プロジェクトから戻した動画の照合先を、後から読み込んだログに読み替える。保存したときのログの時計の補正も戻す
   useEffect(() => {
-    videoSyncManager.remapImportedSessions(sessions);
+    for (const [id, sec] of videoSyncManager.remapImportedSessions(sessions)) onSetClockOffset?.(id, sec);
   }, [sessions]);
 
   // 速度ウィンドウのセッション (Car 1) に対応する動画トラックを自動選択
@@ -403,54 +407,6 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       setSelectedTrackId(matchingTrack.id);
     }
   }, [baseSession?.id, tracks, isVisible, isAnyExporting]);
-
-  // 速度ウィンドウで選択されたセッションに合わせて動画のオフセットを自動追従・再同期
-  // 手でオフセットや同期ピンを合わせた動画は、トラックやセッションを切り替えても自動の値で上書きしない。
-  // 自動照合に失敗した (どのセッションとも時刻が合わなかった) 動画も、勝手に組み合わせない (再同期ボタンでは組み合わせられる)
-  useEffect(() => {
-    if (!isVisible || isAnyExporting) return;
-    if (!activeTrack || !baseSession || activeTrack.isManuallyAdjusted || !activeTrack.matchedSessionId) return;
-    // そのセッションに照合済みの動画があれば、それを選ぶ (上の自動選択)。今の動画をそのセッションに組み替えない
-    if (tracks.some(t => t.matchedSessionId === baseSession.id)) return;
-    if (activeTrack.matchedSessionId !== baseSession.id) {
-      videoSyncManager.resyncTrack(
-        activeTrack.id,
-        sessions,
-        activeTrack.videoTimezone || 'JST',
-        activeTrack.gpsTimezone || 'JST',
-        baseSession.id
-      );
-    }
-  }, [baseSession?.id, activeTrack?.id, isVisible, isAnyExporting]);
-
-  // 動画を結び付けたログと違うログを基準車にしたとき、2 つのログの記録の時間が重なっていれば (同じ走行のログ。
-  // GoPro の GPS のログとデジスパイスのログなど)、記録の時刻 (UTC) の差でずれを換算して、動画を基準車のログに付け替える。
-  // 動画の時刻は基準車のログの時刻から求めるので、付け替えないと 2 つのログの記録の始まりの差だけずれる
-  useEffect(() => {
-    if (!isVisible || isAnyExporting || !activeTrack || !baseSession) return;
-    const fromId = activeTrack.matchedSessionId;
-    if (!fromId || fromId === baseSession.id) return;
-    // 利用者が「動画に合わせるログ」を選んだ動画は付け替えない (再生は別のログの時刻からの換算で合う)
-    if (activeTrack.isSessionChosenManually) return;
-    if (tracks.some(t => t.matchedSessionId === baseSession.id)) return;
-    const from = sessions.find(s => s.id === fromId);
-    const range = (s: Session | undefined) => {
-      const a = s?.points[0]?.timestamp;
-      const b = s?.points[s.points.length - 1]?.timestamp;
-      return a && b ? [Date.parse(a), Date.parse(b)] : null;
-    };
-    const rf = range(from);
-    const rb = range(baseSession);
-    if (!rf || !rb || !(rf[0] <= rb[1] && rb[0] <= rf[1])) return;
-    // ずれは、2 つのログの先頭の本当の時刻 (ログごとの時計の補正を引いたもの) の差で換算する
-    const sf = sessionStartUtcMs(from), sb = sessionStartUtcMs(baseSession);
-    if (sf === null || sb === null) return;
-    const newOffset = activeTrack.syncOffsetSec + (sf - sb) / 1000;
-    // チャプターに分かれた動画は、全部のチャプターを付け替える (グループの照合先は最初のチャプターから決まるため)
-    const group = videoSyncManager.getChapterGroupForTrack(activeTrack.id);
-    for (const t of group ? group.tracks.map(ct => ct.track) : [activeTrack]) videoSyncManager.setMatchedSession(t.id, baseSession.id);
-    videoSyncManager.updateOffset(activeTrack.id, newOffset);
-  }, [baseSession?.id, activeTrack?.id, isVisible, isAnyExporting]);
 
   // 再生の基準は App の時刻 (currentTimeSec) だけにする。動画はその時刻に合わせて再生し、ずれたら合わせ直す。
   // (以前は動画の timeupdate (1 秒に 4 回ほど) で App の時刻を進めていたため、ほかのウインドウの表示がカクつき (#11)、
@@ -502,7 +458,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
     // 1. メイン動画 (チャプターグループ対応)
     if (currentGroup && currentGroup.tracks.length > 1) {
-      const resolution = resolveChapterPlayback(currentGroup, effectiveSessionTime - mainShiftSec);
+      const resolution = resolveChapterPlayback(currentGroup, effectiveSessionTime);
       if (resolution) {
         if (resolution.activeTrack.track.id !== selectedTrackId) {
           // 次 (前) のチャプターに切り替える。新しい動画が読み込まれたら、次の時刻の更新で位置を合わせる
@@ -517,7 +473,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         syncVideoElement(videoRef.current, -1, 0);
       }
     } else {
-      syncVideoElement(videoRef.current, effectiveSessionTime - mainShiftSec - activeTrack.syncOffsetSec, activeTrack.durationSec);
+      syncVideoElement(videoRef.current, effectiveSessionTime - activeTrack.syncOffsetSec, activeTrack.durationSec);
     }
 
     // 2. サブ動画 (2画面 / PinP 時)
@@ -526,7 +482,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     } else {
       subVideoRef.current?.pause();
     }
-  }, [currentTimeSec, activeTrack, activeTrack?.syncOffsetSec, subTrack, subTrack?.syncOffsetSec, tracks, currentGroup, isGraphEmbedded, baseLap, isPlaying, viewMode, playbackSpeed, isVisible, isExporting, isAnyExporting, seekTick, subSyncMode, subCompareSlot, compareCar, compareOrigLap, subCompareOffsetSec, mainShiftSec]);
+  }, [currentTimeSec, activeTrack, activeTrack?.syncOffsetSec, subTrack, subTrack?.syncOffsetSec, tracks, currentGroup, isGraphEmbedded, baseLap, isPlaying, viewMode, playbackSpeed, isVisible, isExporting, isAnyExporting, seekTick, subSyncMode, subCompareSlot, compareCar, compareOrigLap, subCompareOffsetSec]);
+
+  // 手で合わせる (ずれの入力・微調整・ワンクリック同期・同期ピン)。基準のログの時刻でのずれで入れ、その時刻を基準のログに付ける
+  const setOffset = (trackId: string, offsetSec: number) => {
+    if (baseSession) videoSyncManager.setOffsetIn(trackId, baseSession, offsetSec);
+  };
 
   // ワンクリック同期: 現在の動画フレームを GPS の現在選択タイムに合わせる
   const handleSyncCurrentFrame = () => {
@@ -535,15 +496,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     const effectiveSessionTime = isGraphEmbedded && baseLap
       ? (baseLap.startTime + currentTimeSec)
       : currentTimeSec;
-    const newOffset = effectiveSessionTime - currentVideoTime;
-    videoSyncManager.updateOffset(activeTrack.id, newOffset);
+    setOffset(activeTrack.id, effectiveSessionTime - currentVideoTime);
   };
 
   // 微調整 (+/- 0.05秒: 1フレーム単位)
   const handleNudgeOffset = (deltaSec: number, targetId: string = activeTrack?.id || '') => {
     const track = tracks.find(t => t.id === targetId);
     if (!track) return;
-    videoSyncManager.updateOffset(track.id, track.syncOffsetSec + deltaSec);
+    setOffset(track.id, track.syncOffsetSec + deltaSec);
   };
 
   // 手動キーフレーム同期 (ピン作成)
@@ -560,11 +520,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       currentVideoTime,
       activeTrack.id
     );
-
-    // ピンを適用してオフセットを更新
-    applyPinToTrack(pin, (id, newOffset) => {
-      videoSyncManager.updateOffset(id, newOffset);
-    });
+    pin.sessionId = baseSession?.id;
+    // ピンの位置でずれを合わせる
+    setOffset(pin.trackId, pin.calculatedOffsetSec);
 
     const updated = [...pins, pin];
     setPins(updated);
@@ -700,7 +658,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     reader.onload = ev => {
       try {
         const text = ev.target?.result as string;
-        const data = videoSyncManager.importProjectJson(text, sessions);
+        const { data, clockOffsets } = videoSyncManager.importProjectJson(text, sessions);
+        for (const [id, sec] of clockOffsets) onSetClockOffset?.(id, sec);
         // 同期ピンも戻す。動画はファイル名で今の動画に読み替える (同じ時刻・名前のピンは足さない)
         if (data.pins && data.pins.length > 0) {
           // ピンは、書き出したときのコースに戻す (ログを読み込む前に戻しても、そのコースを開けば出る)
@@ -711,6 +670,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             .filter(p => !current.some(c => c.name === p.name && Math.abs(c.sessionTimeSec - p.sessionTimeSec) < 0.001))
             .map(p => ({
               ...createSyncPin(p.name, p.sessionTimeSec, p.videoTimeSec, all.find(t => t.fileName === p.trackFileName)?.id ?? ''),
+              ...(p.sessionId ? { sessionId: p.sessionId } : {}),
               ...(p.createdAt ? { createdAt: p.createdAt } : {})
             }));
           if (restored.length > 0) videoViewStore.setPins(importKey, [...current, ...restored]);
@@ -1005,7 +965,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   <select
                     value={logs.some(l => l.id === activeTrack.matchedSessionId) ? activeTrack.matchedSessionId ?? '' : ''}
                     onChange={e => {
-                      videoSyncManager.rebindTrack(activeTrack.id, e.target.value, sessions, true);
+                      videoSyncManager.chooseSession(activeTrack.id, e.target.value);
                       onChooseLog?.(e.target.value);
                     }}
                     className="bg-transparent text-slate-100 font-bold text-xs outline-none cursor-pointer max-w-[220px] truncate"
@@ -1256,12 +1216,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             />
 
             {/* 録画開始前インジケーター */}
-            {(isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec) < activeTrack.syncOffsetSec + mainShiftSec && (
+            {(isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec) < activeTrack.syncOffsetSec && (
               <div className="absolute top-3 bg-amber-950/90 border border-amber-600 text-amber-200 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-medium z-20">
                 <Clock size={14} className="text-amber-400 animate-pulse shrink-0" />
-                <span>{t('動画開始まであと', 'Video starts in')} <strong className="font-mono text-amber-300">{(activeTrack.syncOffsetSec + mainShiftSec - (isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec)).toFixed(1)}s</strong></span>
+                <span>{t('動画開始まであと', 'Video starts in')} <strong className="font-mono text-amber-300">{(activeTrack.syncOffsetSec - (isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec)).toFixed(1)}s</strong></span>
                 <button
-                  onClick={() => seekTo(isGraphEmbedded && baseLap ? Math.max(0, activeTrack.syncOffsetSec + mainShiftSec - baseLap.startTime) : activeTrack.syncOffsetSec + mainShiftSec)}
+                  onClick={() => seekTo(isGraphEmbedded && baseLap ? Math.max(0, activeTrack.syncOffsetSec - baseLap.startTime) : activeTrack.syncOffsetSec)}
                   className="px-1.5 py-0.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-[10px] cursor-pointer ml-1"
                 >
                   {t('開始点へジャンプ', 'Jump to start')}
@@ -1552,7 +1512,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 value={activeTrack.syncOffsetSec}
                 onChange={e => {
                   const val = parseFloat(e.target.value);
-                  if (!isNaN(val)) videoSyncManager.updateOffset(activeTrack.id, val);
+                  if (!isNaN(val)) setOffset(activeTrack.id, val);
                 }}
                 className="w-20 bg-surface-1 border border-line-3 text-amber-400 font-mono font-bold px-1 py-0.5 rounded text-right outline-none focus:border-amber-400"
               />

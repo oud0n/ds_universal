@@ -3,7 +3,7 @@
  * 動画のウインドウはグラフ画面の左下・右下と動画同期タブに同時に開けるので、状態はここに 1 つだけ持ち、どのウインドウでも同じにする
  */
 import { useSyncExternalStore } from 'react';
-import { videoSyncManager, VideoTrack } from './videoSyncManager';
+import { videoSyncManager, VideoTrack, PlacedTrack } from './videoSyncManager';
 import { SyncPin, loadPinsFromStorage, savePinsToStorage } from './videoSyncPinManager';
 
 export type VideoViewMode = 'single' | 'split' | 'pip';
@@ -111,11 +111,12 @@ class VideoViewStore {
 
 export const videoViewStore = new VideoViewStore();
 
-/** 動画の終わりのセッション時刻。チャプターに分かれた動画は、最後のチャプターの終わり */
-export function videoEndSessionSec(track: VideoTrack | null | undefined): number {
-  if (!track?.objectUrl) return 0;
+/** 動画の終わりの、置いたログの時刻。チャプターに分かれた動画は、最後のチャプターの終わり */
+export function videoEndSessionSec(track: PlacedTrack | null | undefined): number {
+  if (!track?.objectUrl || !track.isPlaced) return 0;
   const group = videoSyncManager.getChapterGroupForTrack(track.id);
-  if (group && group.tracks.length > 1) return group.baseSyncOffsetSec + group.totalDurationSec;
+  const me = group && group.tracks.length > 1 ? group.tracks.find(ct => ct.track.id === track.id) : undefined;
+  if (group && me) return track.syncOffsetSec - me.groupOffsetSec + group.totalDurationSec;
   return track.syncOffsetSec + (track.durationSec || 0);
 }
 
