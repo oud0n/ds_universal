@@ -13,3 +13,9 @@ iPhone (`../ios/`) と同じく、Web (`src/`) を WebView で動かし、`src/n
 - 画面を消したあとの記録はフォアグラウンドサービス (Android 14 からは種類 `connectedDevice`・`location` と、その許可が要る)
 - 電池の節約で止める機種があるので、初めて使うときに案内する
 - 開閉で Activity と WebView が作り直されないよう `configChanges` を書く
+
+## Android だけの機能: 擬似ロケーション
+
+デジスパイスなどの位置を Android の位置として流し、ほかのアプリも 20 Hz の位置で動くようにする (`LocationManager.addTestProvider` / `setTestProviderLocation`。
+使う人が開発者向けオプションでこのアプリを選ぶ)。画面が消えている間も流すので、標準の形 (Location and Speed・NMEA・RaceBox) の読み方だけは Kotlin にも持つ。
+TypeScript と Kotlin は、同じ見本のファイル (`src/native/fixtures/`) で試験し、片方だけ直すと落ちるようにする (docs/iphone_app_design.md の 7.6「読み方の見本」)。
