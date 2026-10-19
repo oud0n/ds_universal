@@ -53,6 +53,8 @@ interface Entry {
   seekStartedAt: number | null;
   /** 移動が終わり (seeked)、次のコマが出るのを待っている。Safari は seeked のあとも、しばらく動き出さない */
   seekDone: boolean;
+  /** 飛んだ先 (動画の秒) */
+  seekTarget: number;
   /** 前に合わせたときの App の時刻 (動画の秒) と、その時刻 (performance.now)。見ている位置を動かしたのを見分ける */
   lastLocal: number;
   lastSyncAt: number | null;
@@ -100,7 +102,7 @@ export class PlaybackController {
     if (!el) { this.entries.delete(key); return; }
     const entry: Entry = {
       el, frame: null, frameHandle: null, correcting: false, rateChangedAt: 0, src: el.currentSrc || el.src,
-      seekStartedAt: null, seekDone: false, lastLocal: 0, lastSyncAt: null, seekAudible: false, seekLead: [0, 0],
+      seekStartedAt: null, seekDone: false, seekTarget: 0, lastLocal: 0, lastSyncAt: null, seekAudible: false, seekLead: [0, 0],
       onSeeked: () => {
         if (entry.seekStartedAt === null) return;
         // コマが出たのを知らせてもらえるときは、次のコマが出るまで待って測る (watchFrames)
@@ -125,9 +127,16 @@ export class PlaybackController {
   sync(targets: Map<string, PlaybackTarget>, isPlaying: boolean, speed: number): void {
     this.entries.forEach((entry, key) => {
       const t = targets.get(key);
-      if (!t || t.outOfRange) { if (!entry.el.paused) entry.el.pause(); return; }
+      if (!t || t.outOfRange) { if (!entry.el.paused) entry.el.pause(); this.stopSeekWait(entry); return; }
       this.syncEntry(entry, t, isPlaying, speed);
     });
+  }
+
+  /** 飛んだ移動を待つのと、移動の時間の測りかけをやめる (動画を止めたとき。止めたあとの時間を、移動の時間として覚えないように) */
+  private stopSeekWait(entry: Entry): void {
+    entry.seekStartedAt = null;
+    entry.seekDone = false;
+    entry.lastSyncAt = null;
   }
 
   /** 飛んでから動き出すまでの時間を覚える。ばらつくので、前の値とならす */
@@ -157,7 +166,8 @@ export class PlaybackController {
       // Chrome はこれから出す時刻 (少し先)、Safari は出したあとに知らせる。大きく外れた値は使わない
       const at = shown !== undefined && Number.isFinite(shown) && Math.abs(now - shown) < 100 ? shown : now;
       entry.frame = { mediaTime: meta.mediaTime, at };
-      if (entry.seekDone) this.noteSeekTime(entry, at);
+      // 飛んだ先より進んだコマが出たら、動き出した。Safari は、移動が終わるとすぐ飛んだ先のコマを出し、そのあとしばらく止まることがある
+      if (entry.seekDone && meta.mediaTime > entry.seekTarget + 0.01) this.noteSeekTime(entry, at);
       entry.frameHandle = v.requestVideoFrameCallback!(onFrame);
     };
     entry.frameHandle = v.requestVideoFrameCallback(onFrame);
@@ -192,15 +202,17 @@ export class PlaybackController {
     }
     const rated = t.rate !== undefined;
     const base = speed * (t.rate ?? 1);
-    // 再生中に、App の時刻が前に合わせたときから進むはずの分より 0.5 秒以上動いたら、見ている位置を動かしたので、飛んだ移動を待たない。
-    // 止めたときも待たない (移動の途中で止めても、測りかけを残さない)
+    // 動画を止める場合 (止めている・位置が動画の外・倍率が範囲の外) は、飛んだ移動を待たない (移動の途中で止めても、測りかけを残さない)。
+    // 再生中に、App の時刻が前に合わせたときから進むはずの分より 0.15 秒以上動いたら、見ている位置を動かしたので、やはり待たない。
+    // 前に合わせてから 0.25 秒より空いたとき (タブを隠したなど) は、そのあいだの倍率の変わり方がわからないので見分けない
     const nowMs = performance.now();
-    if (!isPlaying) {
-      entry.seekStartedAt = null;
-      entry.seekDone = false;
-      entry.lastSyncAt = null;
+    const moving = isPlaying && t.localTime >= 0 && !(t.durationSec > 0 && t.localTime > t.durationSec)
+      && base >= MIN_RATE * speed && base <= MAX_RATE * speed;
+    if (!moving) {
+      this.stopSeekWait(entry);
     } else {
-      if (entry.lastSyncAt !== null && Math.abs(t.localTime - (entry.lastLocal + base * (nowMs - entry.lastSyncAt) / 1000)) > 0.5) {
+      const dt = entry.lastSyncAt === null ? Infinity : (nowMs - entry.lastSyncAt) / 1000;
+      if (dt <= 0.25 && Math.abs(t.localTime - (entry.lastLocal + base * dt)) > 0.15) {
         entry.seekStartedAt = null;
         entry.seekDone = false;
       }
@@ -251,6 +263,7 @@ export class PlaybackController {
       if (Number.isFinite(el.duration) && el.duration > 0 && localTime + lead >= el.duration) lead = 0;
       const target = localTime + lead;
       el.currentTime = target;
+      entry.seekTarget = target;
       entry.seekAudible = audible;
       entry.seekStartedAt = performance.now();
       entry.seekDone = false;
