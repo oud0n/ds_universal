@@ -144,21 +144,41 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       if (lon > maxLon) maxLon = lon;
     };
 
-    // コースポリライン
-    if (pathPolylines && pathPolylines.length > 0) {
-      for (const poly of pathPolylines) {
-        for (const [lon, lat] of poly) {
-          includePoint(lat, lon);
-        }
-      }
-    }
-
     // 車両ポイント。基準車から遠く離れた場所 (別のコース) のログは表示範囲に入れない (基準車のコースが小さく潰れるため)
     const origin = cars[0]?.lap.points[0];
     for (const car of cars) {
       if (origin && car !== cars[0] && !passesNearPoint(car.lap.points, origin.latitude, origin.longitude, NEAR_BASE_RADIUS_M)) continue;
       for (const p of car.lap.points) {
         includePoint(p.latitude, p.longitude);
+      }
+    }
+
+    // コースポリラインは、走行の線に沿っている線 (25 m 以内) だけを範囲に入れる (走行の線がなければ全部)。
+    // OSM から取ったコース図には、サーキットの敷地の輪郭・別のコースも入っていて、全部に合わせると走行の線が小さく隅に寄る
+    // (2026-10-19、筑波で 900 m 四方の輪郭)。走行の線が 1 周の一部だけでも、そのコースの線は範囲に入るので、コース全体が見える
+    if (pathPolylines && pathPolylines.length > 0) {
+      const hasTrace = minLat !== 90;
+      const basePts = cars[0]?.lap.points ?? [];
+      // 走行の線は 400 点ほどに間引いて比べる (コースの線の点の数 × 走行の線の点の数になるため)
+      const stride = Math.max(1, Math.floor(basePts.length / 400));
+      const trace: Array<[number, number]> = [];
+      for (let i = 0; i < basePts.length; i += stride) trace.push([basePts[i].latitude, basePts[i].longitude]);
+      const mPerDegLat = 111320;
+      const mPerDegLon = 111320 * Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180);
+      const nearTrace = (lat: number, lon: number) =>
+        trace.some(([tl, tn]) => Math.hypot((lat - tl) * mPerDegLat, (lon - tn) * mPerDegLon) < 25);
+      for (const poly of pathPolylines) {
+        // 点の 3 割以上が走行の線の近くにある線だけ (敷地の輪郭は所々でコースに近づくので、1 点だけでは決めない)。
+        // 点の多い線は 200 点ほどに間引いて調べる
+        if (hasTrace && trace.length > 0) {
+          const pStride = Math.max(1, Math.floor(poly.length / 200));
+          let tested = 0, near = 0;
+          for (let i = 0; i < poly.length; i += pStride) { tested++; if (nearTrace(poly[i][1], poly[i][0])) near++; }
+          if (near < tested * 0.3) continue;
+        }
+        for (const [lon, lat] of poly) {
+          includePoint(lat, lon);
+        }
       }
     }
 
@@ -414,27 +434,65 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       }
     }
 
+    // 計測線・セクターの名前は、線の端の先に書く (線の真ん中に書くと、走行の線と車の印に重なって読めない)。
+    // 両端のうち、書く所の近くを走行の線が通っていないほうを選ぶ (同じなら、コース図の真ん中から遠いほう)
+    const mapCenter = toScreen(latMid, lonMid);
+    const traceScreen: Array<{ x: number; y: number }> = [];
+    {
+      const pts = cars[0]?.lap.points ?? [];
+      // 名前の置き場所を決めるだけなので 200 点ほどに間引く (追従中は毎コマ描き直すため)
+      const stride = Math.max(1, Math.floor(pts.length / 200));
+      for (let i = 0; i < pts.length; i += stride) traceScreen.push(toScreen(pts[i].latitude, pts[i].longitude));
+    }
+    const crowd = (x: number, y: number) => traceScreen.reduce((n, q) => n + (Math.hypot(q.x - x, q.y - y) < 16 ? 1 : 0), 0);
+    const drawGateLabel = (pA: { x: number; y: number }, pB: { x: number; y: number }, text: string, color: string) => {
+      const len = Math.hypot(pB.x - pA.x, pB.y - pA.y);
+      // 線が短すぎて向きが決まらないときは、線の上に書く
+      const candidates = len < 1
+        ? [{ x: pA.x, y: pA.y - 10, ux: 0, uy: -1, d: 0 }]
+        : [[pA, pB], [pB, pA]].map(([outer, inner]) => {
+            const ux = (outer.x - inner.x) / len, uy = (outer.y - inner.y) / len;
+            return { x: outer.x + ux * 6, y: outer.y + uy * 6, ux, uy, d: Math.hypot(outer.x - mapCenter.x, outer.y - mapCenter.y) };
+          });
+      const best = candidates
+        .map(c => ({ ...c, n: crowd(c.x + c.ux * 12, c.y + c.uy * 8) }))
+        .sort((a, b) => a.n - b.n || b.d - a.d)[0];
+      const { x, y, ux, uy } = best;
+      ctx.textAlign = ux > 0.35 ? 'left' : ux < -0.35 ? 'right' : 'center';
+      ctx.textBaseline = uy > 0.35 ? 'top' : uy < -0.35 ? 'bottom' : 'middle';
+      // 縁取りをして、下の線の上でも読めるようにする
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = C.bg;
+      ctx.strokeText(text, x, y);
+      ctx.fillStyle = color;
+      ctx.fillText(text, x, y);
+      ctx.textBaseline = 'alphabetic';
+    };
+
     // 2. コントロールライン (スタート/フィニッシュ)
     if (controlLine) {
       const pA = toScreen(controlLine.latA, controlLine.lonA);
       const pB = toScreen(controlLine.latB, controlLine.lonB);
 
+      // 文字は書かず、模様のない 1 本の太い線で描く (セクターの線は細い点線なので見分けられる)
       ctx.strokeStyle = C.strong;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 6;
+      ctx.lineCap = 'butt';
       ctx.beginPath();
       ctx.moveTo(pA.x, pA.y);
       ctx.lineTo(pB.x, pB.y);
       ctx.stroke();
-
-      // チェッカー柄またはラベル
-      ctx.fillStyle = C.strong;
-      ctx.font = 'bold 10px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('FINISH', (pA.x + pB.x) / 2, (pA.y + pB.y) / 2 - 6);
     }
 
     // 3. セクターゲート (S1, S2, S3...)
     sectors.forEach((sec, idx) => {
+      // 計測線と同じ所 (5 m 以内) にあるセクター (最後のセクターの終わり) は、計測線と重なるので線も名前も描かない。
+      // 画面の上の距離で決めると、拡大の度合いで変わるので、地面の上の距離で決める
+      if (controlLine) {
+        const dNorth = ((sec.latA + sec.latB) / 2 - (controlLine.latA + controlLine.latB) / 2) * 111320;
+        const dEast = ((sec.lonA + sec.lonB) / 2 - (controlLine.lonA + controlLine.lonB) / 2) * 111320 * cosLat;
+        if (Math.hypot(dNorth, dEast) < 5) return;
+      }
       const pA = toScreen(sec.latA, sec.lonA);
       const pB = toScreen(sec.latB, sec.lonB);
 
@@ -447,10 +505,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      ctx.fillStyle = C.sector;
       ctx.font = 'bold 9px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(sec.name || `S${idx + 1}`, (pA.x + pB.x) / 2, (pA.y + pB.y) / 2 - 5);
+      drawGateLabel(pA, pB, sec.name || `S${idx + 1}`, C.sector);
     });
 
     // 4. 車両の走行ライン (GPSトラック)
@@ -756,8 +812,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         </div>
       </div>
 
-      {/* Canvas */}
-      <div className={`relative flex-1 w-full h-full ${compact ? 'min-h-0' : 'min-h-[220px]'}`}>
+      {/* Canvas。ウインドウの残りの高さに合わせる (h-full・最低の高さを付けると、上の段が 2 行になったときに枠の外へはみ出し、コース図の下が切れる) */}
+      <div className="relative flex-1 w-full min-h-0">
         <canvas
           ref={canvasRef}
           {...pointerHandlers}

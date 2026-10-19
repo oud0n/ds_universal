@@ -28,6 +28,15 @@ const MAX_RATE = 4;
 /** これより大きくずれたら飛ぶ。倍率のある枠 (走行比較) は、速さの変わり目で外れやすいので小さめにする */
 const JUMP_SEC = 0.5;
 const JUMP_SEC_RATED = 0.25;
+// 速さを変えずにおく音のある動画 (Safari) は、これより遅れたら飛ぶ (再生を始めた直後の出遅れ 0.2〜0.5 秒を残さないため)
+const JUMP_SEC_AUDIBLE_FIXED = 0.2;
+// 音を出している動画のずれを詰め始める大きさ (音を消した動画より大きくして、速さを変える回数を減らす)
+const CORRECT_START_SEC_AUDIBLE = 0.08;
+// 飛ぶときに、移動にかかる時間の分だけ先へ飛ぶ (移動のあいだも App の時刻は進むので、ちょうどの位置へ飛ぶと遅れたまま着き、また飛ぶ)。その上限。
+// パソコンの Safari の音のある動画は、移動して動き出すまで 0.5〜0.7 秒かかる (音を消すと 0.05 秒ほど) (2026-10-20)
+const MAX_SEEK_LEAD_SEC = 0.8;
+// 飛んだ移動が動き出すのを待つ長さの上限
+const SEEK_HOLD_MS = 1500;
 
 interface Entry {
   el: HTMLVideoElement;
@@ -40,10 +49,24 @@ interface Entry {
   rateChangedAt: number;
   /** 合わせている動画のファイル。チャプターや .LRV で同じ <video> のファイルが替わったら、出たコマの記録と一度だけの再生をやり直す */
   src: string;
+  /** 再生中に飛んだ時刻 (performance.now)。移動が終わって次のコマが出たら、かかった時間を seekLead にする */
+  seekStartedAt: number | null;
+  /** 移動が終わり (seeked)、次のコマが出るのを待っている。Safari は seeked のあとも、しばらく動き出さない */
+  seekDone: boolean;
+  /** 飛んだ先 (動画の秒) */
+  seekTarget: number;
+  /** 前に合わせたときの App の時刻 (動画の秒) と、その時刻 (performance.now)。見ている位置を動かしたのを見分ける */
+  lastLocal: number;
+  lastSyncAt: number | null;
+  /** 飛んだときに音を出していたか (移動にかかった時間を、どちらの seekLead として覚えるか) */
+  seekAudible: boolean;
+  /** 再生中に飛ぶとき、先へずらす秒数 (前の移動にかかった時間)。[音を消しているとき, 音を出しているとき] (Safari では 10 倍ほど違う) */
+  seekLead: [number, number];
+  onSeeked: () => void;
 }
 
 type FrameVideo = HTMLVideoElement & {
-  requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number;
+  requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number; expectedDisplayTime?: number }) => void) => number;
   cancelVideoFrameCallback?: (h: number) => void;
 };
 
@@ -61,6 +84,12 @@ function playSafely(el: HTMLVideoElement): void {
 }
 
 export class PlaybackController {
+  /**
+   * 音を出している動画も、再生の速さを少し変えてずれを詰めるか。
+   * Safari (iPhone・iPad・パソコンとも) は、音のある動画の速さを変えると映像が重くなる (コマが 1 秒に数枚まで落ちる) ので false にする
+   */
+  constructor(private readonly adjustAudibleRate = true) {}
+
   private entries = new Map<string, Entry>();
   // 止めたまま最初のコマを出すために、一度だけ再生して止めた動画 (iPhone の Safari は、再生するまで動画を読み込まず、黒いまま)
   private primed = new WeakSet<HTMLVideoElement>();
@@ -69,9 +98,19 @@ export class PlaybackController {
   attach(key: string, el: HTMLVideoElement | null): void {
     const old = this.entries.get(key);
     if (old && old.el === el) return;
-    if (old) this.stopFrames(old);
+    if (old) { this.stopFrames(old); old.el.removeEventListener('seeked', old.onSeeked); }
     if (!el) { this.entries.delete(key); return; }
-    const entry: Entry = { el, frame: null, frameHandle: null, correcting: false, rateChangedAt: 0, src: el.currentSrc || el.src };
+    const entry: Entry = {
+      el, frame: null, frameHandle: null, correcting: false, rateChangedAt: 0, src: el.currentSrc || el.src,
+      seekStartedAt: null, seekDone: false, seekTarget: 0, lastLocal: 0, lastSyncAt: null, seekAudible: false, seekLead: [0, 0],
+      onSeeked: () => {
+        if (entry.seekStartedAt === null) return;
+        // コマが出たのを知らせてもらえるときは、次のコマが出るまで待って測る (watchFrames)
+        if ((el as FrameVideo).requestVideoFrameCallback) entry.seekDone = true;
+        else this.noteSeekTime(entry, performance.now());
+      },
+    };
+    el.addEventListener('seeked', entry.onSeeked);
     this.entries.set(key, entry);
     this.watchFrames(entry);
   }
@@ -88,17 +127,47 @@ export class PlaybackController {
   sync(targets: Map<string, PlaybackTarget>, isPlaying: boolean, speed: number): void {
     this.entries.forEach((entry, key) => {
       const t = targets.get(key);
-      if (!t || t.outOfRange) { if (!entry.el.paused) entry.el.pause(); return; }
+      if (!t || t.outOfRange) { if (!entry.el.paused) entry.el.pause(); this.stopSeekWait(entry); return; }
       this.syncEntry(entry, t, isPlaying, speed);
     });
+  }
+
+  /** 飛んだ移動を待つのと、移動の時間の測りかけをやめる (動画を止めたとき。止めたあとの時間を、移動の時間として覚えないように) */
+  private stopSeekWait(entry: Entry): void {
+    entry.seekStartedAt = null;
+    entry.seekDone = false;
+    entry.lastSyncAt = null;
+  }
+
+  /** 飛んでから動き出すまでの時間を覚える。ばらつくので、前の値とならす */
+  private noteSeekTime(entry: Entry, at: number): void {
+    const started = entry.seekStartedAt;
+    entry.seekStartedAt = null;
+    entry.seekDone = false;
+    // 測っているあいだに音を出す・消すが切り替わったら (再生を断られて音を消したときも)、どちらの時間とも言えないので覚えない
+    if (started === null || entry.el.muted === entry.seekAudible) return;
+    const sec = (at - started) / 1000;
+    // 1.5 秒より長いのは、途中で止めた・タブを隠したなどで、移動の時間ではないので覚えない
+    if (!(sec >= 0) || sec > SEEK_HOLD_MS / 1000) return;
+    const lead = Math.min(MAX_SEEK_LEAD_SEC, sec);
+    const i = entry.seekAudible ? 1 : 0;
+    entry.seekLead[i] = entry.seekLead[i] > 0 ? (entry.seekLead[i] + lead) / 2 : lead;
   }
 
   /** 出たコマの時刻を覚える (currentTime は出ているコマより先に進んでいることがあるため) */
   private watchFrames(entry: Entry): void {
     const v = entry.el as FrameVideo;
     if (!v.requestVideoFrameCallback) return;
-    const onFrame = (_now: number, meta: { mediaTime: number }) => {
-      entry.frame = { mediaTime: meta.mediaTime, at: performance.now() };
+    const onFrame = (_now: number, meta: { mediaTime: number; expectedDisplayTime?: number }) => {
+      // コマが画面に出る時刻を使う。Safari はコマが出てから 30 ms ほど遅れて知らせてくるので、受け取った時刻を使うと
+      // 動画がいつも遅れて見え、速さを変え続けてしまう (2026-10-19)。先の時刻 (Chrome) や大きく外れた値はそのまま使わない
+      const now = performance.now();
+      const shown = meta.expectedDisplayTime;
+      // Chrome はこれから出す時刻 (少し先)、Safari は出したあとに知らせる。大きく外れた値は使わない
+      const at = shown !== undefined && Number.isFinite(shown) && Math.abs(now - shown) < 100 ? shown : now;
+      entry.frame = { mediaTime: meta.mediaTime, at };
+      // 飛んだ先より進んだコマが出たら、動き出した。Safari は、移動が終わるとすぐ飛んだ先のコマを出し、そのあとしばらく止まることがある
+      if (entry.seekDone && meta.mediaTime > entry.seekTarget + 0.01) this.noteSeekTime(entry, at);
       entry.frameHandle = v.requestVideoFrameCallback!(onFrame);
     };
     entry.frameHandle = v.requestVideoFrameCallback(onFrame);
@@ -126,7 +195,29 @@ export class PlaybackController {
       entry.src = src;
       entry.frame = null;
       entry.correcting = false;
+      entry.seekLead = [0, 0];
+      entry.seekStartedAt = null;
+      entry.seekDone = false;
       this.primed.delete(el);
+    }
+    const rated = t.rate !== undefined;
+    const base = speed * (t.rate ?? 1);
+    // 動画を止める場合 (止めている・位置が動画の外・倍率が範囲の外) は、飛んだ移動を待たない (移動の途中で止めても、測りかけを残さない)。
+    // 再生中に、App の時刻が前に合わせたときから進むはずの分より 0.15 秒以上動いたら、見ている位置を動かしたので、やはり待たない。
+    // 前に合わせてから 0.25 秒より空いたとき (タブを隠したなど) は、そのあいだの倍率の変わり方がわからないので見分けない
+    const nowMs = performance.now();
+    const moving = isPlaying && t.localTime >= 0 && !(t.durationSec > 0 && t.localTime > t.durationSec)
+      && base >= MIN_RATE * speed && base <= MAX_RATE * speed;
+    if (!moving) {
+      this.stopSeekWait(entry);
+    } else {
+      const dt = entry.lastSyncAt === null ? Infinity : (nowMs - entry.lastSyncAt) / 1000;
+      if (dt <= 0.25 && Math.abs(t.localTime - (entry.lastLocal + base * dt)) > 0.15) {
+        entry.seekStartedAt = null;
+        entry.seekDone = false;
+      }
+      entry.lastLocal = t.localTime;
+      entry.lastSyncAt = nowMs;
     }
     let localTime = t.localTime;
     if (localTime < 0 || (t.durationSec > 0 && localTime > t.durationSec)) {
@@ -137,8 +228,6 @@ export class PlaybackController {
     if (el.seeking) return;
     // 動画の本当の長さを超えた位置には移動できない (移動しても終わりに止まり、移動が終わるたびに合わせ直して止まらなくなる)
     if (Number.isFinite(el.duration) && el.duration > 0 && localTime > el.duration) localTime = el.duration;
-    const rated = t.rate !== undefined;
-    const base = speed * (t.rate ?? 1);
     const diff = localTime - this.shownTime(entry); // 正なら動画が遅れている
     // 止めているとき・倍率が範囲の外 (比べる車が止まっている・Car 1 が止まっているなど) は、位置だけ合わせる
     if (!isPlaying || base < MIN_RATE * speed || base > MAX_RATE * speed) {
@@ -158,16 +247,37 @@ export class PlaybackController {
       if (el.playbackRate !== speed) el.playbackRate = speed;
       return;
     }
-    if (Math.abs(diff) > (rated ? JUMP_SEC_RATED : JUMP_SEC)) {
-      // 大きくずれたら (シーク・周の始めに戻ったときなど) 飛ぶ
-      el.currentTime = localTime;
+    const audible = !el.muted;
+    // 飛ぶずれの大きさ。速さで詰められない音のある動画は、小さなずれでも飛ぶ
+    const jump = rated ? JUMP_SEC_RATED : audible && !this.adjustAudibleRate ? JUMP_SEC_AUDIBLE_FIXED : JUMP_SEC;
+    // 前に飛んだ移動がまだ終わらず動き出していないあいだは、近くへはもう一度飛ばない
+    // (動き出すまで currentTime が止まって遅れて見えるので、飛び直し続けて、移動にかかる時間も覚えられなくなる)。
+    // 見ている位置を動かしたとき (上で待つのをやめる) と、1.5 秒たっても動き出さないときは飛ぶ
+    const seeking = entry.seekStartedAt !== null && nowMs - entry.seekStartedAt < SEEK_HOLD_MS;
+    if (seeking) {
+      if (Math.abs(el.playbackRate - base) > 0.001) el.playbackRate = base;
+    } else if (Math.abs(diff) > jump) {
+      // 大きくずれたら (シーク・周の始めに戻ったときなど) 飛ぶ。前の移動にかかった時間の分だけ先へ
+      let lead = Math.min(entry.seekLead[audible ? 1 : 0] * base, MAX_SEEK_LEAD_SEC);
+      // 終わりの近くでは先へずらさない (終わりで止まった動画を見て、飛び直し続けないように)
+      if (Number.isFinite(el.duration) && el.duration > 0 && localTime + lead >= el.duration) lead = 0;
+      const target = localTime + lead;
+      el.currentTime = target;
+      entry.seekTarget = target;
+      entry.seekAudible = audible;
+      entry.seekStartedAt = performance.now();
+      entry.seekDone = false;
+      entry.correcting = false;
+      // 移動の前に出ていたコマの記録は使わない (移動が終わってすぐ合わせ直すと、前の位置を見てもう一度飛ぶため)。次のコマが出るまでは currentTime で測る
+      entry.frame = null;
       if (Math.abs(el.playbackRate - base) > 0.001) el.playbackRate = base;
     } else {
       // 少しのずれは、再生の速さを少し変えて追いつく (毎回飛ぶと映像が止まって見える)。
-      // 音を出している動画は速さを変えずにおく (速さを変えると、Safari は音の高さを保つ処理をして、iPhone では映像が重くなる)。
-      // 音を出すのはふつう基準の枠で、App の時刻と同じ速さで進むので、ずれるのはまれ。大きくずれたら上で飛ぶ
-      if (!el.muted) entry.correcting = false;
-      else if (Math.abs(diff) > CORRECT_START_SEC) entry.correcting = true;
+      // Safari では、音を出している動画は速さを変えずにおく (速さを変えると、音の高さを保つ処理をして、映像が重くなる)。上で小さなずれでも飛ぶ。
+      // Chrome・Electron では音のある動画も詰める (再生を始めた直後の出遅れ 0.1〜0.5 秒が、飛ぶ大きさに届かずに残るため)。
+      // 音のある動画は、詰め始めるずれを大きめにして、速さを変える回数を減らす
+      if (audible && !this.adjustAudibleRate) entry.correcting = false;
+      else if (Math.abs(diff) > (audible ? CORRECT_START_SEC_AUDIBLE : CORRECT_START_SEC)) entry.correcting = true;
       else if (Math.abs(diff) < CORRECT_STOP_SEC) entry.correcting = false;
       const correction = entry.correcting ? Math.max(-0.1, Math.min(0.1, diff * 0.5)) : 0;
       const rate = Math.max(MIN_RATE * speed, Math.min(MAX_RATE * speed, base * (1 + correction)));

@@ -33,8 +33,10 @@ import {
 import { MasterTimelineTrackBar } from './MasterTimelineTrackBar';
 import { formatMinSec } from '../utils/timeFormat';
 import { tr, useT } from '../utils/i18n';
-import { fileAccept } from '../utils/device';
+import { fileAccept, isIOS, isWebKitBrowser } from '../utils/device';
 import { useCompactLayout, useLandscape } from '../hooks/useCompactLayout';
+import { useWheelScrollX } from '../hooks/useWheelScrollX';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 export type { PipPosition };
 
@@ -50,6 +52,8 @@ interface VideoSyncWindowProps {
   targetSessionId?: string;  // 速度ウィンドウで選択中のセッションID
   targetLap?: any;           // 速度ウィンドウで選択中のラップ
   isGraphEmbedded?: boolean; // グラフ解析画面に埋め込まれているかどうか
+  // 音を出さない (グラフ解析で、同じ動画をほかのウインドウも出しているとき。音が二重になるため)
+  muted?: boolean;
   // 画面に見えているか。見えていないウインドウ (隠れている動画同期タブ・グラフ画面) では動画を再生しない
   isVisible?: boolean;
   playbackSpeed: number;
@@ -282,6 +286,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   targetSessionId,
   targetLap,
   isGraphEmbedded = false,
+  muted: muteAll = false,
   isVisible = true,
   playbackSpeed,
   onChangePlaybackSpeed,
@@ -306,7 +311,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const { pipPosition, showOverlay, showGForce } = win;
   const setShowOverlay = (v: boolean) => setWin({ showOverlay: v });
   // 全部の <video> を、1 か所で App の時刻に合わせる
-  const playback = useRef(new PlaybackController()).current;
+  // iPhone・iPad では、音のある動画の速さは変えない (映像が重くなるため)
+  const playback = useRef(new PlaybackController(!isIOS && !isWebKitBrowser)).current;
+  // 上の段は、入りきらないときに横にスクロールする。マウスのホイールでも動かせるようにする
+  const toolbarScrollRef = useWheelScrollX<HTMLDivElement>();
   const mainVideo = () => playback.element('tile-0');
 
   // シークバースコープ ('lap': 速度ウィンドウ選択中ラップ時間, 'session': セッション全体時間)
@@ -327,6 +335,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   // 動画テレメトリ焼き込みエクスポートステート
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
+  // ピン留め同期・書き出しの設定のダイアログは、Esc キーでも閉じる (隠れたタブのウインドウのものは対象にしない。
+  // 開いたまま数えると、ほかのタブで再生のキー操作が効かなくなる)
+  useEscapeKey(showPinModal && isVisible, () => setShowPinModal(false));
+  useEscapeKey(showExportModal && isVisible, () => setShowExportModal(false));
   const [exportRange, setExportRange] = useState<'lap' | 'all'>('lap');
   const [exportResolution, setExportResolution] = useState<'1080p' | '720p'>('1080p');
   const [exportFps, setExportFps] = useState<number>(30);
@@ -487,12 +499,20 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     return `${m}/${day} ${hh}:${mm}:${ss}`;
   };
 
-  // 動画再生時間フォーマット (MM:SS)
+  // 動画再生時間フォーマット (M:SS。1 時間を超えたら H:MM:SS、1 日を超えたら日数も付ける。撮影日の違う動画を読むと範囲が何日にもなる)
   const formatDuration = (sec: number): string => {
-    const sClamped = Math.max(0, sec);
-    const m = Math.floor(sClamped / 60);
-    const s = Math.floor(sClamped % 60);
-    return `${m}:${String(s).padStart(2, '0')}`;
+    // 動画がログより前から始まるときは、負の時刻になる (以前はどれも 0:00 になり、目盛りが同じ文字で並んだ)
+    if (sec <= -1) return `-${formatDuration(-sec)}`;
+    if (sec < 0) return '0:00';
+    const sClamped = Math.floor(sec);
+    const d = Math.floor(sClamped / 86400);
+    const h = Math.floor((sClamped % 86400) / 3600);
+    const m = Math.floor((sClamped % 3600) / 60);
+    const s = sClamped % 60;
+    const ss = String(s).padStart(2, '0');
+    if (sClamped < 3600) return `${m}:${ss}`;
+    const hms = `${h}:${String(m).padStart(2, '0')}:${ss}`;
+    return d > 0 ? `${d}${t('日', 'd')} ${hms}` : hms;
   };
 
   const gpsStartTime = baseSession?.points[0]?.timestamp ? new Date(baseSession.points[0].timestamp) : null;
@@ -868,12 +888,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     // 枠が狭くて全部の段が入らないときは、動画を潰さずにウインドウの中をスクロールさせる
     <div className={`relative flex flex-col h-full bg-surface-0 text-slate-200 select-none font-sans ${isGraphEmbedded ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'}`}>
       {showRuns && (
-        <RunsInspector sessions={sessions} media={media} onChooseLog={onChooseLog} onClose={() => setShowRuns(false)} />
+        <RunsInspector sessions={sessions} media={media} onChooseLog={onChooseLog} onClose={() => setShowRuns(false)} visible={isVisible} />
       )}
       {/* 1. 上部コントロールバー (フラットデザイン) */}
       {/* グラフ解析に埋め込んだ狭い枠では、右側のボタンが切れないよう横にスクロールできるようにする */}
       {/* ボタンの文字は折り返さない。入りきらないときは横にスクロールし、広い画面でだけ文字を出すボタンもある */}
-      <div className="h-11 bg-surface-1 border-b border-line-1 px-3 flex items-center justify-between gap-2 shrink-0 overflow-x-auto overflow-y-hidden [&_button]:whitespace-nowrap [&_button]:shrink-0">
+      <div ref={toolbarScrollRef} className="h-11 bg-surface-1 border-b border-line-1 px-3 flex items-center justify-between gap-2 shrink-0 overflow-x-auto overflow-y-hidden [&_button]:whitespace-nowrap [&_button]:shrink-0">
         <div className="flex items-center gap-2.5 shrink-0">
           <span className="text-xs font-bold text-slate-100 flex items-center gap-1.5 shrink-0 whitespace-nowrap" title={t('車載動画同期', 'Onboard video sync')}>
             <Video size={15} className="text-red-500" />
@@ -1258,7 +1278,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 const x = tiles[i];
                 const isMain = i === 0;
                 // 音を出すのは、大きく出している枠 (なければメイン) だけ
-                const sound = win.focus !== null ? i === win.focus : isMain;
+                const sound = !muteAll && (win.focus !== null ? i === win.focus : isMain);
                 return (
                   <VideoTile
                     key={`tile-${i}`}

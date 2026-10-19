@@ -170,6 +170,8 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
     });
 
     // 3. 各車両のリアルタイムアニメーション描画 (車両ボディ & 進行方向)
+    // 速さの文字を書いた位置 (近くを走る車の文字が重なって読めなくならないよう、重なるときは上へずらす)
+    const labelSpots: Array<{ x: number; y: number }> = [];
     cars.forEach(car => {
       const pts = car.lap.points;
       if (pts.length === 0) return;
@@ -218,11 +220,17 @@ export const ReplayWindow: React.FC<ReplayWindowProps> = ({
 
       ctx.restore();
 
-      // 車両ラベル・速度タグ
-      ctx.fillStyle = C.strong;
+      // 車両ラベル・速度タグ。2 台以上のときは車の色で書き、重なるときは上へずらす
+      let labelY = pos.y - 14;
+      while (labelSpots.some(p => Math.abs(p.x - pos.x) < 64 && Math.abs(p.y - labelY) < 12)) labelY -= 12;
+      labelSpots.push({ x: pos.x, y: labelY });
       ctx.font = 'bold 10px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`${pt.speed.toFixed(0)} km/h`, pos.x, pos.y - 14);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = C.bg;
+      ctx.strokeText(`${pt.speed.toFixed(0)} km/h`, pos.x, labelY);
+      ctx.fillStyle = cars.length > 1 ? car.slot.colorHex : C.strong;
+      ctx.fillText(`${pt.speed.toFixed(0)} km/h`, pos.x, labelY);
     });
 
     // 4. クリップ位置・距離インジケーター

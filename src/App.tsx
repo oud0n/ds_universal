@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, FolderOpen } from 'lucide-react';
 import { CompareAxis, Lap, Session, TelemetryPoint, SelectedCarSlot, ControlLine, Sector, CircuitPreset, PolylineSource } from './types/telemetry';
 import { parseDtb } from './services/dtbParser';
 import { parseDigispiceRawBinary } from './services/rawBinaryParser';
@@ -40,6 +40,8 @@ import { DonateModal } from './components/DonateModal';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
 import { bleLoggerLink } from './services/bleLoggerLink';
+import { useWheelScrollX } from './hooks/useWheelScrollX';
+import { isDialogOpen } from './hooks/useEscapeKey';
 import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
 import { Freeze } from './components/Freeze';
 import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
@@ -106,6 +108,11 @@ const MOBILE_PANELS: { id: MobilePanel; label: [string, string] }[] = ([
   { id: 'drift', label: ['ドリフト', 'Drift'] }
 ] as { id: MobilePanel; label: [string, string] }[]).filter(p => SHOW_DRIFT || p.id !== 'drift');
 
+/** 文字を入れる欄か (そこに落とした文字・リンクは、ふつうどおり欄に入れる。ファイルはどこに落としても読み込む) */
+const TEXT_INPUT_TYPES = new Set(['text', 'search', 'url', 'email', 'tel', 'password', 'number']);
+const isTextField = (t: EventTarget | null): boolean =>
+  t instanceof HTMLElement && (t.isContentEditable || t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && TEXT_INPUT_TYPES.has((t as HTMLInputElement).type)));
+
 export const App: React.FC = () => {
   // 画面の文言 (言語を切り替えると描き直す)
   const T = useT();
@@ -163,6 +170,18 @@ export const App: React.FC = () => {
 
   // グラフ画面・左下モード ('replay' | 'video')
   const [leftBottomMode, setLeftBottomMode] = useState<'replay' | 'video'>('replay');
+  // 右下のタブの帯 (入りきらないときに横にスクロールする)
+  const subTabsScrollRef = useWheelScrollX<HTMLDivElement>();
+  // ファイルを画面の上に持ってきているか (落とせることを知らせる)。子の要素に入るたびに enter / leave が来るので、深さを数える
+  const [fileDragOver, setFileDragOver] = useState(false);
+  const dragDepthRef = useRef(0);
+  // 持ってきたのをやめたとき (Esc・ウインドウの外で離したとき) は、落とせる表示を消す
+  useEffect(() => {
+    const reset = () => { dragDepthRef.current = 0; setFileDragOver(false); };
+    window.addEventListener('dragend', reset);
+    window.addEventListener('drop', reset);
+    return () => { window.removeEventListener('dragend', reset); window.removeEventListener('drop', reset); };
+  }, []);
 
   // サブウインドウ表示モード ('all' | 'track_friction' | 'replay_focus' | 'video')
   const [subWindowMode, setSubWindowMode] = useState<'all' | 'track_friction' | 'replay_focus' | 'video' | 'corner' | 'braking'>('all');
@@ -436,8 +455,9 @@ export const App: React.FC = () => {
   // キーボードショートカット (Space: 再生/停止, F / →: コマ送り, B / ←: コマ戻し, Shift で 1 秒単位)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // 入力フォーム操作中は無視
+      // 入力フォーム操作中・ダイアログを開いているあいだは無視 (後ろの画面の再生が動かないように)
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+      if (isDialogOpen()) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
 
       const step = e.shiftKey ? 1 : 0.1;
@@ -1174,7 +1194,31 @@ export const App: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col h-dvh w-screen overflow-hidden bg-surface-0 text-slate-100">
+    <div
+      className="relative flex flex-col h-dvh w-screen overflow-hidden bg-surface-0 text-slate-100"
+      // ファイルは、どの画面に落としても読み込む (受け口のない所に落とすと、ブラウザ・Electron がそのファイルを開いてアプリの画面から離れてしまう)。
+      // 動画同期・ログ変換の受け口が受け取ったもの (preventDefault 済み) は、ここでは読まない。
+      // リンク・文字を落としたときも、ブラウザがそちらへ移らないよう止める (入力欄に落とす文字はそのまま)
+      onDragEnter={e => { if (e.dataTransfer.types.includes('Files')) { dragDepthRef.current++; setFileDragOver(true); } }}
+      onDragLeave={e => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        // ウインドウの外へ出たとき (relatedTarget がない) は、数え残しがあっても消す
+        if (--dragDepthRef.current <= 0 || !e.relatedTarget) { dragDepthRef.current = 0; setFileDragOver(false); }
+      }}
+      onDragOver={e => { if (e.dataTransfer.types.includes('Files') || !isTextField(e.target)) e.preventDefault(); }}
+      onDrop={e => {
+        dragDepthRef.current = 0;
+        setFileDragOver(false);
+        if (e.defaultPrevented || (isTextField(e.target) && e.dataTransfer.files.length === 0)) return;
+        e.preventDefault();
+        if (e.dataTransfer.files.length > 0) loadFiles(Array.from(e.dataTransfer.files));
+      }}
+    >
+      {fileDragOver && (
+        <div className="absolute inset-0 z-[60] pointer-events-none border-4 border-dashed border-red-500/70 bg-black/30 flex items-center justify-center">
+          <span className="px-4 py-2 rounded-lg bg-surface-2 border border-line-3 text-sm font-bold text-slate-100 shadow-lg">{T('ドロップして読み込む', 'Drop to load')}</span>
+        </div>
+      )}
       {/* 非表示ファイル入力 */}
       <input
         type="file"
@@ -1316,7 +1360,30 @@ export const App: React.FC = () => {
       />
 
       {/* メインコンテンツ */}
-      <main className={`flex-1 overflow-hidden ${isCompact ? 'p-2' : 'p-3'}`}>
+      <main className={`relative flex-1 overflow-hidden ${isCompact ? 'p-2' : 'p-3'}`}>
+        {/* ログを読み込む前のグラフ解析: 読み込み方を案内する (何もない画面で、どうすればよいか分からないため) */}
+        {currentTab === 'graph' && sessions.length === 0 && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none p-4 bg-surface-0/60">
+            <div className="pointer-events-auto max-w-md w-full max-h-full overflow-y-auto bg-surface-2 border border-line-2 rounded-xl p-5 text-center shadow-xl">
+              <h2 className="text-sm font-bold text-slate-100">{T('走行ログを読み込む', 'Load a driving log')}</h2>
+              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                {/* スマートフォンではファイルを落とせないので、ボタンだけを案内する */}
+                {isCompact
+                  ? T('ロガーのログ (.bnx4 / .bon4 / .dtb)・NMEA・CSV・VBO・GPX・AiM・iRacing・GoPro の動画を、ボタンから選んでください。',
+                    'Choose a logger file (.bnx4 / .bon4 / .dtb), NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video with the button.')
+                  : T('ロガーのログ (.bnx4 / .bon4 / .dtb)・NMEA・CSV・VBO・GPX・AiM・iRacing・GoPro の動画を、ここにドロップするか、ボタンから選んでください。',
+                    'Drop a logger file (.bnx4 / .bon4 / .dtb), NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video here, or choose one with the button.')}
+              </p>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-xs text-white font-bold cursor-pointer"
+              >
+                <FolderOpen size={14} />
+                {T('ファイルを選ぶ', 'Choose files')}
+              </button>
+            </div>
+          </div>
+        )}
         {/* グラフ解析タブ */}
         {isCompact ? (
           // スマートフォン: 速度ウインドウを上 (横向きでは左) に固定し、もう片方は切り替えて 1 つずつ表示する
@@ -1515,7 +1582,8 @@ export const App: React.FC = () => {
                 }`}
               >
                 <div className={`flex items-center bg-surface-2 p-1 text-[11px] gap-1 shrink-0 whitespace-nowrap ${collapsed.sub ? '' : 'border-b border-line-1'}`}>
-                  <div className="flex gap-1 overflow-x-auto no-scrollbar min-w-0">
+                  {/* 入りきらないタブは横にスクロールする (スクロールバーは出さないので、マウスのホイールでも動かせるようにする) */}
+                  <div ref={subTabsScrollRef} className="flex gap-1 overflow-x-auto no-scrollbar min-w-0">
                   <button
                     onClick={() => { setSubWindowMode('all'); toggleCollapsed('sub', false); }}
                     className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
@@ -1607,6 +1675,8 @@ export const App: React.FC = () => {
                       onPickCompareLap={(sessionId, lapNumber) => handleSelectCarSlot(1, sessionId, lapNumber)}
                       onLoadFiles={loadFiles}
                       viewKey="graph-b"
+                      // 左下にも車載動画を出しているときは、こちらの音を消す (同じ動画の音が二重になるため)
+                      muted={leftBottomMode === 'video' && !collapsed.anim}
                       onSetClockOffset={setSessionClockOffset}
                       compareCars={activeCars}
                     />
