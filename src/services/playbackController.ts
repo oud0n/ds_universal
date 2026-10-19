@@ -28,6 +28,10 @@ const MAX_RATE = 4;
 /** これより大きくずれたら飛ぶ。倍率のある枠 (走行比較) は、速さの変わり目で外れやすいので小さめにする */
 const JUMP_SEC = 0.5;
 const JUMP_SEC_RATED = 0.25;
+// 音を出している動画のずれを詰め始める大きさ (音を消した動画より大きくして、速さを変える回数を減らす)
+const CORRECT_START_SEC_AUDIBLE = 0.08;
+// 飛ぶときに、移動にかかる時間の分だけ先へ飛ぶ (移動のあいだも App の時刻は進むので、ちょうどの位置へ飛ぶと遅れたまま着き、また飛ぶ)。その上限
+const MAX_SEEK_LEAD_SEC = 0.4;
 
 interface Entry {
   el: HTMLVideoElement;
@@ -40,10 +44,15 @@ interface Entry {
   rateChangedAt: number;
   /** 合わせている動画のファイル。チャプターや .LRV で同じ <video> のファイルが替わったら、出たコマの記録と一度だけの再生をやり直す */
   src: string;
+  /** 再生中に飛んだ時刻 (performance.now)。移動が終わったら、かかった時間を seekLead にする */
+  seekStartedAt: number | null;
+  /** 再生中に飛ぶとき、先へずらす秒数 (前の移動にかかった時間) */
+  seekLead: number;
+  onSeeked: () => void;
 }
 
 type FrameVideo = HTMLVideoElement & {
-  requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number;
+  requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number; expectedDisplayTime?: number }) => void) => number;
   cancelVideoFrameCallback?: (h: number) => void;
 };
 
@@ -61,6 +70,12 @@ function playSafely(el: HTMLVideoElement): void {
 }
 
 export class PlaybackController {
+  /**
+   * 音を出している動画も、再生の速さを少し変えてずれを詰めるか。
+   * iPhone・iPad の Safari は、音のある動画の速さを変えると映像が重くなるので false にする
+   */
+  constructor(private readonly adjustAudibleRate = true) {}
+
   private entries = new Map<string, Entry>();
   // 止めたまま最初のコマを出すために、一度だけ再生して止めた動画 (iPhone の Safari は、再生するまで動画を読み込まず、黒いまま)
   private primed = new WeakSet<HTMLVideoElement>();
@@ -69,9 +84,18 @@ export class PlaybackController {
   attach(key: string, el: HTMLVideoElement | null): void {
     const old = this.entries.get(key);
     if (old && old.el === el) return;
-    if (old) this.stopFrames(old);
+    if (old) { this.stopFrames(old); old.el.removeEventListener('seeked', old.onSeeked); }
     if (!el) { this.entries.delete(key); return; }
-    const entry: Entry = { el, frame: null, frameHandle: null, correcting: false, rateChangedAt: 0, src: el.currentSrc || el.src };
+    const entry: Entry = {
+      el, frame: null, frameHandle: null, correcting: false, rateChangedAt: 0, src: el.currentSrc || el.src,
+      seekStartedAt: null, seekLead: 0,
+      onSeeked: () => {
+        if (entry.seekStartedAt === null) return;
+        entry.seekLead = Math.min(MAX_SEEK_LEAD_SEC, (performance.now() - entry.seekStartedAt) / 1000);
+        entry.seekStartedAt = null;
+      },
+    };
+    el.addEventListener('seeked', entry.onSeeked);
     this.entries.set(key, entry);
     this.watchFrames(entry);
   }
@@ -97,8 +121,13 @@ export class PlaybackController {
   private watchFrames(entry: Entry): void {
     const v = entry.el as FrameVideo;
     if (!v.requestVideoFrameCallback) return;
-    const onFrame = (_now: number, meta: { mediaTime: number }) => {
-      entry.frame = { mediaTime: meta.mediaTime, at: performance.now() };
+    const onFrame = (_now: number, meta: { mediaTime: number; expectedDisplayTime?: number }) => {
+      // コマが画面に出る時刻を使う。Safari はコマが出てから 30 ms ほど遅れて知らせてくるので、受け取った時刻を使うと
+      // 動画がいつも遅れて見え、速さを変え続けてしまう (2026-10-19)。先の時刻 (Chrome) や大きく外れた値はそのまま使わない
+      const now = performance.now();
+      const shown = meta.expectedDisplayTime;
+      const at = shown !== undefined && Number.isFinite(shown) && Math.abs(now - shown) < 100 ? Math.min(now, shown) : now;
+      entry.frame = { mediaTime: meta.mediaTime, at };
       entry.frameHandle = v.requestVideoFrameCallback!(onFrame);
     };
     entry.frameHandle = v.requestVideoFrameCallback(onFrame);
@@ -126,6 +155,8 @@ export class PlaybackController {
       entry.src = src;
       entry.frame = null;
       entry.correcting = false;
+      entry.seekLead = 0;
+      entry.seekStartedAt = null;
       this.primed.delete(el);
     }
     let localTime = t.localTime;
@@ -159,15 +190,20 @@ export class PlaybackController {
       return;
     }
     if (Math.abs(diff) > (rated ? JUMP_SEC_RATED : JUMP_SEC)) {
-      // 大きくずれたら (シーク・周の始めに戻ったときなど) 飛ぶ
-      el.currentTime = localTime;
+      // 大きくずれたら (シーク・周の始めに戻ったときなど) 飛ぶ。前の移動にかかった時間の分だけ先へ
+      const lead = entry.seekLead * base;
+      el.currentTime = Number.isFinite(el.duration) && el.duration > 0 ? Math.min(el.duration, localTime + lead) : localTime + lead;
+      entry.seekStartedAt = performance.now();
+      entry.correcting = false;
       if (Math.abs(el.playbackRate - base) > 0.001) el.playbackRate = base;
     } else {
       // 少しのずれは、再生の速さを少し変えて追いつく (毎回飛ぶと映像が止まって見える)。
-      // 音を出している動画は速さを変えずにおく (速さを変えると、Safari は音の高さを保つ処理をして、iPhone では映像が重くなる)。
-      // 音を出すのはふつう基準の枠で、App の時刻と同じ速さで進むので、ずれるのはまれ。大きくずれたら上で飛ぶ
-      if (!el.muted) entry.correcting = false;
-      else if (Math.abs(diff) > CORRECT_START_SEC) entry.correcting = true;
+      // iPhone・iPad では、音を出している動画は速さを変えずにおく (速さを変えると、Safari は音の高さを保つ処理をして、映像が重くなる)。
+      // パソコンでは音のある動画も詰める (再生を始めた直後の出遅れ 0.1〜0.5 秒が、飛ぶ大きさに届かずに残るため)。
+      // 音のある動画は、詰め始めるずれを大きめにして、速さを変える回数を減らす
+      const audible = !el.muted;
+      if (audible && !this.adjustAudibleRate) entry.correcting = false;
+      else if (Math.abs(diff) > (audible ? CORRECT_START_SEC_AUDIBLE : CORRECT_START_SEC)) entry.correcting = true;
       else if (Math.abs(diff) < CORRECT_STOP_SEC) entry.correcting = false;
       const correction = entry.correcting ? Math.max(-0.1, Math.min(0.1, diff * 0.5)) : 0;
       const rate = Math.max(MIN_RATE * speed, Math.min(MAX_RATE * speed, base * (1 + correction)));

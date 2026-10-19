@@ -33,7 +33,7 @@ import {
 import { MasterTimelineTrackBar } from './MasterTimelineTrackBar';
 import { formatMinSec } from '../utils/timeFormat';
 import { tr, useT } from '../utils/i18n';
-import { fileAccept } from '../utils/device';
+import { fileAccept, isIOS } from '../utils/device';
 import { useCompactLayout, useLandscape } from '../hooks/useCompactLayout';
 
 export type { PipPosition };
@@ -50,6 +50,8 @@ interface VideoSyncWindowProps {
   targetSessionId?: string;  // 速度ウィンドウで選択中のセッションID
   targetLap?: any;           // 速度ウィンドウで選択中のラップ
   isGraphEmbedded?: boolean; // グラフ解析画面に埋め込まれているかどうか
+  // 音を出さない (グラフ解析で、同じ動画をほかのウインドウも出しているとき。音が二重になるため)
+  muted?: boolean;
   // 画面に見えているか。見えていないウインドウ (隠れている動画同期タブ・グラフ画面) では動画を再生しない
   isVisible?: boolean;
   playbackSpeed: number;
@@ -282,6 +284,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   targetSessionId,
   targetLap,
   isGraphEmbedded = false,
+  muted: muteAll = false,
   isVisible = true,
   playbackSpeed,
   onChangePlaybackSpeed,
@@ -306,7 +309,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const { pipPosition, showOverlay, showGForce } = win;
   const setShowOverlay = (v: boolean) => setWin({ showOverlay: v });
   // 全部の <video> を、1 か所で App の時刻に合わせる
-  const playback = useRef(new PlaybackController()).current;
+  // iPhone・iPad では、音のある動画の速さは変えない (映像が重くなるため)
+  const playback = useRef(new PlaybackController(!isIOS)).current;
   const mainVideo = () => playback.element('tile-0');
 
   // シークバースコープ ('lap': 速度ウィンドウ選択中ラップ時間, 'session': セッション全体時間)
@@ -1258,7 +1262,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 const x = tiles[i];
                 const isMain = i === 0;
                 // 音を出すのは、大きく出している枠 (なければメイン) だけ
-                const sound = win.focus !== null ? i === win.focus : isMain;
+                const sound = !muteAll && (win.focus !== null ? i === win.focus : isMain);
                 return (
                   <VideoTile
                     key={`tile-${i}`}
