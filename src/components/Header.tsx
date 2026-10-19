@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Play, Pause, SkipBack, SkipForward, FolderOpen, Settings, Repeat, BarChart2, List, Video, Coffee, Sun, Moon, Monitor, MoreHorizontal, Contrast } from 'lucide-react';
 import { SelectedCarSlot, Session } from '../types/telemetry';
 import { ThemeSetting, setThemeSetting, useThemeSetting } from '../utils/theme';
-import { canUseLoggerUsb } from '../utils/device';
+import { canUseLogger } from '../utils/device';
+import { BleStatusPill } from './BleLoggerCard';
 import { Lang, setLang, useLang, useT } from '../utils/i18n';
 
 // テーマの切り替え (ライト / ダーク / システムに合わせる)
@@ -94,6 +95,8 @@ export const Header: React.FC<HeaderProps> = ({
             </select>
           </div>
         )}
+
+        <BleStatusPill onClick={() => setCurrentTab('logger')} />
 
         <button onClick={() => setMenuOpen(o => !o)} aria-label={t('メニュー', 'Menu')} aria-expanded={menuOpen} className="p-1.5 rounded text-slate-300 border border-line-3">
           <MoreHorizontal size={18} />
@@ -201,8 +204,8 @@ export const Header: React.FC<HeaderProps> = ({
           <Repeat size={14} />
           {t('ログ変換', 'Convert')}
         </button>
-        {/* ロガー設定は USB でつなぐので、つなげない環境 (スマートフォン・タブレット・Safari など) では出さない */}
-        {canUseLoggerUsb && (
+        {/* ロガー設定は USB か Bluetooth でつなぐので、どちらもない環境 (iPhone・iPad の Safari・Firefox など) では出さない */}
+        {canUseLogger && (
           <button
             onClick={() => setCurrentTab('logger')}
             className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
@@ -215,6 +218,7 @@ export const Header: React.FC<HeaderProps> = ({
             {t('ロガー設定', 'Logger')}
           </button>
         )}
+        <span className="ml-2 self-center"><BleStatusPill onClick={() => setCurrentTab('logger')} /></span>
       </div>
 
       {/* アニメーション再生コントロール (フラットデザイン) */}
