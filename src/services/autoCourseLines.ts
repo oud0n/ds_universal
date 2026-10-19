@@ -19,6 +19,8 @@ const STRAIGHT_DEG = 6;
 /** 線の半分の長さの上限・下限 (m) */
 const MAX_HALF_M = 20;
 const MIN_HALF_M = 8;
+/** 候補にする直線の長さ (候補の点から前と後ろに、向きが変わらず続く距離の短いほう、m) */
+const MIN_STRAIGHT_M = 25;
 /** ピットロードを走るときの速さの上限 (km/h) */
 const PIT_MAX_KMH = 60;
 
@@ -40,12 +42,12 @@ function toLocal(points: TelemetryPoint[]): { pts: Local[]; lat0: number; lon0: 
   return { pts, lat0, lon0, cosLat };
 }
 
-/** 走った距離 d の位置 (前後の点で補間)。i0 から探す */
-function at(pts: Local[], d: number, i0 = 0): { x: number; y: number; i: number } | null {
-  if (d < 0 || d > pts[pts.length - 1].d) return null;
-  let i = Math.max(1, i0);
-  if (pts[i - 1].d > d) i = 1;
-  while (i < pts.length - 1 && pts[i].d < d) i++;
+/** 走った距離 d の位置 (前後の点で補間)。点は距離の順なので二分探索で探す */
+function at(pts: Local[], d: number, _i0 = 0): { x: number; y: number; i: number } | null {
+  if (d < 0 || d > pts[pts.length - 1].d || pts.length < 2) return null;
+  let lo = 0, hi = pts.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (pts[mid].d < d) lo = mid; else hi = mid; }
+  const i = hi;
   const a = pts[i - 1], b = pts[i];
   const t = b.d === a.d ? 0 : (d - a.d) / (b.d - a.d);
   return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, i };
@@ -116,7 +118,8 @@ export function createAutoControlLine(allPoints: TelemetryPoint[]): ControlLine 
       return k;
     };
     const straight = Math.min(extent(1), extent(-1));
-    if (straight < 40) continue;
+    // カートコースの短い直線 (80 m ほど) も候補にする
+    if (straight < MIN_STRAIGHT_M) continue;
     candidates.push({ d: pts[i].d, i, dir, straight });
     lastD = pts[i].d;
   }
@@ -175,9 +178,10 @@ export function createAutoControlLine(allPoints: TelemetryPoint[]): ControlLine 
 }
 
 /**
- * セクター線を自動で置く: 周 (startTime〜endTime) を距離で n 等分した所に、進む向きと直角な線を置く (最後の区切りは計測線なので置かない)
+ * セクター線を自動で置く: 周 (startTime〜endTime) を距離で n 等分した所に、進む向きと直角な線を置き、
+ * 最後の区間の終わりとして計測線を足す (内蔵のコースのセクターと同じ形。最後の区間のタイムと理論ベストに要る)
  */
-export function createEqualSectors(points: TelemetryPoint[], lap: { startTime: number; endTime: number }, n = 3, idPrefix = 'auto'): Sector[] {
+export function createEqualSectors(points: TelemetryPoint[], lap: { startTime: number; endTime: number }, controlLine: ControlLine, n = 3, idPrefix = 'auto'): Sector[] {
   const lapPoints = points.filter(p => p.time >= lap.startTime && p.time <= lap.endTime);
   if (lapPoints.length < 10) return [];
   const base = toLocal(lapPoints);
@@ -191,5 +195,6 @@ export function createEqualSectors(points: TelemetryPoint[], lap: { startTime: n
     const g = gateAt(center, dir, halfWidth(pts, center, dir), base);
     out.push({ id: `${idPrefix}_s${k}`, name: `S${k}`, ...g });
   }
+  out.push({ id: `${idPrefix}_finish`, name: `S${n}`, latA: controlLine.latA, lonA: controlLine.lonA, latB: controlLine.latB, lonB: controlLine.lonB });
   return out;
 }
