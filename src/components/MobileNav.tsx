@@ -2,18 +2,18 @@ import React from 'react';
 import { BarChart2, List, Repeat, Settings } from 'lucide-react';
 import { formatMinSec } from '../utils/timeFormat';
 import { useLandscape } from '../hooks/useCompactLayout';
-import { canUseLoggerUsb } from '../utils/device';
+import { canUseLogger } from '../utils/device';
 import { useT } from '../utils/i18n';
 
 type Tab = 'graph' | 'data' | 'logger' | 'video' | 'convert';
 
 // スマートフォン向けの配置で出すタブ (動画同期は出さない)。
-// ロガー設定は、USB でつなげる環境だけ (スマートフォンでは出ない)
+// ロガー設定は、USB か Bluetooth でつなげる環境だけ (iPhone の Safari では出ない)
 const TABS: { id: Tab; label: [string, string]; Icon: typeof BarChart2 }[] = [
   { id: 'graph', label: ['グラフ', 'Graph'], Icon: BarChart2 },
   { id: 'data', label: ['データ', 'Data'], Icon: List },
   { id: 'convert', label: ['変換', 'Convert'], Icon: Repeat },
-  ...(!canUseLoggerUsb ? [] : [{ id: 'logger' as Tab, label: ['ロガー', 'Logger'] as [string, string], Icon: Settings }])
+  ...(!canUseLogger ? [] : [{ id: 'logger' as Tab, label: ['ロガー', 'Logger'] as [string, string], Icon: Settings }])
 ];
 
 /** スマートフォン用の画面下のタブバー (親指で届く位置に置く) */

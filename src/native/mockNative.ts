@@ -1,0 +1,241 @@
+/**
+ * ネイティブのふりをする窓口 (開発・試験用)。開発サーバーで `?native=mock` を付けると入る。
+ *
+ * 本物と同じく、やりとりはすべて JSON の文字列で通す (物をそのまま渡すと、undefined と null の違い・base64 の誤りなどが試験をすり抜けるため)。
+ * デジスパイスIV のふりをした機器を 2 台出し、つなぐと 20 Hz で測位の通知 (パケット A・B) を 100 ms ごとにまとめて送る。
+ * 走り始めの 2 秒は未測位、そのあとは半径 150 m の円を 60 km/h で回る
+ */
+
+import { CONTRACT_VERSION, type NativeEvent, type NativeEvents, type NativeRequest, type NativeResponse } from './contract';
+import { toBase64 } from './bridge';
+
+export interface MockNativeOptions {
+  /** Bluetooth の許可の状態 (既定は granted) */
+  permission?: 'granted' | 'denied';
+  /** 返事を遅らせる (ミリ秒) */
+  latencyMs?: number;
+}
+
+export interface MockNativeController {
+  /** 届いた呼び出し (試験で見る) */
+  readonly requests: NativeRequest[];
+  /** 電波が切れたふり。autoReconnect なら 2 秒後につなぎ直す */
+  dropConnection(): void;
+  uninstall(): void;
+}
+
+export const MOCK_DEVICES = [
+  { deviceId: 'mock-ds4-1', name: 'DS4B0012345', rssi: -58 },
+  { deviceId: 'mock-ds4-2', name: 'DS4B0098765', rssi: -81 }
+];
+
+const CENTER_LAT = 35.0;
+const CENTER_LON = 137.0;
+const RADIUS_M = 150;
+const SPEED_MS = 60 / 3.6;
+const FIX_HZ = 20;
+const INVALID_SEC = 2;
+
+function packetA(valid: boolean, speedMs: number, lat: number, lon: number, altM: number): Uint8Array {
+  const v = new DataView(new ArrayBuffer(16));
+  v.setUint16(0, valid ? 1 << 7 : 0, true);
+  v.setUint16(2, Math.round(speedMs * 100), true);
+  v.setInt32(4, Math.round(lat * 1e7), true);
+  v.setInt32(8, Math.round(lon * 1e7), true);
+  v.setInt32(12, Math.round(altM * 100), true);
+  return new Uint8Array(v.buffer);
+}
+
+function packetB(valid: boolean, t: Date): Uint8Array {
+  const v = new DataView(new ArrayBuffer(10));
+  v.setUint16(0, valid ? 1 << 7 : 0, true);
+  v.setUint16(2, t.getUTCFullYear(), true);
+  v.setUint8(4, t.getUTCMonth() + 1);
+  v.setUint8(5, t.getUTCDate());
+  v.setUint8(6, t.getUTCHours());
+  v.setUint8(7, t.getUTCMinutes());
+  v.setUint8(8, t.getUTCSeconds());
+  v.setUint8(9, Math.floor(t.getUTCMilliseconds() / 10));
+  return new Uint8Array(v.buffer);
+}
+
+/** 測位の 2 つのパケット。runSec は走った秒 (円の上の位置を決める)、utcMs は測位の時刻 */
+export function mockFixPackets(runSec: number, utcMs: number, valid: boolean): [Uint8Array, Uint8Array] {
+  const angle = (SPEED_MS * runSec) / RADIUS_M;
+  const mPerDegLat = 111_320;
+  const mPerDegLon = mPerDegLat * Math.cos((CENTER_LAT * Math.PI) / 180);
+  const lat = CENTER_LAT + (RADIUS_M * Math.sin(angle)) / mPerDegLat;
+  const lon = CENTER_LON + (RADIUS_M * Math.cos(angle)) / mPerDegLon;
+  const t = new Date(Math.round(utcMs));
+  return [packetA(valid, valid ? SPEED_MS : 0, lat, lon, 50), packetB(valid, t)];
+}
+
+export function installMockNative(options: MockNativeOptions = {}): MockNativeController {
+  const latency = options.latencyMs ?? 5;
+  const requests: NativeRequest[] = [];
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+
+  const later = (ms: number, fn: () => void) => {
+    const id = setTimeout(() => { timers.delete(id); fn(); }, ms);
+    timers.add(id);
+    return id;
+  };
+  const cancel = (id: ReturnType<typeof setTimeout> | null) => {
+    if (id === null) return;
+    clearTimeout(id);
+    timers.delete(id);
+  };
+  const send = (message: NativeResponse | NativeEvent) => {
+    later(latency, () => window.dsNative?.receive(JSON.stringify(message)));
+  };
+  const emit = <E extends keyof NativeEvents>(event: E, data: NativeEvents[E]) => send({ event, data });
+
+  // 探している間
+  let scanTimers: Array<ReturnType<typeof setTimeout>> = [];
+  const stopScan = () => {
+    if (scanTimers.length === 0) return;
+    scanTimers.forEach(cancel);
+    scanTimers = [];
+    emit('ble.scanStopped', {});
+  };
+
+  // つないでいる機器 (1 台だけ)
+  let link: {
+    deviceId: string;
+    autoReconnect: boolean;
+    /** 送り始めた時刻 (ふりを始めてからの秒) */
+    startSec: number;
+    /** この時刻 (秒) から測位できている */
+    validFromSec: number;
+    stream: ReturnType<typeof setTimeout> | null;
+    pending: ReturnType<typeof setTimeout> | null;
+  } | null = null;
+  const nowSec = () => (performance.now() - startPerf) / 1000;
+  const startUtcMs = Date.now();
+  const startPerf = performance.now();
+
+  const startStream = () => {
+    if (!link) return;
+    const l = link;
+    let sent = 0;
+    const tick = () => {
+      const now = nowSec();
+      const items: Array<{ t: number; b: string }> = [];
+      // 前の束からの分の測位 (20 Hz・100 ms ごとなら 2 つ)
+      while (sent / FIX_HZ <= now - l.startSec) {
+        const sec = l.startSec + sent / FIX_HZ;
+        const valid = sec >= l.validFromSec;
+        const [a, b] = mockFixPackets(valid ? sec - l.validFromSec : 0, startUtcMs + sec * 1000, valid);
+        const tNs = Math.round(performance.now() * 1e6);
+        items.push({ t: tNs, b: toBase64(a) }, { t: tNs, b: toBase64(b) });
+        sent++;
+      }
+      if (items.length) emit('ble.notify', { deviceId: l.deviceId, characteristic: '2a67', items });
+      l.stream = later(100, tick);
+    };
+    tick();
+  };
+  const stopStream = () => {
+    if (!link) return;
+    cancel(link.stream);
+    cancel(link.pending);
+    link.stream = null;
+    link.pending = null;
+  };
+
+  const handle = (req: NativeRequest): unknown => {
+    switch (req.method) {
+      case 'caps.get':
+        return { contractVersion: CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true } };
+      case 'ble.permission':
+        return { state: options.permission ?? 'granted' };
+      case 'ble.scan': {
+        stopScan();
+        const { namePrefixes } = req.params as { namePrefixes: string[] };
+        scanTimers = MOCK_DEVICES
+          .filter(d => namePrefixes.some(p => d.name.startsWith(p)))
+          .map((d, i) => later(300 + i * 500, () => emit('ble.device', d)));
+        scanTimers.push(later(10_000, stopScan));
+        return {};
+      }
+      case 'ble.stopScan':
+        stopScan();
+        return {};
+      case 'ble.connect': {
+        const p = req.params as { deviceId: string; autoReconnect: boolean };
+        if (!MOCK_DEVICES.some(d => d.deviceId === p.deviceId)) throw { code: 'not-found', message: 'unknown device' };
+        stopStream();
+        if (link && link.deviceId !== p.deviceId) emit('ble.state', { deviceId: link.deviceId, state: 'disconnected' });
+        link = { deviceId: p.deviceId, autoReconnect: p.autoReconnect, startSec: 0, validFromSec: Infinity, stream: null, pending: null };
+        emit('ble.state', { deviceId: p.deviceId, state: 'connecting' });
+        link.pending = later(500, () => {
+          if (!link) return;
+          link.pending = null;
+          link.startSec = nowSec();
+          link.validFromSec = link.startSec + INVALID_SEC;
+          emit('ble.state', { deviceId: link.deviceId, state: 'connected' });
+          startStream();
+        });
+        return {};
+      }
+      case 'ble.disconnect': {
+        const { deviceId } = req.params as { deviceId: string };
+        if (link?.deviceId === deviceId) {
+          stopStream();
+          link = null;
+          emit('ble.state', { deviceId, state: 'disconnected' });
+        }
+        return {};
+      }
+      case 'system.openSettings':
+        return {};
+      default:
+        throw { code: 'not-supported', message: `unknown method ${String(req.method)}` };
+    }
+  };
+
+  const sink = {
+    postMessage(message: string) {
+      const req = JSON.parse(message) as NativeRequest;
+      requests.push(req);
+      if (req.v !== CONTRACT_VERSION) {
+        send({ id: req.id, ok: false, error: { code: 'not-supported', message: `contract ${req.v}` } });
+        return;
+      }
+      try {
+        send({ id: req.id, ok: true, result: handle(req) });
+      } catch (e) {
+        const err = e as { code?: string; message?: string };
+        send({ id: req.id, ok: false, error: { code: (err.code ?? 'io') as 'io', message: err.message ?? String(e) } });
+      }
+    }
+  };
+  const prevWebkit = window.webkit;
+  window.webkit = { messageHandlers: { dsNative: sink } };
+
+  return {
+    requests,
+    dropConnection() {
+      if (!link) return;
+      stopStream();
+      const l = link;
+      if (!l.autoReconnect) {
+        link = null;
+        emit('ble.state', { deviceId: l.deviceId, state: 'disconnected', error: { code: 'io', message: 'connection lost' } });
+        return;
+      }
+      emit('ble.state', { deviceId: l.deviceId, state: 'reconnecting' });
+      l.pending = later(2000, () => {
+        l.pending = null;
+        l.startSec = nowSec();
+        emit('ble.state', { deviceId: l.deviceId, state: 'connected' });
+        startStream();
+      });
+    },
+    uninstall() {
+      timers.forEach(clearTimeout);
+      timers.clear();
+      window.webkit = prevWebkit;
+    }
+  };
+}
