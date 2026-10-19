@@ -40,6 +40,7 @@ import { DonateModal } from './components/DonateModal';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
 import { bleLoggerLink } from './services/bleLoggerLink';
+import { useWheelScrollX } from './hooks/useWheelScrollX';
 import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
 import { Freeze } from './components/Freeze';
 import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
@@ -163,6 +164,8 @@ export const App: React.FC = () => {
 
   // グラフ画面・左下モード ('replay' | 'video')
   const [leftBottomMode, setLeftBottomMode] = useState<'replay' | 'video'>('replay');
+  // 右下のタブの帯 (入りきらないときに横にスクロールする)
+  const subTabsScrollRef = useWheelScrollX<HTMLDivElement>();
 
   // サブウインドウ表示モード ('all' | 'track_friction' | 'replay_focus' | 'video')
   const [subWindowMode, setSubWindowMode] = useState<'all' | 'track_friction' | 'replay_focus' | 'video' | 'corner' | 'braking'>('all');
@@ -1515,7 +1518,8 @@ export const App: React.FC = () => {
                 }`}
               >
                 <div className={`flex items-center bg-surface-2 p-1 text-[11px] gap-1 shrink-0 whitespace-nowrap ${collapsed.sub ? '' : 'border-b border-line-1'}`}>
-                  <div className="flex gap-1 overflow-x-auto no-scrollbar min-w-0">
+                  {/* 入りきらないタブは横にスクロールする (スクロールバーは出さないので、マウスのホイールでも動かせるようにする) */}
+                  <div ref={subTabsScrollRef} className="flex gap-1 overflow-x-auto no-scrollbar min-w-0">
                   <button
                     onClick={() => { setSubWindowMode('all'); toggleCollapsed('sub', false); }}
                     className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${

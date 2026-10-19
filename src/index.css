@@ -547,6 +547,11 @@ body {
   background: var(--ds-scrollbar-track);
 }
 
+/* 縦と横のスクロールバーが交わる角 (指定しないと、ダークでも白い四角になる) */
+::-webkit-scrollbar-corner {
+  background: var(--ds-scrollbar-track);
+}
+
 ::-webkit-scrollbar-thumb {
   background: var(--ds-scrollbar-thumb);
   border-radius: 3px;

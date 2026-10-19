@@ -647,6 +647,11 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     setViewRange([0, 1]);
   };
 
+  // 右上の値の箱を左へ寄せるか (赤い線の位置は、前に描いたグラフの配置から求める)
+  const valueLayout = layoutRef.current;
+  const cursorValue = xAxisMode === 'distance' ? currentDistance : currentTime;
+  const valueBoxOnLeft = !!valueLayout && valueLayout.domainRange > 0 && (cursorValue - valueLayout.domainStart) / valueLayout.domainRange > 0.6;
+
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
@@ -769,8 +774,9 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
         <canvas ref={cursorCanvasRef} className="absolute inset-0 pointer-events-none block" />
 
         {/* 右上リアルタイム数値インジケーター (車両がないときは出さない) */}
+        {/* 赤い線が右寄り (グラフの 6 割より右) にあるときは左上に出す (いま見ている所を隠さないように) */}
         {cars.length > 0 && (
-          <div className={`absolute bg-surface-0/86 backdrop-blur-sm border border-line-2 rounded-md flex flex-col gap-1 shadow-md pointer-events-none ${compact ? 'top-1 right-1 p-1 text-[10px]' : 'top-2 right-3 p-2 text-xs min-w-[130px]'}`}>
+          <div className={`absolute bg-surface-0/75 backdrop-blur-sm border border-line-2 rounded-md flex flex-col gap-1 shadow-md pointer-events-none ${compact ? 'top-1 p-1 text-[10px]' : 'top-2 p-2 text-xs min-w-[130px]'} ${valueBoxOnLeft ? (compact ? 'left-[50px]' : 'left-[60px]') : (compact ? 'right-1' : 'right-3')}`}>
             {cars.map((c, idx) => {
               // 現在のポイント検索
               const pts = c.lap.points;

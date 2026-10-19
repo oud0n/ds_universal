@@ -162,10 +162,12 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
           <div className="relative h-3 w-full border-b border-line-1">
             {rulerTicks.map((t) => {
               const p = timeToPercent(t);
+              // 両端の目盛りの文字は、枠の外へはみ出して切れないよう、内側へ寄せる (線は目盛りの位置のまま)
+              const edge = p < 2 ? 'start' : p > 98 ? 'end' : null;
               return (
                 <div
                   key={t}
-                  className="absolute top-0 flex flex-col items-center pointer-events-none transform -translate-x-1/2"
+                  className={`absolute top-0 flex flex-col pointer-events-none transform ${edge === 'start' ? 'items-start' : edge === 'end' ? 'items-end -translate-x-full' : 'items-center -translate-x-1/2'}`}
                   style={{ left: `${p}%` }}
                 >
                   <span className="text-[8px] font-mono text-slate-500 leading-none">{formatDuration(t)}</span>
