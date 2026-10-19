@@ -1410,6 +1410,7 @@ export const App: React.FC = () => {
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
                       onChooseLog={setBaseSession}
+                      onPickCompareLap={(sessionId, lapNumber) => handleSelectCarSlot(1, sessionId, lapNumber)}
                       viewKey="graph-a"
                       onSetClockOffset={setSessionClockOffset}
                       compareCars={activeCars}
@@ -1578,6 +1579,7 @@ export const App: React.FC = () => {
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
                       onChooseLog={setBaseSession}
+                      onPickCompareLap={(sessionId, lapNumber) => handleSelectCarSlot(1, sessionId, lapNumber)}
                       viewKey="graph-b"
                       onSetClockOffset={setSessionClockOffset}
                       compareCars={activeCars}
@@ -1610,6 +1612,7 @@ export const App: React.FC = () => {
             playbackSpeed={playbackSpeed}
             onChangePlaybackSpeed={setPlaybackSpeed}
             onChooseLog={setBaseSession}
+            onPickCompareLap={(sessionId, lapNumber) => handleSelectCarSlot(1, sessionId, lapNumber)}
             viewKey="video-tab"
             onSetClockOffset={setSessionClockOffset}
             compareCars={activeCars}

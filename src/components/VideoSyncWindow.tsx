@@ -56,6 +56,8 @@ interface VideoSyncWindowProps {
   onChangePlaybackSpeed: (speed: number) => void;
   // 動画に合わせるログを選んだとき (そのログを基準車 Car 1 にする)。LATER-12
   onChooseLog?: (sessionId: string) => void;
+  // 走行比較で Car 2 がいないとき、Car 2 に入れる周 (同じログの別の周) を選ぶ
+  onPickCompareLap?: (sessionId: string, lapNumber: number) => void;
   // ウインドウごとの表示の状態 (並べ方など) を覚えるときの名前
   viewKey: string;
   // ログの時計の補正を入れる (同期プロジェクトに保存した補正を戻すとき)
@@ -282,6 +284,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   playbackSpeed,
   onChangePlaybackSpeed,
   onChooseLog,
+  onPickCompareLap,
   viewKey,
   onSetClockOffset,
   compareCars
@@ -370,6 +373,15 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const mainMedia = cameras[0];
   const renderSessionTime = isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec;
   const isCompare = win.mode === 'compare';
+  // Car 2 がいないときに走行比較を押したら、Car 1 と同じログの、Car 1 の周以外でいちばん速い周を Car 2 に入れる
+  // (動画 1 本・ログ 1 つでも、同じ動画の別の周どうしを比べられるように)
+  const autoCompareLap = baseSession && baseLap
+    ? baseSession.laps
+        .filter(l => !l.isWholeSession && !l.isPartialLap && l.lapNumber !== baseLap.lapNumber)
+        .reduce<Lap | undefined>((a, l) => (!a || l.lapTime < a.lapTime ? l : a), undefined)
+    : undefined;
+  const hasCompareCar = (compareCars ?? []).length >= 2;
+  const canCompare = !!baseLap && (hasCompareCar || (!!autoCompareLap && !!onPickCompareLap));
 
   /**
    * 枠 1 つ分。マルチカメラ: 出すカメラごと (時刻は Car 1 の時刻のまま、メーターはメインだけ)。
@@ -889,10 +901,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 {t('マルチカメラ', 'Cameras')}
               </button>
               <button
-                onClick={() => setWin({ mode: 'compare', focus: null })}
-                disabled={(compareCars ?? []).length < 2 || !baseLap}
+                onClick={() => {
+                  if (!hasCompareCar && autoCompareLap && baseSession) onPickCompareLap?.(baseSession.id, autoCompareLap.lapNumber);
+                  setWin({ mode: 'compare', focus: null });
+                }}
+                disabled={!canCompare}
                 className={`px-2 py-1 text-[10px] font-bold transition-colors cursor-pointer disabled:opacity-40 ${isCompare ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-                title={t('走行比較: Car 1〜4 の周の動画を、Car 1 と同じ地点を走ったときの映像で並べます。2 台以上の Car を選ぶと使えます', 'Run comparison: shows the videos of the Car 1-4 laps at the moment each car was at the same point as Car 1. Needs two or more cars')}
+                title={t('走行比較: Car 1〜4 の周の動画を、Car 1 と同じ地点を走ったときの映像で並べます。Car 2 がいなければ、同じログの別の周 (Car 1 の周以外でいちばん速い周) を Car 2 にします', 'Run comparison: shows the videos of the Car 1-4 laps at the moment each car was at the same point as Car 1. Without a Car 2, the fastest other lap of the same log becomes Car 2')}
               >
                 {t('走行比較', 'Compare')}
               </button>
