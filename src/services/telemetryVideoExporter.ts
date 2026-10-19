@@ -40,6 +40,42 @@ export function getSupportedVideoMimeType(): string {
   return 'video/webm';
 }
 
+// 書き出しに動画の音を入れる (Web Audio で動画の音を取り出し、録る stream に足す)。
+// createMediaElementSource は 1 つの動画に 1 回しか作れず、作ると音はその道を通るようになるので、作った道は覚えておき、
+// ふだんの再生でも聞こえるよう、いつもスピーカーにもつないでおく
+let audioCtx: AudioContext | null = null;
+const audioSources = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
+
+/** video の音を stream に足す。書き出しの間は音を出す (消音だと無音で録れるため)。戻り値で元に戻す */
+function attachVideoAudio(stream: MediaStream, video: HTMLVideoElement | null | undefined): () => void {
+  if (!video) return () => {};
+  try {
+    audioCtx ??= new AudioContext();
+    void audioCtx.resume();
+    let source = audioSources.get(video);
+    if (!source) {
+      source = audioCtx.createMediaElementSource(video);
+      source.connect(audioCtx.destination);
+      audioSources.set(video, source);
+    }
+    const dest = audioCtx.createMediaStreamDestination();
+    source.connect(dest);
+    dest.stream.getAudioTracks().forEach(track => stream.addTrack(track));
+    const wasMuted = video.muted;
+    video.muted = false;
+    const src = source;
+    return () => {
+      try { src.disconnect(dest); } catch { /* つないでいなければよい */ }
+      dest.stream.getTracks().forEach(track => track.stop());
+      video.muted = wasMuted;
+    };
+  } catch (e) {
+    // 音を取り出せなくても、映像だけは書き出す
+    console.warn('[export] 動画の音を書き出しに入れられない:', e);
+    return () => {};
+  }
+}
+
 export function exportBurnedInVideo(options: VideoExportOptions): VideoExportController {
   const {
     videoElement,
@@ -76,6 +112,7 @@ export function exportBurnedInVideo(options: VideoExportOptions): VideoExportCon
 
   const mimeType = getSupportedVideoMimeType();
   const stream = canvas.captureStream(fps);
+  const detachAudio = attachVideoAudio(stream, videoElement);
 
   const chunks: Blob[] = [];
 
@@ -84,6 +121,7 @@ export function exportBurnedInVideo(options: VideoExportOptions): VideoExportCon
   const restoreVideo = () => {
     if (restored) return;
     restored = true;
+    detachAudio();
     videoElement.pause();
     videoElement.playbackRate = origPlaybackRate;
     videoElement.currentTime = origCurrentTime;
@@ -235,8 +273,10 @@ export function recordCanvas(options: {
   outputFileName: string;
   draw: (ctx: CanvasRenderingContext2D) => { currentSec: number; totalSec: number; done: boolean };
   onProgress?: (progress: { currentSec: number; totalSec: number; percent: number }) => void;
+  /** 音を入れる動画 (メインの枠)。なければ音なし */
+  audioFrom?: HTMLVideoElement | null;
 }): VideoExportController {
-  const { width, height, fps = 30, bitrate = 12_000_000, outputFileName, draw, onProgress } = options;
+  const { width, height, fps = 30, bitrate = 12_000_000, outputFileName, draw, onProgress, audioFrom } = options;
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -244,6 +284,7 @@ export function recordCanvas(options: {
   if (!ctx) return { cancel: () => {}, promise: Promise.reject(new Error('Canvas 2D context を取得できませんでした')) };
   const mimeType = getSupportedVideoMimeType();
   const stream = canvas.captureStream(fps);
+  const detachAudio = attachVideoAudio(stream, audioFrom);
   const chunks: Blob[] = [];
   let recorder: MediaRecorder;
   try {
@@ -256,6 +297,7 @@ export function recordCanvas(options: {
   const promise = new Promise<Blob>((resolve, reject) => {
     recorder.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
     recorder.onstop = () => {
+      detachAudio();
       if (cancelled) { reject(new Error('エクスポートがユーザーによりキャンセルされました')); return; }
       const finalType = mimeType.includes('mp4') ? 'video/mp4' : 'video/webm';
       const blob = new Blob(chunks, { type: finalType });

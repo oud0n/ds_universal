@@ -647,6 +647,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         fps: exportFps,
         outputFileName: `${circuitName || 'race'}_${isCompare ? 'compare' : 'cameras'}${exportDraft ? '_draft' : ''}.mp4`,
         onProgress: p => setExportProgress(p),
+        // 音はメインの枠の動画から (走行比較では Car 1)
+        audioFrom: playback.element(`tile-${firstTile}`),
         draw: ctx => {
           const st = stageRef.current;
           rects.forEach((r, k) => {
