@@ -71,11 +71,13 @@ interface RunsInspectorProps {
   /** 主のログにしたとき (そのログを Car 1 にする) */
   onChooseLog?: (sessionId: string) => void;
   onClose: () => void;
+  /** 見えているか (隠れたタブで開いたままのときは、Esc で閉じる対象にしない) */
+  visible?: boolean;
 }
 
-export const RunsInspector: React.FC<RunsInspectorProps> = ({ sessions, media, onChooseLog, onClose }) => {
+export const RunsInspector: React.FC<RunsInspectorProps> = ({ sessions, media, onChooseLog, onClose, visible = true }) => {
   const t = useT();
-  useEscapeKey(true, onClose);
+  useEscapeKey(visible, onClose);
   const [runs, setRuns] = useState<Run[] | null>(null);
   useEffect(() => {
     let alive = true;

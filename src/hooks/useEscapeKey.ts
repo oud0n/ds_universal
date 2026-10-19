@@ -18,7 +18,9 @@ export function useEscapeKey(active: boolean, onClose: () => void): void {
     if (!active) return;
     stack.push(ref);
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.isComposing || stack[stack.length - 1] !== ref) return;
+      // 変換中の Esc (Safari は isComposing が付かず keyCode 229 になる)・プルダウンを閉じる Esc では閉じない
+      if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || stack[stack.length - 1] !== ref) return;
+      if ((e.target as HTMLElement | null)?.tagName === 'SELECT') return;
       e.preventDefault();
       ref.current();
     };
