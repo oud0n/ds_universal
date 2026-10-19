@@ -6,7 +6,7 @@ import { parseDigispiceRawBinary } from './services/rawBinaryParser';
 import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
 import { blobByteSource, goproRecording, NoGoproGpsError, parseGoproGps } from './services/gpmfParser';
-import { sessionStartUtcMs, videoSyncManager } from './services/videoSyncManager';
+import { sessionStartUtcMs, videoSyncManager, placeTrack } from './services/videoSyncManager';
 import { getAddVideoGpsLog } from './services/videoPrefs';
 import { estimateClockOffset, pickReferenceSession } from './services/clockOffsetEstimator';
 import { tr, useT } from './utils/i18n';
@@ -333,11 +333,15 @@ export const App: React.FC = () => {
   const isVideoTab = !isCompact && currentTab === 'video';
   const videoTracks = useVideoTracks();
   const videoView = useVideoView();
-  const shownVideoIds = [videoView.selectedTrackId, videoView.viewMode !== 'single' ? videoView.subTrackId : null];
-  const sessionEndTime = Math.max(
-    baseSession?.points.length ? baseSession.points[baseSession.points.length - 1].time : 0,
-    ...videoTracks.filter(t => shownVideoIds.includes(t.id)).map(videoEndSessionSec)
-  );
+  const logEndTime = baseSession?.points.length ? baseSession.points[baseSession.points.length - 1].time : 0;
+  // 表示している動画を基準車のログの時刻に置いて、その終わりまで進める。サブの動画は、ログの間に始まるときだけ数える
+  // (撮影日の違うサブの動画で、再生の終わりが何日も先にならないように。走行比較のサブは比較の車の時刻なので数えない)
+  const shownVideoEnds = videoTracks
+    .filter(t => t.id === videoView.selectedTrackId || (t.id === videoView.subTrackId && videoView.viewMode !== 'single' && videoView.subSyncMode !== 'compare'))
+    .map(t => placeTrack(t, baseSession, sessions))
+    .filter(t => t.id === videoView.selectedTrackId || !baseSession || t.syncOffsetSec < logEndTime)
+    .map(videoEndSessionSec);
+  const sessionEndTime = Math.max(logEndTime, ...shownVideoEnds);
   const [clockBase, setClockBase] = useState<'lap' | 'session'>(() => (isVideoTab ? 'session' : 'lap'));
   const wantClockBase: 'lap' | 'session' = isVideoTab ? 'session' : currentTab === 'graph' ? 'lap' : clockBase;
   if (wantClockBase !== clockBase) {
@@ -602,8 +606,9 @@ export const App: React.FC = () => {
           .map((f, i) => ({ track: tracks.find(t => !before.has(t.id) && t.file === f), startMs: log.videoStartUtcMs[i] }))
           .filter((x): x is { track: NonNullable<typeof x.track>; startMs: number } => !!x.track);
         for (const x of added) videoSyncManager.setMatchedSession(x.track.id, better.id);
+        // 動画の時刻は、動画自身の GPS の時刻 (UTC) で持つ (細かいログの時計の補正を変えても、動画の GPS の時刻のまま)
         const firstFix = added.find(x => Number.isFinite(x.startMs));
-        if (firstFix) videoSyncManager.updateOffset(firstFix.track.id, (firstFix.startMs - betterStart) / 1000);
+        if (firstFix) videoSyncManager.setGpsClock(firstFix.track.id, { utcMs: firstFix.startMs });
         return;
       }
     }
@@ -624,9 +629,10 @@ export const App: React.FC = () => {
       .filter((a): a is { track: NonNullable<typeof a.track>; startMs: number } => !!a.track);
     if (added.length === 0) return;
     for (const a of added) videoSyncManager.setMatchedSession(a.track.id, session.id);
-    // チャプターのずれは動画の長さでそろうので、測位できた最初の動画で合わせる
+    // チャプターのずれは動画の長さでそろうので、測位できた最初の動画で合わせる。時刻は GPS のログに付ける
+    // (そのログの時計の補正を変えると、同じ時計の動画も一緒に動く)
     const first = added.find(a => Number.isFinite(a.startMs));
-    if (first) videoSyncManager.updateOffset(first.track.id, (first.startMs - t0) / 1000);
+    if (first) videoSyncManager.setGpsClock(first.track.id, { session, offsetSec: (first.startMs - t0) / 1000 });
   };
 
   // データファイル読み込みロジック。読み込んだログはセッションとして加え、加えたセッションを返す
@@ -904,15 +910,14 @@ export const App: React.FC = () => {
     });
   };
 
-  // ログの時計の補正 (BUG-08)。そのログに付いている動画のずれも直す (動画の本当の時刻を保つ。その動画自身の GPS のログは一緒に動かす)
+  // ログの時計の補正 (BUG-08)。そのログに時刻を付けた動画 (そのログで合わせた動画・そのログの GPS の動画) は一緒に動き、
+  // ほかの動画は動かない (mediaClock.ts)。動画のずれを直す処理は要らない
   const setSessionClockOffset = (sessionId: string, sec: number) => {
     const s = latestRef.current.sessions.find(x => x.id === sessionId);
     if (!s || !Number.isFinite(sec)) return;
     const value = Number(sec.toFixed(3));
-    const delta = value - (s.clockOffsetSec ?? 0);
-    if (!delta) return;
+    if (value === (s.clockOffsetSec ?? 0)) return;
     setSessions(prev => prev.map(x => (x.id === sessionId ? { ...x, clockOffsetSec: value } : x)));
-    videoSyncManager.onSessionClockChanged(s, delta);
   };
 
   // 時計の補正を、同じ時間に記録したほかのログ (基準車のログ、なければ記録の細かいログ) との位置の比べから見積もって入れる (BUG-08)
@@ -932,15 +937,19 @@ export const App: React.FC = () => {
 
   // ログが増えたら、動画を、時間の重なるログのうち記録の細かい (Hz の高い) ログに付け替える (LATER-12)。
   // Car 1 が付け替える前のログなら、Car 1 も付け替える
+  // 動画がログより後に加わったとき (ログと動画を一緒に読み込んだとき) も同じにする
   const sessionCountRef = useRef(0);
+  const videoCountRef = useRef(0);
   useEffect(() => {
-    if (sessions.length <= sessionCountRef.current) { sessionCountRef.current = sessions.length; return; }
+    const grew = sessions.length > sessionCountRef.current || videoTracks.length > videoCountRef.current;
     sessionCountRef.current = sessions.length;
+    videoCountRef.current = videoTracks.length;
+    if (!grew) return;
     const changed = videoSyncManager.preferHighestRateSessions(sessions);
     const car1 = selectedCars.find(c => c.slot === 0);
     const hit = changed.find(([from]) => from === car1?.sessionId);
     if (hit) setBaseSession(hit[1]);
-  }, [sessions]);
+  }, [sessions, videoTracks.length]);
 
   // サーキットプリセット選択
   const handleSelectCircuitPreset = (presetId: string) => {
@@ -1364,6 +1373,7 @@ export const App: React.FC = () => {
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
                       onChooseLog={setBaseSession}
+                      onSetClockOffset={setSessionClockOffset}
                       compareCars={activeCars}
                     />
                   )}
@@ -1530,6 +1540,7 @@ export const App: React.FC = () => {
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
                       onChooseLog={setBaseSession}
+                      onSetClockOffset={setSessionClockOffset}
                       compareCars={activeCars}
                     />
                   )}
@@ -1559,6 +1570,7 @@ export const App: React.FC = () => {
               playbackSpeed={playbackSpeed}
               onChangePlaybackSpeed={setPlaybackSpeed}
               onChooseLog={setBaseSession}
+              onSetClockOffset={setSessionClockOffset}
               compareCars={activeCars}
             />
           </div>

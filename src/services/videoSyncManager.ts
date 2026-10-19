@@ -5,13 +5,12 @@ import { Session } from '../types/telemetry';
 import { parseVideoMetadata, VideoMetadata } from './videoMetadataParser';
 import type { SyncPin } from './videoSyncPinManager';
 import { detectCircuitTimezone, scanBestTimezoneOffset } from './masterTimelineEngine';
-import { 
-  groupVideoTracksByChapter, 
-  syncGroupOffsets, 
-  VideoChapterGroup, 
-  VideoChapterTrack,
-  findChapterGroupForTrack
-} from './videoChapterManager';
+import { groupVideoTracksByChapter, VideoChapterGroup, findChapterGroupForTrack } from './videoChapterManager';
+import {
+  VideoClock, ClockSource, NO_CLOCK, clockAtUtc, clockOnLog, shiftClock, clockOffsetIn, clockStartUtcMs, refreshClockUtc, sessionStartUtcMs
+} from './mediaClock';
+
+export { sessionStartUtcMs } from './mediaClock';
 import { tr } from '../utils/i18n';
 
 export type TimezoneMode = 'JST' | 'UTC' | 'LOCAL' | '+8' | '+1' | '-5' | '-8';
@@ -51,6 +50,7 @@ export function getTimezoneOffsetMs(mode: string): number {
   }
 }
 
+
 export interface VideoTrack {
   id: string;
   file?: File;
@@ -62,18 +62,39 @@ export interface VideoTrack {
   recordedAtJst: Date | null; // 後方互換性
   videoTimezone: string;      // 動画の解釈タイムゾーン ('JST' | 'UTC' ...)
   gpsTimezone: string;        // GPS走行ログの解釈タイムゾーン ('JST' | 'UTC' ...)
+  /** 動画を出すログ (その走行の主のログ)。動画の時刻とは別 (時刻は clock) */
   matchedSessionId: string | null;
-  syncOffsetSec: number;      // GPSセッション t=0 に対する動画開始位置のオフセット (秒)
+  /** 動画の時刻 (mediaClock.ts)。チャプターに分かれた動画は、同じ時計でチャプターの長さずつ進む */
+  clock: VideoClock;
   isAutoMatched: boolean;
-  // 利用者がオフセットを手で合わせた (または同期プロジェクトから復元した) もの。自動の再同期では上書きしない
-  isManuallyAdjusted?: boolean;
   // 利用者が「動画に合わせるログ」を選んだもの。記録の細かいログへの自動の付け替えをしない (LATER-12)
   isSessionChosenManually?: boolean;
   notes?: string;
 }
 
+/**
+ * あるログ (画面の基準の Car 1) の時刻に置いた動画。syncOffsetSec は、そのログの時刻での動画の先頭の位置 (秒)。
+ * 画面・書き出し・タイムラインは、これだけを使う (動画がどのログに時刻を付けたかを気にしない)
+ */
+export interface PlacedTrack extends VideoTrack {
+  syncOffsetSec: number;
+  /** そのログの時刻に置けた (時刻が分かった) か。置けないときの syncOffsetSec は 0 */
+  isPlaced: boolean;
+}
+
+export function placeTrack(track: VideoTrack, session: Session | null | undefined, sessions: Session[]): PlacedTrack {
+  const offset = clockOffsetIn(track.clock, session, sessions);
+  return { ...track, syncOffsetSec: offset ?? 0, isPlaced: offset !== null };
+}
+
+/** 手で合わせた (同期ピン・ずれの入力) 動画か。自動の照合では変えない */
+export function isClockManual(track: VideoTrack): boolean {
+  return track.clock.source === 'manual';
+}
+
+/** 保存の形式 2.0。1.0 (ずれを照合したログからの秒で持つ形) も読める */
 export interface SyncProjectData {
-  version: '1.0';
+  version: '2.0';
   savedAt: string;
   circuitName: string;
   videos: Array<{
@@ -85,7 +106,8 @@ export interface SyncProjectData {
     videoTimezone?: string;
     gpsTimezone?: string;
     matchedSessionId: string | null;
-    syncOffsetSec: number;
+    sessionChosenManually?: boolean;
+    clock: VideoClock;
   }>;
   sessions: Array<{
     id: string;
@@ -94,17 +116,45 @@ export interface SyncProjectData {
     startDateJst: string;
     totalLaps: number;
     samplingRate: number;
+    /** ログの時計の補正 (秒) */
+    clockOffsetSec?: number;
   }>;
-  // 同期ピン (古い同期プロジェクトにはない)。動画の ID は読み込むたびに変わるので、ファイル名で持つ
+  // 同期ピン。動画の ID は読み込むたびに変わるので、ファイル名で持つ
   pins?: Array<{
     name: string;
     sessionTimeSec: number;
     videoTimeSec: number;
     calculatedOffsetSec: number;
     trackFileName: string | null;
+    /** ピンを打ったときの基準のログ (sessionTimeSec はこのログの時刻) */
+    sessionId?: string | null;
     createdAt?: string;
   }>;
 }
+
+/** 1.0 の動画の行 (ずれは照合したログの先頭からの秒) */
+interface SyncProjectVideoV1 {
+  fileName: string;
+  fileSize: number;
+  durationSec: number;
+  rawRecordedAt?: string | null;
+  recordedAtJst: string | null;
+  videoTimezone?: string;
+  gpsTimezone?: string;
+  matchedSessionId: string | null;
+  syncOffsetSec: number;
+}
+
+/** 読み込んだ同期プロジェクトの、今のログでの時計の補正 ([ログの ID, 秒])。ログの状態は App が持つので、App に返して入れてもらう */
+export type RestoredClockOffsets = Array<[string, number]>;
+
+/** 撮影日時からの時刻 (UTC、ミリ秒)。videoTz で撮影日時を読み、gpsTz の分だけ戻す (2 つが同じなら撮影日時をそのまま使う) */
+function creationUtcMs(track: VideoTrack): number | null {
+  if (!track.rawRecordedAt) return null;
+  return track.rawRecordedAt.getTime() - getTimezoneOffsetMs(track.videoTimezone || 'JST') + getTimezoneOffsetMs(track.gpsTimezone || 'JST');
+}
+
+const SOURCE_RANK: Record<ClockSource, number> = { manual: 2, gps: 1, creation: 0 };
 
 class VideoSyncManager {
   private videos: VideoTrack[] = [];
@@ -139,18 +189,38 @@ class VideoSyncManager {
     return hit ? hit.id : savedId;
   }
 
-  /** 同期プロジェクトから戻した動画の照合先を、今読み込んでいるセッションに読み替える (ログを後から読み込んだとき用) */
-  public remapImportedSessions(sessions: Session[]): void {
-    if (this.importedSessions.length === 0 || sessions.length === 0) return;
+  /** 動画の、表示のログと時刻を付けたログの ID を、今読み込んでいるログに読み替える */
+  private remapTrack(v: VideoTrack, sessions: Session[]): boolean {
+    const matched = this.remapSessionId(v.matchedSessionId, sessions);
+    const logId = this.remapSessionId(v.clock.logId, sessions);
+    if (matched === v.matchedSessionId && logId === v.clock.logId) return false;
+    v.matchedSessionId = matched;
+    v.clock = { ...v.clock, logId };
+    return true;
+  }
+
+  // 保存したときの時計の補正で、まだログに入れていないもの (保存したときのログの ID → 秒)。一度入れたら消す
+  // (利用者が後で変えた値を、保存した値に戻さないため)
+  private pendingClockOffsets = new Map<string, number>();
+
+  /**
+   * 同期プロジェクトから戻した動画の照合先を、今読み込んでいるセッションに読み替える (ログを後から読み込んだとき用)。
+   * 保存したときの時計の補正を、今読み込んでいるログの ID で返す (まだ入れていない分だけ)
+   */
+  public remapImportedSessions(sessions: Session[]): RestoredClockOffsets {
+    if (this.importedSessions.length === 0 || sessions.length === 0) return [];
     let changed = false;
-    for (const v of this.videos) {
-      const id = this.remapSessionId(v.matchedSessionId, sessions);
-      if (id !== v.matchedSessionId) { v.matchedSessionId = id; changed = true; }
+    for (const v of this.videos) if (this.remapTrack(v, sessions)) changed = true;
+    if (changed) this.notify();
+    const out: RestoredClockOffsets = [];
+    for (const [savedId, sec] of this.pendingClockOffsets) {
+      const id = this.remapSessionId(savedId, sessions);
+      const session = id ? sessions.find(s => s.id === id) : undefined;
+      if (!session) continue;
+      if ((session.clockOffsetSec ?? 0) !== sec) out.push([session.id, sec]);
+      this.pendingClockOffsets.delete(savedId);
     }
-    if (changed) {
-      this.updateChapterGroupOffsets();
-      this.notify();
-    }
+    return out;
   }
 
   private notify(): void {
@@ -167,7 +237,7 @@ class VideoSyncManager {
       const file = files[i];
       const meta: VideoMetadata = await parseVideoMetadata(file);
 
-      // 同期プロジェクトから戻した、ファイルのまだない動画と同じファイルなら、そこにつなぐ (保存したオフセットを引き継ぐ)
+      // 同期プロジェクトから戻した、ファイルのまだない動画と同じファイルなら、そこにつなぐ (保存した同期を引き継ぐ)
       const placeholder = this.videos.find(v =>
         !v.objectUrl && v.fileName === file.name && (!v.fileSize || v.fileSize === file.size));
       if (placeholder) {
@@ -180,7 +250,7 @@ class VideoSyncManager {
           placeholder.recordedAtJst = meta.creationTime;
         }
         placeholder.notes = undefined;
-        placeholder.matchedSessionId = this.remapSessionId(placeholder.matchedSessionId, sessions);
+        this.remapTrack(placeholder, sessions);
         relinked = true;
         continue;
       }
@@ -197,9 +267,11 @@ class VideoSyncManager {
         videoTimezone: this.defaultVideoTimezone,
         gpsTimezone: this.defaultGpsTimezone,
         matchedSessionId: null,
-        syncOffsetSec: 0,
+        clock: NO_CLOCK,
         isAutoMatched: false
       };
+      const utc = creationUtcMs(track);
+      if (utc !== null) track.clock = clockAtUtc('creation', utc);
 
       newTracks.push(track);
     }
@@ -215,20 +287,10 @@ class VideoSyncManager {
     return this.videos;
   }
 
-  // タイムスタンプオフセット計算 (ミリ秒精度の差分秒)
-  public calculateSyncOffset(
-    vidRecordedAt: Date,
-    vidTz: string,
-    gpsPoint0Timestamp: Date,
-    gpsTz: string
-  ): number {
-    const vidUtcMs = vidRecordedAt.getTime() - getTimezoneOffsetMs(vidTz);
-    const gpsUtcMs = gpsPoint0Timestamp.getTime() - getTimezoneOffsetMs(gpsTz);
-    // GPSセッション開始に対して、動画が何秒後に始まったか
-    return Number(((vidUtcMs - gpsUtcMs) / 1000).toFixed(3));
-  }
-
-  // タイムゾーンや指定セッションに基づく再同期 (Resync)
+  /**
+   * 撮影日時と時差の設定から、動画の時刻を入れ直す (時差を変えたとき・再同期のボタン)。手で合わせた時刻も撮影日時に戻す。
+   * sessionId を渡せば、そのログに出す。渡さなければ、時間の重なるログ (記録の細かい順) に出す
+   */
   public resyncTrack(
     trackId: string,
     sessions: Session[],
@@ -241,67 +303,25 @@ class VideoSyncManager {
 
     if (vidTz) track.videoTimezone = vidTz;
     if (gpsTz) track.gpsTimezone = gpsTz;
-    if (sessionId) track.matchedSessionId = sessionId;
 
-    if (!track.rawRecordedAt) {
-      this.notify();
-      return track;
-    }
-
-    const currentVidTz = track.videoTimezone || 'JST';
-    const currentGpsTz = track.gpsTimezone || 'JST';
-
-    // 対象セッションの決定
-    let targetSession = sessions.find(s => s.id === track.matchedSessionId);
-
-    const vidUtcMs = track.rawRecordedAt.getTime() - getTimezoneOffsetMs(currentVidTz);
-
-    if (!targetSession && sessions.length > 0) {
-      let minDiffMs = Infinity;
-      for (const sess of sessions) {
-        if (sess.points.length === 0 || !sess.points[0].timestamp) continue;
-        const sessUtcMs = new Date(sess.points[0].timestamp).getTime() - getTimezoneOffsetMs(currentGpsTz);
-        const diff = Math.abs(vidUtcMs - sessUtcMs);
-        if (diff < minDiffMs) {
-          minDiffMs = diff;
-          targetSession = sess;
-        }
-      }
-    }
-
-    if (targetSession && targetSession.points.length > 0 && targetSession.points[0].timestamp) {
-      const p0Date = new Date(targetSession.points[0].timestamp);
-      const offset = this.calculateSyncOffset(track.rawRecordedAt, currentVidTz, p0Date, currentGpsTz);
-      track.matchedSessionId = targetSession.id;
-      track.syncOffsetSec = offset;
+    const utc = creationUtcMs(track);
+    if (utc !== null) {
+      this.setClock(trackId, clockAtUtc('creation', utc));
       track.isAutoMatched = true;
-      // 利用者が再同期を指示した (または時差の設定を変えた) ので、手で合わせた状態は解除する
-      this.setManuallyAdjusted(trackId, false);
-      console.log(`[VideoSync] 再同期完了: ${track.fileName} -> ${targetSession.sessionName} (オフセット: ${offset}s)`);
-
-      const group = this.getChapterGroupForTrack(trackId);
-      if (group) {
-        const cTrack = group.tracks.find(ct => ct.track.id === trackId);
-        if (cTrack) {
-          const newBase = offset - cTrack.groupOffsetSec;
-          // グループのセッションは、先頭のチャプターの古い照合先でなく、今照合したセッションにそろえる
-          group.matchedSessionId = targetSession.id;
-          syncGroupOffsets(group, newBase);
-        }
-      }
     }
-
-    this.updateChapterGroupOffsets();
+    const display = sessionId ?? overlappingSessions(track, sessions, this)[0]?.id;
+    if (display) this.setMatchedSession(trackId, display);
     this.notify();
     return track;
   }
 
   // タイムスタンプによる全動画トラックのGPSセッション自動照合 (TZ完全自動判定 & 時差スキャン対応)
+  // 撮影日時で決めた時刻の動画だけを照合する (動画の GPS・手で合わせた時刻は変えない)
   public autoMatchTracks(sessions: Session[], targets: VideoTrack[] = this.videos): void {
     if (sessions.length === 0 || targets.length === 0) return;
 
     for (const track of targets) {
-      if (!track.rawRecordedAt || track.isManuallyAdjusted) continue;
+      if (!track.rawRecordedAt || track.clock.source !== 'creation') continue;
 
       let bestSession: Session | null = null;
       let minDiffSec = Infinity;
@@ -335,9 +355,10 @@ class VideoSyncManager {
         }
       }
 
-      if (bestSession && bestSession.points.length > 0 && bestSession.points[0].timestamp) {
+      const start = sessionStartUtcMs(bestSession);
+      if (bestSession && start !== null) {
         track.matchedSessionId = bestSession.id;
-        track.syncOffsetSec = bestOffset;
+        track.clock = clockAtUtc('creation', start + bestOffset * 1000);
         track.gpsTimezone = detectedCircuitTz;
         // もし動画がUTCで記録されていた場合 (9時間ズレ検出)
         if (detectedShift === 9) {
@@ -356,117 +377,94 @@ class VideoSyncManager {
     this.updateChapterGroupOffsets();
   }
 
-  // チャプターグループの検出とオフセット連動更新
+  /**
+   * チャプターに分かれた動画の時刻と表示のログを、グループでそろえる。
+   * いちばん強い時刻 (手で合わせた > GPS > 撮影日時、同じなら前のチャプター) を基準に、チャプターの長さずつずらす
+   * (後から前のチャプターを加えても、手で合わせた時刻を撮影日時で上書きしない)
+   */
   public updateChapterGroupOffsets(): void {
     const { groups } = groupVideoTracksByChapter(this.videos);
     for (const group of groups) {
-      if (group.tracks.length > 0) {
-        // 手で合わせたチャプターがあればそれを、なければ先頭チャプターを基準に、offset / matchedSessionId をグループ全体に波及
-        // (後から先頭チャプターを追加しても、手で合わせた値を自動照合の値で上書きしない)
-        const ref = group.tracks.find(ct => ct.track.isManuallyAdjusted) ?? group.tracks[0];
-        if (ref.track.matchedSessionId) {
-          group.matchedSessionId = ref.track.matchedSessionId;
-        }
-        syncGroupOffsets(group, ref.track.syncOffsetSec - ref.groupOffsetSec);
-        if (ref.track.isManuallyAdjusted) group.tracks.forEach(ct => { ct.track.isManuallyAdjusted = true; });
+      if (group.tracks.length === 0) continue;
+      const ref = group.tracks.reduce((a, b) => (SOURCE_RANK[b.track.clock.source] > SOURCE_RANK[a.track.clock.source] ? b : a));
+      const display = ref.track.matchedSessionId ?? group.tracks.find(ct => ct.track.matchedSessionId)?.track.matchedSessionId ?? null;
+      for (const ct of group.tracks) {
+        if (ct !== ref) ct.track.clock = shiftClock(ref.track.clock, ct.groupOffsetSec - ref.groupOffsetSec);
+        if (display) ct.track.matchedSessionId = display;
       }
     }
   }
 
-  /** 手で合わせたかどうかを、同じチャプターグループの動画すべてにそろえる (オフセットはグループで連動するため) */
-  private setManuallyAdjusted(trackId: string, value: boolean): void {
-    const track = this.videos.find(v => v.id === trackId);
-    if (track) track.isManuallyAdjusted = value;
-    const group = this.getChapterGroupForTrack(trackId);
-    group?.tracks.forEach(ct => { ct.track.isManuallyAdjusted = value; });
-  }
-
   // 全チャプターグループを取得
-  public getChapterGroups(): VideoChapterGroup[] {
+  public getChapterGroups(): VideoChapterGroup<VideoTrack>[] {
     return groupVideoTracksByChapter(this.videos).groups;
   }
 
   // 特定トラックが属するチャプターグループを取得
-  public getChapterGroupForTrack(trackId: string): VideoChapterGroup | null {
+  public getChapterGroupForTrack(trackId: string): VideoChapterGroup<VideoTrack> | null {
     const { groups } = groupVideoTracksByChapter(this.videos);
     return findChapterGroupForTrack(groups, trackId);
+  }
+
+  /** 動画の時刻を入れる。チャプターに分かれていれば、ほかのチャプターもチャプターの長さずつずらして入れる */
+  public setClock(trackId: string, clock: VideoClock): void {
+    const track = this.videos.find(v => v.id === trackId);
+    if (!track) return;
+    const group = this.getChapterGroupForTrack(trackId);
+    const me = group?.tracks.find(ct => ct.track.id === trackId);
+    if (group && me) {
+      for (const ct of group.tracks) ct.track.clock = shiftClock(clock, ct.groupOffsetSec - me.groupOffsetSec);
+    } else {
+      track.clock = clock;
+    }
+    this.notify();
+  }
+
+  /**
+   * 手で合わせる (ずれの入力・微調整・同期ピン)。session のログの時刻で、動画の先頭が offsetSec 秒の位置になるようにし、
+   * その時刻をそのログに付ける (そのログの時計の補正を変えても、そのログのデータに合ったまま)
+   */
+  public setOffsetIn(trackId: string, session: Session, offsetSec: number): void {
+    const track = this.videos.find(v => v.id === trackId);
+    if (!track) return;
+    track.isAutoMatched = false;
+    this.setClock(trackId, clockOnLog('manual', session, offsetSec));
+  }
+
+  /** 動画自身の GPS で時刻を入れる。GPS のログを加えたときはそのログに付け、加えないときは GPS の時刻 (UTC) で持つ */
+  public setGpsClock(trackId: string, gps: { session: Session; offsetSec: number } | { utcMs: number }): void {
+    this.setClock(trackId, 'session' in gps ? clockOnLog('gps', gps.session, gps.offsetSec) : clockAtUtc('gps', gps.utcMs));
   }
 
   // 手動時差シフト (例: ±9時間、±1時間のズレを一発補正)
   public shiftOffsetHours(trackId: string, deltaHours: number): void {
     const track = this.videos.find(v => v.id === trackId);
-    if (track) {
-      track.syncOffsetSec = Number((track.syncOffsetSec + deltaHours * 3600).toFixed(3));
-      track.isAutoMatched = false;
-      this.setManuallyAdjusted(trackId, true);
-
-      // チャプターグループ内の場合、連動して他のチャプターもシフト
-      const group = this.getChapterGroupForTrack(trackId);
-      if (group) {
-        const cTrack = group.tracks.find(ct => ct.track.id === trackId);
-        if (cTrack) {
-          // cTrack.track.syncOffsetSec = baseSyncOffsetSec + cTrack.groupOffsetSec
-          // 逆算して baseSyncOffsetSec を更新
-          const newBase = track.syncOffsetSec - cTrack.groupOffsetSec;
-          syncGroupOffsets(group, newBase);
-        }
-      }
-
-      this.notify();
-    }
+    if (!track) return;
+    track.isAutoMatched = false;
+    this.setClock(trackId, { ...shiftClock(track.clock, deltaHours * 3600), source: 'manual' });
   }
 
-  // 手動オフセット調整 (スピンボタン・フレーム微調整)
-  public updateOffset(trackId: string, offsetSec: number): void {
-    const track = this.videos.find(v => v.id === trackId);
-    if (track) {
-      track.syncOffsetSec = Number(offsetSec.toFixed(3));
-      track.isAutoMatched = false;
-      this.setManuallyAdjusted(trackId, true);
-
-      // チャプターグループ内の場合、連動して他のチャプターもシフト
-      const group = this.getChapterGroupForTrack(trackId);
-      if (group) {
-        const cTrack = group.tracks.find(ct => ct.track.id === trackId);
-        if (cTrack) {
-          const newBase = track.syncOffsetSec - cTrack.groupOffsetSec;
-          syncGroupOffsets(group, newBase);
-        }
-      }
-
-      this.notify();
-    }
-  }
-
-  // ペアリングセッション変更
+  /** 動画を出すログを変える (チャプターに分かれていれば全部)。動画の時刻は変えない */
   public setMatchedSession(trackId: string, sessionId: string): void {
-    const track = this.videos.find(v => v.id === trackId);
-    if (track) {
-      track.matchedSessionId = sessionId;
-      this.notify();
-    }
-  }
-
-  /**
-   * 動画 (チャプターに分かれていれば全部) を別のログに付け替える。動画の本当の時刻は変えず、ずれをそのログでの値に直す。
-   * manual: 利用者が選んだ (以後、記録の細かいログへの自動の付け替えをしない)
-   */
-  public rebindTrack(trackId: string, sessionId: string, sessions: Session[], manual = false): void {
-    const session = sessions.find(s => s.id === sessionId);
-    const lead = this.videos.find(v => v.id === trackId);
-    if (!session || !lead) return;
     const group = this.getChapterGroupForTrack(trackId);
-    for (const t of group ? group.tracks.map(ct => ct.track) : [lead]) {
-      t.syncOffsetSec = trackOffsetInSession(t, session, sessions);
-      t.matchedSessionId = session.id;
-      if (manual) t.isSessionChosenManually = true;
-    }
-    this.updateChapterGroupOffsets();
+    const targets = group ? group.tracks.map(ct => ct.track) : this.videos.filter(v => v.id === trackId);
+    if (targets.length === 0) return;
+    targets.forEach(t => { t.matchedSessionId = sessionId; });
     this.notify();
   }
 
   /**
-   * 記録の細かいログへ自動で付け替える (LATER-12)。動画と時間の重なるログのうち、記録の細かい (Hz の高い) ログに付ける。
+   * 利用者が「動画に合わせるログ」を選んだ。以後、記録の細かいログへの自動の付け替えをしない。
+   * 動画の時刻は変えない (時刻はどのログからでも本当の時刻で換算できる)
+   */
+  public chooseSession(trackId: string, sessionId: string): void {
+    const group = this.getChapterGroupForTrack(trackId);
+    (group ? group.tracks.map(ct => ct.track) : this.videos.filter(v => v.id === trackId)).forEach(t => { t.isSessionChosenManually = true; });
+    this.setMatchedSession(trackId, sessionId);
+  }
+
+  /**
+   * 記録の細かいログへ自動で付け替える (LATER-12)。動画と時間の重なるログのうち、記録の細かい (Hz の高い) ログに出す。
    * 利用者が選んだ動画は変えない。付け替えたものを [元のログ, 付け替えたログ] で返す
    */
   public preferHighestRateSessions(sessions: Session[]): Array<[string, string]> {
@@ -477,40 +475,13 @@ class VideoSyncManager {
       const group = this.getChapterGroupForTrack(track.id);
       (group ? group.tracks.map(ct => ct.track) : [track]).forEach(t => done.add(t.id));
       if (group && group.tracks.some(ct => ct.track.isSessionChosenManually)) continue;
-      const best = overlappingSessions(group ? group.tracks[0].track : track, sessions, this)[0];
+      const best = overlappingSessions(track, sessions, this)[0];
       if (best && best.id !== track.matchedSessionId) {
         changed.push([track.matchedSessionId, best.id]);
-        this.rebindTrack(track.id, best.id, sessions);
+        this.setMatchedSession(track.id, best.id);
       }
     }
     return changed;
-  }
-
-  /**
-   * ログの時計の補正を delta 秒変えたとき (BUG-08)、動画のずれを直す。
-   * - その動画自身の GPS のログ (GoPro の動画から作ったログ) の補正なら、動画も同じ時計なので、動画の本当の時刻も一緒に動かす。
-   *   動画をそのログに付けていればずれはそのまま、別のログ (デジスパイスなど) に付けていれば、ずれから delta を引く
-   * - それ以外のログに付いている動画 (別のログから換算して付けた動画・撮影日時で合わせた動画) は、本当の時刻を変えないよう、ずれに delta を足す
-   */
-  public onSessionClockChanged(session: Session, deltaSec: number): void {
-    if (!deltaSec) return;
-    let changed = false;
-    for (const t of this.videos) {
-      const group = this.getChapterGroupForTrack(t.id);
-      const lead = group ? group.tracks[0].track : t;
-      const ownGps = lead.fileName === session.fileName;
-      let next = t.syncOffsetSec;
-      if (ownGps && t.matchedSessionId !== session.id) next -= deltaSec;
-      else if (!ownGps && t.matchedSessionId === session.id) next += deltaSec;
-      if (next !== t.syncOffsetSec) {
-        t.syncOffsetSec = Number(next.toFixed(3));
-        changed = true;
-      }
-    }
-    if (changed) {
-      this.updateChapterGroupOffsets();
-      this.notify();
-    }
   }
 
   // トラック削除
@@ -526,7 +497,7 @@ class VideoSyncManager {
   // 同期プロジェクト JSON エクスポート
   public exportProjectJson(sessions: Session[], circuitName: string, pins: SyncPin[] = []): string {
     const data: SyncProjectData = {
-      version: '1.0',
+      version: '2.0',
       savedAt: new Date().toISOString(),
       circuitName,
       videos: this.videos.map(v => ({
@@ -538,7 +509,9 @@ class VideoSyncManager {
         videoTimezone: v.videoTimezone,
         gpsTimezone: v.gpsTimezone,
         matchedSessionId: v.matchedSessionId,
-        syncOffsetSec: v.syncOffsetSec
+        sessionChosenManually: v.isSessionChosenManually || undefined,
+        // 控えの UTC を今のログの時刻で入れ直す (ログを読み込まずに開いても位置が分かるように)
+        clock: refreshClockUtc(v.clock, sessions)
       })),
       sessions: sessions.map(s => ({
         id: s.id,
@@ -546,7 +519,8 @@ class VideoSyncManager {
         sessionName: s.sessionName,
         startDateJst: s.date,
         totalLaps: s.laps.length,
-        samplingRate: s.samplingRate
+        samplingRate: s.samplingRate,
+        clockOffsetSec: s.clockOffsetSec ?? 0
       })),
       pins: pins.map(p => ({
         name: p.name,
@@ -554,6 +528,7 @@ class VideoSyncManager {
         videoTimeSec: p.videoTimeSec,
         calculatedOffsetSec: p.calculatedOffsetSec,
         trackFileName: this.videos.find(v => v.id === p.trackId)?.fileName ?? null,
+        sessionId: p.sessionId ?? null,
         createdAt: p.createdAt
       }))
     };
@@ -561,18 +536,26 @@ class VideoSyncManager {
     return JSON.stringify(data, null, 2);
   }
 
-  // 同期プロジェクト JSON インポート & 復元
-  public importProjectJson(jsonText: string, sessions: Session[] = []): SyncProjectData {
-    const data: SyncProjectData = JSON.parse(jsonText);
-    if (!data || data.version !== '1.0' || !Array.isArray(data.videos)) {
+  /**
+   * 同期プロジェクト JSON インポート & 復元。1.0 の形は 2.0 に読み替える。
+   * clockOffsets: 保存したときの時計の補正 (今読み込んでいるログの分)。App で入れる
+   */
+  public importProjectJson(jsonText: string, sessions: Session[] = []): { data: SyncProjectData; clockOffsets: RestoredClockOffsets } {
+    const parsed = JSON.parse(jsonText);
+    if (!parsed || (parsed.version !== '1.0' && parsed.version !== '2.0') || !Array.isArray(parsed.videos)) {
       throw new Error(tr('無効な同期プロジェクト JSON 形式です', 'Invalid sync project JSON'));
     }
+    const data: SyncProjectData = parsed.version === '1.0' ? upgradeProjectV1(parsed) : parsed;
     // 数値・文字列を検証する。NaN や極端な値のまま取り込むと、再生位置の計算が壊れて画面が固まる
     // 手で別の日のセッションに合わせた動画もあり得るので、オフセットの上限は 1 年とする (NaN・極端な値だけを断る)
     const MAX_OFFSET_SEC = 366 * 24 * 3600;
+    const SOURCES: ClockSource[] = ['gps', 'manual', 'creation'];
     for (const v of data.videos) {
+      const c = v?.clock;
       const ok = v && typeof v.fileName === 'string' &&
-        Number.isFinite(v.syncOffsetSec) && Math.abs(v.syncOffsetSec) <= MAX_OFFSET_SEC &&
+        c && SOURCES.includes(c.source) && (c.logId === null || typeof c.logId === 'string') &&
+        Number.isFinite(c.offsetSec) && Math.abs(c.offsetSec) <= MAX_OFFSET_SEC &&
+        (c.utcMs === null || Number.isFinite(c.utcMs)) &&
         Number.isFinite(v.durationSec) && v.durationSec >= 0 && v.durationSec <= 7 * 24 * 3600 &&
         Number.isFinite(v.fileSize) && v.fileSize >= 0 &&
         (v.matchedSessionId === null || typeof v.matchedSessionId === 'string');
@@ -593,91 +576,94 @@ class VideoSyncManager {
     // 保存したときのセッションの一覧を覚えておく (ログを後から読み込んだときにも読み替えられるように)
     if (Array.isArray(data.sessions)) {
       for (const sd of data.sessions) {
-        if (sd && typeof sd.id === 'string' && typeof sd.fileName === 'string' && !this.importedSessions.some(x => x.id === sd.id)) {
-          this.importedSessions.push(sd);
-        }
+        if (!sd || typeof sd.id !== 'string' || typeof sd.fileName !== 'string') continue;
+        if (Number.isFinite(sd.clockOffsetSec) && Math.abs(sd.clockOffsetSec!) <= 3600) this.pendingClockOffsets.set(sd.id, sd.clockOffsetSec!);
+        const i = this.importedSessions.findIndex(x => x.id === sd.id);
+        if (i >= 0) this.importedSessions[i] = sd; else this.importedSessions.push(sd);
       }
     }
 
-    // 既存動画トラックのオフセットを上書き・復元
+    // 既存動画トラックの同期を上書き・復元
     for (const vData of data.videos) {
-      vData.matchedSessionId = this.remapSessionId(vData.matchedSessionId, sessions);
       const existing = this.videos.find(v => v.fileName === vData.fileName);
-      if (existing) {
-        existing.matchedSessionId = vData.matchedSessionId;
-        existing.syncOffsetSec = vData.syncOffsetSec;
-        if (vData.videoTimezone) existing.videoTimezone = vData.videoTimezone;
-        if (vData.gpsTimezone) existing.gpsTimezone = vData.gpsTimezone;
-        existing.isAutoMatched = false;
-        existing.isManuallyAdjusted = true;
-      } else {
+      const target: VideoTrack = existing ?? (() => {
         // ファイル未ロードのプレースホルダーとして登録
         const rawDate = vData.rawRecordedAt || vData.recordedAtJst;
-        this.videos.push({
+        const t: VideoTrack = {
           id: `vid_imported_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
           fileName: vData.fileName,
           fileSize: vData.fileSize,
           durationSec: vData.durationSec,
           rawRecordedAt: rawDate ? new Date(rawDate) : null,
           recordedAtJst: rawDate ? new Date(rawDate) : null,
-          videoTimezone: vData.videoTimezone || this.defaultVideoTimezone,
-          gpsTimezone: vData.gpsTimezone || this.defaultGpsTimezone,
-          matchedSessionId: vData.matchedSessionId,
-          syncOffsetSec: vData.syncOffsetSec,
+          videoTimezone: this.defaultVideoTimezone,
+          gpsTimezone: this.defaultGpsTimezone,
+          matchedSessionId: null,
+          clock: NO_CLOCK,
           isAutoMatched: false,
-          isManuallyAdjusted: true,
           notes: '※ 動画ファイルを再選択してリンクしてください'
-        });
-      }
+        };
+        this.videos.push(t);
+        return t;
+      })();
+      target.matchedSessionId = vData.matchedSessionId;
+      target.clock = { ...vData.clock };
+      target.isSessionChosenManually = vData.sessionChosenManually || undefined;
+      if (vData.videoTimezone) target.videoTimezone = vData.videoTimezone;
+      if (vData.gpsTimezone) target.gpsTimezone = vData.gpsTimezone;
+      target.isAutoMatched = false;
+      this.remapTrack(target, sessions);
     }
 
     this.updateChapterGroupOffsets();
     this.notify();
-    return data;
+    return { data, clockOffsets: this.remapImportedSessions(sessions) };
   }
+}
+
+/**
+ * 1.0 の同期プロジェクトを 2.0 に読み替える。1.0 のずれは「照合したログの先頭 (時計の補正なし) からの秒」で、
+ * 1.0 のころは時計の補正がなかった (0 だった)。復元した同期は手で合わせたものとして扱っていたので、そのとおりにする
+ */
+function upgradeProjectV1(v1: { savedAt: string; circuitName: string; videos: SyncProjectVideoV1[]; sessions?: SyncProjectData['sessions']; pins?: SyncProjectData['pins'] }): SyncProjectData {
+  return {
+    version: '2.0',
+    savedAt: v1.savedAt,
+    circuitName: v1.circuitName,
+    videos: v1.videos.map(v => {
+      const offset = Number(v?.syncOffsetSec);
+      return {
+        ...v,
+        clock: v?.matchedSessionId
+          ? { source: 'manual' as const, logId: v.matchedSessionId, offsetSec: offset, utcMs: null }
+          : { source: 'creation' as const, logId: null, offsetSec: 0, utcMs: null }
+      };
+    }),
+    // 1.0 のころは時計の補正がなかった。今のログの補正は変えない
+    sessions: Array.isArray(v1.sessions) ? v1.sessions : [],
+    pins: v1.pins
+  };
 }
 
 export const videoSyncManager = new VideoSyncManager();
 
-/**
- * ログの先頭の本当の時刻 (UTC、ミリ秒)。ログの時計の補正 (clockOffsetSec) を引いたもの。時刻のないログは null。
- * 動画とログ、ログどうしの時刻の換算はすべてこれを通す (ロガーごとの時計のずれを 1 か所で直すため)
- */
-export function sessionStartUtcMs(session: Session | null | undefined): number | null {
-  const ts = session?.points[0]?.timestamp;
-  if (!ts) return null;
-  const ms = Date.parse(ts);
-  return Number.isFinite(ms) ? ms - (session!.clockOffsetSec ?? 0) * 1000 : null;
-}
-
-/**
- * 動画の先頭のコマの本当の時刻 (UTC、ミリ秒)。照合したログがあれば「そのログの先頭 + ずれ」、
- * なければ撮影日時 (動画の時差の設定で UTC に直したもの)。どちらもなければ null
- */
+/** 動画の先頭のコマの本当の時刻 (UTC、ミリ秒)。決まらなければ null */
 export function trackStartUtcMs(track: VideoTrack, sessions: Session[]): number | null {
-  const matched = sessions.find(s => s.id === track.matchedSessionId);
-  const start = sessionStartUtcMs(matched);
-  if (start !== null) return start + track.syncOffsetSec * 1000;
-  if (!track.rawRecordedAt) return null;
-  return track.rawRecordedAt.getTime() - getTimezoneOffsetMs(track.videoTimezone || 'JST');
+  return clockStartUtcMs(track.clock, sessions);
 }
 
-/**
- * 動画の、あるログの時刻での位置 (ずれ、秒)。動画の本当の時刻とログの先頭の本当の時刻の差。
- * 動画が別のログに照合されていても (サブの動画など)、本当の時刻で換算するので、撮影時刻の違う動画が引っ張られない (BUG-21)。
- * 換算できないとき (時刻のないログ・動画) は、照合したログの中のずれをそのまま返す
- */
 /**
  * 動画 (チャプターに分かれていれば全体) と時間の重なるログを、記録の細かい (Hz の高い) 順に並べる (同じなら重なりの長い順)。
- * 動画を付けるログの候補 (LATER-12)
+ * 動画を出すログの候補 (LATER-12)
  */
 export function overlappingSessions(track: VideoTrack, sessions: Session[], manager: VideoSyncManager = videoSyncManager): Session[] {
   // チャプターに分かれた動画は、最初のチャプターの頭から全部のチャプターの長さで見る (どのチャプターを渡されても同じ範囲)
   const group = manager.getChapterGroupForTrack(track.id);
-  const lead = group && group.tracks.length > 1 ? group.tracks[0].track : track;
+  const multi = !!group && group.tracks.length > 1;
+  const lead = multi ? group!.tracks[0].track : track;
   const start = trackStartUtcMs(lead, sessions);
   if (start === null) return [];
-  const dur = lead !== track || (group && group.tracks.length > 1) ? group!.totalDurationSec : track.durationSec;
+  const dur = multi ? group!.totalDurationSec : track.durationSec;
   const end = start + Math.max(0, dur || 0) * 1000;
   const scored: Array<{ s: Session; overlap: number }> = [];
   for (const s of sessions) {
@@ -690,11 +676,4 @@ export function overlappingSessions(track: VideoTrack, sessions: Session[], mana
   }
   scored.sort((x, y) => (y.s.samplingRate || 0) - (x.s.samplingRate || 0) || y.overlap - x.overlap);
   return scored.map(x => x.s);
-}
-
-export function trackOffsetInSession(track: VideoTrack, session: Session | null | undefined, sessions: Session[]): number {
-  if (!session || track.matchedSessionId === session.id) return track.syncOffsetSec;
-  const v = trackStartUtcMs(track, sessions);
-  const s = sessionStartUtcMs(session);
-  return v !== null && s !== null ? Number(((v - s) / 1000).toFixed(3)) : track.syncOffsetSec;
 }

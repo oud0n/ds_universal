@@ -1,7 +1,7 @@
 import React, { useRef, useState, useCallback, useMemo } from 'react';
 import { Layers, Video, Gauge, MapPin, ChevronDown, ChevronUp } from 'lucide-react';
 import { Session } from '../types/telemetry';
-import { VideoTrack } from '../services/videoSyncManager';
+import { PlacedTrack } from '../services/videoSyncManager';
 import { VideoChapterGroup } from '../services/videoChapterManager';
 import { SyncPin, formatPinTime } from '../services/videoSyncPinManager';
 import { useT } from '../utils/i18n';
@@ -9,8 +9,8 @@ import { useT } from '../utils/i18n';
 export interface MasterTimelineTrackBarProps {
   session: Session | undefined;
   baseLap: any;
-  activeTrack: VideoTrack | undefined;
-  subTrack: VideoTrack | undefined;
+  activeTrack: PlacedTrack | undefined;
+  subTrack: PlacedTrack | undefined;
   chapterGroup: VideoChapterGroup | null;
   pins: SyncPin[];
   currentSessionTimeSec: number; // セッション絶対時間 (秒)
