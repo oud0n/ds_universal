@@ -17,6 +17,7 @@ import { isIbt, parseIbt } from './services/ibtParser';
 import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isTcx, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseTcx, parseVbo } from './services/externalFormats';
 import { parseFit } from './services/fitParser';
 import { parsePth, parseCln } from './services/pthParser';
+import { AUTO_CONTROL_LINE_NAME, createAutoControlLine, createEqualSectors } from './services/autoCourseLines';
 import { countGateCrossings, createVirtualControlLine, extractLaps, firstGateCrossingTime, gateDirection, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
 import { ConvertTab } from './components/ConvertTab';
 import { CIRCUIT_PRESETS, ALL_CIRCUITS, findMatchingCircuit, resolveCircuitPolylines, findUserPolylines } from './services/circuitDatabase';
@@ -801,9 +802,17 @@ export const App: React.FC = () => {
       const hintForThisCourse = !matchedCircuit || !hint.name || hint.name === matchedCircuit.name;
       const hintPolylines = hintForThisCourse && hint.polylines && passesNearPolylines({ points: rawPoints } as Session, hint.polylines, 2000) ? hint.polylines : undefined;
 
-      // コースが分からず計測線もないときは、このログの走り始めに仮の計測線を置く。
-      // 後から読み込むログもこの線の通過点を 0 m にそろえるので、開始位置の違うログを重ねてもずれない
-      if (!cl) cl = createVirtualControlLine(rawPoints);
+      // コースが分からず計測線もないときは、計測線を自動で置く (PLAN-12): 周回しているログなら、ピットロードの横の直線
+      // (メインストレート) の真ん中に、毎周通ることを確かめて置く。セクターがなければ、速い周を距離で 3 等分した所に置く。
+      // 周回していないログは、走り始めに仮の計測線を置く。後から読み込むログもこの線の通過点を 0 m にそろえるので、開始位置の違うログを重ねてもずれない
+      if (!cl) {
+        cl = createAutoControlLine(rawPoints) ?? createVirtualControlLine(rawPoints);
+        if (cl?.name === AUTO_CONTROL_LINE_NAME && sec.length === 0) {
+          const full = extractLaps(rawPoints, cl, []).laps.filter(l => !l.isPartialLap && !l.isWholeSession);
+          const fastest = full.reduce<typeof full[number] | undefined>((a, l) => (!a || l.lapTime < a.lapTime ? l : a), undefined);
+          if (fastest) sec = createEqualSectors(rawPoints, fastest, cl);
+        }
+      }
       // 出どころの分からない手がかりのコース図は、手で読み込んだものとして扱う (一括設置で置き換えないように)
       const hintSource: PolylineSource | undefined = hintPolylines ? (hint.polylinesSource ?? 'manual') : undefined;
       courseRef.current = { cl, sec, name: circName, polylines: hintPolylines, polylinesSource: hintSource };
