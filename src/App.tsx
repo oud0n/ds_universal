@@ -38,6 +38,7 @@ import { DonateModal } from './components/DonateModal';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLoggerUsb, fileAccept } from './utils/device';
 import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
+import { Freeze } from './components/Freeze';
 import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
 import { BottomTabBar, MobileSeekBar } from './components/MobileNav';
 import { SplitResizer } from './components/SplitResizer';
@@ -373,8 +374,15 @@ export const App: React.FC = () => {
     }
 
     lastTimeRef.current = performance.now();
+    // スマートフォンでは、画面を描き直すのを 1 秒に 20 回までにする (毎コマ描き直すと、動画のコマが落ちる)。
+    // 動画は自分で再生し、この時刻に合わせて少しずつ直すだけなので、なめらかなまま。メーターとグラフの印は 1 秒に 20 回動く
+    const minStepMs = isCompact ? 50 : 0;
 
     const loop = (now: number) => {
+      if (now - lastTimeRef.current < minStepMs) {
+        animRef.current = requestAnimationFrame(loop);
+        return;
+      }
       // requestAnimationFrame の時刻はフレームの開始時刻なので、再生開始時に記録した時刻より前のことがある (負にしない)
       const dtSec = Math.max(0, ((now - lastTimeRef.current) / 1000) * playbackSpeed);
       lastTimeRef.current = now;
@@ -411,7 +419,7 @@ export const App: React.FC = () => {
     return () => {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
-  }, [isPlaying, playbackSpeed, baseLap, baseSession, playEndTime, sessionEndTime, isSessionClock]);
+  }, [isPlaying, playbackSpeed, baseLap, baseSession, playEndTime, sessionEndTime, isSessionClock, isCompact]);
 
   // キーボードショートカット (Space: 再生/停止, F / →: コマ送り, B / ←: コマ戻し, Shift で 1 秒単位)
   useEffect(() => {
@@ -1283,6 +1291,7 @@ export const App: React.FC = () => {
         {isCompact ? (
           // スマートフォン: 速度ウインドウを上 (横向きでは左) に固定し、もう片方は切り替えて 1 つずつ表示する
           <div className={`h-full w-full gap-2 overflow-hidden ${currentTab === 'graph' ? 'flex' : 'hidden'} ${isLandscape ? 'flex-row' : 'flex-col'}`}>
+            <Freeze active={currentTab === 'graph'}>
             <div className={isLandscape ? 'w-1/2 h-full min-w-0' : 'h-[42%] min-h-[180px] shrink-0'}>
               {speedGraphEl}
             </div>
@@ -1311,12 +1320,14 @@ export const App: React.FC = () => {
                   ))}
               </div>
             </div>
+            </Freeze>
           </div>
         ) : (
           <div
             ref={horizSplit.containerRef}
             className={`flex-row h-full w-full overflow-hidden select-none ${currentTab === 'graph' ? 'flex' : 'hidden'}`}
           >
+            <Freeze active={currentTab === 'graph'}>
             {/* 左側 / メイン: 速度ウインドウ & アニメーション/動画 (上下分割) */}
             <div
               ref={leftVertSplit.containerRef}
@@ -1570,11 +1581,13 @@ export const App: React.FC = () => {
                 )}
               </div>
             </div>
+            </Freeze>
           </div>
         )}
 
         {/* 動画同期タブ。見えていないときは動画を止め、10 秒たったら動画を手放す (VideoTile) */}
         <div className={`h-full w-full overflow-hidden ${currentTab === 'video' ? 'block' : 'hidden'}`}>
+          <Freeze active={currentTab === 'video'}>
           <VideoSyncWindow
             sessions={sessions}
             selectedCars={selectedCars}
@@ -1595,10 +1608,12 @@ export const App: React.FC = () => {
             onSetClockOffset={setSessionClockOffset}
             compareCars={activeCars}
           />
+          </Freeze>
         </div>
 
         {/* データ管理タブ */}
         <div className={`h-full w-full overflow-hidden ${currentTab === 'data' ? 'block' : 'hidden'}`}>
+          <Freeze active={currentTab === 'data'}>
           <DataTab
             sessions={sessions}
             selectedCars={selectedCars}
@@ -1633,6 +1648,7 @@ export const App: React.FC = () => {
             gFilterLevel={gFilterLevel}
             onChangeGFilterLevel={handleChangeGFilterLevel}
           />
+          </Freeze>
         </div>
 
         {/* ログ変換タブ */}
@@ -1651,10 +1667,12 @@ export const App: React.FC = () => {
         {/* ロガー設定タブ (マウント状態を維持し、USBシリアル切断を防止)。スマートフォン・タブレットでは出さない */}
         {canUseLoggerUsb && (
           <div className={`h-full w-full overflow-hidden ${currentTab === 'logger' ? 'block' : 'hidden'}`}>
+            <Freeze active={currentTab === 'logger'}>
             <LoggerTab
               onLoadSession={(fileName, buffer) => loadFileData(fileName, buffer)}
               onNavigateToGraph={() => setCurrentTab('graph')}
             />
+            </Freeze>
           </div>
         )}
       </main>

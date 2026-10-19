@@ -259,7 +259,8 @@ class VideoSyncManager {
 
   private attachProxy(track: VideoTrack, file: File): void {
     if (track.proxyUrl) URL.revokeObjectURL(track.proxyUrl);
-    track.proxyUrl = URL.createObjectURL(file);
+    // .LRV はブラウザが種類を知らないファイルなので、MP4 として渡す (Safari は種類の分からない動画を再生しないことがある)
+    track.proxyUrl = URL.createObjectURL(file.slice(0, file.size, 'video/mp4'));
     track.proxyFileName = file.name;
   }
 

@@ -63,6 +63,16 @@ export const VideoTile: React.FC<VideoTileProps> = ({
     controller.attach(tileKey, el);
   }, [controller, tileKey]);
 
+  // iPhone の Safari で、再生を断られて音を消した動画 (PlaybackController)。音を出す枠なら、次に画面に触れたときに音を戻す
+  // (画面に触れた操作の中なら、音を戻しても再生が止まらない)
+  useEffect(() => {
+    if (muted) return;
+    const restore = () => { const el = videoRef.current; if (el && el.muted) el.muted = false; };
+    document.addEventListener('pointerup', restore);
+    document.addEventListener('touchend', restore);
+    return () => { document.removeEventListener('pointerup', restore); document.removeEventListener('touchend', restore); };
+  }, [muted]);
+
   // メーターを重ねる四角と、小窓が映像に重なる幅を測る
   useEffect(() => {
     const video = videoRef.current, host = hostRef.current;
@@ -110,6 +120,8 @@ export const VideoTile: React.FC<VideoTileProps> = ({
         <video
           ref={setVideo}
           onSeeked={onSeeked}
+          // 動画を読み込めたら、もう一度位置を合わせる (止めているときは、App の時刻が変わらず合わせ直されないため)
+          onLoadedData={onSeeked}
           src={src}
           muted={muted}
           playsInline
