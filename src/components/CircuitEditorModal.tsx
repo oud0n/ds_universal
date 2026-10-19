@@ -5,6 +5,7 @@ import { parseCln, exportCln } from '../services/pthParser';
 import { parseSci, exportSci, userCircuitStorage, UserCircuitItem } from '../services/userCircuitStorage';
 import { tr, useT } from '../utils/i18n';
 import { fileAccept } from '../utils/device';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface CircuitEditorModalProps {
   isOpen: boolean;
@@ -68,6 +69,8 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   const [exporting, setExporting] = useState(false);
   const exportingRef = useRef(false); // 同じ瞬間の 2 回のクリックは state では止められないので、ref でも止める
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Esc キーで閉じる (キャンセルと同じ)。書き出しの保存ダイアログを待っているあいだは閉じない
+  useEscapeKey(isOpen && !exporting, onClose);
   // コース編集で保存したコース (呼び出し・削除用)
   const [savedCircuits, setSavedCircuits] = useState<UserCircuitItem[]>(() => [...userCircuitStorage.getEditedCircuits()]);
   useEffect(() => {
