@@ -108,6 +108,10 @@ const MOBILE_PANELS: { id: MobilePanel; label: [string, string] }[] = ([
   { id: 'drift', label: ['ドリフト', 'Drift'] }
 ] as { id: MobilePanel; label: [string, string] }[]).filter(p => SHOW_DRIFT || p.id !== 'drift');
 
+/** 文字を入れる欄か (そこに落とした文字は、ふつうどおり欄に入れる) */
+const isTextField = (t: EventTarget | null): boolean =>
+  t instanceof HTMLElement && (t.isContentEditable || t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && (t as HTMLInputElement).type !== 'file'));
+
 export const App: React.FC = () => {
   // 画面の文言 (言語を切り替えると描き直す)
   const T = useT();
@@ -170,6 +174,13 @@ export const App: React.FC = () => {
   // ファイルを画面の上に持ってきているか (落とせることを知らせる)。子の要素に入るたびに enter / leave が来るので、深さを数える
   const [fileDragOver, setFileDragOver] = useState(false);
   const dragDepthRef = useRef(0);
+  // 持ってきたのをやめたとき (Esc・ウインドウの外で離したとき) は、落とせる表示を消す
+  useEffect(() => {
+    const reset = () => { dragDepthRef.current = 0; setFileDragOver(false); };
+    window.addEventListener('dragend', reset);
+    window.addEventListener('drop', reset);
+    return () => { window.removeEventListener('dragend', reset); window.removeEventListener('drop', reset); };
+  }, []);
 
   // サブウインドウ表示モード ('all' | 'track_friction' | 'replay_focus' | 'video')
   const [subWindowMode, setSubWindowMode] = useState<'all' | 'track_friction' | 'replay_focus' | 'video' | 'corner' | 'braking'>('all');
@@ -1185,14 +1196,19 @@ export const App: React.FC = () => {
     <div
       className="relative flex flex-col h-dvh w-screen overflow-hidden bg-surface-0 text-slate-100"
       // ファイルは、どの画面に落としても読み込む (受け口のない所に落とすと、ブラウザ・Electron がそのファイルを開いてアプリの画面から離れてしまう)。
-      // 動画同期・ログ変換の受け口が受け取ったもの (preventDefault 済み) は、ここでは読まない
+      // 動画同期・ログ変換の受け口が受け取ったもの (preventDefault 済み) は、ここでは読まない。
+      // リンク・文字を落としたときも、ブラウザがそちらへ移らないよう止める (入力欄に落とす文字はそのまま)
       onDragEnter={e => { if (e.dataTransfer.types.includes('Files')) { dragDepthRef.current++; setFileDragOver(true); } }}
-      onDragLeave={e => { if (e.dataTransfer.types.includes('Files') && --dragDepthRef.current <= 0) { dragDepthRef.current = 0; setFileDragOver(false); } }}
-      onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
+      onDragLeave={e => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        // ウインドウの外へ出たとき (relatedTarget がない) は、数え残しがあっても消す
+        if (--dragDepthRef.current <= 0 || !e.relatedTarget) { dragDepthRef.current = 0; setFileDragOver(false); }
+      }}
+      onDragOver={e => { if (!isTextField(e.target)) e.preventDefault(); }}
       onDrop={e => {
         dragDepthRef.current = 0;
         setFileDragOver(false);
-        if (e.defaultPrevented) return;
+        if (e.defaultPrevented || (isTextField(e.target) && e.dataTransfer.files.length === 0)) return;
         e.preventDefault();
         if (e.dataTransfer.files.length > 0) loadFiles(Array.from(e.dataTransfer.files));
       }}
@@ -1347,11 +1363,15 @@ export const App: React.FC = () => {
         {/* ログを読み込む前のグラフ解析: 読み込み方を案内する (何もない画面で、どうすればよいか分からないため) */}
         {currentTab === 'graph' && sessions.length === 0 && (
           <div className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none p-4 bg-surface-0/60">
-            <div className="pointer-events-auto max-w-md w-full bg-surface-2 border border-line-2 rounded-xl p-5 text-center shadow-xl">
+            <div className="pointer-events-auto max-w-md w-full max-h-full overflow-y-auto bg-surface-2 border border-line-2 rounded-xl p-5 text-center shadow-xl">
               <h2 className="text-sm font-bold text-slate-100">{T('走行ログを読み込む', 'Load a driving log')}</h2>
               <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-                {T('ロガーのログ (.bnx4 / .bon4 / .dtb)・NMEA・CSV・VBO・GPX・AiM・iRacing・GoPro の動画を、ここにドロップするか、ボタンから選んでください。',
-                  'Drop a logger file (.bnx4 / .bon4 / .dtb), NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video here, or choose one with the button.')}
+                {/* スマートフォンではファイルを落とせないので、ボタンだけを案内する */}
+                {isCompact
+                  ? T('ロガーのログ (.bnx4 / .bon4 / .dtb)・NMEA・CSV・VBO・GPX・AiM・iRacing・GoPro の動画を、ボタンから選んでください。',
+                    'Choose a logger file (.bnx4 / .bon4 / .dtb), NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video with the button.')
+                  : T('ロガーのログ (.bnx4 / .bon4 / .dtb)・NMEA・CSV・VBO・GPX・AiM・iRacing・GoPro の動画を、ここにドロップするか、ボタンから選んでください。',
+                    'Drop a logger file (.bnx4 / .bon4 / .dtb), NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video here, or choose one with the button.')}
               </p>
               <button
                 onClick={() => fileInputRef.current?.click()}

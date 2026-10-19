@@ -168,8 +168,14 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       const nearTrace = (lat: number, lon: number) =>
         trace.some(([tl, tn]) => Math.hypot((lat - tl) * mPerDegLat, (lon - tn) * mPerDegLon) < 25);
       for (const poly of pathPolylines) {
-        // 点の 3 割以上が走行の線の近くにある線だけ (敷地の輪郭は所々でコースに近づくので、1 点だけでは決めない)
-        if (hasTrace && trace.length > 0 && poly.filter(([lon, lat]) => nearTrace(lat, lon)).length < poly.length * 0.3) continue;
+        // 点の 3 割以上が走行の線の近くにある線だけ (敷地の輪郭は所々でコースに近づくので、1 点だけでは決めない)。
+        // 点の多い線は 200 点ほどに間引いて調べる
+        if (hasTrace && trace.length > 0) {
+          const pStride = Math.max(1, Math.floor(poly.length / 200));
+          let tested = 0, near = 0;
+          for (let i = 0; i < poly.length; i += pStride) { tested++; if (nearTrace(poly[i][1], poly[i][0])) near++; }
+          if (near < tested * 0.3) continue;
+        }
         for (const [lon, lat] of poly) {
           includePoint(lat, lon);
         }
@@ -434,7 +440,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     const traceScreen: Array<{ x: number; y: number }> = [];
     {
       const pts = cars[0]?.lap.points ?? [];
-      const stride = Math.max(1, Math.floor(pts.length / 600));
+      // 名前の置き場所を決めるだけなので 200 点ほどに間引く (追従中は毎コマ描き直すため)
+      const stride = Math.max(1, Math.floor(pts.length / 200));
       for (let i = 0; i < pts.length; i += stride) traceScreen.push(toScreen(pts[i].latitude, pts[i].longitude));
     }
     const crowd = (x: number, y: number) => traceScreen.reduce((n, q) => n + (Math.hypot(q.x - x, q.y - y) < 16 ? 1 : 0), 0);
