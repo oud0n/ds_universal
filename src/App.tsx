@@ -6,7 +6,7 @@ import { parseDigispiceRawBinary } from './services/rawBinaryParser';
 import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
 import { blobByteSource, goproRecording, NoGoproGpsError, parseGoproGps } from './services/gpmfParser';
-import { sessionStartUtcMs, videoSyncManager, placeTrack } from './services/videoSyncManager';
+import { sessionStartUtcMs, videoSyncManager, placeTracks, isProxyFileName } from './services/videoSyncManager';
 import { getAddVideoGpsLog } from './services/videoPrefs';
 import { referenceCandidates } from './services/clockOffsetEstimator';
 import { analyseSessions, isSameRun } from './services/pairAnalysis';
@@ -150,9 +150,6 @@ export const App: React.FC = () => {
       return next;
     });
   };
-  useEffect(() => {
-    if (isCompact && currentTab === 'video') setCurrentTab('graph');
-  }, [isCompact, currentTab]);
 
   // グラフ画面・左下モード ('replay' | 'video')
   const [leftBottomMode, setLeftBottomMode] = useState<'replay' | 'video'>('replay');
@@ -332,16 +329,16 @@ export const App: React.FC = () => {
   // 時刻の基準: グラフ画面では選んでいる周の中の時刻 ('lap')、動画同期タブではセッション全体の時刻 ('session')。
   // データ管理などほかのタブでは直前の基準のままにする (行って戻っても再生位置が変わらないように)
   // 動画同期タブでは、ログがなくても (動画だけでも) 再生できるよう、表示している動画の終わりまで進める
-  const isVideoTab = !isCompact && currentTab === 'video';
+  const isVideoTab = currentTab === 'video';
   const videoTracks = useVideoTracks();
   const videoView = useVideoView();
   const logEndTime = baseSession?.points.length ? baseSession.points[baseSession.points.length - 1].time : 0;
   // 出しているカメラを基準車のログの時刻に置いて、その終わりまで進める。メイン以外は、ログの間に始まるときだけ数える
   // (撮影日の違う動画で、再生の終わりが何日も先にならないように)
+  const placedVideos = placeTracks(videoTracks, baseSession, sessions);
   const shownVideoEnds = videoView.cameraIds
-    .map(id => videoTracks.find(t => t.id === id))
+    .map(id => placedVideos.find(t => t.id === id))
     .filter((t): t is NonNullable<typeof t> => !!t)
-    .map(t => placeTrack(t, baseSession, sessions))
     .filter((t, i) => i === 0 || !baseSession || t.syncOffsetSec < logEndTime)
     .map(videoEndSessionSec);
   const sessionEndTime = Math.max(logEndTime, ...shownVideoEnds);
@@ -549,7 +546,9 @@ export const App: React.FC = () => {
   // 選んだファイルを読み込む。動画は 1 回の撮影ごと (チャプターをまとめて) に 1 つのログにする。失敗したファイルは知らせて続ける
   const loadFiles = async (files: File[]) => {
     const groups = new Map<string, File[]>();
-    for (const file of files) {
+    // GoPro の低画質のファイル (.LRV) は、動画同期で元の動画と組にする (ログにはしない)
+    const proxies = files.filter(f => isProxyFileName(f.name));
+    for (const file of files.filter(f => !isProxyFileName(f.name))) {
       if (!isVideoFileName(file.name)) {
         try {
           await loadFileData(file.name, await file.arrayBuffer());
@@ -570,6 +569,7 @@ export const App: React.FC = () => {
         alert(tr(`ファイル ${group.map(f => f.name).join('・')} の読み込みに失敗しました: ${err.message}`, `Could not load ${group.map(f => f.name).join(', ')}: ${err.message}`));
       }
     }
+    if (proxies.length > 0) await videoSyncManager.addVideoFiles(proxies, latestRef.current.sessions, false);
   };
 
   // GoPro の動画 (1 回の撮影のチャプター、順に並べたもの) の GPS を走行ログとして読み込み、同じ動画を動画同期にも登録する。
@@ -1136,7 +1136,7 @@ export const App: React.FC = () => {
         ref={fileInputRef}
         onChange={handleFilesSelected}
         multiple
-        accept={fileAccept('.dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx,.xrk,.xrz,.ibt,.mp4,.mov')}
+        accept={fileAccept('.dtb,.bnx4,.bon4,.binx,.bon,.csv,.txt,.nmea,.log,.vbo,.gpx,.xrk,.xrz,.ibt,.mp4,.mov,.lrv')}
         className="hidden"
       />
       <input
@@ -1573,31 +1573,29 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* 動画同期タブ。スマートフォン向けの配置では出さない (隠したまま動画が再生され続けないよう、外す) */}
-        {!isCompact && (
-          <div className={`h-full w-full overflow-hidden ${currentTab === 'video' ? 'block' : 'hidden'}`}>
-            <VideoSyncWindow
-              sessions={sessions}
-              selectedCars={selectedCars}
-              currentTimeSec={currentTimeSec}
-              currentDistanceKm={currentDistanceKm}
-              isPlaying={isPlaying}
-              onSeekTime={handleSeekTime}
-              onTogglePlay={() => setIsPlaying(!isPlaying)}
-              circuitName={currentCircuitName}
-              targetSessionId={baseSession?.id}
-              targetLap={baseLap}
-              isGraphEmbedded={false}
-              isVisible={currentTab === 'video'}
-              playbackSpeed={playbackSpeed}
-              onChangePlaybackSpeed={setPlaybackSpeed}
-              onChooseLog={setBaseSession}
-              viewKey="video-tab"
-              onSetClockOffset={setSessionClockOffset}
-              compareCars={activeCars}
-            />
-          </div>
-        )}
+        {/* 動画同期タブ。見えていないときは動画を止め、10 秒たったら動画を手放す (VideoTile) */}
+        <div className={`h-full w-full overflow-hidden ${currentTab === 'video' ? 'block' : 'hidden'}`}>
+          <VideoSyncWindow
+            sessions={sessions}
+            selectedCars={selectedCars}
+            currentTimeSec={currentTimeSec}
+            currentDistanceKm={currentDistanceKm}
+            isPlaying={isPlaying}
+            onSeekTime={handleSeekTime}
+            onTogglePlay={() => setIsPlaying(!isPlaying)}
+            circuitName={currentCircuitName}
+            targetSessionId={baseSession?.id}
+            targetLap={baseLap}
+            isGraphEmbedded={false}
+            isVisible={currentTab === 'video'}
+            playbackSpeed={playbackSpeed}
+            onChangePlaybackSpeed={setPlaybackSpeed}
+            onChooseLog={setBaseSession}
+            viewKey="video-tab"
+            onSetClockOffset={setSessionClockOffset}
+            compareCars={activeCars}
+          />
+        </div>
 
         {/* データ管理タブ */}
         <div className={`h-full w-full overflow-hidden ${currentTab === 'data' ? 'block' : 'hidden'}`}>

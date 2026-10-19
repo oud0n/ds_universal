@@ -1,5 +1,5 @@
 import React from 'react';
-import { BarChart2, List, Repeat, Settings } from 'lucide-react';
+import { BarChart2, List, Repeat, Settings, Video } from 'lucide-react';
 import { formatMinSec } from '../utils/timeFormat';
 import { useLandscape } from '../hooks/useCompactLayout';
 import { canUseLoggerUsb } from '../utils/device';
@@ -7,10 +7,10 @@ import { useT } from '../utils/i18n';
 
 type Tab = 'graph' | 'data' | 'logger' | 'video' | 'convert';
 
-// スマートフォン向けの配置で出すタブ (動画同期は出さない)。
-// ロガー設定は、USB でつなげる環境だけ (スマートフォンでは出ない)
+// スマートフォン向けの配置で出すタブ。ロガー設定は、USB でつなげる環境だけ (スマートフォンでは出ない)
 const TABS: { id: Tab; label: [string, string]; Icon: typeof BarChart2 }[] = [
   { id: 'graph', label: ['グラフ', 'Graph'], Icon: BarChart2 },
+  { id: 'video', label: ['動画', 'Video'], Icon: Video },
   { id: 'data', label: ['データ', 'Data'], Icon: List },
   { id: 'convert', label: ['変換', 'Convert'], Icon: Repeat },
   ...(!canUseLoggerUsb ? [] : [{ id: 'logger' as Tab, label: ['ロガー', 'Logger'] as [string, string], Icon: Settings }])

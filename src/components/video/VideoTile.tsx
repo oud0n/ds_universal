@@ -31,12 +31,16 @@ interface VideoTileProps {
   className?: string;
   /** 動画がないときの案内 */
   emptyText?: string;
+  /** GoPro の低画質のファイル (.LRV) があれば、それを出す (小さな枠・下書きの書き出し) */
+  useProxy?: boolean;
+  /** 見えているか。見えなくなって 10 秒たったら、動画を手放す (デコーダーとメモリを空ける。戻るときに読み直す) */
+  active?: boolean;
   /** 映像の外に重ねるもの (PinP の小窓など) */
   children?: React.ReactNode;
 }
 
 export const VideoTile: React.FC<VideoTileProps> = ({
-  tileKey, controller, position, muted, onSeeked, overlay, avoidRef, badge, accent, onClick, className = '', emptyText, children
+  tileKey, controller, position, muted, onSeeked, overlay, avoidRef, badge, accent, onClick, className = '', emptyText, useProxy = false, active = true, children
 }) => {
   const t = useT();
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -44,7 +48,15 @@ export const VideoTile: React.FC<VideoTileProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [box, setBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [avoidW, setAvoidW] = useState(0);
-  const src = position?.track.objectUrl;
+  const [released, setReleased] = useState(false);
+  useEffect(() => {
+    if (active) { setReleased(false); return; }
+    const timer = setTimeout(() => setReleased(true), 10000);
+    return () => clearTimeout(timer);
+  }, [active]);
+  const track = position?.track;
+  const src = released ? undefined : (useProxy && track?.proxyUrl) || track?.objectUrl;
+  const isReleased = released && !!track?.objectUrl;
   // 同じ関数を渡し続ける (描くたびに付け外しすると、出たコマの見張りが切れるため)
   const setVideo = useCallback((el: HTMLVideoElement | null) => {
     videoRef.current = el;
@@ -104,7 +116,7 @@ export const VideoTile: React.FC<VideoTileProps> = ({
           className="max-h-full max-w-full object-contain"
         />
       ) : (
-        <div className="text-slate-500 text-xs text-center p-4">{emptyText ?? t('動画がありません', 'No video')}</div>
+        <div className="text-slate-500 text-xs text-center p-4">{isReleased ? '' : emptyText ?? t('動画がありません', 'No video')}</div>
       )}
       {overlay && (
         <canvas
