@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { MediaPosition } from '../../services/playableMedia';
 import type { PlaybackController } from '../../services/playbackController';
 import { useT } from '../../utils/i18n';
@@ -29,12 +29,14 @@ interface VideoTileProps {
   accent?: string;
   onClick?: () => void;
   className?: string;
+  /** 動画がないときの案内 */
+  emptyText?: string;
   /** 映像の外に重ねるもの (PinP の小窓など) */
   children?: React.ReactNode;
 }
 
 export const VideoTile: React.FC<VideoTileProps> = ({
-  tileKey, controller, position, muted, onSeeked, overlay, avoidRef, badge, accent, onClick, className = '', children
+  tileKey, controller, position, muted, onSeeked, overlay, avoidRef, badge, accent, onClick, className = '', emptyText, children
 }) => {
   const t = useT();
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -43,6 +45,11 @@ export const VideoTile: React.FC<VideoTileProps> = ({
   const [box, setBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [avoidW, setAvoidW] = useState(0);
   const src = position?.track.objectUrl;
+  // 同じ関数を渡し続ける (描くたびに付け外しすると、出たコマの見張りが切れるため)
+  const setVideo = useCallback((el: HTMLVideoElement | null) => {
+    videoRef.current = el;
+    controller.attach(tileKey, el);
+  }, [controller, tileKey]);
 
   // メーターを重ねる四角と、小窓が映像に重なる幅を測る
   useEffect(() => {
@@ -89,7 +96,7 @@ export const VideoTile: React.FC<VideoTileProps> = ({
     >
       {src ? (
         <video
-          ref={el => { videoRef.current = el; controller.attach(tileKey, el); }}
+          ref={setVideo}
           onSeeked={onSeeked}
           src={src}
           muted={muted}
@@ -97,9 +104,9 @@ export const VideoTile: React.FC<VideoTileProps> = ({
           className="max-h-full max-w-full object-contain"
         />
       ) : (
-        <div className="text-slate-500 text-xs text-center p-4">{t('動画がありません', 'No video')}</div>
+        <div className="text-slate-500 text-xs text-center p-4">{emptyText ?? t('動画がありません', 'No video')}</div>
       )}
-      {overlay && src && (
+      {overlay && (
         <canvas
           ref={canvasRef}
           width={1280}

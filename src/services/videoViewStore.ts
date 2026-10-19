@@ -17,6 +17,8 @@ export const MAX_CAMERAS = 4;
 export interface VideoViewState {
   /** 出すカメラ (動画の ID。チャプターに分かれた動画は最初のチャプター)。1 つ目がメイン (メーター・同期の調整・書き出しの対象) */
   cameraIds: string[];
+  /** 走行比較で、Car (スロット) ごとに利用者が選んだ動画。ないスロットは、その周を映している動画を自動で選ぶ */
+  compareCameras: Record<number, string>;
   // 動画を書き出し中か。書き出し中は、どのウインドウも動画の切り替え・再生位置の合わせ直しをしない
   isExporting: boolean;
 }
@@ -27,7 +29,7 @@ function leadId(trackId: string): string {
 }
 
 class VideoViewStore {
-  private state: VideoViewState = { cameraIds: [], isExporting: false };
+  private state: VideoViewState = { cameraIds: [], compareCameras: {}, isExporting: false };
   private listeners = new Set<() => void>();
   private pinCache = new Map<string, SyncPin[]>();
   // 照合した動画を自動で選んだセッション。同じセッションのあいだは選び直さない (タブの切り替え・書き出しの後に、手で選んだ動画を戻さない)
@@ -66,7 +68,15 @@ class VideoViewStore {
       // 選んでいた動画を消したら、次に照合済みの動画を読み込んだときに自動で選び直す
       this.autoSelectedSessionId = null;
     }
-    this.set({ cameraIds: cams });
+    const compareCameras = Object.fromEntries(Object.entries(this.state.compareCameras).filter(([, id]) => ids.has(id)));
+    this.set({ cameraIds: cams, compareCameras });
+  }
+
+  /** 走行比較で、Car (スロット) の枠に出す動画を選ぶ。null で自動 (その周を映している動画) に戻す */
+  setCompareCamera(slot: number, trackId: string | null): void {
+    const next = { ...this.state.compareCameras };
+    if (trackId === null) delete next[slot]; else next[slot] = leadId(trackId);
+    this.set({ compareCameras: next });
   }
 
   /** メインのカメラを選ぶ。ほかの枠に出していたら、その枠からは外す */
@@ -137,11 +147,9 @@ export interface WindowViewState {
   pipPosition: PipPosition;
   showOverlay: boolean;
   showGForce: boolean;
-  /** 走行比較で合わせる比較の車のスロット (1: Car 2、2: Car 3、3: Car 4) */
-  compareSlot: number;
 }
 
-const WINDOW_DEFAULT: WindowViewState = { mode: 'cameras', layout: 'grid', focus: null, pipPosition: 'bottom-right', showOverlay: true, showGForce: true, compareSlot: 1 };
+const WINDOW_DEFAULT: WindowViewState = { mode: 'cameras', layout: 'grid', focus: null, pipPosition: 'bottom-right', showOverlay: true, showGForce: true };
 
 /**
  * ウインドウごとの表示の状態。key ごとにブラウザに覚える (読めないとき・書けないときは既定のまま。動作には要らない)
