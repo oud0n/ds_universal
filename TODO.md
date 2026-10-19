@@ -296,7 +296,11 @@ USB シリアル通信をさらに拡張し、公式アプリを使わずにロ�
     | iPhone アプリ版 | Bluetooth（BLE） | プロトコル解析済み |
     | スマホのブラウザ | 基本は使えない（iPhone の Safari は USB も BLE も不可。Android の Chrome は Web Bluetooth があるので BLE は届く可能性あり、未確認） | ロガー設定タブは無効化する予定 |
 
-  - [ ] `src/services/digspiceDevice.ts` を、共通のプロトコル層（コマンドの組み立て・応答の解析・ログ吸い出しの手順）と、環境ごとに差し替える送受信の層（つなぐ・切る・送る・受け取る）に分ける
+  - [x] `src/services/digspiceDevice.ts` を、共通のプロトコル層（コマンドの組み立て・応答の解析・ログ吸い出しの手順）と、環境ごとに差し替える送受信の層（つなぐ・切る・送る・受け取る）に分ける（2026-10-19）
+    - 送受信の層: `loggerTransport.ts`（つなぐ・切る・送る・受け取ったバイト列を渡す・切れたことを知らせる）と、その Web Serial 版 `webSerialTransport.ts`。Tauri の Rust 版・BLE 版はこれを実装すればよい
+    - プロトコル層: `digspiceProtocol.ts`（チェックサム・コマンドの組み立て・バイト列を行に分ける・応答の項目）
+    - 手順の層: `DigSpiceDevice`（設定の読み書き・ログの吸い出し・応答待ち・排他）。画面から使う関数は変えていない
+    - 確認: シミュレーターで分ける前後の送受信と吸い出した中身が同じ。実機（DS4、ファームウェア 1.01）で、Node から /dev/cu.* を読み書きする送受信の層を差し込み、設定の読み出し・レートと記録開始速度の変更と元に戻す・吸い出し・切断が通った。画面からはシミュレーターで、つなぐ・レート変更・吸い出しを確かめた。Web Serial での実機の確認はまだ（このシェルから起動した Electron は macOS のプライバシー保護で落ちるため）
   - 注意: 共有できるのは USB シリアルどうし（Web Serial と Rust）の中身。BLE は、位置などが標準の Location and Navigation Service の通知で届く別の仕組みで、設定変更・ログ吸い出しのコマンドが BLE で通るかは未解明（上の「追加キャプチャ」）。BLE 側は当面、リアルタイム受信の別実装になる見込み
 - [ ] **Bluetooth ペアリング（機器登録）機能**: 公式アプリ「DigSpice Circuit Timer Pro」と同等の接続操作（2026-10-19 に作り、同じ日に dev にマージ。iPhone の実機で動作を確認）
   - 作り: ネイティブとの約束 `src/native/contract.ts`（窓口 `bridge.ts`）、BLE の層 `bleCentral.ts`（ネイティブ版と Web Bluetooth 版）、つなぎの状態 `bleLoggerLink.ts`、画面 `BleLoggerCard.tsx`。
