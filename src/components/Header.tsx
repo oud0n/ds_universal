@@ -143,7 +143,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={() => setCurrentTab('data')}
           title={t('データ管理', 'Data')}
-          aria-label={t('データ管理', 'Data')}
+          aria-label={sessions.length > 0 ? `${t('データ管理', 'Data')} (${sessions.length})` : t('データ管理', 'Data')}
           className={`flex items-center gap-1.5 px-3.5 py-1 rounded text-xs font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
             currentTab === 'data'
               ? 'bg-red-600 text-white'
@@ -211,6 +211,7 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={onOpenDonate}
             className="flex items-center gap-1.5 text-xs bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 hover:text-amber-200 border border-amber-500/30 hover:border-amber-400/50 font-medium px-2.5 py-1.5 rounded transition-colors cursor-pointer"
             title={t('Buy Me a Coffee で開発者を支援', 'Support the developer on Buy Me a Coffee')}
+            aria-label={t('開発支援', 'Support')}
           >
             <Coffee size={13} className="text-amber-400" />
             <span className="hidden xl:inline whitespace-nowrap">{t('開発支援', 'Support')}</span>

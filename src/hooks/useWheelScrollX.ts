@@ -20,8 +20,10 @@ export function useWheelScrollX<T extends HTMLElement>(): (el: T | null) => void
       if ((e.deltaY < 0 && el.scrollLeft <= 0) || (e.deltaY > 0 && el.scrollLeft >= max - 1)) return;
       // 行単位 (Firefox) のときは、1 行を 16px として扱う
       const step = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      const before = el.scrollLeft;
       el.scrollLeft += step;
-      e.preventDefault();
+      // 動かなかったとき (小数の端数で端と判定できなかったときなど) は、ページのスクロールを止めない
+      if (el.scrollLeft !== before) e.preventDefault();
     };
     // preventDefault するので passive にしない (React の onWheel は passive で止められない)
     el.addEventListener('wheel', onWheel, { passive: false });
