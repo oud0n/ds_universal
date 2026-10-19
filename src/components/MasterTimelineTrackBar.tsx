@@ -6,6 +6,11 @@ import { VideoChapterGroup } from '../services/videoChapterManager';
 import { SyncPin, formatPinTime } from '../services/videoSyncPinManager';
 import { useT } from '../utils/i18n';
 
+
+// 段 (目盛り・GPS・動画) の左右の余白。枠の px-2 (8px) と同じ
+const TRACK_INSET_PX = 8;
+/** 枠の直下に置く印 (再生の位置・ピン) の left。段と同じ内側の幅の中の割合 (0〜100) で置く */
+const insetLeft = (percent: number) => `calc(${TRACK_INSET_PX}px + (100% - ${TRACK_INSET_PX * 2}px) * ${percent / 100})`;
 export interface MasterTimelineTrackBarProps {
   session: Session | undefined;
   baseLap: any;
@@ -78,7 +83,9 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
   const handleScrub = useCallback((clientX: number) => {
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    // 段 (目盛り・GPS・動画) は左右に余白 (TRACK_INSET_PX) をとった内側に描くので、その内側の幅で割合を出す
+    const inner = Math.max(1, rect.width - TRACK_INSET_PX * 2);
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left - TRACK_INSET_PX) / inner));
     const targetSessionSec = minTime + ratio * totalDuration;
     onSeekSessionTime(Number(targetSessionSec.toFixed(2)));
   }, [minTime, totalDuration, onSeekSessionTime]);
@@ -288,7 +295,7 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
             return (
               <div
                 key={pin.id}
-                style={{ left: `${p}%` }}
+                style={{ left: insetLeft(p) }}
                 className="absolute top-3 bottom-0 w-[1px] bg-amber-400/80 z-25 pointer-events-none"
               >
                 <div
@@ -307,8 +314,9 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
 
           {/* 6. 再生ヘッド (Playhead / 赤い針) */}
           <div
-            style={{ left: `${playheadPercent}%` }}
-            className="absolute top-0 bottom-0 w-[2px] bg-red-500 z-30 pointer-events-none shadow-[0_0_4px_rgba(239,68,68,0.8)]"
+            // 段と同じ内側 (左右の余白を除いた幅) で置く。枠全体の幅で置くと、右へ行くほど段の箱より先に出て見えていた
+            style={{ left: insetLeft(playheadPercent) }}
+            className="absolute top-0 bottom-0 w-[2px] -ml-px bg-red-500 z-30 pointer-events-none shadow-[0_0_4px_rgba(239,68,68,0.8)]"
           >
             {/* 上部インジケーターヘッド */}
             <div className="absolute -top-1 -translate-x-1/2 w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[5px] border-t-red-500" />
