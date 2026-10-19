@@ -67,7 +67,7 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
 
       <div className="flex-1 overflow-auto">
         <table className="w-full text-[11px] font-mono border-collapse">
-          <thead className="sticky top-0 bg-surface-3 text-slate-400">
+          <thead className="sticky top-0 bg-surface-3 text-slate-400 whitespace-nowrap">
             <tr>
               <th className="px-2 py-1 text-left font-medium" rowSpan={2}>{t('コーナー', 'Corner')}</th>
               <th className="px-2 py-1 text-right font-medium" rowSpan={2}>{t('最小R', 'Min R')}</th>
