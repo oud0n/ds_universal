@@ -1,3 +1,12 @@
+/** GGA の測位の品質・HDOP・ジオイド高・DGPS の経過秒と基準局 (どれも読んだ文字のまま。空欄は '') */
+export interface GgaFields {
+  quality: string;
+  hdop: string;
+  geoidSep: string;
+  dgpsAge: string;
+  dgpsStation: string;
+}
+
 export interface TelemetryPoint {
   index: number;
   time: number;          // 秒単位 (t=0からの経過時間)
@@ -8,6 +17,8 @@ export interface TelemetryPoint {
   longitude: number;     // 経度 (度)
   altitude: number;      // 標高 (m)
   altitudeMissing?: boolean; // 標高が記録されていない点 (altitude は 0。書き出しでは空欄にする)
+  /** NMEA の GGA にあった、ほかでは使わない欄 (書き出しの GGA に、読んだ文字のまま戻す) */
+  ggaFields?: GgaFields;
   speed: number;         // 車速 (km/h)
   heading: number;       // 方位角 (0-360度)
   distance: number;      // 累積走行距離 (km)
