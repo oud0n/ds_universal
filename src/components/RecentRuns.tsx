@@ -103,9 +103,9 @@ export const RecentRunsList: React.FC<{ limit: number; onOpen: (r: RunItem) => v
 };
 
 /** 全部の走行と「ファイルを選ぶ」 */
-export const RunsSheet: React.FC<{ onClose: () => void; onOpen: (r: RunItem) => void; onPickFiles: () => void; busy: boolean }> = ({ onClose, onOpen, onPickFiles, busy }) => {
+/** 走行の一覧 (ファイルを選ぶ・サーキットで絞る・一覧)。走行の画面にそのまま置き、スマートフォン以外のシートでも使う */
+export const RunsBrowser: React.FC<{ onOpen: (r: RunItem) => void; onPickFiles: () => void; busy: boolean }> = ({ onOpen, onPickFiles, busy }) => {
   const t = useT();
-  useEscapeKey(true, onClose);
   const { runs, error, noFolder, reload } = useRuns(true);
   const [folder, setFolder] = useState<string | null>(null);
   const folders = useMemo(() => {
@@ -119,50 +119,61 @@ export const RunsSheet: React.FC<{ onClose: () => void; onOpen: (r: RunItem) => 
     reload();
   };
   return (
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className="px-4 pt-3">
+        <button
+          onClick={onPickFiles}
+          className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-red-600 hover:bg-red-500 text-sm text-white font-bold cursor-pointer"
+          data-testid="runs-pick-files"
+        >
+          <FolderOpen size={16} />{t('ファイルを選ぶ', 'Choose files')}
+        </button>
+      </div>
+      {folders.length > 1 && (
+        <div className="flex gap-1.5 px-4 pt-3 overflow-x-auto shrink-0">
+          {[[null, t('すべて', 'All')] as const, ...folders].map(([f, label]) => (
+            <button
+              key={f ?? '*'}
+              onClick={() => setFolder(f)}
+              className={`px-3 py-1.5 rounded-full text-xs whitespace-nowrap border cursor-pointer ${folder === f ? 'bg-sky-600 border-sky-500 text-white' : 'bg-surface-3 border-line-2 text-slate-300'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1.5">
+        {runs === null && (
+          <div className="flex items-center gap-2 text-xs text-slate-400 py-6 justify-center"><Loader2 size={14} className="animate-spin" />{t('走行を読み込んでいます…', 'Loading runs…')}</div>
+        )}
+        {noFolder && (
+          <div className="text-xs text-slate-400 py-4 text-center space-y-3">
+            <p>{t('走行の保管場所が決まっていません。保管場所のフォルダ (サーキットごとのフォルダが並ぶところ) を選ぶと、過去の走行をここから開けます。', 'No storage folder is set. Choose the folder that holds a folder per circuit to open past runs here.')}</p>
+            {window.electronAPI?.laps && <button onClick={() => void pickFolder()} className="px-3 py-2 rounded-lg bg-surface-3 border border-line-2 text-slate-200 cursor-pointer">{t('保管場所を選ぶ', 'Choose folder')}</button>}
+          </div>
+        )}
+        {error && <p className="text-xs text-red-400 py-2">{error}</p>}
+        {runs && runs.length === 0 && !noFolder && !error && (
+          <p className="text-xs text-slate-400 py-6 text-center">{t('保管場所に走行がありません。', 'No runs in the storage folder.')}</p>
+        )}
+        {shown.map(r => <RunRow key={`${r.folder}/${r.file}`} run={r} onOpen={onOpen} busy={busy} />)}
+      </div>
+    </div>
+  );
+};
+
+/** 走行の一覧を、画面の上に重ねて出す (走行の画面がない組み方のとき) */
+export const RunsSheet: React.FC<{ onClose: () => void; onOpen: (r: RunItem) => void; onPickFiles: () => void; busy: boolean }> = ({ onClose, onOpen, onPickFiles, busy }) => {
+  const t = useT();
+  useEscapeKey(true, onClose);
+  return (
     <div className="fixed inset-0 z-[55] bg-black/70 flex items-end sm:items-center justify-center" onClick={e => { if (e.target === e.currentTarget) onClose(); }} role="dialog" aria-modal="true" data-testid="runs-sheet">
       <div className="bg-surface-1 border border-line-2 w-full sm:max-w-lg h-[85vh] sm:h-[80vh] rounded-t-2xl sm:rounded-2xl flex flex-col overflow-hidden shadow-2xl">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-line-2">
           <h2 className="text-sm font-bold text-slate-100 flex-1">{t('走行を開く', 'Open a run')}</h2>
           <button onClick={onClose} className="p-1.5 rounded hover:bg-surface-3 text-slate-400 cursor-pointer" aria-label={t('閉じる', 'Close')}><X size={18} /></button>
         </div>
-        <div className="px-4 pt-3">
-          <button
-            onClick={onPickFiles}
-            className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-red-600 hover:bg-red-500 text-sm text-white font-bold cursor-pointer"
-            data-testid="runs-pick-files"
-          >
-            <FolderOpen size={16} />{t('ファイルを選ぶ', 'Choose files')}
-          </button>
-        </div>
-        {folders.length > 1 && (
-          <div className="flex gap-1.5 px-4 pt-3 overflow-x-auto shrink-0">
-            {[[null, t('すべて', 'All')] as const, ...folders].map(([f, label]) => (
-              <button
-                key={f ?? '*'}
-                onClick={() => setFolder(f)}
-                className={`px-3 py-1.5 rounded-full text-xs whitespace-nowrap border cursor-pointer ${folder === f ? 'bg-sky-600 border-sky-500 text-white' : 'bg-surface-3 border-line-2 text-slate-300'}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1.5">
-          {runs === null && (
-            <div className="flex items-center gap-2 text-xs text-slate-400 py-6 justify-center"><Loader2 size={14} className="animate-spin" />{t('走行を読み込んでいます…', 'Loading runs…')}</div>
-          )}
-          {noFolder && (
-            <div className="text-xs text-slate-400 py-4 text-center space-y-3">
-              <p>{t('走行の保管場所が決まっていません。保管場所のフォルダ (サーキットごとのフォルダが並ぶところ) を選ぶと、過去の走行をここから開けます。', 'No storage folder is set. Choose the folder that holds a folder per circuit to open past runs here.')}</p>
-              {window.electronAPI?.laps && <button onClick={() => void pickFolder()} className="px-3 py-2 rounded-lg bg-surface-3 border border-line-2 text-slate-200 cursor-pointer">{t('保管場所を選ぶ', 'Choose folder')}</button>}
-            </div>
-          )}
-          {error && <p className="text-xs text-red-400 py-2">{error}</p>}
-          {runs && runs.length === 0 && !noFolder && !error && (
-            <p className="text-xs text-slate-400 py-6 text-center">{t('保管場所に走行がありません。', 'No runs in the storage folder.')}</p>
-          )}
-          {shown.map(r => <RunRow key={`${r.folder}/${r.file}`} run={r} onOpen={onOpen} busy={busy} />)}
-        </div>
+        <RunsBrowser onOpen={onOpen} onPickFiles={onPickFiles} busy={busy} />
       </div>
     </div>
   );
