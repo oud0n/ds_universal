@@ -21,8 +21,8 @@ export interface RunStore extends LapFileStore {
   startDownload(path: string): Promise<void>;
   /** 読む。無いときだけ null、読めないときは例外 (runs.json を書く前に読むため) */
   readTextStrict(path: string): Promise<string | null>;
-  /** 動画を lapfile:// で読めるか (古いアプリは読めない。listAll のあとに分かる) */
-  videos: boolean;
+  /** 動画を lapfile:// で読めるか (古いアプリは読めない) */
+  supportsVideos(): Promise<boolean>;
 }
 
 const encoder = new TextEncoder();
@@ -32,6 +32,10 @@ const decoder = new TextDecoder();
 export function lapFileUrl(path: string): string {
   return 'lapfile://run/' + path.split('/').map(encodeURIComponent).join('/');
 }
+
+/** アプリが lapfile:// を持っているか (system.runRoot に答えるか)。1 回だけ聞く */
+let nativeVideos: Promise<boolean> | null = null;
+const nativeSupportsVideos = () => (nativeVideos ??= callNative('system.runRoot', {}).then(() => true, e => !isOldApp(e)));
 
 /** 古いアプリ (走行の置き場の窓口がない) か */
 const isOldApp = (e: unknown) => e instanceof NativeError && e.code === 'not-supported';
@@ -51,14 +55,13 @@ export function nativeRunStore(): RunStore | null {
     }
   };
   const store: RunStore = {
-    videos: true,
+    supportsVideos: nativeSupportsVideos,
     async listAll() {
       await sync();
       try {
         return (await callNative('system.listRunFiles', {})).files;
       } catch (e) {
         if (!isOldApp(e)) throw e;
-        store.videos = false;
         const files: LapFileInfo[] = (await callNative('system.listLapFiles', {})).files;
         return files.map(f => ({ ...f, local: true }));
       }
@@ -104,7 +107,7 @@ export async function electronRunStore(): Promise<RunStore | null> {
   if (!api || !(await api.getFolder())) return null;
   const fail = (e?: string) => new Error(e ?? 'failed');
   const store: RunStore = {
-    videos: true,
+    supportsVideos: async () => true,
     async listAll() {
       const r = await api.list();
       if (!r.success || !r.files) throw fail(r.error);

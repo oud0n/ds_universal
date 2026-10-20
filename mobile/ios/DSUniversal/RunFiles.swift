@@ -32,9 +32,16 @@ enum RunFiles {
     static func resolve(_ rel: String, in root: URL) -> URL? {
         guard !rel.isEmpty, !rel.hasPrefix("/"), !rel.split(separator: "/").contains(where: { $0 == ".." || $0 == "." }) else { return nil }
         let url = root.appendingPathComponent(rel)
-        // 別名 (シンボリックリンク) をたどった先も、置き場の中か確かめる
+        // 別名 (シンボリックリンク) をたどった先も、置き場の中か確かめる。まだ無いファイル (これから書く) は、
+        // いちばん近くにある上のフォルダをたどって確かめる (無い部分があると、途中の別名がたどられないため)
         let base = root.resolvingSymlinksInPath().path
-        guard url.resolvingSymlinksInPath().path.hasPrefix(base + "/") else { return nil }
+        var existing = url
+        while !FileManager.default.fileExists(atPath: existing.path) && existing.path.count > root.path.count {
+            existing = existing.deletingLastPathComponent()
+        }
+        let real = existing.resolvingSymlinksInPath().path
+        guard real == base || real.hasPrefix(base + "/") else { return nil }
+        if existing.path != url.path, !url.resolvingSymlinksInPath().path.hasPrefix(base + "/") { return nil }
         return url
     }
 
@@ -248,11 +255,13 @@ final class LapFileSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked Senda
             if parts.count == 2 {
                 if parts[0].isEmpty, let n = UInt64(parts[1]) {
                     start = size > n ? size - n : 0
+                    partial = true
                 } else if let a = UInt64(parts[0]) {
                     start = a
                     if let b = UInt64(parts[1]) { end = min(b, end) }
+                    partial = true
                 }
-                partial = true
+                // 読めない Range (bytes=- など) は付いていないものとして、全部を返す
             }
         }
         if size == 0 && !partial {

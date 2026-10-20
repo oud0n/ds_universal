@@ -82,7 +82,7 @@ export const totalBytes = (files: RunFileInfo[]) => files.reduce((s, f) => s + f
 export async function videoCandidates(store: RunStore, item: RunItem): Promise<{ local: RemoteVideo[]; missing: RunFileInfo[]; fromRuns: boolean }> {
   const byName = new Map(item.folderVideos.map(v => [v.path.slice(item.folder.length + 1), v]));
   // 古いアプリ (lapfile:// を読めない) では、動画は開かない
-  if (!store.videos) return { local: [], missing: [], fromRuns: !!item.videos.length };
+  if (!(await store.supportsVideos())) return { local: [], missing: [], fromRuns: !!item.videos.length };
   const toRemote = (v: RunFileInfo): RemoteVideo => ({ name: v.path.slice(item.folder.length + 1), size: v.size, url: store.videoUrl(v.path), path: v.path, lastModified: v.mtimeMs });
   if (item.videos.length) {
     const listed = item.videos.map(n => byName.get(n)).filter((v): v is RunFileInfo => !!v);
@@ -186,12 +186,15 @@ export async function attachRunVideos(opts: {
   closeOpenRun();
   const { store, item, videos } = opts;
   const ids = new Set(opts.runSessions.map(s => s.id));
+  // 前に開いたほかの走行の動画 (保管場所のもの) は外す。GoPro の動画は、ほかのフォルダでも同じ名前のことがあり、
+  // 残すと、戻す同期が名前でそちらに当たってしまうため。この走行の動画で、もう開いているものは残す
+  const paths = new Set(videos.map(v => v.path));
+  for (const t of videoSyncManager.getTracks()) if (t.remote && !paths.has(t.remote.path)) videoSyncManager.removeTrack(t.id);
   // 先に同期を戻す (動画はまだないので、名前だけの枠ができる。そこに動画をつなぐと、戻した同期のまま使える)
   if (opts.fromRuns && item.entry?.sync) {
     try { restoreSync(item.entry.sync, opts.sessions(), opts.setClockOffset); } catch { /* 壊れた同期は使わない */ }
   }
   // 同じ動画 (同じ道) がもう開いていれば足さない。名前と大きさだけでは見分けない (GoPro の名前は、ほかのフォルダの動画と同じことがある)
-  const paths = new Set(videos.map(v => v.path));
   const openPaths = new Set(videoSyncManager.getTracks().filter(t => t.remote).map(t => t.remote!.path));
   const add = videos.filter(v => !openPaths.has(v.path));
   const tracks = add.length ? await videoSyncManager.addVideoFiles(add, opts.sessions()) : [];
@@ -221,6 +224,14 @@ export async function attachRunVideos(opts: {
 export async function addVideoToOpenRun(video: RemoteVideo): Promise<boolean> {
   const run = current;
   if (!run) return false;
+  // runs.json に同期を覚えていた動画 (開いたときは iCloud にだけあったもの) は、先にその同期を戻してからつなぐ
+  const saved = run.kept.find(v => v.fileName === video.name);
+  const sync = run.item.entry?.sync;
+  if (saved && sync) {
+    try {
+      restoreSync({ ...sync, videos: [saved], pins: (sync.pins ?? []).filter(p => p.trackFileName === video.name) }, run.sessions());
+    } catch { /* 壊れた同期は使わない */ }
+  }
   await videoSyncManager.addVideoFiles([video], run.sessions());
   run.names.add(video.path);
   run.keptNames = run.keptNames.filter(n => n !== video.name);
