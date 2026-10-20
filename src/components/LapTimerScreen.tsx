@@ -508,7 +508,10 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           {sectorCount > 0 && (
             <div className="col-span-2 landscape:col-span-1 rounded-xl bg-white/5 px-3 py-2 flex gap-2" data-testid="lap-timer-sectors">
               {Array.from({ length: sectorCount }, (_, i) => {
-                const cur = state?.currentSectors[i];
+                // 周を終えて大きく出している間は、終えた周のセクターを出しておく
+                const cur = flashing
+                  ? (flashing.lap.sectorsSec[i] !== undefined ? { timeSec: flashing.lap.sectorsSec[i], diffSec: null } : undefined)
+                  : state?.currentSectors[i];
                 return (
                   <div key={i} className="flex-1 min-w-0">
                     <div className="text-[11px] text-white/50 font-sans">S{i + 1}</div>
