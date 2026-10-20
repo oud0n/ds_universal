@@ -88,8 +88,11 @@ function buildMenu() {
       submenu: [
         { label: L('再読み込み', 'Reload'), accelerator: 'CmdOrCtrl+R', click: () => mainWindow.reload() },
         { label: L('フルスクリーン切り替え', 'Toggle full screen'), accelerator: 'F11', click: () => mainWindow.setFullScreen(!mainWindow.isFullScreen()) },
-        { type: 'separator' },
-        { label: L('開発者ツール', 'Developer tools'), accelerator: 'CmdOrCtrl+Shift+I', click: () => mainWindow.webContents.toggleDevTools() }
+        // 開発者ツールは、開発中だけメニューに出す (配布版では出さない)
+        ...(app.isPackaged ? [] : [
+          { type: 'separator' },
+          { label: L('開発者ツール', 'Developer tools'), accelerator: 'CmdOrCtrl+Shift+I', click: () => mainWindow.webContents.toggleDevTools() }
+        ])
       ]
     },
     {

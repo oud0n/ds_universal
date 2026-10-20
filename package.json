@@ -14,6 +14,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "vitest run",
     "start": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "start:prod": "npm run build && electron .",
     "electron": "electron .",
@@ -52,6 +53,7 @@
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3",
     "vite": "^8.3.0",
+    "vitest": "^5.0.5",
     "wait-on": "^9.0.4"
   }
 }
