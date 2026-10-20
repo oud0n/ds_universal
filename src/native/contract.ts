@@ -165,6 +165,10 @@ export interface NativeMethods {
   'system.setStorageLocal': { params: Record<string, never>; result: StorageInfo };
   /** LapTimer/ の下のファイルのうち、選んだフォルダにない・大きさの違うものを写す (保管先が local なら何もしない) */
   'system.syncLapFiles': { params: Record<string, never>; result: { kind: 'local' | 'folder'; copied: number; skipped: number; failed: number; error?: string } };
+  /** LapTimer/ の下のファイルの一覧 (ラップタイムの一覧のため。exports/ は除く。2026-10-20 に足した) */
+  'system.listLapFiles': { params: Record<string, never>; result: { files: Array<{ path: string; size: number; mtimeMs: number }> } };
+  /** LapTimer/ の下のファイルを読む (base64) */
+  'system.readLapFile': { params: { path: string }; result: { b64: string } };
   /** OS の設定の画面 (このアプリの許可) を開く。一度断られた許可は、OS がもう聞いてくれないため */
   'system.openSettings': { params: Record<string, never>; result: Record<string, never> };
 }

@@ -97,6 +97,22 @@ final class SystemModule {
             done(.success(storageInfo()))
         case "system.syncLapFiles":
             syncLapFiles(done: done)
+        case "system.listLapFiles":
+            // ラップタイムの一覧のため、LapTimer/ の下のファイル (大きさと更新日時)
+            let fm = FileManager.default
+            let files: [[String: Any]] = Self.lapTimerFiles().map { file, rel in
+                let attrs = (try? fm.attributesOfItem(atPath: file.path)) ?? [:]
+                let size = (attrs[.size] as? Int) ?? 0
+                let mtime = ((attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0) * 1000
+                return ["path": rel, "size": size, "mtimeMs": mtime.rounded()]
+            }
+            done(.success(["files": files]))
+        case "system.readLapFile":
+            guard let rel = params["path"] as? String, let url = lapTimerURL(rel), let data = try? Data(contentsOf: url) else {
+                done(.failure(NativeError(.notFound, "no file")))
+                return
+            }
+            done(.success(["b64": data.base64EncodedString()]))
         default:
             done(.failure(NativeError(.notSupported, "unknown method \(method)")))
         }
@@ -237,6 +253,8 @@ final class SystemModule {
         defer { if access { dest.stopAccessingSecurityScopedResource() } }
         let fm = FileManager.default
         for (file, rel) in Self.lapTimerFiles() {
+            // ラップタイムの一覧の控えは端末ごとに作るので写さない (2 台で同じ控えを書いてぶつからないように)
+            if (rel as NSString).lastPathComponent == "laptimes.json" { continue }
             let target = dest.appendingPathComponent(rel)
             let srcSize = (try? fm.attributesOfItem(atPath: file.path)[.size] as? Int) ?? -1
             let dstSize = (try? fm.attributesOfItem(atPath: target.path)[.size] as? Int) ?? -2

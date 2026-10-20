@@ -14,8 +14,10 @@ import {
   FolderOpen,
   Globe,
   Repeat,
-  X
+  X,
+  ListOrdered
 } from 'lucide-react';
+import { LapHistoryPanel } from './LapHistoryPanel';
 import { formatMinSec } from '../utils/timeFormat';
 import { useCompactLayout } from '../hooks/useCompactLayout';
 import { GFilterLevel } from '../services/physics';
@@ -23,6 +25,8 @@ import { circuitLabel, useLang, useT } from '../utils/i18n';
 
 interface DataTabProps {
   sessions: Session[];
+  /** ラップタイムの記録から、走行のファイル (.bon4) を解析で開く (デスクトップ版) */
+  onOpenLapRun?: (file: File) => void;
   selectedCars: SelectedCarSlot[];
   onSelectCarSlot: (slotIndex: number, sessionId: string, lapNumber: number) => void;
   // スロットの割り当てを解除する
@@ -142,6 +146,7 @@ const ClockOffsetControl: React.FC<{
 
 export const DataTab: React.FC<DataTabProps> = ({
   sessions,
+  onOpenLapRun,
   selectedCars,
   onSelectCarSlot,
   onClearCarSlot,
@@ -170,6 +175,8 @@ export const DataTab: React.FC<DataTabProps> = ({
   const lang = useLang();
   // スマートフォンでは、コースの設定はたたんでおき、見出しをタップして開く (ラップ一覧を先に見せる)
   const [courseOpen, setCourseOpen] = useState(false);
+  // ラップタイムの記録 (デスクトップ版だけ。保管場所のフォルダから過去の周を一覧にする)
+  const [lapHistoryOpen, setLapHistoryOpen] = useState(false);
   const showCourseTools = !compact || courseOpen;
 
   const formatTime = (sec: number) => {
@@ -269,8 +276,21 @@ export const DataTab: React.FC<DataTabProps> = ({
             <Edit3 size={13} />
             {t('コース編集', 'Course editor')}
           </button>
+
+          {/* ラップタイムの記録 (デスクトップ版だけ) */}
+          {window.electronAPI?.laps && (
+            <button
+              onClick={() => setLapHistoryOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
+              data-testid="open-lap-history"
+            >
+              <ListOrdered size={13} />
+              {t('ラップタイムの記録', 'Lap time records')}
+            </button>
+          )}
         </div>
       </div>
+      {lapHistoryOpen && <LapHistoryPanel onClose={() => setLapHistoryOpen(false)} onOpenRun={onOpenLapRun && (f => { setLapHistoryOpen(false); onOpenLapRun(f); })} />}
 
       {/* 比較スロット (Car 1〜4) の選択状態バー */}
       <div className="bg-surface-2 border border-line-2 rounded-xl p-3 shadow-md">

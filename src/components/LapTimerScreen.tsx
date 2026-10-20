@@ -8,6 +8,7 @@ import { triggerFileDownload } from '../services/nmeaExporter';
 import { downloadBlob } from '../services/telemetryVideoExporter';
 import { LiveRunRecorder } from '../services/runRecorder';
 import { courseFolder } from '../utils/courseNames';
+import { LapHistoryPanel } from './LapHistoryPanel';
 import { deleteRun, listRuns, loadFixes, type RunMeta } from '../services/liveRunStore';
 import { fixesToBon4, fixesToNmea, runFileBase } from '../services/runFiles';
 import { callNative, hasNative, toBase64 } from '../native/bridge';
@@ -43,6 +44,8 @@ interface Props {
   replayLogs: ReplayLog[];
   /** 記録した測位を、解析の画面で開く (NMEA の文) */
   onOpenLog: (fileName: string, nmeaText: string) => void;
+  /** ラップタイムの記録から、走行のファイル (.bon4) を解析で開く */
+  onOpenFile?: (file: File) => void;
 }
 
 /** 周を終えたあと、そのタイムを大きく出しておく長さ (ミリ秒) */
@@ -97,7 +100,7 @@ function lapSpeech(e: LiveLapEvent): { text: string; lang: string } {
   return { text: time + diff, lang: 'en-US' };
 }
 
-export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog }) => {
+export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog, onOpenFile }) => {
   const t = useT();
   const link = useLoggerLink();
   const statusLabel = useStatusLabel();
@@ -126,6 +129,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const [storage, setStorage] = useState<StorageInfo | null>(null);
   const [syncNote, setSyncNote] = useState<{ ok: boolean; text: string } | null>(null);
   const lastSyncMsRef = useRef(0);
+  /** ラップタイムの記録 (過去の周の一覧) を開いているか */
+  const [historyOpen, setHistoryOpen] = useState(false);
   const lastFixPerfRef = useRef(0);
   const lastPosRef = useRef<LiveFix | null>(null);
   const voiceRef = useRef(voice);
@@ -690,6 +695,11 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               <p className="text-[10px] text-white/40 mt-1">{t('「ファイル」アプリの このiPhone内 → このアプリ → LapTimer → サーキット名 にも、走っている間に書いています (.nmea と .bon4)。', 'Also written while driving to Files → On My iPhone → this app → LapTimer → circuit name (.nmea and .bon4).')}</p>
             )}
           </div>
+          {hasNative() && (
+            <button onClick={() => { void flushRecording(true).then(() => { setHistoryOpen(true); setMenuOpen(false); }); }} className="w-full text-left px-3 py-2 rounded-lg bg-white/5" data-testid="lap-timer-history">
+              {t('ラップタイムの記録 (過去の周の一覧)', 'Lap time records (past laps)')}
+            </button>
+          )}
           {hasNative() && storage && (
             <div data-testid="lap-timer-storage">
               <div className="text-white/50 text-xs mb-1">{t('記録の保管先', 'Where runs are kept')}</div>
@@ -726,6 +736,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           </p>
         </div>
       )}
+
+      {historyOpen && <LapHistoryPanel onClose={() => setHistoryOpen(false)} onOpenRun={onOpenFile} />}
 
       {/* コースを選ぶ */}
       {coursePicker && (

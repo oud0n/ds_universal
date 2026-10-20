@@ -1750,6 +1750,7 @@ export const App: React.FC = () => {
           <Freeze active={currentTab === 'data'}>
           <DataTab
             sessions={sessions}
+            onOpenLapRun={file => { void loadFiles([file]).then(() => setCurrentTab('graph')); }}
             selectedCars={selectedCars}
             onSelectCarSlot={handleSelectCarSlot}
             onClearCarSlot={slotIndex => setSelectedCars(prev => prev.filter(c => c.slot !== slotIndex))}
@@ -1825,6 +1826,11 @@ export const App: React.FC = () => {
             setLapTimerOpen(false);
             if (window.location.hash === '#laptimer') history.replaceState(null, '', window.location.pathname + window.location.search);
             void loadFileData(fileName, null, parseNmea(text)).then(() => setCurrentTab('graph'));
+          }}
+          onOpenFile={file => {
+            setLapTimerOpen(false);
+            if (window.location.hash === '#laptimer') history.replaceState(null, '', window.location.pathname + window.location.search);
+            void loadFiles([file]).then(() => setCurrentTab('graph'));
           }}
         />
       )}
