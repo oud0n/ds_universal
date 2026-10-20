@@ -31,6 +31,10 @@ import {
   VideoExportController 
 } from '../services/telemetryVideoExporter';
 import { canUseEncodeExport, exportEncodedVideo } from '../services/encodeVideoExporter';
+import { canExportWebmAlpha, exportOverlayOnly } from '../services/overlayOnlyExporter';
+
+/** 1 コマずつ書く書き出しで周を選んだときに、前後に足す秒 (富士のストレートでも、立ち上がりから映るように) */
+const LAP_EXPORT_PAD_SEC = 10;
 import { MasterTimelineTrackBar } from './MasterTimelineTrackBar';
 import { formatMinSec } from '../utils/timeFormat';
 import { tr, useT } from '../utils/i18n';
@@ -139,7 +143,9 @@ export function drawTelemetryOverlayOnCanvas(
   showGForce: boolean = true,
   // PinP の小窓がある隅と、小窓がメインの映像に重なる幅 (canvas の座標)。その隅のメーターを小窓の横へずらす (BUG-23)
   avoidCorner: PipPosition | null = null,
-  pipOverlapW = 0
+  pipOverlapW = 0,
+  // 書き出す周 (前後を足して書き出すとき)。周の前は 0:00.00 で待ち、周のあとはその周のタイムで止めておく
+  holdLap: { lapNumber: number; lapTime: number; startTime: number; endTime: number } | null = null
 ) {
   const pipInset = Math.round(pipOverlapW) + 24;
   if (pipOverlapW <= 0) avoidCorner = null;
@@ -260,8 +266,15 @@ export function drawTelemetryOverlayOnCanvas(
   ctx.stroke();
 
   const currentLap = baseSession?.laps.find(l => effectiveTime >= l.startTime && effectiveTime <= l.endTime);
-  const lapLabel = currentLap ? `Lap ${currentLap.lapNumber}` : (baseLap ? `Lap ${baseLap.lapNumber}` : 'Out / In Lap');
-  const lapDisplayTime = currentLap ? (effectiveTime - currentLap.startTime) : (baseLap ? (effectiveTime - baseLap.startTime) : effectiveTime);
+  let lapLabel = currentLap ? `Lap ${currentLap.lapNumber}` : (baseLap ? `Lap ${baseLap.lapNumber}` : 'Out / In Lap');
+  let lapDisplayTime = currentLap ? (effectiveTime - currentLap.startTime) : (baseLap ? (effectiveTime - baseLap.startTime) : effectiveTime);
+  if (holdLap && effectiveTime > holdLap.endTime) {
+    lapLabel = `Lap ${holdLap.lapNumber}`;
+    lapDisplayTime = holdLap.lapTime;
+  } else if (holdLap && !currentLap && effectiveTime < holdLap.startTime) {
+    lapLabel = `Lap ${holdLap.lapNumber}`;
+    lapDisplayTime = 0;
+  }
 
   ctx.fillStyle = '#94a3b8';
   ctx.font = 'bold 10px sans-serif';
@@ -343,7 +356,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const [exportRange, setExportRange] = useState<'lap' | 'all'>('lap');
   const [exportResolution, setExportResolution] = useState<'1080p' | '720p'>('1080p');
   // 書き出しの方式。encode: 元のファイルを 1 コマずつ読んで書く (速く、コマが抜けない)。record: 再生しながら録る (これまでの方式)
-  const [exportMethod, setExportMethod] = useState<'encode' | 'record'>(() => (canUseEncodeExport() ? 'encode' : 'record'));
+  const [exportMethod, setExportMethod] = useState<'encode' | 'record' | 'overlay-png' | 'overlay-webm'>(() => (canUseEncodeExport() ? 'encode' : 'record'));
+  // 透明な WebM (VP9 のアルファ) を作れるか
+  const [webmAlphaOk, setWebmAlphaOk] = useState(false);
+  useEffect(() => { void canExportWebmAlpha(1920, 1080).then(setWebmAlphaOk); }, []);
   const [exportFps, setExportFps] = useState<number>(30);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   // 枠の並びの書き出しで、低画質のファイル (.LRV) を使う (下書き)
@@ -722,9 +738,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     let startSec = 0;
     let endSec = activeTrack.durationSec;
 
+    // 1 コマずつ書く方式 (エンコード・メーターだけ) で周を選んだときは、前後を 10 秒ずつ足す (立ち上がりから映るように。
+    // 周の前は 0:00.00 で待ち、周のあとはその周のタイムで止める)
+    const frameByFrame = exportMethod === 'overlay-png' || exportMethod === 'overlay-webm' || (exportMethod === 'encode' && !!activeTrack.file && canUseEncodeExport());
+    const padSec = frameByFrame ? LAP_EXPORT_PAD_SEC : 0;
     if (exportRange === 'lap' && baseLap) {
-      startSec = baseLap.startTime;
-      endSec = baseLap.endTime;
+      startSec = baseLap.startTime - padSec;
+      endSec = baseLap.endTime + padSec;
     } else {
       startSec = activeTrack.syncOffsetSec;
       endSec = activeTrack.syncOffsetSec + (activeTrack.durationSec || 60);
@@ -738,6 +758,41 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     videoViewStore.set({ isExporting: true });
     setShowExportModal(false);
 
+    const holdLap = exportRange === 'lap' && baseLap && padSec > 0 ? baseLap : null;
+    const finishFrameExport = (ctrl: VideoExportController) => {
+      exportControllerRef.current = ctrl;
+      const done = () => {
+        exportControllerRef.current = null;
+        setIsExporting(false);
+        setExportProgress(null);
+        videoViewStore.set({ isExporting: false });
+      };
+      ctrl.promise.then(done).catch(err => {
+        console.warn('Export finished or cancelled:', err);
+        if (!/キャンセル|cancel/i.test(String(err?.message ?? err))) alert(t(`書き出せませんでした: ${err?.message ?? err}`, `Export failed: ${err?.message ?? err}`));
+        done();
+      });
+    };
+
+    // メーターだけの透明な動画 (PLAN-14)。ログの範囲の外は書かない
+    if (exportMethod === 'overlay-png' || exportMethod === 'overlay-webm') {
+      const pts = baseSession?.points ?? [];
+      const s0 = pts.length ? Math.max(startSec, pts[0].time) : startSec;
+      const s1 = pts.length ? Math.min(endSec, pts[pts.length - 1].time) : endSec;
+      finishFrameExport(exportOverlayOnly({
+        startSessionSec: s0,
+        endSessionSec: s1,
+        width: exportW,
+        height: exportH,
+        fps: exportFps,
+        format: exportMethod === 'overlay-webm' ? 'webm-alpha' : 'png-zip',
+        draw: (ctx, w, h, curTime) => drawTelemetryOverlayOnCanvas(ctx, w, h, curTime, baseSession, baseLap, showGForce, null, 0, holdLap),
+        baseName: filename.replace(/_telemetry\.mp4$/, '_meters').replace(/\.mp4$/, ''),
+        onProgress: p => setExportProgress(p)
+      }));
+      return;
+    }
+
     // エンコードの方式 (元のファイルがあるとき)。範囲は動画の中の秒に直す
     if (exportMethod === 'encode' && activeTrack.file && canUseEncodeExport()) {
       const offset = activeTrack.syncOffsetSec;
@@ -748,25 +803,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         startVideoSec,
         endVideoSec,
         toSessionSec: v => v + offset,
-        drawOverlay: (ctx, w, h, curTime) => drawTelemetryOverlayOnCanvas(ctx, w, h, curTime, baseSession, baseLap, showGForce),
+        drawOverlay: (ctx, w, h, curTime) => drawTelemetryOverlayOnCanvas(ctx, w, h, curTime, baseSession, baseLap, showGForce, null, 0, holdLap),
         width: exportW,
         height: exportH,
         fps: exportFps,
         outputFileName: filename,
         onProgress: p => setExportProgress(p)
       });
-      exportControllerRef.current = encController;
-      const finishEnc = () => {
-        exportControllerRef.current = null;
-        setIsExporting(false);
-        setExportProgress(null);
-        videoViewStore.set({ isExporting: false });
-      };
-      encController.promise.then(finishEnc).catch(err => {
-        console.warn('Export finished or cancelled:', err);
-        if (!/キャンセル|cancel/i.test(String(err?.message ?? err))) alert(t(`書き出せませんでした: ${err?.message ?? err}`, `Export failed: ${err?.message ?? err}`));
-        finishEnc();
-      });
+      finishFrameExport(encController);
       return;
     }
 
@@ -1898,7 +1942,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             )}
 
             {/* 書き出しの方式 (1 つの動画のとき) */}
-            {!(exportStage && tileCount > 1) && canUseEncodeExport() && activeTrack?.file && (
+            {!(exportStage && tileCount > 1) && canUseEncodeExport() && (
               <div className="space-y-1">
                 <label className="text-[10px] font-medium text-slate-400">{t('書き出しの方式:', 'Export method:')}</label>
                 <select
@@ -1907,9 +1951,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   className="w-full bg-surface-1 border border-line-3 text-xs px-2 py-1 rounded outline-none text-slate-200 cursor-pointer"
                   data-testid="export-method"
                 >
-                  <option value="encode">{t('エンコード (推奨・コマが抜けない・再生しない)', 'Encode (recommended, no dropped frames)')}</option>
-                  <option value="record">{t('再生しながら録る (これまでの方式)', 'Record while playing (previous method)')}</option>
+                  <option value="encode">{t('動画にメーターを焼き込む (エンコード・推奨)', 'Burn meters into the video (encode, recommended)')}</option>
+                  <option value="record">{t('動画にメーターを焼き込む (再生しながら録る・これまでの方式)', 'Burn meters into the video (record while playing, previous method)')}</option>
+                  <option value="overlay-png">{t('メーターだけ・背景は透明 (PNG の連番の ZIP。Premiere・DaVinci・After Effects 向け)', 'Meters only, transparent (PNG sequence ZIP; Premiere, DaVinci, After Effects)')}</option>
+                  {webmAlphaOk && <option value="overlay-webm">{t('メーターだけ・背景は透明 (WebM。小さいが、読めるソフトが限られる)', 'Meters only, transparent (WebM; small, limited editor support)')}</option>}
                 </select>
+                {exportMethod !== 'record' && exportRange === 'lap' && (
+                  <p className="text-[10px] text-slate-500">{t(`周を選んだときは、前後を ${LAP_EXPORT_PAD_SEC} 秒ずつ足して書き出します (周の前は 0:00.00 で待ち、周のあとはその周のタイムで止まります)`, `When a lap is selected, ${LAP_EXPORT_PAD_SEC} s are added before and after it (the lap clock waits at 0:00.00 before and holds the lap time after)`)}</p>
+                )}
               </div>
             )}
 
