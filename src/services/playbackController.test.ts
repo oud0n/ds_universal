@@ -173,6 +173,12 @@ class Sim {
     for (let i = 0; i < steps; i++) this.tick(FRAME_MS);
   }
 
+  /** 合わせる処理を呼ばずに、時間だけ進める (止めたあとの App は描き直さないので、sync が呼ばれない) */
+  idle(ms: number): void {
+    const steps = Math.round(ms / FRAME_MS);
+    for (let i = 0; i < steps; i++) { this.clock.now += FRAME_MS; this.video.step(FRAME_MS); }
+  }
+
   play(): void { this.playing = true; }
   pause(): void { this.playing = false; }
 
@@ -313,6 +319,21 @@ describe('PlaybackController', () => {
     sim.run(300);
     expect(sim.video.paused).toBe(true);
     expect(Math.abs(sim.appTime - sim.video.mediaTime)).toBeLessThan(0.021);
+  });
+
+  it('飛んでいる途中で止めても、飛び終わったら動画が止まる (止めたあとは sync が呼ばれない。2026-10-20 iPhone で見つけた)', () => {
+    const sim = new Sim(SAFARI_AUDIBLE, { adjustAudibleRate: false });
+    sim.play();
+    sim.run(3000);
+    // 見ている位置を動かし、飛んでいる途中 (seeking) で止める
+    sim.appTime += 20;
+    sim.run(50);
+    expect(sim.video.seeking).toBe(true);
+    sim.pause();
+    sim.run(FRAME_MS);
+    // 止めたあとは App が描き直さないので、合わせる処理は呼ばれない
+    sim.idle(3000);
+    expect(sim.video.paused).toBe(true);
   });
 
   it('動画の終わりを過ぎても、飛び直しを繰り返さない', () => {
