@@ -11,7 +11,7 @@
 
 import { CanvasSource, Output, WebMOutputFormat, canEncodeVideo } from 'mediabunny';
 import { createByteSink, createVideoSink, type ByteSink, type VideoSink } from './exportSink';
-import { Zip, ZipPassThrough } from 'fflate';
+import { StoredZipWriter } from './storedZip';
 import { downloadBlob, type VideoExportController } from './telemetryVideoExporter';
 
 export type OverlayFormat = 'png-zip' | 'webm-alpha';
@@ -56,7 +56,6 @@ export function exportOverlayOnly(options: OverlayExportOptions): VideoExportCon
   let output: Output | null = null;
   let videoSink: VideoSink | null = null;
   let byteSink: ByteSink | null = null;
-  let zipRef: Zip | null = null;
 
   const run = async () => {
     const canvas = document.createElement('canvas');
@@ -96,31 +95,19 @@ export function exportOverlayOnly(options: OverlayExportOptions): VideoExportCon
     // ZIP はブラウザの中のファイル置き場に少しずつ書き、コマごとに書き終わるのを待つ (メモリにためない。exportSink.ts)
     const sink = await createByteSink();
     byteSink = sink;
-    let zipError: Error | null = null;
-    let pending: Promise<void> = Promise.resolve();
-    const zip = new Zip((err, data) => {
-      if (err) { zipError = err; return; }
-      // 書き込みは sink の中で順に並ぶ。pending は、それまでの書き込みが全部終わると解ける
-      if (!cancelled) pending = sink.write(data);
-    });
-    zipRef = zip;
+    // 大きさと CRC を先頭に書くふつうの ZIP にする (iPhone の「ファイル」アプリで開けるように。storedZip.ts)
+    const zip = new StoredZipWriter();
     const digits = String(frames).length < 6 ? 6 : String(frames).length;
     for (let i = 0; i < frames; i++) {
       if (cancelled) throw new Error('エクスポートがユーザーによりキャンセルされました');
-      if (zipError) throw zipError;
       drawFrame(i);
       const png = await canvasToPng(canvas);
       // ZIP の中の名前は英数字だけにする (日本語の名前は、展開するソフトによって文字化けする。編集ソフトの連番の読み込みにも安全)
-      const entry = new ZipPassThrough(`meters_${fps}fps/meters_${String(i).padStart(digits, '0')}.png`);
-      zip.add(entry);
-      entry.push(png, true);
-      await pending;
+      await sink.write(zip.add(`meters_${fps}fps/meters_${String(i).padStart(digits, '0')}.png`, png));
       if (i % 15 === 0) progress(i);
     }
-    zip.end();
-    await pending;
-    if (zipError) throw zipError;
     if (cancelled) throw new Error('エクスポートがユーザーによりキャンセルされました');
+    await sink.write(zip.finish());
     const blob = await sink.finish('application/zip');
     downloadBlob(blob, `${baseName}_${fps}fps_png.zip`);
     return blob;
@@ -136,8 +123,6 @@ export function exportOverlayOnly(options: OverlayExportOptions): VideoExportCon
       if (cancelled) return;
       cancelled = true;
       void output?.cancel();
-      // ZIP は作るのをやめる (このあとの書き込みを止める)
-      zipRef?.terminate();
     },
     promise
   };
