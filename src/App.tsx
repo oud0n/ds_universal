@@ -35,6 +35,7 @@ import { VideoSyncWindow } from './components/VideoSyncWindow';
 import { useVideoTracks, useVideoView, videoEndSessionSec } from './services/videoViewStore';
 import { DataTab } from './components/DataTab';
 import { LoggerTab } from './components/LoggerTab';
+import { LapTimerScreen, type ReplayLog } from './components/LapTimerScreen';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
 import { DonateModal } from './components/DonateModal';
 import { useResizableSplit } from './hooks/useResizableSplit';
@@ -124,6 +125,8 @@ export const App: React.FC = () => {
     if (h === 'logger' && !canUseLogger) return 'graph';
     return h === 'convert' || h === 'data' || h === 'logger' || h === 'video' ? h : 'graph';
   });
+  // ラップタイマー (走りながら使う、画面いっぱいの表示)。URL の末尾 #laptimer で開いた状態から始める
+  const [lapTimerOpen, setLapTimerOpen] = useState(() => typeof window !== 'undefined' && window.location.hash === '#laptimer');
   const currentTabRef = useRef(currentTab);
   currentTabRef.current = currentTab;
   // 変換画面で書き出すログ (データ管理の「変換画面で開く」で選ぶ。空なら基準車のログ)
@@ -165,7 +168,7 @@ export const App: React.FC = () => {
     });
   };
 
-  // 登録してあるデジスパイスに、Bluetooth で自動でつなぐ
+  // Bluetooth の層を用意する (つなぐのは、ロガー設定・ラップタイマーの画面を開いたとき)
   useEffect(() => {
     if (canUseLoggerBle) void bleLoggerLink.start();
   }, []);
@@ -1802,11 +1805,24 @@ export const App: React.FC = () => {
             <LoggerTab
               onLoadSession={(fileName, buffer) => loadFileData(fileName, buffer)}
               onNavigateToGraph={() => setCurrentTab('graph')}
+              active={currentTab === 'logger' && !lapTimerOpen}
+              onOpenLapTimer={() => setLapTimerOpen(true)}
             />
             </Freeze>
           </div>
         )}
       </main>
+
+      {lapTimerOpen && (
+        <LapTimerScreen
+          onClose={() => setLapTimerOpen(false)}
+          replayLogs={sessions.map((s): ReplayLog => ({ id: s.id, name: s.sessionName || s.fileName, points: s.points, startDate: s.points[0]?.timestamp ? new Date(s.points[0].timestamp) : undefined }))}
+          onOpenLog={(fileName, text) => {
+            setLapTimerOpen(false);
+            void loadFileData(fileName, null, parseNmea(text)).then(() => setCurrentTab('graph'));
+          }}
+        />
+      )}
 
       {/* グラフ解析の再生の段 (シークバーと再生のボタン。動画同期の画面の下の段と同じ並び)。スマートフォンでは、この下にタブバー */}
       {currentTab === 'graph' && baseLap && (

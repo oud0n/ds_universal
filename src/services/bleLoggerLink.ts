@@ -2,7 +2,7 @@
  * デジスパイスとの BLE のつなぎ (ペアリング・機器の登録) と、届いた測位 (PLAN-01、docs/iphone_app_design.md の 4)。
  *
  * - 探す: 名前が DS3 / DS4 で始まる機器を一覧にする (シリアル番号は名前の番号の部分)
- * - 登録する: 選んだ機器を覚え、次からはアプリを開いたときに自動でつなぐ。OS のペアリング (ボンディング) はしない
+ * - 登録する: 選んだ機器を覚え、次からはロガー設定・ラップタイマーの画面を開いたときに自動でつなぐ。OS のペアリング (ボンディング) はしない
  * - つないでいる間に切れたら、BLE の層 (bleCentral) がつなぎ直す。測位が途切れた間は gaps に残す
  * - 届いた通知は BleFixAssembler で測位にして、onFix で渡す (ラップタイマー・記録はここから受け取る)
  *
@@ -175,15 +175,23 @@ export class BleLoggerLink {
 
   // ---- 操作 ----
 
-  /** BLE の層を用意し、登録してある機器があればつなぐ (アプリを開いたとき) */
+  /**
+   * BLE の層を用意する (アプリを開いたとき)。つなぐのは、ロガー設定・ラップタイマーの画面を開いたとき (startAndConnect)。
+   * アプリを開くたびにつなぎに行くと、サーキットの外でも探し続けて電池を使うため (2026-10-20 決定)
+   */
   start(): Promise<void> {
     this.ready ??= (async () => {
       this.central = await this.centralSource();
       this.update({ centralKind: this.central?.kind ?? null });
       this.refreshStatus();
-      if (this.central && this.snap.registered) await this.connect(true);
     })();
     return this.ready;
+  }
+
+  /** BLE の層を用意し、登録してある機器につないでいなければつなぐ (ロガー設定・ラップタイマーの画面を開いたとき) */
+  async startAndConnect(): Promise<void> {
+    await this.start();
+    if (this.central && this.snap.registered && this.linkState === 'idle') await this.connect(true);
   }
 
   async startScan(): Promise<void> {
