@@ -94,6 +94,12 @@ export function toTelemetryPoints(points: ConvertedPoint[]): TelemetryPoint[] {
 
 const pad = (n: number, width = 2) => n.toString().padStart(width, '0');
 
+/** NMEA の標高: ふだんは 0.1 m まで。読み込んだ NMEA が 0.01 m まで持っていたときは、その桁も書く */
+const altitudeText = (m: number): string => {
+  const cm = Math.round(m * 100);
+  return cm % 10 === 0 ? (cm / 100).toFixed(1) : (cm / 100).toFixed(2);
+};
+
 /**
  * NMEA 0183 (GGA + RMC)。includeGga を false にすると RMC のみ
  */
@@ -108,8 +114,10 @@ export function convertToNmea(points: ConvertedPoint[], talkerId: 'GP' | 'GN' = 
     if (includeGga) {
       // 記録されていない項目 (衛星数・HDOP・標高・ジオイド高) は固定値で埋めず、空欄にする
       const sat = p.satellites != null ? pad(Math.min(99, Math.max(0, p.satellites))) : '';
-      const alt = p.altitude != null ? p.altitude.toFixed(1) : '';
-      lines.push(createNmeaSentence(`${talkerId}GGA,${timeStr},${lat.nmea},${lat.dir},${lon.nmea},${lon.dir},1,${sat},,${alt},M,,M,,`).trimEnd());
+      const alt = p.altitude != null ? altitudeText(p.altitude) : '';
+      // 読み込んだ NMEA にあった品質・HDOP・ジオイド高・DGPS の欄は、そのまま書き戻す
+      const g = p.source?.ggaFields;
+      lines.push(createNmeaSentence(`${talkerId}GGA,${timeStr},${lat.nmea},${lat.dir},${lon.nmea},${lon.dir},${g?.quality || '1'},${sat},${g?.hdop ?? ''},${alt},M,${g?.geoidSep ?? ''},M,${g?.dgpsAge ?? ''},${g?.dgpsStation ?? ''}`).trimEnd());
     }
     // 速度は 0.001 ノットまで書く (.bon4 の 0.01 m/s に、ずれずに戻せる細かさ)
     lines.push(createNmeaSentence(`${talkerId}RMC,${timeStr},A,${lat.nmea},${lat.dir},${lon.nmea},${lon.dir},${(p.speed / 1.852).toFixed(3)},${p.heading.toFixed(2)},${dateStr},,,A`).trimEnd());

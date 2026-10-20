@@ -761,7 +761,7 @@ export const App: React.FC = () => {
       if (kind === 'gpx') parsed = parseGpx(text);
       else if (kind === 'tcx') parsed = parseTcx(text);
       else if (kind === 'vbo') parsed = parseVbo(text);
-      else if (kind === 'nmea') parsed = parseNmea(text);
+      else if (kind === 'nmea') parsed = parseNmea(text, fileName);
       else {
         // 他社形式の CSV は先頭の書式で判別する
         // MoTeC CSV は単位行などの構造が汎用 CSV と違うため、無効の間は汎用の読み込みに回さず断る

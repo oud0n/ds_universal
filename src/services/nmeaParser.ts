@@ -1,4 +1,4 @@
-import { TelemetryPoint } from '../types/telemetry';
+import { TelemetryPoint, type GgaFields } from '../types/telemetry';
 import { calculatePhysics, calculateGeoDistanceAndHeading } from './physics';
 import { calculateNmeaChecksum } from './nmeaExporter';
 
@@ -41,6 +41,54 @@ interface GgaFix {
   longitude: number;
   altitude: number | null;
   satellites: number | null;
+  /** 品質・HDOP など (どれも決まりの値か空欄なら null) */
+  fields: GgaFields | null;
+}
+
+/** GGA の品質・HDOP・ジオイド高・DGPS の欄。品質が 1 でほかが空欄なら null (持たなくても同じに書き戻せる) */
+function ggaFieldsOf(parts: string[]): GgaFields | null {
+  const f: GgaFields = {
+    quality: parts[6] ?? '',
+    hdop: parts[8] ?? '',
+    geoidSep: parts[11] ?? '',
+    dgpsAge: parts[13] ?? '',
+    dgpsStation: parts[14] ?? ''
+  };
+  // 文字の決まりに合わない値は書き戻さない (壊れた行で書き出しの文がおかしくならないように)
+  for (const k of Object.keys(f) as (keyof GgaFields)[]) if (!/^[-+]?[0-9.]*$/.test(f[k])) f[k] = '';
+  if ((f.quality === '1' || f.quality === '') && !f.hdop && !f.geoidSep && !f.dgpsAge && !f.dgpsStation) return null;
+  return f;
+}
+
+/**
+ * ファイル名の日付 (例: 20261012133132.nmea・log_2026-10-12.nmea)。
+ * dayMs はその日の 0 時 (UTC として)、localMs は時刻まで書いてあればその時刻 (UTC として)、なければ null
+ */
+export function fileDateHint(name: string): { dayMs: number; localMs: number | null } | null {
+  const m = /(?:^|\D)(20\d{2})[-_]?(\d{2})[-_]?(\d{2})(?:[-_T ]?(\d{2})[-_:]?(\d{2})(?:[-_:]?(\d{2}))?)?/.exec(name);
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const dayMs = Date.UTC(y, mo - 1, d);
+  const check = new Date(dayMs);
+  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== mo - 1 || check.getUTCDate() !== d) return null;
+  const [h, mi, s] = [Number(m[4]), Number(m[5]), Number(m[6] ?? 0)];
+  const hasTime = m[4] !== undefined && h < 24 && mi < 60 && s < 60;
+  return { dayMs, localMs: hasTime ? dayMs + ((h * 60 + mi) * 60 + s) * 1000 : null };
+}
+
+/**
+ * ログの最初の時刻 (UTC の 0 時からの秒) が、何日の UTC か。
+ * ファイル名は端末の時刻で付くことが多いので、時刻まで書いてあれば、前後 1 日のうちファイル名の時刻にいちばん近い日にする
+ * (時差が 12 時間より小さければ正しい日になる)
+ */
+function utcDayFromHint(hint: { dayMs: number; localMs: number | null }, tod: number): number {
+  if (hint.localMs === null) return hint.dayMs;
+  let best = hint.dayMs;
+  for (const d of [-1, 0, 1]) {
+    const day = hint.dayMs + d * 86400000;
+    if (Math.abs(day + tod * 1000 - hint.localMs) < Math.abs(best + tod * 1000 - hint.localMs)) best = day;
+  }
+  return best;
 }
 
 const sameTime = (a: number, b: number) => Math.abs(a - b) < 0.0005;
@@ -65,6 +113,8 @@ function applyGga(p: TelemetryPoint, gga: GgaFix | null) {
   }
   if (gga?.satellites != null) p.satellites = gga.satellites;
   else delete p.satellites;
+  if (gga?.fields) p.ggaFields = gga.fields;
+  else delete p.ggaFields;
 }
 
 /**
@@ -72,7 +122,10 @@ function applyGga(p: TelemetryPoint, gga: GgaFix | null) {
  * RMC を位置・速度・日付の元にし、同じ時刻の GGA から標高と衛星数を付ける。
  * RMC の無い GGA だけのログは、GGA の位置から速度と方位を求める
  */
-export function parseNmea(nmeaText: string): { points: TelemetryPoint[]; samplingRate: number; startDate?: Date } {
+export function parseNmea(nmeaText: string, fileName = ''): { points: TelemetryPoint[]; samplingRate: number; startDate?: Date } {
+  // 日付の欄が無いログ (GGA だけなど) は、ファイル名の日付で日時を決める
+  const hint = fileDateHint(fileName);
+  let hintDayMs: number | null = null;
   const lines = nmeaText.split(/\r?\n/).map(l => l.trim()).filter(l => (l.startsWith('$GP') || l.startsWith('$GN')) && hasValidNmeaChecksum(l));
   let points: TelemetryPoint[] = [];
 
@@ -107,7 +160,8 @@ export function parseNmea(nmeaText: string): { points: TelemetryPoint[]; samplin
         latitude: nmeaToDeg(parts[2], parts[3]),
         longitude: nmeaToDeg(parts[4], parts[5]),
         altitude: Number.isFinite(alt) ? alt : null,
-        satellites: Number.isFinite(sats) ? sats : null
+        satellites: Number.isFinite(sats) ? sats : null,
+        fields: ggaFieldsOf(parts)
       };
       lastGga = gga;
       if (Number.isFinite(gga.latitude) && Number.isFinite(gga.longitude)) ggaFixes.push(gga);
@@ -138,8 +192,11 @@ export function parseNmea(nmeaText: string): { points: TelemetryPoint[]; samplin
           total += Date.UTC(2000 + Number(dm[3]), Number(dm[2]) - 1, Number(dm[1])) / 1000;
           absoluteSec = total;
         } else {
-          if (prevTotal !== null && total + dayOffset < prevTotal - 43200) dayOffset += 86400;
-          total += dayOffset;
+          // ファイル名の日付があれば、その日の 0 時 (UTC) を足して日時にする。前の行との比べも、同じ基準でする
+          const daySec = hint ? (hintDayMs ??= utcDayFromHint(hint, tod)) / 1000 : 0;
+          if (prevTotal !== null && daySec + total + dayOffset < prevTotal - 43200) dayOffset += 86400;
+          total += daySec + dayOffset;
+          if (hint) absoluteSec = total;
         }
         // 時刻が戻っている行は採用しない
         if (prevTotal !== null && total <= prevTotal) continue;
@@ -157,7 +214,8 @@ export function parseNmea(nmeaText: string): { points: TelemetryPoint[]; samplin
         latitude: Number(lat.toFixed(7)),
         longitude: Number(lon.toFixed(7)),
         altitude: 0,
-        speed: Number(speedKmh.toFixed(2)),
+        // 0.001 ノットの細かさを残す (書き出し・読み込みを繰り返しても速度が変わらないように)
+        speed: Number(speedKmh.toFixed(4)),
         heading: Number(heading.toFixed(2)),
         ...blankPoint(),
         // 日付欄のある行は記録時刻を持たせる (再出力で現在時刻に置き換わらないようにする)
@@ -174,7 +232,15 @@ export function parseNmea(nmeaText: string): { points: TelemetryPoint[]; samplin
   }
 
   // 使える RMC が 1 点以下なら、GGA の測位から点列を作る
-  if (points.length < 2 && ggaFixes.length >= 2) points = pointsFromGga(ggaFixes);
+  if (points.length < 2 && ggaFixes.length >= 2) {
+    points = pointsFromGga(ggaFixes);
+    // GGA には日付が無い。ファイル名に日付があれば、それで日時を付ける
+    if (hint && points.length > 0) {
+      const t0 = utcDayFromHint(hint, ggaFixes[0].tod) + ggaFixes[0].tod * 1000;
+      for (const p of points) p.timestamp = new Date(t0 + p.time * 1000).toISOString();
+      startDate = new Date(t0);
+    }
+  }
 
   const enriched = calculatePhysics(points);
   // 記録レートは時刻の刻みから求める
