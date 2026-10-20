@@ -32,6 +32,7 @@ import {
 } from '../services/telemetryVideoExporter';
 import { canUseEncodeExport, exportEncodedVideo } from '../services/encodeVideoExporter';
 import { canExportWebmAlpha, exportOverlayOnly } from '../services/overlayOnlyExporter';
+import { drawCourseMap, drawLapPanel, type OverlayPartsOptions } from './overlayParts';
 
 /** 1 コマずつ書く書き出しで周を選んだときに、前後に足す秒 (富士のストレートでも、立ち上がりから映るように) */
 const LAP_EXPORT_PAD_SEC = 10;
@@ -145,7 +146,9 @@ export function drawTelemetryOverlayOnCanvas(
   avoidCorner: PipPosition | null = null,
   pipOverlapW = 0,
   // 書き出す周 (前後を足して書き出すとき)。周の前は前の周のタイム (前の周がなければ 0:00.00)、周のあとはその周のタイムで止めておく
-  holdLap: { lapNumber: number; lapTime: number; startTime: number; endTime: number } | null = null
+  holdLap: Lap | null = null,
+  // 足した部品 (ラップの欄・コース図。overlayParts.ts)
+  parts: OverlayPartsOptions = { lapPanel: false, map: false }
 ) {
   const pipInset = Math.round(pipOverlapW) + 24;
   if (pipOverlapW <= 0) avoidCorner = null;
@@ -253,6 +256,15 @@ export function drawTelemetryOverlayOnCanvas(
     ctx.restore();
   }
 
+  // コース図 (左上)。PinP の小窓が左上にあるときは、小窓の横へずらす
+  if (parts.map && baseSession) drawCourseMap(ctx, h, effectiveTime, baseSession, curPt, avoidCorner === 'top-left' ? pipInset : 24);
+
+  // ラップの欄 (右上、Best・Lap・セクター・タイム差)。出すときは、下の小さなラップタイムの箱の代わりにする
+  if (parts.lapPanel && baseSession) {
+    drawLapPanel(ctx, w, effectiveTime, baseSession, holdLap, avoidCorner === 'top-right' ? pipInset : 24);
+    return;
+  }
+
   // 3. ラップタイム情報 (右上 - フラットデザイン)
   ctx.save();
   ctx.translate(avoidCorner === 'top-right' ? w - pipInset - 150 : w - 170, 20);
@@ -323,6 +335,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const isCompactLayout = useCompactLayout();
   const isLandscape = useLandscape();
   const { pipPosition, showOverlay, showGForce } = win;
+  // 重ねる部品 (画面の重ね表示と書き出しで同じ)
+  const overlayParts: OverlayPartsOptions = { lapPanel: win.showLapPanel, map: win.showMap };
   const setShowOverlay = (v: boolean) => setWin({ showOverlay: v });
   // 全部の <video> を、1 か所で App の時刻に合わせる
   // iPhone・iPad では、音のある動画の速さは変えない (映像が重くなるため)
@@ -492,6 +506,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // 元のファイルのない動画では、エンコードの方式は使えないので、これまでの方式にする
   useEffect(() => {
     if (exportMethod === 'encode' && activeTrack && !activeTrack.file) setExportMethod('record');
+    // 動画がないときは、メーターだけ
+    if (!activeTrack && (exportMethod === 'encode' || exportMethod === 'record')) setExportMethod('overlay-png');
   }, [exportMethod, activeTrack]);
   // 走行比較で動画のない枠も出す (メーターだけ)。マルチカメラでカメラがないときは、動画を読み込む案内を出す
   const hasStage = isCompare ? tileCount > 0 : !!(activeTrack && activeTrack.objectUrl);
@@ -734,24 +750,32 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const handleStartExport = () => {
     if (exportStage && tileCount > 1) { handleStartStageExport(); return; }
     const el = mainVideo();
-    if (!el || !activeTrack || isAnyExporting) return;
+    const overlayOnly = exportMethod === 'overlay-png' || exportMethod === 'overlay-webm';
+    if (isAnyExporting) return;
+    // メーターだけは、動画がなくても (ログだけでも) 書き出せる
+    if (!overlayOnly && (!el || !activeTrack)) return;
     // 書き出しは動画を自分で再生する。ふだんの再生 (App の時刻) は止めておく
     if (isPlaying) onTogglePlay();
     playback.pauseAll();
 
     let startSec = 0;
-    let endSec = activeTrack.durationSec;
+    let endSec = activeTrack?.durationSec ?? 0;
 
     // 1 コマずつ書く方式 (エンコード・メーターだけ) で周を選んだときは、前後を 10 秒ずつ足す (立ち上がりから映るように。
     // 周の前は 0:00.00 で待ち、周のあとはその周のタイムで止める)
-    const frameByFrame = exportMethod === 'overlay-png' || exportMethod === 'overlay-webm' || (exportMethod === 'encode' && !!activeTrack.file && canUseEncodeExport());
+    const frameByFrame = overlayOnly || (exportMethod === 'encode' && !!activeTrack?.file && canUseEncodeExport());
     const padSec = frameByFrame ? LAP_EXPORT_PAD_SEC : 0;
     if (exportRange === 'lap' && baseLap) {
       startSec = baseLap.startTime - padSec;
       endSec = baseLap.endTime + padSec;
-    } else {
+    } else if (activeTrack) {
       startSec = activeTrack.syncOffsetSec;
       endSec = activeTrack.syncOffsetSec + (activeTrack.durationSec || 60);
+    } else {
+      // 動画がないときは、ログ全体
+      const pts = baseSession?.points ?? [];
+      startSec = pts[0]?.time ?? 0;
+      endSec = pts[pts.length - 1]?.time ?? 0;
     }
 
     const exportW = exportResolution === '1080p' ? 1920 : 1280;
@@ -790,13 +814,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         height: exportH,
         fps: exportFps,
         format: exportMethod === 'overlay-webm' ? 'webm-alpha' : 'png-zip',
-        draw: (ctx, w, h, curTime) => drawTelemetryOverlayOnCanvas(ctx, w, h, curTime, baseSession, baseLap, showGForce, null, 0, holdLap),
+        draw: (ctx, w, h, curTime) => drawTelemetryOverlayOnCanvas(ctx, w, h, curTime, baseSession, baseLap, showGForce, null, 0, holdLap, overlayParts),
         baseName: filename.replace(/_telemetry\.mp4$/, '_meters').replace(/\.mp4$/, ''),
         onProgress: p => setExportProgress(p)
       }));
       return;
     }
 
+    if (!activeTrack || !el) return;
     // エンコードの方式 (元のファイルがあるとき)。範囲は動画の中の秒に直す
     if (exportMethod === 'encode' && activeTrack.file && canUseEncodeExport()) {
       const offset = activeTrack.syncOffsetSec;
@@ -814,7 +839,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         startVideoSec,
         endVideoSec,
         toSessionSec: v => v + offset,
-        drawOverlay: (ctx, w, h, curTime) => drawTelemetryOverlayOnCanvas(ctx, w, h, curTime, baseSession, baseLap, showGForce, null, 0, holdLap),
+        drawOverlay: (ctx, w, h, curTime) => drawTelemetryOverlayOnCanvas(ctx, w, h, curTime, baseSession, baseLap, showGForce, null, 0, holdLap, overlayParts),
         width: exportW,
         height: exportH,
         fps: exportFps,
@@ -832,7 +857,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       endTimeSec: endSec,
       syncOffsetSec: activeTrack.syncOffsetSec,
       drawOverlay: (ctx, w, h, curTime) => {
-        drawTelemetryOverlayOnCanvas(ctx, w, h, curTime, baseSession, baseLap, showGForce);
+        drawTelemetryOverlayOnCanvas(ctx, w, h, curTime, baseSession, baseLap, showGForce, null, 0, null, overlayParts);
       },
       outputFileName: filename,
       width: exportW,
@@ -971,7 +996,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     if (!g || !showOverlay || !isVisible) return null;
     return {
       tick: g.time,
-      draw: (ctx, w, h, avoidW) => drawTelemetryOverlayOnCanvas(ctx, w, h, g.time, g.session, g.lap, showGForce, i === 0 && win.layout === 'pip' && tileCount > 1 ? pipPosition : null, avoidW)
+      draw: (ctx, w, h, avoidW) => drawTelemetryOverlayOnCanvas(ctx, w, h, g.time, g.session, g.lap, showGForce, i === 0 && win.layout === 'pip' && tileCount > 1 ? pipPosition : null, avoidW, null, overlayParts)
     };
   };
 
@@ -1185,8 +1210,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             </button>
           )}
 
-          {/* テレメトリ動画書き出し (MP4 Burn-in) ボタン */}
-          {activeTrack && (
+          {/* テレメトリ動画書き出し (MP4 Burn-in) ボタン。動画がなくても、ログがあればメーターだけを書き出せる */}
+          {(activeTrack || baseSession) && (
             <button
               onClick={() => setShowExportModal(true)}
               className="flex items-center gap-1 px-2 py-1 rounded bg-red-700 hover:bg-red-600 text-xs font-bold text-white transition-colors cursor-pointer"
@@ -1964,7 +1989,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   data-testid="export-method"
                 >
                   <option value="encode" disabled={!activeTrack?.file}>{t('動画にメーターを焼き込む (エンコード・推奨)', 'Burn meters into the video (encode, recommended)')}</option>
-                  <option value="record">{t('動画にメーターを焼き込む (再生しながら録る・これまでの方式)', 'Burn meters into the video (record while playing, previous method)')}</option>
+                  <option value="record" disabled={!activeTrack}>{t('動画にメーターを焼き込む (再生しながら録る・これまでの方式)', 'Burn meters into the video (record while playing, previous method)')}</option>
                   <option value="overlay-png">{t('メーターだけ・背景は透明 (PNG の連番の ZIP。Premiere・DaVinci・After Effects 向け)', 'Meters only, transparent (PNG sequence ZIP; Premiere, DaVinci, After Effects)')}</option>
                   {webmAlphaOk && <option value="overlay-webm">{t('メーターだけ・背景は透明 (WebM。小さいが、読めるソフトが限られる)', 'Meters only, transparent (WebM; small, limited editor support)')}</option>}
                 </select>
@@ -1973,6 +1998,25 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 )}
               </div>
             )}
+
+            {/* 重ねる部品 (画面の重ね表示にも効く) */}
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-slate-400">{t('重ねる部品:', 'Parts:')}</label>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-300">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={win.showLapPanel} onChange={e => setWin({ showLapPanel: e.target.checked })} data-testid="part-lap-panel" />
+                  {t('ラップの欄 (ベスト・セクター・タイム差)', 'Lap panel (best, sectors, delta)')}
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={win.showMap} onChange={e => setWin({ showMap: e.target.checked })} data-testid="part-map" />
+                  {t('コース図', 'Course map')}
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={win.showGForce} onChange={e => setWin({ showGForce: e.target.checked })} data-testid="part-g" />
+                  {t('G', 'G')}
+                </label>
+              </div>
+            </div>
 
             {/* 解像度 & フレームレート選択 */}
             <div className="grid grid-cols-2 gap-2 pt-1">
