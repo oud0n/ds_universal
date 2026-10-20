@@ -107,6 +107,16 @@ The app's screens can be switched between Japanese and English ("JA / EN" at the
 
 ---
 
+## 🔧 Technical notes
+
+How the app talks to the logger and how the analysis works are written up here.
+
+- [Reading the DigSpice IV GPS logger's protocol to use it from macOS (Zenn, Japanese)](https://zenn.dev/oud0n/articles/ace1347602c574) — why this app was made, and how the USB communication works
+- [USB protocol analysis (Japanese)](protocol_analysis.md)
+- [Bluetooth (BLE) protocol analysis (Japanese)](bluetooth_protocol_analysis.md)
+
+---
+
 ## 🌐 Browser version
 
 Use it straight from your browser without installing anything. Logs are loaded, analysed and converted on your device and are never sent to a server.
