@@ -75,6 +75,29 @@ export function isLangAuto(): boolean {
   return override === null;
 }
 
+/** 言語の設定: 'auto' は端末の言語に合わせる */
+export type LangSetting = 'auto' | Lang;
+
+export function getLangSetting(): LangSetting {
+  return override ?? 'auto';
+}
+
+/** 設定を変える ('auto' なら端末の言語に合わせる) */
+export function setLangSetting(v: LangSetting) {
+  if (v === 'auto') {
+    override = null;
+    lang = deviceLang();
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // 保存できなくても、このページを開いている間は覚えている
+    }
+    apply();
+    return;
+  }
+  setLang(v);
+}
+
 export function setLang(l: Lang) {
   lang = l;
   // 端末と同じ言語を選んだら自動に戻す (端末の言語を変えたら、それに合わせる)。違う言語なら、その言語に決める
@@ -92,6 +115,11 @@ const subscribe = (l: () => void) => {
   listeners.add(l);
   return () => listeners.delete(l);
 };
+
+/** 言語の設定 (自動・日本語・English。切り替えると描き直す) */
+export function useLangSetting(): LangSetting {
+  return useSyncExternalStore(subscribe, getLangSetting, getLangSetting);
+}
 
 /** 今の言語 (切り替えると描き直す) */
 export function useLang(): Lang {
