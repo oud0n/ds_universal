@@ -155,7 +155,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     courseRef.current = c;
     setCourse(c);
     const timer = c?.controlLine ? new LiveLapTimer({ controlLine: c.controlLine, sectors: c.sectors }) : null;
-    if (timer && replay) fixesRef.current.forEach(f => timer.push(f));
+    // 届いた測位で数え直すのは、測っている間とログの再生だけ (測定開始を押す前の測位では周を数えない)
+    if (timer && replay && (measuringRef.current || sourceRef.current === 'replay')) fixesRef.current.forEach(f => timer.push(f));
     timerRef.current = timer;
     setState(timer?.getState() ?? null);
     setFlash(null);
@@ -220,8 +221,9 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     lastPosRef.current = fix;
     lastFixPerfRef.current = performance.now();
     fixesRef.current.push(fix);
-    // 画面で持つのは直近の 10 分ほど (コースの選び直しに使うだけ。走った測位は全部、記録の保存先にある)
-    if (fixesRef.current.length > 12000) fixesRef.current.splice(0, 2000);
+    // 画面で持つのは直近の 10 分ほど (コースの選び直しに使うだけ。走った測位は全部、記録の保存先にある)。
+    // 測る前は少なめにする (長く待っても、コースの選び直し (4800 点まで) が止まらないように)
+    if (fixesRef.current.length > (measuringRef.current ? 12000 : 4000)) fixesRef.current.splice(0, 2000);
     // コースを決めていなければ、初めの測位の所で選ぶ。周を数える前は、ときどき選び直す
     if (!courseRef.current) {
       const found = findMatchingCircuit(fix.latitude, fix.longitude);
@@ -273,15 +275,21 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     if (!measuringRef.current) return;
     measuringRef.current = false;
     setMeasuring(false);
-    await flushRecording(true);
+    // 今の走行の記録を先に外してから保存する (保存の途中で測定開始を押しても、新しい走行の記録を消さないように)
+    const rec = recorderRef.current;
     recorderRef.current = null;
+    const st = timerRef.current?.getState();
+    await rec?.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true);
     await syncRef.current();
-  }, [flushRecording]);
+  }, []);
 
   // 出どころを替えたら、測位と周をはじめからにする (コースはそのまま)。それまでの記録は保存して閉じ、次の測位から新しい走行にする
   const resetRun = useCallback(() => {
-    void syncRef.current();
+    // それまでの記録を外して保存してから、写す (外す前に保存し終わらないと、最後の数秒が残らないため)
+    const rec = recorderRef.current;
     recorderRef.current = null;
+    const st = timerRef.current?.getState();
+    void (rec ? rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true) : Promise.resolve()).then(() => syncRef.current());
     fixesRef.current = [];
     lastPosRef.current = null;
     prevPhoneRef.current = null;
@@ -585,7 +593,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       {/* 真ん中: 大きな数字 */}
       <main className="flex-1 min-h-0 flex flex-col landscape:flex-row items-stretch gap-2 px-3 pb-3">
         <section className="flex-1 min-w-0 min-h-0 flex flex-col items-center justify-center" data-testid="lap-timer-main">
-          {!measuring && source !== 'replay' && !(state?.laps.length) ? (
+          {!measuring && source !== 'replay' ? (
             <div className="text-center space-y-2" data-testid="lap-timer-idle">
               <div className="font-bold" style={{ fontSize: 'min(7vw, 9vh)' }}>{course ? circuitLabel(course.name) : t('コースを決めています', 'Finding the course')}</div>
               <div className="font-mono text-white/70 tabular-nums" style={{ fontSize: 'min(9vw, 12vh)' }}>
