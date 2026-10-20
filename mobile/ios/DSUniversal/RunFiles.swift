@@ -31,7 +31,11 @@ enum RunFiles {
     /// 置き場の下の場所 (上のフォルダへ出る名前・絶対の道は断る)
     static func resolve(_ rel: String, in root: URL) -> URL? {
         guard !rel.isEmpty, !rel.hasPrefix("/"), !rel.split(separator: "/").contains(where: { $0 == ".." || $0 == "." }) else { return nil }
-        return root.appendingPathComponent(rel)
+        let url = root.appendingPathComponent(rel)
+        // 別名 (シンボリックリンク) をたどった先も、置き場の中か確かめる
+        let base = root.resolvingSymlinksInPath().path
+        guard url.resolvingSymlinksInPath().path.hasPrefix(base + "/") else { return nil }
+        return url
     }
 
     /// 置き場を使う許可をもらって f を呼ぶ
