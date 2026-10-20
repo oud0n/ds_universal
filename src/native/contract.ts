@@ -135,6 +135,14 @@ export interface NativeMethods {
    * 2026-10-20 に足した。版は 1 のまま (足しただけ。前のアプリは not-supported を返し、Web は Wake Lock にする)
    */
   'system.keepAwake': { params: { on: boolean }; result: Record<string, never> };
+  /**
+   * アプリの書類のフォルダの LapTimer/ の下のファイルに、バイト列 (base64) を足す (ラップタイマーの走行の記録を、走っている間に書くため)。
+   * truncate なら、はじめから書き直す。ファイルは「ファイル」アプリの「このiPhone内 → このアプリ → LapTimer」に出る。
+   * 2026-10-20 に足した。版は 1 のまま (前のアプリは not-supported を返し、Web はブラウザの中のデータベースにだけ保存する)
+   */
+  'system.appendFile': { params: { path: string; b64: string; truncate?: boolean }; result: Record<string, never> };
+  /** LapTimer/ の下のファイルを、OS の共有の画面で渡す (2026-10-20 に足した) */
+  'system.shareFile': { params: { path: string }; result: Record<string, never> };
   /** OS の設定の画面 (このアプリの許可) を開く。一度断られた許可は、OS がもう聞いてくれないため */
   'system.openSettings': { params: Record<string, never>; result: Record<string, never> };
 }

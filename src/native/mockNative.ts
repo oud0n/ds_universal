@@ -94,6 +94,8 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   const files = new Map<string, { lines: string[]; modifiedMs: number }>();
   let recording: { fileName: string; deviceId: string; lines: string[]; count: number } | null = null;
   const shared: Array<{ fileName: string; text?: string }> = [];
+  // ラップタイマーの記録のファイル (名前 → base64 をつないだもの。ふりなので、つなぎ方は気にしない)
+  const lapTimerFiles = new Map<string, string>();
   const nowNs = () => Math.round(performance.now() * 1e6);
   const hex = (u8: Uint8Array) => Array.from(u8, b => b.toString(16).padStart(2, '0')).join('');
 
@@ -261,6 +263,14 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
       case 'system.openSettings':
         return {};
       case 'system.keepAwake':
+        return {};
+      case 'system.appendFile': {
+        const { path, b64, truncate } = req.params as { path: string; b64: string; truncate?: boolean };
+        lapTimerFiles.set(path, (truncate ? '' : lapTimerFiles.get(path) ?? '') + b64);
+        return {};
+      }
+      case 'system.shareFile':
+        shared.push({ fileName: (req.params as { path: string }).path });
         return {};
       default:
         throw { code: 'not-supported', message: `unknown method ${String(req.method)}` };

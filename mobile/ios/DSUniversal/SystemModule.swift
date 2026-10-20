@@ -1,6 +1,6 @@
 import UIKit
 
-/// 約束の system.* (設定の画面を開く・ファイルを共有する・画面の自動ロックを止める) と、アプリが前に出た・裏に回ったの知らせ
+/// 約束の system.* (設定の画面を開く・ファイルを共有する・画面の自動ロックを止める・ラップタイマーの記録を書く) と、アプリが前に出た・裏に回ったの知らせ
 @MainActor
 final class SystemModule {
     private unowned let core: NativeCore
@@ -21,6 +21,35 @@ final class SystemModule {
             // ラップタイマーを開いている間、画面の自動ロックを止める
             UIApplication.shared.isIdleTimerDisabled = (params["on"] as? Bool) ?? false
             done(.success([:]))
+        case "system.appendFile":
+            // ラップタイマーの走行の記録を、走っている間に書類のフォルダの LapTimer/ に足していく
+            guard let rel = params["path"] as? String, let url = lapTimerURL(rel),
+                  let b64 = params["b64"] as? String, let data = Data(base64Encoded: b64) else {
+                done(.failure(NativeError(.notFound, "bad params")))
+                return
+            }
+            do {
+                let fm = FileManager.default
+                try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                if (params["truncate"] as? Bool) == true || !fm.fileExists(atPath: url.path) {
+                    try data.write(to: url)
+                } else {
+                    let handle = try FileHandle(forWritingTo: url)
+                    defer { try? handle.close() }
+                    try handle.seekToEnd()
+                    try handle.write(contentsOf: data)
+                }
+                done(.success([:]))
+            } catch {
+                done(.failure(NativeError(.io, error.localizedDescription)))
+            }
+        case "system.shareFile":
+            guard let rel = params["path"] as? String, let url = lapTimerURL(rel), FileManager.default.fileExists(atPath: url.path) else {
+                done(.failure(NativeError(.notFound, "no file")))
+                return
+            }
+            share(url: url)
+            done(.success([:]))
         case "system.shareText":
             // Web で作った文 (変換した CSV など) を一時ファイルにして共有する
             guard let name = params["fileName"] as? String, !name.contains("/"), let text = params["text"] as? String else {
@@ -38,6 +67,13 @@ final class SystemModule {
         default:
             done(.failure(NativeError(.notSupported, "unknown method \(method)")))
         }
+    }
+
+    /// 書類のフォルダの LapTimer/ の下の場所 (上のフォルダへ出る名前・絶対の道は断る)
+    private func lapTimerURL(_ rel: String) -> URL? {
+        guard !rel.isEmpty, !rel.contains(".."), !rel.hasPrefix("/") else { return nil }
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return docs.appendingPathComponent("LapTimer", isDirectory: true).appendingPathComponent(rel)
     }
 
     /// 共有の画面 (AirDrop・「ファイル」に保存・メールなど) を出す

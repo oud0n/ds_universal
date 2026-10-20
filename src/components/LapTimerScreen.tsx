@@ -1,16 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { X, Volume2, VolumeX, Menu, MapPin, Bluetooth, Smartphone, PlayCircle, Save, BarChart3 } from 'lucide-react';
+import { X, Volume2, VolumeX, Menu, MapPin, Bluetooth, Smartphone, PlayCircle, Save, BarChart3, Trash2 } from 'lucide-react';
 import { bleLoggerLink } from '../services/bleLoggerLink';
 import { useLoggerLink, useStatusLabel } from './BleLoggerCard';
 import { LiveLapTimer, formatDelta, formatLapTime, type LiveFix, type LiveLapEvent, type LiveLapState } from '../services/liveLapTimer';
 import { CIRCUIT_PRESETS, findMatchingCircuit } from '../services/circuitDatabase';
-import { convertToNmea, type ConvertedPoint } from '../services/logConverter';
 import { triggerFileDownload } from '../services/nmeaExporter';
+import { downloadBlob } from '../services/telemetryVideoExporter';
+import { LiveRunRecorder } from '../services/runRecorder';
+import { deleteRun, listRuns, loadFixes, type RunMeta } from '../services/liveRunStore';
+import { fixesToBon4, fixesToNmea, runFileBase } from '../services/runFiles';
 import { callNative, hasNative } from '../native/bridge';
 import { canUseLoggerBle } from '../utils/device';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
 import type { CircuitPreset, TelemetryPoint } from '../types/telemetry';
+
+/** 走っている間に、記録を保存する間隔 (ミリ秒) */
+const SAVE_INTERVAL_MS = 2000;
 
 /**
  * 走りながら使うラップタイマーの画面 (暫定の版。docs/iphone_app_design.md の 5)。
@@ -87,36 +93,6 @@ function lapSpeech(e: LiveLapEvent): { text: string; lang: string } {
   return { text: time + diff, lang: 'en-US' };
 }
 
-/** 記録した測位を、書き出しの形にする */
-function toConvertedPoints(fixes: LiveFix[]): ConvertedPoint[] {
-  const out: ConvertedPoint[] = [];
-  let dist = 0;
-  for (let i = 0; i < fixes.length; i++) {
-    const f = fixes[i];
-    const prev = fixes[i - 1];
-    if (prev) dist += distanceKm(prev.latitude, prev.longitude, f.latitude, f.longitude);
-    const next = fixes[i + 1] ?? f;
-    const from = prev ?? f;
-    const to = fixes[i + 1] ? next : f;
-    const dLon = (to.longitude - from.longitude) * Math.cos((f.latitude * Math.PI) / 180);
-    const dLat = to.latitude - from.latitude;
-    const heading = dLon === 0 && dLat === 0 ? 0 : ((Math.atan2(dLon, dLat) * 180) / Math.PI + 360) % 360;
-    out.push({
-      time: new Date(f.tMs),
-      elapsed: (f.tMs - fixes[0].tMs) / 1000,
-      latitude: f.latitude,
-      longitude: f.longitude,
-      altitude: f.altitude ?? null,
-      speed: f.speedKmh,
-      heading,
-      satellites: null,
-      distance: dist,
-      source: undefined as unknown as TelemetryPoint
-    });
-  }
-  return out;
-}
-
 export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog }) => {
   const t = useT();
   const link = useLoggerLink();
@@ -137,6 +113,11 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const timerRef = useRef<LiveLapTimer | null>(null);
   const courseRef = useRef<CircuitPreset | null>(null);
   const fixesRef = useRef<LiveFix[]>([]);
+  /** 走っている間の記録 (runRecorder.ts)。ログの再生では作らない */
+  const recorderRef = useRef<LiveRunRecorder | null>(null);
+  const sourceRef = useRef<Source>('digspice');
+  const [runs, setRuns] = useState<RunMeta[]>([]);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const lastFixPerfRef = useRef(0);
   const lastPosRef = useRef<LiveFix | null>(null);
   const voiceRef = useRef(voice);
@@ -188,12 +169,26 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     }
   }, [chooseCourse]);
 
+  /** ためた測位を保存する (周の数とベストも一緒に) */
+  const flushRecording = useCallback((): Promise<void> => {
+    const rec = recorderRef.current;
+    if (!rec) return Promise.resolve();
+    const st = timerRef.current?.getState();
+    return rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null });
+  }, []);
+
   /** 測位を 1 つ受け取る (出どころによらず同じ) */
   const handleFix = useCallback((fix: LiveFix) => {
     if (!fix.valid) return;
     lastPosRef.current = fix;
     lastFixPerfRef.current = performance.now();
     fixesRef.current.push(fix);
+    // 走っている間の記録 (ログの再生は記録しない)
+    const src = sourceRef.current;
+    if (src !== 'replay') {
+      recorderRef.current ??= new LiveRunRecorder(src, () => courseRef.current?.name ?? '', m => setSaveError(m));
+      recorderRef.current.add(fix);
+    }
     // コースを決めていなければ、初めの測位の所で選ぶ。周を数える前は、ときどき選び直す
     if (!courseRef.current) {
       const found = findMatchingCircuit(fix.latitude, fix.longitude);
@@ -207,6 +202,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     for (const e of events) {
       if (e.kind === 'lap') {
         setFlash({ event: e, until: performance.now() + FLASH_MS });
+        // 周を終えたら、すぐ保存する
+        void flushRecording();
         if (voiceRef.current) {
           const s = lapSpeech(e);
           speak(s.text, s.lang);
@@ -217,8 +214,10 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     if (events.length > 0) setState(timer.getState());
   }, [chooseCourse, recheckCourse]);
 
-  // 出どころを替えたら、測位と周をはじめからにする (コースはそのまま)
+  // 出どころを替えたら、測位と周をはじめからにする (コースはそのまま)。それまでの記録は保存して閉じ、次の測位から新しい走行にする
   const resetRun = useCallback(() => {
+    void flushRecording();
+    recorderRef.current = null;
     fixesRef.current = [];
     lastPosRef.current = null;
     prevPhoneRef.current = null;
@@ -299,6 +298,22 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     // replayLogs は、開いている間は変わらない前提 (変わっても再生中のログは続ける)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, replayId, replaySpeed, handleFix, resetRun]);
+
+  sourceRef.current = source;
+
+  // ---- 走っている間の記録を、2 秒ごと・裏に回ったとき・閉じたときに保存する ----
+  useEffect(() => {
+    const iv = setInterval(() => { void flushRecording(); }, SAVE_INTERVAL_MS);
+    const onHide = () => { if (document.visibilityState === 'hidden') void flushRecording(); };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onHide);
+    return () => {
+      clearInterval(iv);
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', onHide);
+      void flushRecording();
+    };
+  }, [flushRecording]);
 
   // ---- 経過を進める (測位の間も、表示の時計で滑らかに) ----
   useEffect(() => {
@@ -395,18 +410,44 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coursePicker]);
 
-  const saveLog = async (open: boolean) => {
-    const fixes = fixesRef.current;
-    if (fixes.length < 2) return;
-    const d = new Date(fixes[0].tMs);
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const name = `laptimer_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}.nmea`;
-    const text = convertToNmea(toConvertedPoints(fixes));
-    if (open) { onOpenLog(name, text); return; }
-    if (hasNative()) {
-      try { await callNative('system.shareText', { fileName: name, text }); return; } catch { /* 下のダウンロードにする */ }
+  // ---- 走行の記録の一覧 (メニューを開いたときに読む) ----
+  const refreshRuns = useCallback(async () => {
+    await flushRecording();
+    try {
+      setRuns(await listRuns());
+    } catch {
+      setRuns([]);
     }
-    triggerFileDownload(name, text, 'text/plain');
+  }, [flushRecording]);
+  useEffect(() => { if (menuOpen) void refreshRuns(); }, [menuOpen, refreshRuns]);
+
+  /** 走行を解析で開く・NMEA / bon4 で保存する・消す */
+  const runAction = async (run: RunMeta, action: 'open' | 'nmea' | 'bon4' | 'delete') => {
+    if (action === 'delete') {
+      if (!window.confirm(t('この走行の記録を消しますか? (「ファイル」アプリに書いたファイルは残ります)', 'Delete this run? (Files written to the Files app are kept)'))) return;
+      if (recorderRef.current?.current?.id === run.id) recorderRef.current = null;
+      await deleteRun(run.id);
+      await refreshRuns();
+      return;
+    }
+    await flushRecording();
+    // アプリで書いたファイルがあれば、それを渡す (走っている間に書き足したもの)
+    if (action !== 'open' && hasNative() && run.fileBase) {
+      try { await callNative('system.shareFile', { path: `${run.fileBase}.${action}` }); return; } catch { /* 下で作り直す */ }
+    }
+    const fixes = await loadFixes(run.id);
+    if (fixes.length < 2) return;
+    const base = runFileBase(run.startedMs);
+    if (action === 'open') { onOpenLog(`${base}.nmea`, fixesToNmea(fixes)); return; }
+    if (action === 'nmea') {
+      const text = fixesToNmea(fixes);
+      if (hasNative()) {
+        try { await callNative('system.shareText', { fileName: `${base}.nmea`, text }); return; } catch { /* 下のダウンロードにする */ }
+      }
+      triggerFileDownload(`${base}.nmea`, text, 'text/plain');
+      return;
+    }
+    downloadBlob(new Blob([fixesToBon4(fixes) as BlobPart], { type: 'application/octet-stream' }), `${base}.bon4`);
   };
 
   const sectorCount = state?.sectorCount ?? 0;
@@ -556,16 +597,43 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               </div>
             </div>
           )}
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => { void saveLog(true); }} disabled={fixesRef.current.length < 2} className="flex items-center justify-center gap-1 px-3 py-2 rounded-lg bg-white/10 disabled:opacity-40">
-              <BarChart3 size={14} />{t('解析で開く', 'Analyse')}
-            </button>
-            <button onClick={() => { void saveLog(false); }} disabled={fixesRef.current.length < 2} className="flex items-center justify-center gap-1 px-3 py-2 rounded-lg bg-white/10 disabled:opacity-40">
-              <Save size={14} />{t('保存 (NMEA)', 'Save (NMEA)')}
-            </button>
+          <div data-testid="lap-timer-runs">
+            <div className="text-white/50 text-xs mb-1">{t('走行の記録 (走っている間に 2 秒ごとに保存)', 'Runs (saved every 2 s while driving)')}</div>
+            {saveError && <div className="text-amber-300 text-[11px] mb-1">{t(`保存でエラー: ${saveError}`, `Save error: ${saveError}`)}</div>}
+            {runs.length === 0 ? (
+              <div className="text-white/40 text-xs">{t('まだありません', 'None yet')}</div>
+            ) : (
+              <div className="space-y-1.5">
+                {runs.slice(0, 20).map(r => {
+                  const d = new Date(r.startedMs);
+                  const recording = recorderRef.current?.current?.id === r.id;
+                  return (
+                    <div key={r.id} className="rounded-lg bg-white/5 px-2.5 py-2">
+                      <div className="flex items-baseline gap-2 text-xs">
+                        <span className="font-mono">{`${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`}</span>
+                        <span className="truncate text-white/70 flex-1 min-w-0">{r.courseName ? circuitLabel(r.courseName) : '—'}</span>
+                        {recording && <span className="text-red-400 text-[10px] whitespace-nowrap">{t('記録中', 'Recording')}</span>}
+                      </div>
+                      <div className="text-[11px] text-white/50 font-mono">
+                        {t(`${r.lapCount} 周`, `${r.lapCount} laps`)}{r.bestLapSec !== null ? ` · ${t('ベスト', 'best')} ${formatLapTime(r.bestLapSec, 3)}` : ''}{` · ${Math.round(r.fixCount / 20 / 60) || '<1'} min`}
+                      </div>
+                      <div className="flex gap-1 mt-1.5">
+                        <button onClick={() => { void runAction(r, 'open'); }} className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded bg-white/10 text-xs"><BarChart3 size={12} />{t('解析', 'Analyse')}</button>
+                        <button onClick={() => { void runAction(r, 'nmea'); }} className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded bg-white/10 text-xs"><Save size={12} />NMEA</button>
+                        <button onClick={() => { void runAction(r, 'bon4'); }} className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded bg-white/10 text-xs"><Save size={12} />bon4</button>
+                        <button onClick={() => { void runAction(r, 'delete'); }} disabled={recording} aria-label={t('消す', 'Delete')} title={t('消す', 'Delete')} className="px-2 py-1.5 rounded bg-white/5 text-white/60 disabled:opacity-30"><Trash2 size={12} /></button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {hasNative() && (
+              <p className="text-[10px] text-white/40 mt-1">{t('「ファイル」アプリの このiPhone内 → このアプリ → LapTimer にも、走っている間に書いています (.nmea と .bon4)。', 'Also written while driving to Files → On My iPhone → this app → LapTimer (.nmea and .bon4).')}</p>
+            )}
           </div>
           <button onClick={() => { resetRun(); setMenuOpen(false); }} className="w-full px-3 py-2 rounded-lg bg-white/5 text-white/70">
-            {t('周の記録をはじめからにする', 'Reset laps')}
+            {t('周をはじめから数える (新しい走行として記録する)', 'Reset laps (start a new run)')}
           </button>
           <p className="text-[11px] text-white/40 leading-relaxed">
             {t('走っている間は、画面を消さずに、このアプリを前に出しておいてください (画面が消えると周を数えません)。',
