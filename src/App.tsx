@@ -30,6 +30,7 @@ import { ReplayWindow } from './components/ReplayWindow';
 import { FrictionCircleWindow } from './components/FrictionCircleWindow';
 import { DriftWindow } from './components/DriftWindow';
 import { CornerAnalysisWindow } from './components/CornerAnalysisWindow';
+import { XYGraphWindow } from './components/XYGraphWindow';
 import { BrakingAnalysisWindow } from './components/BrakingAnalysisWindow';
 import { VideoSyncWindow } from './components/VideoSyncWindow';
 import { useVideoTracks, useVideoView, videoEndSessionSec } from './services/videoViewStore';
@@ -102,13 +103,14 @@ const COLLAPSED_STORAGE_KEY = 'ds_collapsed_panes';
 const SHOW_DRIFT = false;
 
 // スマートフォンのグラフ解析タブで、速度ウインドウの下 (横向きでは右) に切り替えて出すウインドウ
-type MobilePanel = 'map' | 'replay' | 'gg' | 'corner' | 'braking' | 'drift';
+type MobilePanel = 'map' | 'replay' | 'gg' | 'corner' | 'braking' | 'xy' | 'drift';
 const MOBILE_PANELS: { id: MobilePanel; label: [string, string] }[] = ([
   { id: 'map', label: ['コース', 'Map'] },
   { id: 'replay', label: ['アニメ', 'Anim'] },
   { id: 'gg', label: ['GG', 'GG'] },
   { id: 'corner', label: ['コーナー', 'Corners'] },
   { id: 'braking', label: ['ブレーキ', 'Braking'] },
+  { id: 'xy', label: ['X/Y', 'X/Y'] },
   { id: 'drift', label: ['ドリフト', 'Drift'] }
 ] as { id: MobilePanel; label: [string, string] }[]).filter(p => SHOW_DRIFT || p.id !== 'drift');
 
@@ -192,7 +194,7 @@ export const App: React.FC = () => {
   }, []);
 
   // サブウインドウ表示モード ('all' | 'track_friction' | 'replay_focus' | 'video')
-  const [subWindowMode, setSubWindowMode] = useState<'all' | 'track_friction' | 'replay_focus' | 'video' | 'corner' | 'braking'>('all');
+  const [subWindowMode, setSubWindowMode] = useState<'all' | 'track_friction' | 'replay_focus' | 'video' | 'corner' | 'braking' | 'xy'>('all');
 
   // ウィンドウ分割リサイズフック (左右、左側上下、右側上下)
   const horizSplit = useResizableSplit({ initialRatio: 0.58, direction: 'horizontal', storageKey: 'ds_split_horiz' });
@@ -1242,6 +1244,7 @@ export const App: React.FC = () => {
   const brakingEl = (
     <BrakingAnalysisWindow cars={activeCars} currentDistance={currentDistanceKm} onSeekDistance={handleSeekDistance} />
   );
+  const xyEl = <XYGraphWindow cars={activeCars} currentDistance={currentDistanceKm} />;
 
   return (
     <div
@@ -1462,7 +1465,7 @@ export const App: React.FC = () => {
               </div>
               <div className="flex-1 min-h-0 overflow-hidden">
                 {/* 切り替えても表示の設定 (色分け・拡大・追従など) が消えないよう、外さずに隠すだけにする */}
-                {([['map', trackMapEl], ['replay', replayEl], ['gg', frictionEl], ['corner', cornerEl], ['braking', brakingEl], ['drift', driftEl]] as const)
+                {([['map', trackMapEl], ['replay', replayEl], ['gg', frictionEl], ['corner', cornerEl], ['braking', brakingEl], ['xy', xyEl], ['drift', driftEl]] as const)
                   .filter(([id]) => MOBILE_PANELS.some(p => p.id === id))
                   .map(([id, el]) => (
                     <div key={id} className={mobilePanel === id ? 'h-full' : 'hidden'}>
@@ -1681,6 +1684,16 @@ export const App: React.FC = () => {
                     {T('ブレーキング', 'Braking')}
                   </button>
                   <button
+                    onClick={() => { setSubWindowMode('xy'); toggleCollapsed('sub', false); }}
+                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                      subWindowMode === 'xy'
+                        ? 'bg-teal-600 text-white'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {T('X/Y グラフ', 'X/Y graph')}
+                  </button>
+                  <button
                     onClick={() => { setSubWindowMode('video'); toggleCollapsed('sub', false, 'video'); }}
                     className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       subWindowMode === 'video'
@@ -1708,6 +1721,9 @@ export const App: React.FC = () => {
                   )}
                   {subWindowMode === 'braking' && (
                     brakingEl
+                  )}
+                  {subWindowMode === 'xy' && (
+                    xyEl
                   )}
                   {subWindowMode === 'video' && (
                     <VideoSyncWindow
