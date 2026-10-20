@@ -151,4 +151,7 @@ export interface CircuitPreset {
   pathPolylines?: Array<Array<[number, number]>>; // [lon, lat][]
   pthFile?: string | null;
   sciFile?: string | null;
+  /** 英語名と、ラップタイマーの記録を入れるフォルダの名前 (コース編集で付けたもの。なければ名前から作る) */
+  nameEn?: string;
+  folder?: string;
 }

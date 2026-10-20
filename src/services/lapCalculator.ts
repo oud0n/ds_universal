@@ -25,6 +25,19 @@ function lineSegmentIntersection(
 export type Gate = { latA: number; lonA: number; latB: number; lonB: number };
 
 /**
+ * 2 点 (a → b) の間でゲートを横切ったか。横切ったら、a から b のどこで横切ったか (0〜1) と向き (+1 / -1) を返す
+ * (走りながら周を区切るラップタイマーが、解析と同じ判定を使うため)
+ */
+export function crossGate(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number },
+  gate: Gate
+): { t: number; side: number } | null {
+  const r = lineSegmentIntersection(a.longitude, a.latitude, b.longitude, b.latitude, gate.lonA, gate.latA, gate.lonB, gate.latB);
+  return r.intersects ? { t: r.t, side: r.side } : null;
+}
+
+/**
  * ゲートを通過する向きを決める。コースデータの線には向きがないので、ログの中で多い方の向きをコースの進行方向とみなす
  * (逆向きの通過は、ピットロード・隣のストレート・スピンなどで線をかすめたもの)。通過がなければ 0
  */

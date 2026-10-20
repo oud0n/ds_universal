@@ -27,7 +27,9 @@ struct WebContainer: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.isInspectable = true
         context.coordinator.attach(to: webView)
-        webView.load(URLRequest(url: WebSource.startURL))
+        // 入口のページは、起動のたびに取り直す (GitHub Pages は 10 分覚えさせるので、出し直した版が起動し直しても出ないことがあった)。
+        // 中で読む JS・CSS は名前に版が入っているので、これまでどおり覚えたものを使う
+        webView.load(URLRequest(url: WebSource.startURL, cachePolicy: .reloadIgnoringLocalCacheData))
         return webView
     }
 
