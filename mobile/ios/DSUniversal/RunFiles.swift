@@ -56,28 +56,49 @@ enum RunFiles {
     static let videoExt: Set<String> = ["mp4", "mov", "m4v", "lrv", "insv", "mkv", "webm"]
 
     /// 前の版がサーキットのフォルダにじかに置いた走行のファイル (YYYYMMDDhhmmss.bon4 など) を、日付のフォルダ (YYYYMMDD/) へ移す (2026-10-20)。
-    /// 書いている途中かもしれないので、10 分以内に書き換えたファイルは動かさない。移す先に同じ名前があれば動かさない
-    static func moveFlatRunsIntoDateFolders(in root: URL) {
+    /// 同じ走行のファイル (.bon4・.nmea・.csv) はまとめて動かす。どれかが 10 分以内に書き換えられた (書いている途中かもしれない) とき、
+    /// 移す先に同じ名前があるときは、その走行は動かさない (.bon4 と .nmea が別のフォルダに分かれないように)。
+    /// coordinated: 選んだフォルダ (iCloud Drive など) では、ほかのアプリと取り合わないよう NSFileCoordinator で動かす
+    static func moveFlatRunsIntoDateFolders(in root: URL, coordinated: Bool = false) {
         let fm = FileManager.default
         guard let folders = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return }
-        let pattern = try! NSRegularExpression(pattern: "^(\\d{8})\\d{6}(_\\d+)?(\\.[A-Za-z0-9_]+)?\\.(bon4|nmea|csv)$")
+        let pattern = try! NSRegularExpression(pattern: "^((\\d{8})\\d{6}(?:_\\d+)?)(?:\\.[A-Za-z0-9_]+)?\\.(bon4|nmea|csv)$", options: [.caseInsensitive])
         for folder in folders where (try? folder.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true && folder.lastPathComponent != "exports" {
             guard let files = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey], options: [.skipsHiddenFiles]) else { continue }
+            // 走行ごと (名前の頭 YYYYMMDDhhmmss) にまとめる
+            var runs: [String: (date: String, files: [URL])] = [:]
             for file in files {
                 let name = file.lastPathComponent
                 guard let m = pattern.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)),
-                      let r = Range(m.range(at: 1), in: name) else { continue }
-                let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
-                guard values?.isRegularFile == true else { continue }
-                if let date = values?.contentModificationDate, Date().timeIntervalSince(date) < 600 { continue }
-                let dir = folder.appendingPathComponent(String(name[r]), isDirectory: true)
-                let target = dir.appendingPathComponent(name)
-                guard !fm.fileExists(atPath: target.path) else { continue }
+                      let stem = Range(m.range(at: 1), in: name), let day = Range(m.range(at: 2), in: name),
+                      (try? file.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+                runs[String(name[stem]), default: (String(name[day]), [])].files.append(file)
+            }
+            for (_, run) in runs {
+                let recent = run.files.contains { f in
+                    guard let d = (try? f.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { return false }
+                    return Date().timeIntervalSince(d) < 600
+                }
+                let dir = folder.appendingPathComponent(run.date, isDirectory: true)
+                let clash = run.files.contains { fm.fileExists(atPath: dir.appendingPathComponent($0.lastPathComponent).path) }
+                if recent || clash { continue }
                 do {
                     try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-                    try fm.moveItem(at: file, to: target)
+                    for file in run.files {
+                        let target = dir.appendingPathComponent(file.lastPathComponent)
+                        if coordinated {
+                            var coordError: NSError?
+                            var moveError: Error?
+                            NSFileCoordinator().coordinate(writingItemAt: file, options: .forMoving, writingItemAt: target, options: .forReplacing, error: &coordError) { from, to in
+                                do { try FileManager.default.moveItem(at: from, to: to) } catch { moveError = error }
+                            }
+                            if let e = moveError ?? coordError { throw e }
+                        } else {
+                            try fm.moveItem(at: file, to: target)
+                        }
+                    }
                 } catch {
-                    DebugLog.write("move flat run failed \(name) \(error.localizedDescription)")
+                    DebugLog.write("move flat run failed \(run.files.first?.lastPathComponent ?? "-") \(error.localizedDescription)")
                 }
             }
         }
