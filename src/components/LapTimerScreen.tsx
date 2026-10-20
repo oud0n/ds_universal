@@ -16,6 +16,7 @@ import { callNative, hasNative, toBase64 } from '../native/bridge';
 import type { StorageInfo } from '../native/contract';
 import { canUseLoggerBle } from '../utils/device';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { getPositionSource, setPositionSource } from '../services/positionSource';
 import { OrientationToggle, StopConfirm, loadTimerOrientation, saveTimerOrientation, type TimerOrientation } from './LapTimerControls';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
 import type { CircuitPreset, TelemetryPoint } from '../types/telemetry';
@@ -113,7 +114,13 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const t = useT();
   const link = useLoggerLink();
   const statusLabel = useStatusLabel();
-  const [source, setSource] = useState<Source>(() => (canUseLoggerBle ? 'digspice' : replayLogs.length > 0 ? 'replay' : 'phone'));
+  // 位置の出どころ。前に選んだものを覚えておき、画面の上の印にも同じものを出す (services/positionSource.ts)
+  const [source, setSource] = useState<Source>(() => {
+    const saved = getPositionSource();
+    if (saved && (saved !== 'digspice' || canUseLoggerBle)) return saved;
+    return canUseLoggerBle ? 'digspice' : replayLogs.length > 0 ? 'replay' : 'phone';
+  });
+  useEffect(() => { if (source !== 'replay') setPositionSource(source); }, [source]);
   const [course, setCourse] = useState<CircuitPreset | null>(null);
   const [state, setState] = useState<LiveLapState | null>(null);
   const [flash, setFlash] = useState<{ event: LiveLapEvent; until: number } | null>(null);
