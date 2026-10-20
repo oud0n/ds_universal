@@ -55,6 +55,34 @@ enum RunFiles {
 
     static let videoExt: Set<String> = ["mp4", "mov", "m4v", "lrv", "insv", "mkv", "webm"]
 
+    /// 前の版がサーキットのフォルダにじかに置いた走行のファイル (YYYYMMDDhhmmss.bon4 など) を、日付のフォルダ (YYYYMMDD/) へ移す (2026-10-20)。
+    /// 書いている途中かもしれないので、10 分以内に書き換えたファイルは動かさない。移す先に同じ名前があれば動かさない
+    static func moveFlatRunsIntoDateFolders(in root: URL) {
+        let fm = FileManager.default
+        guard let folders = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return }
+        let pattern = try! NSRegularExpression(pattern: "^(\\d{8})\\d{6}(_\\d+)?(\\.[A-Za-z0-9_]+)?\\.(bon4|nmea|csv)$")
+        for folder in folders where (try? folder.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true && folder.lastPathComponent != "exports" {
+            guard let files = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey], options: [.skipsHiddenFiles]) else { continue }
+            for file in files {
+                let name = file.lastPathComponent
+                guard let m = pattern.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)),
+                      let r = Range(m.range(at: 1), in: name) else { continue }
+                let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
+                guard values?.isRegularFile == true else { continue }
+                if let date = values?.contentModificationDate, Date().timeIntervalSince(date) < 600 { continue }
+                let dir = folder.appendingPathComponent(String(name[r]), isDirectory: true)
+                let target = dir.appendingPathComponent(name)
+                guard !fm.fileExists(atPath: target.path) else { continue }
+                do {
+                    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+                    try fm.moveItem(at: file, to: target)
+                } catch {
+                    DebugLog.write("move flat run failed \(name) \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
     /// 置き場の下のファイル。iCloud からまだ落ちてきていないファイル (.名前.icloud) も、元の名前で local: false として出す
     struct FileInfo: Sendable {
         let path: String

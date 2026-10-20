@@ -469,7 +469,17 @@ ipcMain.handle('laps-list', async () => {
     for (const dir of await fs.promises.readdir(root, { withFileTypes: true })) {
       if (!dir.isDirectory() || dir.name.startsWith('.')) continue;
       for (const f of await fs.promises.readdir(path.join(root, dir.name), { withFileTypes: true })) {
-        if (!f.isFile() || f.name.startsWith('.')) continue;
+        if (f.name.startsWith('.')) continue;
+        // 日付のフォルダ (YYYYMMDD。2026-10-20 から、1 日の走行と動画をまとめる) の中も 1 段だけ見る
+        if (f.isDirectory() && /^\d{8}$/.test(f.name)) {
+          for (const g of await fs.promises.readdir(path.join(root, dir.name, f.name), { withFileTypes: true })) {
+            if (!g.isFile() || g.name.startsWith('.')) continue;
+            const st = await fs.promises.stat(path.join(root, dir.name, f.name, g.name));
+            files.push({ path: `${dir.name}/${f.name}/${g.name}`, size: st.size, mtimeMs: Math.round(st.mtimeMs) });
+          }
+          continue;
+        }
+        if (!f.isFile()) continue;
         const st = await fs.promises.stat(path.join(root, dir.name, f.name));
         files.push({ path: `${dir.name}/${f.name}`, size: st.size, mtimeMs: Math.round(st.mtimeMs) });
       }

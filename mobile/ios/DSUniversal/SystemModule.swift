@@ -230,6 +230,8 @@ final class SystemModule {
     /// LapTimer/ の下のファイルを、選んだフォルダの同じ場所 (サーキット名/ファイル) へ写す。大きさの違うもの・ないものだけ。
     /// 写している間にもう一度頼まれたら、終わってからもう一度だけ回す (同時に 2 つは走らせない)
     private func syncLapFiles(done: @escaping (Result<[String: Any], NativeError>) -> Void) {
+        // 前の版がじかに置いた走行は、写す前に日付のフォルダへ移す (写した先でも日付のフォルダに入るように)
+        RunFiles.moveFlatRunsIntoDateFolders(in: RunFiles.lapTimerRoot)
         guard UserDefaults.standard.string(forKey: Self.storageKindKey) == "folder" else {
             done(.success(["kind": "local", "copied": 0, "skipped": 0, "failed": 0]))
             return

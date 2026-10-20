@@ -27,8 +27,10 @@ export { courseFolder, UNSORTED_FOLDER } from '../utils/courseNames';
 /** このページで使ったファイルの名前 (同じ秒に新しい走行を始めても、前の走行のファイルに上書きしないように) */
 const usedBases = new Set<string>();
 
+/** 走行のファイルの場所: <サーキットのフォルダ>/<走り始めの日付 YYYYMMDD>/<走り始めの日時>。1 日の走行と動画を 1 つのフォルダにまとめる (2026-10-20) */
 function uniqueBase(startedMs: number, folder: string): string {
-  const base = `${folder}/${runFileBase(startedMs)}`;
+  const stamp = runFileBase(startedMs);
+  const base = `${folder}/${stamp.slice(0, 8)}/${stamp}`;
   let name = base;
   for (let i = 2; usedBases.has(name); i++) name = `${base}_${i}`;
   usedBases.add(name);
