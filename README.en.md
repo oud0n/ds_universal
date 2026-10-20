@@ -10,7 +10,7 @@ Log download and logger settings for DigSpice IV, racing line / speed / G analys
 
 ![Supported OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon-blue)
 ![Verification](https://img.shields.io/badge/Verified-macOS%20Only-amber)
-![Version](https://img.shields.io/badge/Version-0.11.0-red)
+![Version](https://img.shields.io/badge/Version-0.12.0-red)
 ![Device](https://img.shields.io/badge/Device-DigSpice%20IV-red)
 ![License](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-oud0n-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/oud0n)
@@ -217,6 +217,36 @@ Then double-click the app as usual, or **Control-click (right-click) it and choo
 - The gauges were misplaced over the main video in split / PiP view.
 - Videos stayed black or stuttered in Safari on iPhone.
 - Saving and loading a sync project could lose the video positions and log clock corrections (sync projects are now format 2.0; 1.0 still loads).
+
+### v0.12.0
+
+**Added**
+
+- **Rebuilt video export**: videos are now encoded frame by frame instead of being recorded while playing, which is faster and drops no frames (environments without support still use the previous method).
+- **Meters-only transparent video**: export just the gauges, without the onboard video, as a transparent PNG sequence (ZIP) or WebM to overlay in Premiere, DaVinci Resolve, After Effects and the like. Works from a log alone, without a video. This is now the default export.
+- **More overlay parts**: a lap panel (best, per-sector gaps, delta) and a course map. When you export a lap, 10 seconds are added before and after it.
+- **Lap timer (early version)**: connect to a DigSpice IV over Bluetooth and see lap and sector times while driving. Runs are saved as .bon4 and NMEA in a folder per circuit.
+- **Lap history** (desktop app): lists past laps from the runs in your storage folder. Best in purple, 2nd in green, 3rd in amber; any lap can be hidden.
+- **Unknown courses**: timing and sector lines are placed automatically from the log.
+- **More formats**: FIT and TCX (Garmin and others) and CSV with a date-time column.
+- **Log conversion**: export to .bon4. NMEA now keeps speed to 0.001 knots and writes back GGA fields (altitude, satellites and so on), so .bon4 → NMEA → .bon4 round-trips. NMEA without a date uses the date in the file name.
+- **Run comparison**: choose whether to align by place or by time; laps within a single video can be compared too.
+- **Videos with GPS** (GoPro and others): when a log of the same run is already loaded, you are asked whether to import the video GPS as another log.
+- **Course editor**: fields for an English name and a storage folder name.
+- **Interface language** follows your device (PC or phone). The manual switch moved to the globe icon next to the themes.
+- Playback and seeking in the graph view now use the same bottom bar as the video view.
+- The browser version on a PC shows where to download the desktop app.
+
+**Fixed**
+
+- **Safari on Mac**: videos with sound dropped frames or kept drifting while playing.
+- Pausing a video in the middle of a seek let the video keep playing.
+- A brief sound played the first time the video tab was opened.
+- Encode-based export stalled early in Safari.
+- Choosing the wrong course made the whole log one lap; you are now asked and warned (#17).
+- Points in .bon4 whose time does not fit (1/100 s of 99) are skipped.
+- Layout problems on narrow screens (wrapping tabs, clipped course map, overlapping text and more), dialogs that Esc did not close, and playback keys acting on the screen behind a dialog.
+- On phones, the buttons at the top of the video view are larger and fit in two rows, and the screens before loading a file (graph, video, conversion) now look the same.
 
 ### v0.11.0
 
