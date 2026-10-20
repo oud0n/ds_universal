@@ -91,7 +91,7 @@ export async function videoCandidates(store: RunStore, item: RunItem): Promise<{
   const byName = new Map(item.folderVideos.map(v => [baseName(v.path), v]));
   // 古いアプリ (lapfile:// を読めない) では、動画は開かない
   if (!(await store.supportsVideos())) return { local: [], missing: [], fromRuns: !!item.videos.length };
-  const toRemote = (v: RunFileInfo): RemoteVideo => ({ name: baseName(v.path), size: v.size, url: store.videoUrl(v.path), path: v.path, lastModified: v.mtimeMs });
+  const toRemote = (v: RunFileInfo): RemoteVideo => ({ name: baseName(v.path), size: v.size, url: store.videoUrl(v.path), path: v.path, lastModified: v.mtimeMs, readRange: store.rangeReader?.(v.path) });
   if (item.videos.length) {
     const listed = item.videos.map(n => byName.get(n)).filter((v): v is RunFileInfo => !!v);
     return { local: listed.filter(v => v.local).map(toRemote), missing: listed.filter(v => !v.local), fromRuns: true };

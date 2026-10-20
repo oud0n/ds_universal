@@ -177,6 +177,10 @@ export interface NativeMethods {
   'system.readRunFile': { params: { path: string }; result: { b64: string } };
   /** 走行の置き場の runs.json・laptimes.json を書く */
   'system.writeRunFile': { params: { path: string; b64: string }; result: Record<string, never> };
+  /** 動画の一部を読む (base64。8 MB まで) */
+  'system.readRunRange': { params: { path: string; offset: number; length: number }; result: { b64: string } };
+  /** ファイルが端末にあるか・iCloud から取り込み中か */
+  'system.runFileStatus': { params: { path: string }; result: { local: boolean; downloading: boolean } };
   /** iCloud からの取り込みを始める */
   'system.downloadRunFile': { params: { path: string }; result: Record<string, never> };
   /** OS の設定の画面 (このアプリの許可) を開く。一度断られた許可は、OS がもう聞いてくれないため */

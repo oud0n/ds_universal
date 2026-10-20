@@ -21,6 +21,10 @@ export interface RunStore extends LapFileStore {
   startDownload(path: string): Promise<void>;
   /** 読む。無いときだけ null、読めないときは例外 (runs.json を書く前に読むため) */
   readTextStrict(path: string): Promise<string | null>;
+  /** 動画の範囲を読む窓口 (無ければ fetch で読む) */
+  rangeReader?(path: string): ((start: number, end: number) => Promise<ArrayBuffer>) | undefined;
+  /** ファイルが端末にあるか・取り込み中か (分からなければ local だけ) */
+  fileStatus(path: string): Promise<{ local: boolean; downloading: boolean }>;
   /** 動画を lapfile:// で読めるか (古いアプリは読めない) */
   supportsVideos(): Promise<boolean>;
 }
@@ -94,6 +98,13 @@ export function nativeRunStore(): RunStore | null {
       }
     },
     videoUrl: lapFileUrl,
+    rangeReader: path => async (start, end) => {
+      const b = fromBase64((await callNative('system.readRunRange', { path, offset: start, length: end - start })).b64);
+      return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
+    },
+    async fileStatus(path) {
+      return callNative('system.runFileStatus', { path });
+    },
     async startDownload(path) {
       await callNative('system.downloadRunFile', { path }).catch(() => undefined);
     }
@@ -133,6 +144,9 @@ export async function electronRunStore(): Promise<RunStore | null> {
       if (!r.success) throw fail(r.error);
     },
     videoUrl: lapFileUrl,
+    async fileStatus() {
+      return { local: true, downloading: false };
+    },
     async startDownload() {}
   };
   return store;

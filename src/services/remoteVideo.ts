@@ -12,6 +12,8 @@ export interface RemoteVideo {
   /** 保管場所からの道 (runs.json に書くのはファイル名だけ) */
   path: string;
   lastModified: number;
+  /** 範囲を読む (iPhone のアプリ: ネイティブの窓口で読む。https のページからは lapfile:// を fetch で読めないため)。無ければ fetch で読む */
+  readRange?: (start: number, end: number) => Promise<ArrayBuffer>;
 }
 
 async function readRange(url: string, start: number, end: number): Promise<ArrayBuffer> {
@@ -21,17 +23,20 @@ async function readRange(url: string, start: number, end: number): Promise<Array
   return r.arrayBuffer();
 }
 
-export function remoteByteSource(v: Pick<RemoteVideo, 'url' | 'size'>): ByteSource {
+const rangeOf = (v: Pick<RemoteVideo, 'url' | 'readRange'>, start: number, end: number) =>
+  end <= start ? Promise.resolve(new ArrayBuffer(0)) : v.readRange ? v.readRange(start, end) : readRange(v.url, start, end);
+
+export function remoteByteSource(v: Pick<RemoteVideo, 'url' | 'size' | 'readRange'>): ByteSource {
   return {
     size: v.size,
-    read: async (offset, length) => new DataView(await readRange(v.url, offset, Math.min(v.size, offset + length)))
+    read: async (offset, length) => new DataView(await rangeOf(v, offset, Math.min(v.size, offset + length)))
   };
 }
 
 /** parseVideoMetadata が使うところ (name・size・lastModified・slice().arrayBuffer()) だけを持つ、File に似たもの */
 export function remoteFileLike(v: RemoteVideo): File {
   const slice = (start = 0, end = v.size) => ({
-    arrayBuffer: () => readRange(v.url, Math.max(0, start), Math.min(v.size, end))
+    arrayBuffer: () => rangeOf(v, Math.max(0, start), Math.min(v.size, end))
   });
   return { name: v.name, size: v.size, lastModified: v.lastModified, slice } as unknown as File;
 }
