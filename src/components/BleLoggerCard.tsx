@@ -2,6 +2,9 @@ import React, { useEffect, useSyncExternalStore } from 'react';
 import { Bluetooth, BluetoothSearching, Unlink, RefreshCw, Settings, Signal, Timer } from 'lucide-react';
 import { bleLoggerLink, loggerSerial, type LoggerLinkStatus } from '../services/bleLoggerLink';
 import { useT } from '../utils/i18n';
+import { usePositionSource } from '../services/positionSource';
+import { loadDevices } from '../services/devices/deviceRegistry';
+import { Smartphone } from 'lucide-react';
 import { BleCapturePanel } from './BleCapturePanel';
 
 export function useLoggerLink() {
@@ -45,6 +48,26 @@ export function loggerModel(name: string | undefined): string {
 export const BleStatusPill: React.FC<{ onClick?: () => void }> = ({ onClick }) => {
   const snap = useLoggerLink();
   const label = useStatusLabel();
+  const t = useT();
+  // ラップタイマーで選んだ位置の出どころを出す (RaceBox・端末の GPS を選んでいれば、デジスパイスの状態は出さない)。
+  // RaceBox と端末の GPS は、ラップタイマーを開いている間だけ使うので、ほかの画面では名前だけ
+  const source = usePositionSource();
+  if (source === 'racebox' || source === 'phone') {
+    const name = source === 'racebox'
+      ? (loadDevices().find(d => d.kind === 'racebox')?.displayName ?? 'RaceBox')
+      : t('iPhone の GPS', 'Phone GPS');
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        data-testid="ble-status-pill"
+        className="flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-full border whitespace-nowrap min-w-0 border-line-3 text-slate-300"
+      >
+        {source === 'racebox' ? <Bluetooth size={12} /> : <Smartphone size={12} />}
+        <span className="font-sans font-bold truncate">{name}</span>
+      </button>
+    );
+  }
   if (snap.status === 'unsupported' || snap.status === 'none') return null;
   return (
     <button
