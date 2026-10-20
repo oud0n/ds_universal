@@ -122,6 +122,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   // 測っているか (測定開始のボタンを押してから、測定終了まで)。測っていない間は、位置と速度を出すだけで、周を数えず記録もしない (2026-10-20)
   const [measuring, setMeasuring] = useState(false);
   const measuringRef = useRef(false);
+  /** デジスパイスの接続を、このタイマーがつないだか (離れるときに、自分でつないだものだけ切る) */
+  const bleConnectedHereRef = useRef(false);
   // 測定終了の確認 (全画面) を出しているか
   const [confirmStop, setConfirmStop] = useState(false);
   // 画面の向き (アプリだけ。測る前に選び、測っている間は固める)
@@ -288,6 +290,11 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
 
   /** 測定開始: 周をはじめから数え、次の測位から新しい走行のファイルに書く */
   const startMeasuring = useCallback(() => {
+    // 測ると決めたので、切断ボタンで切っていてもつなぐ
+    if (sourceRef.current === 'digspice') {
+      if (bleLoggerLink.isLinkIdle()) bleConnectedHereRef.current = true;
+      void bleLoggerLink.startAndConnect(true);
+    }
     measuringRef.current = true;
     setMeasuring(true);
     recorderRef.current = null;
@@ -336,9 +343,11 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   useEffect(() => {
     resetRun();
     if (source === 'digspice') {
-      // ラップタイマーを開いたのは使うつもりなので、切断ボタンで切っていてもつなぐ
-      void bleLoggerLink.startAndConnect(true);
-      return bleLoggerLink.onFix(fix => handleFix({
+      // 開いただけでは、切断ボタンで切っていればつながない (タイマーはタブの 1 つなので、見ただけでつなぎに行かないように。2026-10-21)。
+      // 測定開始を押したら、切っていてもつなぐ (startMeasuring)
+      if (bleLoggerLink.isLinkIdle()) bleConnectedHereRef.current = true;
+      void bleLoggerLink.startAndConnect(false);
+      const off = bleLoggerLink.onFix(fix => handleFix({
         tMs: fix.timestamp.getTime(),
         latitude: fix.latitude,
         longitude: fix.longitude,
@@ -346,6 +355,14 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
         altitude: fix.altitude,
         valid: fix.valid
       }));
+      return () => {
+        off();
+        // ここでつないだ接続は、測っていないまま離れたら切る (ほかの画面にいる間に探し続けて、電池を使わないように)
+        if (bleConnectedHereRef.current && !measuringRef.current) {
+          bleConnectedHereRef.current = false;
+          void bleLoggerLink.disconnect();
+        }
+      };
     }
     if (source === 'phone') {
       if (!('geolocation' in navigator)) {

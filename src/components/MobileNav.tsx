@@ -11,12 +11,14 @@ export const BottomTabBar: React.FC<{
   onSelect: (s: Screen) => void;
   /** 画面の印に出す数 (データ管理: 読み込んだログの数) */
   badges?: Partial<Record<Screen, number>>;
-}> = ({ items, current, onSelect, badges }) => {
+  /** テーマにかかわらず黒にする (ラップタイマーを出しているとき。タイマーは走りながら見やすいよう、いつも黒) */
+  dark?: boolean;
+}> = ({ items, current, onSelect, badges, dark = false }) => {
   // 横向きでは高さを取らないよう、アイコンと名前を横に並べて薄くする
   const landscape = useLandscape();
   const t = useT();
   return (
-    <nav className="shrink-0 flex bg-surface-1 border-t border-line-1 pb-[env(safe-area-inset-bottom)]" data-testid="bottom-tabs">
+    <nav className={`shrink-0 flex border-t pb-[env(safe-area-inset-bottom)] ${dark ? 'bg-black border-white/15' : 'bg-surface-1 border-line-1'}`} data-testid="bottom-tabs">
       {items.map(id => {
         const { short, Icon } = SCREEN_META[id];
         const badge = badges?.[id];
@@ -27,7 +29,7 @@ export const BottomTabBar: React.FC<{
             aria-current={current === id ? 'page' : undefined}
             className={`flex-1 flex items-center justify-center font-bold transition-colors ${
               landscape ? 'flex-row gap-2 py-1 text-xs' : 'flex-col gap-0.5 py-2 text-[11px]'
-            } ${current === id ? 'text-red-500' : 'text-slate-400'}`}
+            } ${current === id ? 'text-red-500' : dark ? 'text-white/50' : 'text-slate-400'}`}
             data-testid={`nav-${id}`}
           >
             <span className="relative">
