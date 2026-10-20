@@ -15,9 +15,15 @@ export const RunFolderVideos: React.FC = () => {
   const videos = run.item.folderVideos.filter(v => !/\.lrv$/i.test(v.path));
   if (videos.length === 0) return null;
   const name = (p: string) => p.slice(run.item.folder.length + 1);
-  const open = async (path: string, size: number, mtimeMs: number) => {
+  const open = async (path: string, size: number, mtimeMs: number, local: boolean) => {
     setBusy(path);
     try {
+      // iCloud にだけある動画は、取り込みを始めるだけ (終わったら、もう一度押す)
+      if (!local) {
+        await run.store.startDownload(path);
+        alert(t('取り込みを始めました。終わったら、もう一度押してください。', 'Download started. Tap again when it finishes.'));
+        return;
+      }
       await addVideoToOpenRun({ name: name(path), size, url: run.store.videoUrl(path), path, lastModified: mtimeMs });
     } finally {
       setBusy(null);
@@ -30,13 +36,13 @@ export const RunFolderVideos: React.FC = () => {
         {videos.map(v => (
           <button
             key={v.path}
-            onClick={() => void open(v.path, v.size, v.mtimeMs)}
-            disabled={!!busy || !v.local}
+            onClick={() => void open(v.path, v.size, v.mtimeMs, v.local)}
+            disabled={!!busy}
             className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg bg-surface-2 hover:bg-surface-3 border border-line-2 text-xs text-slate-200 disabled:opacity-50 cursor-pointer"
           >
             <Video size={14} className="text-sky-400 shrink-0" />
             <span className="flex-1 min-w-0 truncate text-left">{name(v.path)}</span>
-            <span className="text-slate-500 shrink-0">{v.local ? `${(v.size / 1e9).toFixed(1)} GB` : t('iCloud にだけある', 'iCloud only')}</span>
+            <span className="text-slate-500 shrink-0">{v.local ? `${(v.size / 1e9).toFixed(1)} GB` : t('iCloud にだけある (押すと取り込む)', 'iCloud only (tap to download)')}</span>
           </button>
         ))}
       </div>
