@@ -380,7 +380,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const [exportRange, setExportRange] = useState<'lap' | 'all'>('lap');
   const [exportResolution, setExportResolution] = useState<'1080p' | '720p'>('1080p');
   // 書き出しの方式。encode: 元のファイルを 1 コマずつ読んで書く (速く、コマが抜けない)。record: 再生しながら録る (これまでの方式)
-  const [exportMethod, setExportMethod] = useState<'encode' | 'record' | 'overlay-png' | 'overlay-webm'>(() => (canUseEncodeExport() ? 'encode' : 'record'));
+  const [exportMethod, setExportMethod] = useState<'encode' | 'record' | 'overlay-png' | 'overlay-webm'>('overlay-png'); // 既定はメーターだけの動画 (編集ソフトで重ねる。2026-10-20)
   // 透明な WebM (VP9 のアルファ) を作れるか
   const [webmAlphaOk, setWebmAlphaOk] = useState(false);
   useEffect(() => { void canExportWebmAlpha(1920, 1080).then(setWebmAlphaOk); }, []);
@@ -2010,10 +2010,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   className="w-full bg-surface-1 border border-line-3 text-xs px-2 py-1 rounded outline-none text-slate-200 cursor-pointer"
                   data-testid="export-method"
                 >
-                  <option value="encode" disabled={!activeTrack?.file || !canUseEncodeExport()}>{t('動画にメーターを焼き込む (エンコード・推奨)', 'Burn meters into the video (encode, recommended)')}</option>
-                  <option value="record" disabled={!activeTrack}>{t('動画にメーターを焼き込む (再生しながら録る・これまでの方式)', 'Burn meters into the video (record while playing, previous method)')}</option>
                   <option value="overlay-png">{t('メーターだけ・背景は透明 (PNG の連番の ZIP。Premiere・DaVinci・After Effects 向け)', 'Meters only, transparent (PNG sequence ZIP; Premiere, DaVinci, After Effects)')}</option>
                   {webmAlphaOk && <option value="overlay-webm">{t('メーターだけ・背景は透明 (WebM。小さいが、読めるソフトが限られる)', 'Meters only, transparent (WebM; small, limited editor support)')}</option>}
+                  <option value="encode" disabled={!activeTrack?.file || !canUseEncodeExport()}>{t('動画にメーターを焼き込む (エンコード)', 'Burn meters into the video (encode)')}</option>
+                  <option value="record" disabled={!activeTrack}>{t('動画にメーターを焼き込む (再生しながら録る・これまでの方式)', 'Burn meters into the video (record while playing, previous method)')}</option>
                 </select>
                 {exportMethod !== 'record' && exportRange === 'lap' && (
                   <p className="text-[10px] text-slate-500">{t(`周を選んだときは、前後を ${LAP_EXPORT_PAD_SEC} 秒ずつ足して書き出します (周の前は前の周のタイム、周のあとはその周のタイムで止まります)`, `When a lap is selected, ${LAP_EXPORT_PAD_SEC} s are added before and after it (before: the previous lap's clock; after: the lap time is held)`)}</p>
