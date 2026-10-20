@@ -9,6 +9,8 @@
  * ずれが大きいときは、その位置へ飛ぶ
  */
 
+import { clockMasterEnabled } from './clockMaster';
+
 export interface PlaybackTarget {
   /** 動画の中の位置 (秒)。撮影の範囲の外なら outOfRange */
   localTime: number;
@@ -63,6 +65,12 @@ interface Entry {
   /** 再生中に飛ぶとき、先へずらす秒数 (前の移動にかかった時間)。[音を消しているとき, 音を出しているとき] (Safari では 10 倍ほど違う) */
   seekLead: [number, number];
   onSeeked: () => void;
+  /** 動画の位置 − App の時刻 (秒)。時計の元になれる枠 (音を出して再生している・倍率なし) のときだけ */
+  appOffset: number | null;
+  /** 時計の元として最後に返した時刻と、それが進んだ時刻 (動画が動かなくなったら、時計の元をやめるため) */
+  masterLast: { value: number; atMs: number } | null;
+  /** 動かなかったので、時計の元にしない (進んだコマが出たら戻す。コマを知らせてもらえないブラウザでは 5 秒後) */
+  masterBlockedUntil: number;
 }
 
 type FrameVideo = HTMLVideoElement & {
@@ -91,6 +99,9 @@ export class PlaybackController {
   constructor(private readonly adjustAudibleRate = true) {}
 
   private entries = new Map<string, Entry>();
+  /** 時計の元にしている枠 (音を出して再生している、倍率のない枠の最初のもの)。clockMaster.ts */
+  private master: Entry | null = null;
+  private playing = false;
   // 止めたまま最初のコマを出すために、一度だけ再生して止めた動画 (iPhone の Safari は、再生するまで動画を読み込まず、黒いまま)
   private primed = new WeakSet<HTMLVideoElement>();
 
@@ -103,6 +114,7 @@ export class PlaybackController {
     const entry: Entry = {
       el, frame: null, frameHandle: null, correcting: false, rateChangedAt: 0, src: el.currentSrc || el.src,
       seekStartedAt: null, seekDone: false, seekTarget: 0, lastLocal: 0, lastSyncAt: null, seekAudible: false, seekLead: [0, 0],
+      appOffset: null, masterLast: null, masterBlockedUntil: 0,
       onSeeked: () => {
         if (entry.seekStartedAt === null) return;
         // コマが出たのを知らせてもらえるときは、次のコマが出るまで待って測る (watchFrames)
@@ -123,13 +135,48 @@ export class PlaybackController {
     this.entries.forEach(({ el }) => { if (!el.paused) el.pause(); });
   }
 
-  /** 枠ごとの位置に合わせる。targets にない枠は止める */
-  sync(targets: Map<string, PlaybackTarget>, isPlaying: boolean, speed: number): void {
+  /**
+   * 枠ごとの位置に合わせる。targets にない枠は止める。
+   * appTime (App の時刻) を渡すと、音を出して再生している枠を時計の元にする (masterAppTime)
+   */
+  sync(targets: Map<string, PlaybackTarget>, isPlaying: boolean, speed: number, appTime?: number): void {
+    this.playing = isPlaying;
+    let master: Entry | null = null;
+    this.entries.forEach((entry, key) => {
+      const t = targets.get(key);
+      const el = entry.el;
+      const eligible = clockMasterEnabled && appTime !== undefined && isPlaying && !!t && !t.outOfRange && t.rate === undefined && !el.muted
+        && performance.now() >= entry.masterBlockedUntil
+        && t.localTime >= 0 && !(t.durationSec > 0 && t.localTime > t.durationSec);
+      entry.appOffset = eligible ? t!.localTime - appTime! : null;
+      if (!eligible) entry.masterLast = null;
+      if (eligible && !master) master = entry;
+    });
+    this.master = master;
     this.entries.forEach((entry, key) => {
       const t = targets.get(key);
       if (!t || t.outOfRange) { if (!entry.el.paused) entry.el.pause(); this.stopSeekWait(entry); return; }
       this.syncEntry(entry, t, isPlaying, speed);
     });
+  }
+
+  /**
+   * 時計の元の動画の位置を、App の時刻に直したもの (秒)。時計の元がない・動画が 2 秒動かないときは null。
+   * 動画が動き出すまで (再生の始め・移動の後) は止まったままの位置を返すので、App はそこで待つ
+   */
+  masterAppTime(): number | null {
+    const e = this.master;
+    if (!e || e.appOffset === null || !this.playing || e.el.ended) return null;
+    const value = this.shownTime(e) - e.appOffset;
+    const now = performance.now();
+    if (!e.masterLast || value > e.masterLast.value + 1e-4) e.masterLast = { value, atMs: now };
+    else if (now - e.masterLast.atMs > 2000) {
+      // 動かない動画を待ち続けない。進んだコマが出るまで、時計の元にしない
+      e.masterBlockedUntil = (e.el as FrameVideo).requestVideoFrameCallback ? Infinity : now + 5000;
+      e.masterLast = null;
+      return null;
+    }
+    return value;
   }
 
   /** 飛んだ移動を待つのと、移動の時間の測りかけをやめる (動画を止めたとき。止めたあとの時間を、移動の時間として覚えないように) */
@@ -165,6 +212,8 @@ export class PlaybackController {
       const shown = meta.expectedDisplayTime;
       // Chrome はこれから出す時刻 (少し先)、Safari は出したあとに知らせる。大きく外れた値は使わない
       const at = shown !== undefined && Number.isFinite(shown) && Math.abs(now - shown) < 100 ? shown : now;
+      // 時計の元にしないでいた動画が、進んだコマを出したら (動き出したら)、また時計の元にできる
+      if (entry.masterBlockedUntil > 0 && entry.frame && meta.mediaTime > entry.frame.mediaTime + 0.001) entry.masterBlockedUntil = 0;
       entry.frame = { mediaTime: meta.mediaTime, at };
       // 飛んだ先より進んだコマが出たら、動き出した。Safari は、移動が終わるとすぐ飛んだ先のコマを出し、そのあとしばらく止まることがある
       if (entry.seekDone && meta.mediaTime > entry.seekTarget + 0.01) this.noteSeekTime(entry, at);
@@ -206,13 +255,15 @@ export class PlaybackController {
     // 再生中に、App の時刻が前に合わせたときから進むはずの分より 0.15 秒以上動いたら、見ている位置を動かしたので、やはり待たない。
     // 前に合わせてから 0.25 秒より空いたとき (タブを隠したなど) は、そのあいだの倍率の変わり方がわからないので見分けない
     const nowMs = performance.now();
+    let userMoved = false;
     const moving = isPlaying && t.localTime >= 0 && !(t.durationSec > 0 && t.localTime > t.durationSec)
       && base >= MIN_RATE * speed && base <= MAX_RATE * speed;
     if (!moving) {
       this.stopSeekWait(entry);
     } else {
       const dt = entry.lastSyncAt === null ? Infinity : (nowMs - entry.lastSyncAt) / 1000;
-      if (dt <= 0.25 && Math.abs(t.localTime - (entry.lastLocal + base * dt)) > 0.15) {
+      userMoved = dt <= 0.25 && Math.abs(t.localTime - (entry.lastLocal + base * dt)) > 0.15;
+      if (userMoved) {
         entry.seekStartedAt = null;
         entry.seekDone = false;
       }
@@ -248,17 +299,21 @@ export class PlaybackController {
       return;
     }
     const audible = !el.muted;
+    // 時計の元の動画は、App がこの動画に付いてくるので、ふだんは合わせない (速さも位置も変えない)。
+    // 見ている位置を動かしたとき (大きなずれ) だけ、ちょうどの位置へ飛ぶ (App は動画が動き出すまで待つので、先へずらさない)
+    const isMaster = entry === this.master;
     // 飛ぶずれの大きさ。速さで詰められない音のある動画は、小さなずれでも飛ぶ
-    const jump = rated ? JUMP_SEC_RATED : audible && !this.adjustAudibleRate ? JUMP_SEC_AUDIBLE_FIXED : JUMP_SEC;
+    const jump = isMaster ? JUMP_SEC : rated ? JUMP_SEC_RATED : audible && !this.adjustAudibleRate ? JUMP_SEC_AUDIBLE_FIXED : JUMP_SEC;
     // 前に飛んだ移動がまだ終わらず動き出していないあいだは、近くへはもう一度飛ばない
     // (動き出すまで currentTime が止まって遅れて見えるので、飛び直し続けて、移動にかかる時間も覚えられなくなる)。
     // 見ている位置を動かしたとき (上で待つのをやめる) と、1.5 秒たっても動き出さないときは飛ぶ
     const seeking = entry.seekStartedAt !== null && nowMs - entry.seekStartedAt < SEEK_HOLD_MS;
     if (seeking) {
       if (Math.abs(el.playbackRate - base) > 0.001) el.playbackRate = base;
-    } else if (Math.abs(diff) > jump) {
+    } else if (Math.abs(diff) > jump || (isMaster && userMoved && Math.abs(diff) > 0.02)) {
+      // 時計の元の動画は、見ている位置を少し動かしただけでも、その位置へ飛ぶ (App はこの動画に付いてくるので、飛ばないと位置が戻される)
       // 大きくずれたら (シーク・周の始めに戻ったときなど) 飛ぶ。前の移動にかかった時間の分だけ先へ
-      let lead = Math.min(entry.seekLead[audible ? 1 : 0] * base, MAX_SEEK_LEAD_SEC);
+      let lead = isMaster ? 0 : Math.min(entry.seekLead[audible ? 1 : 0] * base, MAX_SEEK_LEAD_SEC);
       // 終わりの近くでは先へずらさない (終わりで止まった動画を見て、飛び直し続けないように)
       if (Number.isFinite(el.duration) && el.duration > 0 && localTime + lead >= el.duration) lead = 0;
       const target = localTime + lead;
@@ -276,7 +331,7 @@ export class PlaybackController {
       // Safari では、音を出している動画は速さを変えずにおく (速さを変えると、音の高さを保つ処理をして、映像が重くなる)。上で小さなずれでも飛ぶ。
       // Chrome・Electron では音のある動画も詰める (再生を始めた直後の出遅れ 0.1〜0.5 秒が、飛ぶ大きさに届かずに残るため)。
       // 音のある動画は、詰め始めるずれを大きめにして、速さを変える回数を減らす
-      if (audible && !this.adjustAudibleRate) entry.correcting = false;
+      if (isMaster || (audible && !this.adjustAudibleRate)) entry.correcting = false;
       else if (Math.abs(diff) > (audible ? CORRECT_START_SEC_AUDIBLE : CORRECT_START_SEC)) entry.correcting = true;
       else if (Math.abs(diff) < CORRECT_STOP_SEC) entry.correcting = false;
       const correction = entry.correcting ? Math.max(-0.1, Math.min(0.1, diff * 0.5)) : 0;

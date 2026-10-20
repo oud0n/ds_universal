@@ -43,6 +43,7 @@ import { canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawInter
 import { bleLoggerLink } from './services/bleLoggerLink';
 import { useWheelScrollX } from './hooks/useWheelScrollX';
 import { isDialogOpen } from './hooks/useEscapeKey';
+import { readClockMaster } from './services/clockMaster';
 import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
 import { Freeze } from './components/Freeze';
 import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
@@ -358,6 +359,8 @@ export const App: React.FC = () => {
   // アニメーションループ (requestAnimationFrame)
   const animRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(performance.now());
+  // このループが最後に入れた時刻 (ほかで時刻を動かしたか (見ている位置を動かした) を見分ける)
+  const loopTimeRef = useRef<number | null>(null);
 
   // 再生の基準はこのループだけにする。動画のウインドウは、この時刻に合わせて動画を再生する (動画の有無にかかわらず時刻が進む)
   // 時刻の基準: グラフ画面では選んでいる周の中の時刻 ('lap')、動画同期タブではセッション全体の時刻 ('session')。
@@ -407,6 +410,7 @@ export const App: React.FC = () => {
     }
 
     lastTimeRef.current = performance.now();
+    loopTimeRef.current = null;
     // スマートフォンでは、画面を描き直すのを 1 秒に 20 回までにする (毎コマ描き直すと、動画のコマが落ちる)。
     // パソコンの Safari (WebKit) も、毎コマ描き直すと動画のコマが落ちるので 1 秒に 30 回まで。Chrome・Electron は毎コマ。
     // 動画は自分で再生し、この時刻に合わせて少しずつ直すだけなので、なめらかなまま。URL の ?redraw=<ms> で試しに変えられる
@@ -423,8 +427,14 @@ export const App: React.FC = () => {
       const dtSec = Math.max(0, ((now - lastTimeRef.current) / 1000) * playbackSpeed);
       lastTimeRef.current = now;
 
+      // 音を出している動画が再生しているときは、その動画の位置を時刻にする (clockMaster.ts)。読むのは state を変える関数の外で
+      const master = readClockMaster();
       setCurrentTimeSec(prevTime => {
         let nextTime = prevTime + dtSec;
+        // 動画が動き出すまでは待つ (戻しはしない)。1 秒より離れているとき (周の始めに戻した) と、
+        // このループの外で時刻を動かした直後 (見ている位置を動かした) は、これまでどおり進め、動画のほうが付いてくる
+        const movedOutside = loopTimeRef.current !== null && Math.abs(prevTime - loopTimeRef.current) > 1e-6;
+        if (master !== null && !movedOutside && Math.abs(master - nextTime) < 1) nextTime = Math.max(prevTime, master);
         if (nextTime > endTime) {
           if (isSessionClock) {
             // セッション全体の時刻では、終わりで止める
@@ -444,6 +454,7 @@ export const App: React.FC = () => {
           setCurrentDistanceKm(curPt.distance);
         }
 
+        loopTimeRef.current = nextTime;
         return nextTime;
       });
 
