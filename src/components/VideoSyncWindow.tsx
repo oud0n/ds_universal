@@ -46,6 +46,7 @@ import { fileAccept, isIOS, isWebKitBrowser } from '../utils/device';
 import { setClockMaster } from '../services/clockMaster';
 import { useCompactLayout, useLandscape } from '../hooks/useCompactLayout';
 import { EmptyLoadPrompt } from './EmptyLoadPrompt';
+import { SKIP_SEC, Skip10Icon } from './Skip10Icon';
 import { useWheelScrollX } from '../hooks/useWheelScrollX';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 
@@ -1750,11 +1751,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         {!(isGraphEmbedded && baseLap) && (
         <div className="flex items-center gap-1.5">
           <button
-            onClick={() => seekTo(Math.max(0, currentTimeSec - 1.0))}
-            className="p-1.5 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
-            title={t('1秒戻る', 'Back 1 s')}
+            onClick={() => seekTo(Math.max(0, currentTimeSec - SKIP_SEC))}
+            className="p-1 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
+            title={t('10 秒戻す', 'Back 10 s')}
+            aria-label={t('10 秒戻す', 'Back 10 seconds')}
           >
-            <SkipBack size={14} />
+            <Skip10Icon dir="back" size={isCompactLayout ? 18 : 15} />
           </button>
           <button
             onClick={onTogglePlay}
@@ -1764,11 +1766,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             {isPlaying ? <Pause size={15} /> : <Play size={15} />}
           </button>
           <button
-            onClick={() => seekTo(currentTimeSec + 1.0)}
-            className="p-1.5 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
-            title={t('1秒進む', 'Forward 1 s')}
+            onClick={() => seekTo(currentTimeSec + SKIP_SEC)}
+            className="p-1 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
+            title={t('10 秒進める', 'Forward 10 s')}
+            aria-label={t('10 秒進める', 'Forward 10 seconds')}
           >
-            <SkipForward size={14} />
+            <Skip10Icon dir="forward" size={isCompactLayout ? 18 : 15} />
           </button>
 
           {/* 再生速度 */}

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Play, Pause, SkipBack, SkipForward } from 'lucide-react';
+import { Play, Pause } from 'lucide-react';
+import { SKIP_SEC, Skip10Icon } from './Skip10Icon';
 import { formatMinSec } from '../utils/timeFormat';
 import { useLandscape } from '../hooks/useCompactLayout';
 import { useT } from '../utils/i18n';
@@ -53,12 +54,12 @@ export const PlayBar: React.FC<{
   const buttons = (
     <div className="flex items-center gap-1.5 shrink-0">
       <button
-        onClick={onStepBack}
-        className="p-1.5 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
-        title={t('コマ戻し (B / ←キー、Shift で 1 秒)', 'Step back (B / ← key, Shift for 1 s)')}
-        aria-label={t('コマ戻し', 'Step back')}
+        onClick={() => onSeekTime(Math.max(0, currentTime - SKIP_SEC))}
+        className="p-1 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
+        title={t('10 秒戻す (コマ戻しは B / ←キー、Shift で 1 秒)', 'Back 10 s (step back: B / ← key, Shift for 1 s)')}
+        aria-label={t('10 秒戻す', 'Back 10 seconds')}
       >
-        <SkipBack size={compact ? 16 : 14} />
+        <Skip10Icon dir="back" size={compact ? 18 : 15} />
       </button>
       <button
         onClick={onTogglePlay}
@@ -69,12 +70,12 @@ export const PlayBar: React.FC<{
         {isPlaying ? <Pause size={compact ? 17 : 15} /> : <Play size={compact ? 17 : 15} />}
       </button>
       <button
-        onClick={onStepForward}
-        className="p-1.5 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
-        title={t('コマ送り (F / →キー、Shift で 1 秒)', 'Step forward (F / → key, Shift for 1 s)')}
-        aria-label={t('コマ送り', 'Step forward')}
+        onClick={() => onSeekTime(Math.min(end, currentTime + SKIP_SEC))}
+        className="p-1 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
+        title={t('10 秒進める (コマ送りは F / →キー、Shift で 1 秒)', 'Forward 10 s (step forward: F / → key, Shift for 1 s)')}
+        aria-label={t('10 秒進める', 'Forward 10 seconds')}
       >
-        <SkipForward size={compact ? 16 : 14} />
+        <Skip10Icon dir="forward" size={compact ? 18 : 15} />
       </button>
       <select
         value={String(playbackSpeed)}
