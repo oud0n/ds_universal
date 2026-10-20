@@ -34,6 +34,7 @@ import { MasterTimelineTrackBar } from './MasterTimelineTrackBar';
 import { formatMinSec } from '../utils/timeFormat';
 import { tr, useT } from '../utils/i18n';
 import { fileAccept, isIOS, isWebKitBrowser } from '../utils/device';
+import { setClockMaster } from '../services/clockMaster';
 import { useCompactLayout, useLandscape } from '../hooks/useCompactLayout';
 import { useWheelScrollX } from '../hooks/useWheelScrollX';
 import { useEscapeKey } from '../hooks/useEscapeKey';
@@ -553,8 +554,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     if (!isVisible || (isAnyExporting && !recordingStage)) { playback.pauseAll(); return; }
     const targets = new Map<string, PlaybackTarget>();
     tiles.slice(0, shownCount).forEach((x, i) => { if (x.position) targets.set(`tile-${i}`, { ...x.position, rate: x.rate }); });
-    playback.sync(targets, isPlaying, playbackSpeed);
+    playback.sync(targets, isPlaying, playbackSpeed, currentTimeSec);
   });
+
+  // 見えている間は、音を出している動画を App の時計の元にする (clockMaster.ts)
+  useEffect(() => {
+    if (!isVisible || isAnyExporting) return;
+    return setClockMaster(playback, () => playback.masterAppTime());
+  }, [isVisible, isAnyExporting, playback]);
 
   // 手で合わせる (ずれの入力・微調整・ワンクリック同期・同期ピン)。基準のログの時刻でのずれで入れ、その時刻を基準のログに付ける
   const setOffset = (trackId: string, offsetSec: number) => {
