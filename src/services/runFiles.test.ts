@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fixesToBon4, fixesToNmea, runFileBase } from './runFiles';
+import { bon4Header, fixesToBon4, fixesToNmea, runFileBase } from './runFiles';
 import { parseDigispiceRawBinary } from './rawBinaryParser';
 import { parseNmea } from './nmeaParser';
 import { extractLaps } from './lapCalculator';
@@ -37,5 +37,19 @@ describe('runFiles', () => {
 
     const nmea = parseNmea(fixesToNmea(fixes));
     expect(lapTimes(nmea.points)).toEqual(original);
+  });
+
+  it.skipIf(!SAMPLE)('.bon4 の先頭 8 バイトは、最初の点から求めた確かめの値と一致する (実際のログと、書いたファイル)', () => {
+    const file = fs.readdirSync(SAMPLE!).find(f => f.endsWith('.bon4'))!;
+    const buf = fs.readFileSync(path.join(SAMPLE!, file));
+    const v = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    // 実際のログの最初の点を、そのまま LiveFix にして先頭の値を求める
+    const first: LiveFix = { tMs: 0, speedKmh: (v.getUint16(8 + 2, true) / 100) * 3.6, latitude: v.getInt32(8 + 4, true) / 1e7, longitude: v.getInt32(8 + 8, true) / 1e7, valid: true };
+    const head = new DataView(bon4Header(first).buffer).getFloat64(0, true);
+    expect(Math.abs(head - v.getFloat64(0, true))).toBeLessThan(0.001);
+    // 書いたファイルの先頭も、書いた最初の点と合う
+    const written = fixesToBon4([first, { ...first, tMs: 50 }]);
+    const wv = new DataView(written.buffer);
+    expect(Math.abs(wv.getFloat64(0, true) - head)).toBeLessThan(1e-9);
   });
 });

@@ -74,7 +74,7 @@ export class LiveRunRecorder {
     this.run = await startRun({ id, startedMs: first.tMs, courseName: this.courseName(), source: this.source, fileBase });
     if (!fileBase) return;
     try {
-      await callNative('system.appendFile', { path: `${fileBase}.bon4`, b64: toBase64(bon4Header()), truncate: true });
+      await callNative('system.appendFile', { path: `${fileBase}.bon4`, b64: toBase64(bon4Header(first)), truncate: true });
       await callNative('system.appendFile', { path: `${fileBase}.nmea`, b64: '', truncate: true });
       this.toFiles = true;
     } catch {
