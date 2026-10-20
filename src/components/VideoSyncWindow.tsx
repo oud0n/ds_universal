@@ -344,6 +344,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const [win, setWin] = useWindowView(viewKey);
   // スマートフォン向けの配置 (枠は 1 つずつ・走行比較は縦に 2 つ。VideoStage)
   const isCompactLayout = useCompactLayout();
+  // スマートフォンの動画の画面では、上のボタンを折り返して大きく出す (グラフに埋め込んだ狭い枠は今までどおり横にスクロール)
+  const phoneToolbar = isCompactLayout && !isGraphEmbedded;
   const isLandscape = useLandscape();
   const { pipPosition, showOverlay, showGForce } = win;
   // 重ねる部品 (画面の重ね表示と書き出しで同じ)
@@ -1041,9 +1043,16 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       {/* 1. 上部コントロールバー (フラットデザイン) */}
       {/* グラフ解析に埋め込んだ狭い枠では、右側のボタンが切れないよう横にスクロールできるようにする */}
       {/* ボタンの文字は折り返さない。入りきらないときは横にスクロールし、広い画面でだけ文字を出すボタンもある */}
-      <div ref={toolbarScrollRef} className="h-11 bg-surface-1 border-b border-line-1 px-3 flex items-center justify-between gap-2 shrink-0 overflow-x-auto overflow-y-hidden [&_button]:whitespace-nowrap [&_button]:shrink-0">
-        <div className="flex items-center gap-2.5 shrink-0">
-          <span className="text-xs font-bold text-slate-100 flex items-center gap-1.5 shrink-0 whitespace-nowrap" title={t('車載動画同期', 'Onboard video sync')}>
+      {/* スマートフォンでは、横にスクロールさせず折り返し、押しやすいよう大きくする (2026-10-20) */}
+      <div
+        ref={toolbarScrollRef}
+        className={phoneToolbar
+          ? 'bg-surface-1 border-b border-line-1 px-2 py-1.5 flex flex-wrap items-center gap-1 shrink-0 [&_button]:whitespace-nowrap [&_button]:shrink-0 [&_button]:min-h-9 [&_button]:text-xs [&_select]:min-h-9 [&_select]:text-sm [&_svg]:w-4 [&_svg]:h-4'
+          : 'h-11 bg-surface-1 border-b border-line-1 px-3 flex items-center justify-between gap-2 shrink-0 overflow-x-auto overflow-y-hidden [&_button]:whitespace-nowrap [&_button]:shrink-0'}
+        data-testid="video-toolbar"
+      >
+        <div className={phoneToolbar ? 'contents' : 'flex items-center gap-2.5 shrink-0'}>
+          <span className={`text-xs font-bold text-slate-100 items-center gap-1.5 shrink-0 whitespace-nowrap ${phoneToolbar ? 'hidden' : 'flex'}`} title={t('車載動画同期', 'Onboard video sync')}>
             <Video size={15} className="text-red-500" />
             <span className="hidden 2xl:inline">{t('車載動画同期', 'Onboard video sync')}</span>
           </span>
@@ -1066,7 +1075,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           {/* 速度ウィンドウ連携バッジ (フラット) */}
           {baseSession && (
             <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/80 border border-emerald-800 px-2 py-0.5 rounded flex items-center gap-1 shrink-0" title={t('速度ウィンドウ同期中', 'Synced with the speed window')}>
-              <CheckCircle2 size={11} className="text-emerald-400 shrink-0" />
+              <CheckCircle2 size={11} className={`text-emerald-400 shrink-0 ${phoneToolbar ? 'hidden' : ''}`} />
               <span className="max-w-[120px] truncate font-bold">{baseSession.sessionName}</span>
               {baseLap && <span className="text-emerald-300 font-bold">L{baseLap.lapNumber}</span>}
             </span>
@@ -1119,7 +1128,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
           {/* 走行比較: Car ごとの動画 (既定は、その車のログの時刻で周を映している動画) */}
           {isCompare && media.length > 0 && (
-            <div className="flex items-center gap-1 pl-2 border-l border-line-2 shrink-0">
+            <div className={`flex items-center gap-1 shrink-0 ${phoneToolbar ? 'order-3' : 'pl-2 border-l border-line-2'}`}>
               {tiles.map(x => (
                 <div key={x.slot} className="flex items-center shrink-0 whitespace-nowrap">
                   <span className="text-[10px] font-bold mr-0.5" style={{ color: x.color }}>Car {(x.slot ?? 0) + 1}</span>
@@ -1139,16 +1148,16 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
           {/* カメラの選択。1 つ目がメイン */}
           {!isCompare && media.length > 0 && (
-            <div className="flex items-center gap-1 pl-2 border-l border-line-2 shrink-0">
+            <div className={`flex items-center gap-1 shrink-0 ${phoneToolbar ? 'order-3' : 'pl-2 border-l border-line-2'}`}>
               {cameras.map((m, i) => (
                 <div key={i} className="flex items-center shrink-0 whitespace-nowrap">
-                  <span className="text-[10px] text-slate-400 font-medium mr-0.5">
+                  <span className={`text-[10px] text-slate-400 font-medium mr-0.5 ${phoneToolbar && cameras.length === 1 ? 'hidden' : ''}`}>
                     {i === 0 ? t('メイン', 'Main') : `${i + 1}`}
                   </span>
                   <select
                     value={m.id}
                     onChange={e => videoViewStore.setCamera(i, e.target.value)}
-                    className="bg-surface-3 border border-line-3 text-xs text-slate-200 rounded px-1 py-1 outline-none max-w-[130px] truncate cursor-pointer"
+                    className={`bg-surface-3 border border-line-3 text-xs text-slate-200 rounded px-1 py-1 outline-none truncate cursor-pointer ${phoneToolbar ? 'max-w-[88px]' : 'max-w-[130px]'}`}
                   >
                     {media.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}
                   </select>
@@ -1187,7 +1196,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
           {/* 並べ方 (枠が 2 つ以上のとき) */}
           {tileCount > 1 && (
-            <div className="flex items-center rounded border border-line-3 bg-surface-3 overflow-hidden">
+            <div className={`flex items-center rounded border border-line-3 bg-surface-3 overflow-hidden ${phoneToolbar ? 'order-3' : ''}`}>
               {([
                 ['single', t('単一', 'Single'), t('メインだけを出す', 'Main only'), null],
                 ['grid', t('並べる', 'Grid'), t('2 つなら左右、3〜4 つなら 2×2 に並べる。枠を押すと大きく出す', 'Side by side for 2, 2×2 for 3-4. Click a view to enlarge it'), <Columns size={11} key="c" />],
@@ -1208,7 +1217,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           {/* 動画追加ボタン */}
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-5 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer"
+            className={`flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-5 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
             title={t('動画追加', 'Add video')}
           >
             <Plus size={12} />
@@ -1219,7 +1228,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           {media.length > 0 && (
             <button
               onClick={() => setShowRuns(true)}
-              className="flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-5 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer"
+              className={`flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-5 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
               title={t('走行の確認: 同じ走行のログと動画、動画の時刻の出どころ、地図', 'Runs: logs and videos of each run, how each video is timed, and a map')}
             >
               <ListChecks size={12} />
@@ -1228,17 +1237,19 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           )}
         </div>
 
-        {/* 右側アクション群 (ピン留め・MP4エクスポート・プロジェクト保存) */}
-        <div className="flex items-center gap-1.5">
+        {/* 右側アクション群 (ピン留め・MP4エクスポート・プロジェクト保存)。スマートフォンでは右に寄せて折り返しに並べる */}
+        <div className={phoneToolbar ? 'contents' : 'flex items-center gap-1.5'}>
+          {/* スマートフォンでは、ここで 2 段目にする (上の段: 同期の調整・ログ・モード・メーターの表示) */}
+          {phoneToolbar && <div className="order-2 basis-full h-0" aria-hidden />}
           {/* 手動キーフレーム同期 (ピン留め) ボタン */}
           {activeTrack && (
             <button
               onClick={() => setShowPinModal(true)}
-              className="flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-4 text-xs text-amber-300 border border-amber-500/40 transition-colors cursor-pointer"
+              className={`flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-4 text-xs text-amber-300 border border-amber-500/40 transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
               title={t('現在の動画フレームとGPS時刻を同期ピンとして固定', 'Pin the current video frame and GPS time as a sync point')}
             >
               <MapPin size={12} className="text-amber-400" />
-              <span className="hidden xl:inline">{t('ピン留め同期', 'Pin sync')}</span> ({pins.length})
+              <span className="hidden xl:inline">{t('ピン留め同期', 'Pin sync')}</span>{!(phoneToolbar && pins.length === 0) && ` (${pins.length})`}
             </button>
           )}
 
@@ -1246,7 +1257,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           {(activeTrack || baseSession) && (
             <button
               onClick={() => setShowExportModal(true)}
-              className="flex items-center gap-1 px-2 py-1 rounded bg-red-700 hover:bg-red-600 text-xs font-bold text-white transition-colors cursor-pointer"
+              className={`flex items-center gap-1 px-2 py-1 rounded bg-red-700 hover:bg-red-600 text-xs font-bold text-white transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
               title={t('メーターオーバーレイ付きの動画をMP4形式で書き出し', 'Export the video with the gauge overlay as MP4')}
             >
               <Download size={12} />
@@ -1257,14 +1268,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           {/* 同期プロジェクト保存 / 読込 */}
           <button
             onClick={handleExportProject}
-            className="flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-4 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer"
+            className={`flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-4 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
             title={t('同期プロジェクト保存 (.dssync.json)', 'Save sync project (.dssync.json)')}
           >
             <Save size={12} />
           </button>
           <button
             onClick={() => jsonInputRef.current?.click()}
-            className="flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-4 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer"
+            className={`flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-4 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
             title={t('プロジェクト読込 (.dssync.json)', 'Load sync project (.dssync.json)')}
           >
             <FolderOpen size={12} />
@@ -1273,7 +1284,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           {/* オーバーレイON/OFF */}
           <button
             onClick={() => setShowOverlay(!showOverlay)}
-            className={`p-1 rounded border transition-colors cursor-pointer ${
+            className={`p-1 rounded border transition-colors cursor-pointer ${phoneToolbar ? 'order-1 ml-auto min-w-9 flex items-center justify-center' : ''} ${
               showOverlay ? 'bg-red-600/20 text-red-400 border-red-500/50' : 'bg-slate-800 text-slate-500 border-slate-700'
             }`}
             title={t('テレメトリ計器表示切替', 'Show or hide the telemetry gauges')}
