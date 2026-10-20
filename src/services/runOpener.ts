@@ -58,7 +58,7 @@ export function startFromName(file: string): number | null {
 export async function listRuns(store: RunStore, onProgress?: (folder: string) => void): Promise<RunItem[]> {
   const all = await store.listAll();
   // 周の控えを作るときも、今引いたファイルの一覧を使う (iCloud の置き場所では、一覧を引くのに時間がかかるので 2 回引かない)
-  const listed: RunStore = Object.create(store, { list: { value: async () => all } });
+  const listed: RunStore = { ...store, list: async () => all };
   const folders = await loadLapHistory(listed, onProgress);
   // フォルダごとの動画と .bon4 を先に 1 回だけ分けておく (走行ごとに全部のファイルを探すと、数千件で遅くなる)
   const videosByDir = new Map<string, RunFileInfo[]>();
@@ -86,9 +86,10 @@ export async function listRuns(store: RunStore, onProgress?: (folder: string) =>
       if (!/^(\d{8}\/)?[^/]+$/.test(file)) continue;
       const runDir = dirName(`${f.folder}/${file}`);
       // 走行と同じフォルダの動画。日付のフォルダの走行には、サーキットのフォルダにじかに置いた動画 (前の置き方) も候補にする
+      // 同じ名前の動画がサーキットのフォルダにもあるときは、走行と同じフォルダのものを使う (名前で引くので、後ろが勝つ)
       const folderVideos = runDir === f.folder
-        ? (videosByDir.get(runDir) ?? [])
-        : [...(videosByDir.get(runDir) ?? []), ...(videosByDir.get(f.folder) ?? [])];
+        ? [...(videosByDir.get(runDir) ?? [])]
+        : [...(videosByDir.get(f.folder) ?? []), ...(videosByDir.get(runDir) ?? [])];
       const rec = f.index?.files[file];
       const laps = (rec?.laps ?? []).filter(l => !hidden.has(lapKey(file, l.part, l.n)));
       // 日付のフォルダへ移す前に書いた行は、ファイルの名前だけで引く

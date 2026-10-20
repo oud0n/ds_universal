@@ -54,6 +54,19 @@ describe('控えの作り直し (変わったところだけ計算する)', () =
     expect(next.index.files['b.bon4']).toBeUndefined();
   });
 
+  it('日付のフォルダへ移して iCloud にだけになった走行も控えを残し、コースを直しても数えていない走行の隠した印は残す', async () => {
+    const f = fakeCompute(table);
+    const first = await reconcileFolder('sodegaura', files, course, null, read, f.compute);
+    const hiddenIdx = setHidden(first.index, 'b.bon4', undefined, 1, true);
+    const moved = [{ path: 'sodegaura/20260101/a.bon4', size: 0, mtimeMs: 9, local: false }, { path: 'sodegaura/20260101/b.bon4', size: 0, mtimeMs: 9, local: false }];
+    const same = await reconcileFolder('sodegaura', moved, course, hiddenIdx, read, f.compute);
+    expect(same.index.files['20260101/a.bon4']).toEqual(first.index.files['a.bon4']);
+    const other = await reconcileFolder('sodegaura', moved, { ...course, controlLine: line(35.001) }, hiddenIdx, read, f.compute);
+    expect(other.index.files['20260101/b.bon4']).toBeUndefined();
+    expect(other.index.hidden.map(h => h.file)).toEqual(['20260101/b.bon4']);
+    expect(f.calls).toEqual(['a.bon4', 'b.bon4']);
+  });
+
   it('読む途中で、何本かごとに途中までの控えを書く', async () => {
     const many = Array.from({ length: LAP_INDEX_CHECKPOINT * 2 + 3 }, (_, i) => ({ path: `sodegaura/r${i}.bon4`, size: 10, mtimeMs: 1 }));
     const f = fakeCompute({});

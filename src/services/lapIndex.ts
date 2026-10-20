@@ -198,10 +198,14 @@ export async function reconcileFolder(
   const next: Record<string, LapFileRecord> = {};
   let changed = !prev || !sameCourse || prev.courseName !== course.name;
   let computed = 0;
+  // 数えずに飛ばした走行 (iCloud にだけあって控えもないもの)。隠した周の印は、数えるまでそのまま残す
+  const skipped: string[] = [];
+  const names = new Set(files.map(f => f.path.slice(folder.length + 1)));
   for (const f of files) {
     const name = f.path.slice(folder.length + 1);
     // 日付のフォルダへ移したファイルは、前の名前 (ファイルの名前だけ) の控えを使う
-    const old = sameCourse ? prev?.files[name] ?? prev?.files[name.slice(name.lastIndexOf('/') + 1)] : undefined;
+    const prevRec = prev?.files[name] ?? prev?.files[name.slice(name.lastIndexOf('/') + 1)];
+    const old = sameCourse ? prevRec : undefined;
     if (old && old.size === f.size && old.mtimeMs === f.mtimeMs) {
       next[name] = old;
       continue;
@@ -209,12 +213,12 @@ export async function reconcileFolder(
     // iCloud にだけあるファイルは、周を数えるために落としてこない (数千本あると、携帯の回線で何 GB にもなる)。
     // 前の控えがあればそのまま使い、なければ「まだ数えていない」として控えに入れない (開いたときに落ちてきて、次に数える)
     if (f.local === false) {
-      const before = sameCourse ? prev?.files[name] : undefined;
-      if (before) next[name] = before;
+      if (old) next[name] = old;
+      else skipped.push(name);
       continue;
     }
     // 動画は計算では作れないので、前の控えから引き継ぐ (コースを直したときも)
-    const videos = prev?.files[name]?.videos;
+    const videos = prevRec?.videos;
     const keep = videos?.length ? { videos } : {};
     try {
       const { startMs, laps } = compute(name, await read(f.path), course);
@@ -222,19 +226,25 @@ export async function reconcileFolder(
     } catch {
       // 読めなかったら、前の控えがあればそのまま残す (隠した周の印を消さない。大きさが違うままなので、次に開いたときに読み直す)。
       // 前の控えが無ければ、周なしで覚えておく (壊れたファイルを毎回読み直さないように。ファイルが変われば読み直す)
-      const before = prev?.files[name];
-      next[name] = before ?? { size: f.size, mtimeMs: f.mtimeMs, startMs: null, laps: [], ...keep };
+      next[name] = prevRec ?? { size: f.size, mtimeMs: f.mtimeMs, startMs: null, laps: [], ...keep };
     }
     computed++;
     changed = true;
     if (onCheckpoint && computed % LAP_INDEX_CHECKPOINT === 0) {
       // 途中まで: 読み終えた分と、前の控え (同じコースのもの) を合わせる。隠した周の印は前のまま (まだ読んでいない走行の印を消さない)
-      const files = { ...(sameCourse ? prev?.files : undefined), ...next };
-      await onCheckpoint({ version: 1, courseHash: hash, courseName: course.name, files, hidden: prev?.hidden ?? [] }).catch(() => {});
+      // 前の控えは、今あるファイルの分だけ (消したファイルを途中の控えに戻さない)
+      const partial: Record<string, LapFileRecord> = {};
+      if (sameCourse && prev) for (const [k, v] of Object.entries(prev.files)) if (names.has(k)) partial[k] = v;
+      await onCheckpoint({ version: 1, courseHash: hash, courseName: course.name, files: { ...partial, ...next }, hidden: prev?.hidden ?? [] }).catch(() => {});
     }
   }
   if (prev && Object.keys(prev.files).some(k => !(k in next))) changed = true;
   const hidden = carryHidden(prev?.hidden ?? [], next);
+  // 数えずに飛ばした走行の印は、そのまま残す (日付のフォルダへ移した名前にして)
+  for (const h of prev?.hidden ?? []) {
+    const to = skipped.find(k => k === h.file || k.endsWith(`/${h.file}`));
+    if (to && !hidden.some(o => o.file === to && o.part === h.part && o.n === h.n)) hidden.push({ ...h, file: to });
+  }
   if (prev && hidden.length !== prev.hidden.length) changed = true;
   return { index: { version: 1, courseHash: hash, courseName: course.name, files: next, hidden }, changed, computed };
 }
