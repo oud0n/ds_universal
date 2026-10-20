@@ -29,7 +29,7 @@ export const StopConfirm: React.FC<{ lapCount: number; onYes: () => void; onNo: 
   }, []);
   return (
     <div
-      className="absolute inset-0 z-30 bg-black flex flex-col landscape:flex-row items-stretch gap-4 p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]"
+      className="absolute inset-0 z-30 bg-surface-0 flex flex-col landscape:flex-row items-stretch gap-4 p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]"
       role="alertdialog"
       aria-modal="true"
       aria-label={t('測定を終了しますか？', 'Stop timing?')}
@@ -37,20 +37,20 @@ export const StopConfirm: React.FC<{ lapCount: number; onYes: () => void; onNo: 
     >
       <div className="flex-1 min-h-0 flex flex-col items-center justify-center text-center gap-2 landscape:basis-1/3">
         <div className="font-bold" style={{ fontSize: 'min(8vw, 9vh)' }}>{t('測定を終了しますか？', 'Stop timing?')}</div>
-        <div className="text-white/60 text-lg">{t(`ここまでの ${lapCount} 周を保存します`, `${lapCount} laps so far will be saved`)}</div>
-        <div className="text-white/40 text-base">{t(`${left} 秒で「続ける」に戻ります`, `Back to timing in ${left} s`)}</div>
+        <div className="text-slate-400 text-lg">{t(`ここまでの ${lapCount} 周を保存します`, `${lapCount} laps so far will be saved`)}</div>
+        <div className="text-slate-500 text-base">{t(`${left} 秒で「続ける」に戻ります`, `Back to timing in ${left} s`)}</div>
       </div>
       <div className="flex flex-col landscape:flex-row landscape:basis-2/3 gap-4">
         <button
           onClick={onYes}
-          className="min-h-[120px] landscape:min-h-0 landscape:flex-1 rounded-3xl border-4 border-red-500 text-red-300 font-bold text-3xl flex items-center justify-center gap-3 active:bg-red-900/40"
+          className="min-h-[120px] landscape:min-h-0 landscape:flex-1 rounded-3xl border-4 border-red-500 text-red-500 font-bold text-3xl flex items-center justify-center gap-3 active:bg-red-900/40"
           data-testid="lap-timer-stop-yes"
         >
           <Square size={28} fill="currentColor" />{t('はい、終了', 'Yes, stop')}
         </button>
         <button
           onClick={onNo}
-          className="min-h-[140px] landscape:min-h-0 landscape:flex-1 rounded-3xl bg-emerald-600 active:bg-emerald-700 font-bold text-3xl flex items-center justify-center gap-3"
+          className="min-h-[140px] landscape:min-h-0 landscape:flex-1 rounded-3xl bg-emerald-600 active:bg-emerald-700 text-white font-bold text-3xl flex items-center justify-center gap-3"
           data-testid="lap-timer-stop-no"
         >
           <Play size={28} fill="currentColor" />{t('いいえ、続ける', 'No, keep timing')}
@@ -93,15 +93,15 @@ export const OrientationToggle: React.FC<{ value: TimerOrientation; onChange: (v
   ];
   return (
     <div className="flex items-center gap-2" data-testid="lap-timer-orientation">
-      <span className="text-white/60 text-sm whitespace-nowrap">{t('画面の向き', 'Screen')}</span>
-      <div className="flex-1 flex rounded-2xl border border-white/20 overflow-hidden" role="radiogroup" aria-label={t('画面の向き', 'Screen orientation')}>
+      <span className="text-slate-400 text-sm whitespace-nowrap">{t('画面の向き', 'Screen')}</span>
+      <div className="flex-1 flex rounded-2xl border border-line-3 overflow-hidden" role="radiogroup" aria-label={t('画面の向き', 'Screen orientation')}>
         {items.map((it, i) => (
           <button
             key={it.v}
             role="radio"
             aria-checked={value === it.v}
             onClick={() => onChange(it.v)}
-            className={`flex-1 h-14 flex items-center justify-center gap-1.5 font-bold text-base ${i > 0 ? 'border-l border-white/20' : ''} ${value === it.v ? 'bg-sky-600 text-white' : 'text-white/70 active:bg-white/10'}`}
+            className={`flex-1 h-14 flex items-center justify-center gap-1.5 font-bold text-base ${i > 0 ? 'border-l border-line-3' : ''} ${value === it.v ? 'bg-sky-600 text-white' : 'text-slate-300 active:bg-surface-3'}`}
             data-testid={`lap-timer-orientation-${it.v}`}
           >
             {it.icon}{it.label}

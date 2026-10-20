@@ -71,10 +71,10 @@ function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): num
 
 /** 差の色 (速いと緑、遅いと赤) */
 function deltaClass(d: number | null | undefined): string {
-  if (d === null || d === undefined || !Number.isFinite(d)) return 'text-white/60';
-  if (d < -0.005) return 'text-emerald-400';
-  if (d > 0.005) return 'text-red-400';
-  return 'text-white';
+  if (d === null || d === undefined || !Number.isFinite(d)) return 'text-slate-400';
+  if (d < -0.005) return 'text-emerald-500';
+  if (d > 0.005) return 'text-red-500';
+  return 'text-fg';
 }
 
 /** 声で知らせる */
@@ -346,10 +346,9 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   useEffect(() => {
     resetRun();
     if (source === 'digspice') {
-      // 開いただけでは、切断ボタンで切っていればつながない (タイマーはタブの 1 つなので、見ただけでつなぎに行かないように。2026-10-21)。
-      // 測定開始を押したら、切っていてもつなぐ (startMeasuring)
-      if (bleLoggerLink.isLinkIdle()) bleConnectedHereRef.current = true;
-      void bleLoggerLink.startAndConnect(false);
+      // 開いただけではつながない (タイマーはタブの 1 つなので、見ただけでつなぎに行かないように。2026-10-21)。
+      // つなぐのは、上の出どころの印を押したときと、測定開始を押したとき (startMeasuring)
+      void bleLoggerLink.start();
       const off = bleLoggerLink.onFix(fix => handleFix({
         tMs: fix.timestamp.getTime(),
         latitude: fix.latitude,
@@ -634,7 +633,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
 
   return (
     <div
-      className={`${embedded && !measuring ? 'absolute inset-0 z-[30]' : 'fixed inset-0 z-[90]'} bg-black text-white flex flex-col select-none`}
+      className={`${embedded && !measuring ? 'absolute inset-0 z-[30]' : 'fixed inset-0 z-[90]'} bg-surface-0 text-fg flex flex-col select-none`}
       style={embedded && !measuring ? { paddingTop: 'env(safe-area-inset-top)', paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' } : { paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)', paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' }}
       data-testid="lap-timer"
     >
@@ -643,32 +642,37 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
         <button
           type="button"
           // デジスパイスにつないでいないときは、押すとつなぐ
-          onClick={() => { if (source === 'digspice' && link.status === 'idle') void bleLoggerLink.connect(); else setMenuOpen(o => !o); }}
+          onClick={() => {
+            if (source === 'digspice' && link.status === 'idle') {
+              if (bleLoggerLink.isLinkIdle()) bleConnectedHereRef.current = true;
+              void bleLoggerLink.startAndConnect(true);
+            } else setMenuOpen(o => !o);
+          }}
           // 幅が足りないときは、こちら (出どころの状態) を縮める (コースのボタンが「コ…」にならないように)
-          className={`flex items-center gap-1 px-2 py-1 rounded-full border whitespace-nowrap overflow-hidden text-ellipsis min-w-0 ${sourceStatus.ok ? 'border-emerald-500/50 text-emerald-300 bg-emerald-500/10' : 'border-amber-500/50 text-amber-300 bg-amber-500/10'}`}
+          className={`flex items-center gap-1 px-2 py-1 rounded-full border whitespace-nowrap overflow-hidden text-ellipsis min-w-0 ${sourceStatus.ok ? 'border-emerald-500/50 text-emerald-500 bg-emerald-500/10' : 'border-amber-500/50 text-amber-500 bg-amber-500/10'}`}
           data-testid="lap-timer-source"
         >
           {source === 'digspice' ? <Bluetooth size={14} className="shrink-0" /> : source === 'phone' ? <Smartphone size={14} className="shrink-0" /> : <PlayCircle size={14} className="shrink-0" />}
           <span className="truncate">{sourceStatus.text}{source === 'digspice' && link.status === 'idle' ? t(' (押すとつなぐ)', ' (tap to connect)') : ''}</span>
         </button>
-        <button onClick={() => setCoursePicker(true)} className="flex items-center gap-1 px-2 py-1 rounded-full border border-white/20 text-white/80 whitespace-nowrap shrink-0 max-w-[40vw]" data-testid="lap-timer-course">
+        <button onClick={() => setCoursePicker(true)} className="flex items-center gap-1 px-2 py-1 rounded-full border border-line-3 text-slate-200 whitespace-nowrap shrink-0 max-w-[40vw]" data-testid="lap-timer-course">
           <MapPin size={14} className="shrink-0" />
           <span className="truncate">{course ? circuitLabel(course.name) : t('コース: 自動', 'Course: auto')}</span>
         </button>
         {/* 右のボタンの並びは右に寄せる (余った幅は出どころの状態の表示に回す) */}
         {wakeLockOk === false && (
-          <span className="ml-auto text-amber-300/80 text-[11px] leading-tight max-w-[30vw]" data-testid="lap-timer-wake-warning">
+          <span className="ml-auto text-amber-500/80 text-[11px] leading-tight max-w-[30vw]" data-testid="lap-timer-wake-warning">
             {t('画面が消えます: 設定の自動ロックを「なし」に', 'Screen may sleep: set Auto-Lock to Never')}
           </span>
         )}
-        <button onClick={() => setVoice(v => !v)} className={`p-2 rounded-full border border-white/20 shrink-0 ${wakeLockOk === false ? '' : 'ml-auto'}`} aria-label={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')} title={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')}>
-          {voice ? <Volume2 size={18} /> : <VolumeX size={18} className="text-white/50" />}
+        <button onClick={() => setVoice(v => !v)} className={`p-2 rounded-full border border-line-3 shrink-0 ${wakeLockOk === false ? '' : 'ml-auto'}`} aria-label={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')} title={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')}>
+          {voice ? <Volume2 size={18} /> : <VolumeX size={18} className="text-slate-400" />}
         </button>
-        <button onClick={() => setMenuOpen(o => !o)} className="p-2 rounded-full border border-white/20 shrink-0" aria-label={t('メニュー', 'Menu')} title={t('メニュー', 'Menu')}>
+        <button onClick={() => setMenuOpen(o => !o)} className="p-2 rounded-full border border-line-3 shrink-0" aria-label={t('メニュー', 'Menu')} title={t('メニュー', 'Menu')}>
           <Menu size={18} />
         </button>
         {!embedded && (
-          <button onClick={requestClose} className="p-2 rounded-full border border-white/20 shrink-0" aria-label={t('閉じる', 'Close')} title={t('閉じる', 'Close')} data-testid="lap-timer-close">
+          <button onClick={requestClose} className="p-2 rounded-full border border-line-3 shrink-0" aria-label={t('閉じる', 'Close')} title={t('閉じる', 'Close')} data-testid="lap-timer-close">
             <X size={18} />
           </button>
         )}
@@ -679,7 +683,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       {lapDevices.statuses.some(x => x.device.kind !== 'racebox') && (
         <div className="flex flex-wrap gap-1.5 px-3 pb-1 text-[11px]" data-testid="lap-timer-devices">
           {lapDevices.statuses.filter(x => x.device.kind !== 'racebox').map(x => (
-            <span key={x.device.id} className={`px-2 py-0.5 rounded-full border ${x.ok ? 'border-emerald-500/60 text-emerald-300' : 'border-amber-500/60 text-amber-300'}`}>
+            <span key={x.device.id} className={`px-2 py-0.5 rounded-full border ${x.ok ? 'border-emerald-500/60 text-emerald-500' : 'border-amber-500/60 text-amber-500'}`}>
               {x.device.displayName}{x.text ? ` · ${x.text}` : ` · ${x.state}`}
             </span>
           ))}
@@ -690,19 +694,19 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           {!measuring && source !== 'replay' ? (
             <div className="text-center space-y-2" data-testid="lap-timer-idle">
               <div className="font-bold" style={{ fontSize: 'min(7vw, 9vh)' }}>{course ? circuitLabel(course.name) : t('コースを決めています', 'Finding the course')}</div>
-              <div className="font-mono text-white/70 tabular-nums" style={{ fontSize: 'min(9vw, 12vh)' }}>
+              <div className="font-mono text-slate-300 tabular-nums" style={{ fontSize: 'min(9vw, 12vh)' }}>
                 {lastFix ? `${Math.round(lastFix.speedKmh)} km/h` : '--- km/h'}
               </div>
-              <div className="text-white/60 text-sm">{t('下の「測定開始」を押すと、周を数えて記録します', 'Tap Start below to time laps and record')}</div>
+              <div className="text-slate-400 text-sm">{t('下の「測定開始」を押すと、周を数えて記録します', 'Tap Start below to time laps and record')}</div>
             </div>
           ) : !course ? (
             <div className="text-center space-y-3">
               <div className="text-2xl font-bold">{t('コースを決めています', 'Finding the course')}</div>
-              <div className="text-white/60 text-sm">{t('測位が届くと、近くのコースを選びます。違うときは上のコースを押して選んでください。', 'The nearest course is chosen when GPS arrives. Tap the course above to change it.')}</div>
+              <div className="text-slate-400 text-sm">{t('測位が届くと、近くのコースを選びます。違うときは上のコースを押して選んでください。', 'The nearest course is chosen when GPS arrives. Tap the course above to change it.')}</div>
             </div>
           ) : flashing ? (
             <>
-              <div className="text-white/70 font-bold tracking-widest" style={{ fontSize: 'min(5vw, 6vh)' }}>
+              <div className="text-slate-300 font-bold tracking-widest" style={{ fontSize: 'min(5vw, 6vh)' }}>
                 {t(`${flashing.lap.number} 周目`, `LAP ${flashing.lap.number}`)}{flashing.isBest && flashing.diffToBestSec !== null ? ` · ${t('ベスト', 'BEST')}` : ''}
               </div>
               <div className="font-mono font-bold tabular-nums leading-none" style={{ fontSize: 'min(19vw, 30vh)' }} data-testid="lap-timer-flash">
@@ -715,13 +719,13 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           ) : state?.lapNumber == null ? (
             <div className="text-center space-y-2">
               <div className="font-bold" style={{ fontSize: 'min(7vw, 9vh)' }}>{t('計測線を待っています', 'Waiting for the line')}</div>
-              <div className="font-mono text-white/70 tabular-nums" style={{ fontSize: 'min(9vw, 12vh)' }}>
+              <div className="font-mono text-slate-300 tabular-nums" style={{ fontSize: 'min(9vw, 12vh)' }}>
                 {lastFix ? `${Math.round(lastFix.speedKmh)} km/h` : '--- km/h'}
               </div>
             </div>
           ) : (
             <>
-              <div className="text-white/60 font-bold tracking-widest" style={{ fontSize: 'min(5vw, 6vh)' }}>
+              <div className="text-slate-400 font-bold tracking-widest" style={{ fontSize: 'min(5vw, 6vh)' }}>
                 {t(`${state.lapNumber} 周目`, `LAP ${state.lapNumber}`)}
               </div>
               <div className="font-mono font-bold tabular-nums leading-none" style={{ fontSize: 'min(19vw, 30vh)' }} data-testid="lap-timer-elapsed">
@@ -736,18 +740,18 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
 
         {/* 横: 前の周・ベスト・セクター・速度 */}
         <aside className="shrink-0 landscape:w-[34vw] grid grid-cols-2 landscape:grid-cols-1 gap-2 content-center font-mono tabular-nums">
-          <div className="rounded-xl bg-white/5 px-3 py-2">
-            <div className="text-[11px] text-white/50 font-sans">{t('前の周', 'Last')}</div>
+          <div className="rounded-xl bg-surface-2 px-3 py-2">
+            <div className="text-[11px] text-slate-400 font-sans">{t('前の周', 'Last')}</div>
             <div className="text-2xl sm:text-3xl font-bold">{lastLap ? formatLapTime(lastLap.timeSec, 2) : '--:--'}</div>
             <div className={`text-lg ${deltaClass(lastDiff)}`}>{lastDiff !== null ? formatDelta(lastDiff) : ' '}</div>
           </div>
-          <div className="rounded-xl bg-white/5 px-3 py-2">
-            <div className="text-[11px] text-white/50 font-sans">{t('ベスト', 'Best')}{state?.best ? ` (${t(`${state.best.number} 周目`, `L${state.best.number}`)})` : ''}</div>
-            <div className="text-2xl sm:text-3xl font-bold text-amber-300">{state?.best ? formatLapTime(state.best.timeSec, 2) : '--:--'}</div>
-            <div className="text-lg text-white/60"><span className="text-[11px] font-sans text-white/40 mr-1">{t('速度', 'Speed')}</span>{lastFix ? `${Math.round(lastFix.speedKmh)} km/h` : '---'}</div>
+          <div className="rounded-xl bg-surface-2 px-3 py-2">
+            <div className="text-[11px] text-slate-400 font-sans">{t('ベスト', 'Best')}{state?.best ? ` (${t(`${state.best.number} 周目`, `L${state.best.number}`)})` : ''}</div>
+            <div className="text-2xl sm:text-3xl font-bold text-amber-500">{state?.best ? formatLapTime(state.best.timeSec, 2) : '--:--'}</div>
+            <div className="text-lg text-slate-400"><span className="text-[11px] font-sans text-slate-500 mr-1">{t('速度', 'Speed')}</span>{lastFix ? `${Math.round(lastFix.speedKmh)} km/h` : '---'}</div>
           </div>
           {sectorCount > 0 && (
-            <div className="col-span-2 landscape:col-span-1 rounded-xl bg-white/5 px-3 py-2 flex gap-2" data-testid="lap-timer-sectors">
+            <div className="col-span-2 landscape:col-span-1 rounded-xl bg-surface-2 px-3 py-2 flex gap-2" data-testid="lap-timer-sectors">
               {Array.from({ length: sectorCount }, (_, i) => {
                 // 周を終えて大きく出している間は、終えた周のセクターを出しておく
                 const cur = flashing
@@ -755,8 +759,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
                   : state?.currentSectors[i];
                 return (
                   <div key={i} className="flex-1 min-w-0">
-                    <div className="text-[11px] text-white/50 font-sans">S{i + 1}</div>
-                    <div className="text-base sm:text-lg">{cur ? (Number.isFinite(cur.timeSec) ? cur.timeSec.toFixed(2) : '--') : bestSectors[i] !== undefined ? <span className="text-white/30">{bestSectors[i].toFixed(2)}</span> : '--'}</div>
+                    <div className="text-[11px] text-slate-400 font-sans">S{i + 1}</div>
+                    <div className="text-base sm:text-lg">{cur ? (Number.isFinite(cur.timeSec) ? cur.timeSec.toFixed(2) : '--') : bestSectors[i] !== undefined ? <span className="text-slate-500">{bestSectors[i].toFixed(2)}</span> : '--'}</div>
                     <div className={`text-sm ${deltaClass(cur?.diffSec)}`}>{cur && cur.diffSec !== null ? formatDelta(cur.diffSec) : ' '}</div>
                   </div>
                 );
@@ -777,7 +781,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               // 走っている間に誤って押しても止まらないよう、終了は全画面で確かめる
               else setConfirmStop(true);
             }}
-            className={`w-full flex items-center justify-center gap-3 rounded-2xl font-bold ${measuring ? 'min-h-[72px] landscape:min-h-[56px] text-2xl border-[3px] border-red-500 text-red-300 active:bg-red-900/40' : 'min-h-[88px] landscape:min-h-[64px] text-3xl bg-emerald-600 active:bg-emerald-700'}`}
+            className={`w-full flex items-center justify-center gap-3 rounded-2xl font-bold ${measuring ? 'min-h-[72px] landscape:min-h-[56px] text-2xl border-[3px] border-red-500 text-red-500 active:bg-red-900/40' : 'min-h-[88px] landscape:min-h-[64px] text-3xl bg-emerald-600 active:bg-emerald-700 text-white'}`}
             data-testid="lap-timer-start-stop"
           >
             {measuring ? <><Square size={24} fill="currentColor" />{t('測定終了', 'Stop')}</> : <><Play size={28} fill="currentColor" />{t('測定開始', 'Start')}</>}
@@ -792,45 +796,45 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       {/* メニューの外を押したら閉じる (透明な受け皿をメニューの後ろに敷く) */}
       {menuOpen && <div className="absolute inset-0 z-[9]" onClick={() => setMenuOpen(false)} aria-hidden="true" data-testid="lap-timer-menu-backdrop" />}
       {menuOpen && (
-        <div className="absolute right-2 top-14 z-10 w-[min(92vw,360px)] max-h-[80vh] overflow-y-auto rounded-2xl bg-neutral-900 border border-white/15 p-3 space-y-3 text-sm shadow-2xl">
+        <div className="absolute right-2 top-14 z-10 w-[min(92vw,360px)] max-h-[80vh] overflow-y-auto rounded-2xl bg-surface-1 border border-line-2 p-3 space-y-3 text-sm shadow-2xl">
           <div>
-            <div className="text-white/50 text-xs mb-1">{t('測位の出どころ', 'Position source')}</div>
+            <div className="text-slate-400 text-xs mb-1">{t('測位の出どころ', 'Position source')}</div>
             <div className="grid grid-cols-1 gap-1">
               {canUseLoggerBle && (
-                <button onClick={() => { setSource('digspice'); setMenuOpen(false); }} className={`text-left px-3 py-2 rounded-lg ${source === 'digspice' ? 'bg-red-600' : 'bg-white/5'}`}>
+                <button onClick={() => { setSource('digspice'); setMenuOpen(false); }} className={`text-left px-3 py-2 rounded-lg ${source === 'digspice' ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
                   {t('デジスパイス (Bluetooth・20 Hz)', 'DigSpice (Bluetooth, 20 Hz)')}
                 </button>
               )}
               {lapDevices.racebox && (
-                <button onClick={() => { setSource('racebox'); setMenuOpen(false); }} className={`text-left px-3 py-2 rounded-lg ${source === 'racebox' ? 'bg-red-600' : 'bg-white/5'}`}>
+                <button onClick={() => { setSource('racebox'); setMenuOpen(false); }} className={`text-left px-3 py-2 rounded-lg ${source === 'racebox' ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
                   {t(`RaceBox (${lapDevices.racebox.displayName}・25 Hz)`, `RaceBox (${lapDevices.racebox.displayName}, 25 Hz)`)}
                 </button>
               )}
-              <button onClick={() => { setSource('phone'); setMenuOpen(false); }} className={`text-left px-3 py-2 rounded-lg ${source === 'phone' ? 'bg-red-600' : 'bg-white/5'}`}>
+              <button onClick={() => { setSource('phone'); setMenuOpen(false); }} className={`text-left px-3 py-2 rounded-lg ${source === 'phone' ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
                 {t('この端末の GPS (1 Hz 前後・粗い)', 'This device GPS (~1 Hz, coarse)')}
               </button>
-              <button onClick={() => { setSource('replay'); setMenuOpen(false); }} disabled={replayLogs.length === 0} className={`text-left px-3 py-2 rounded-lg disabled:opacity-40 ${source === 'replay' ? 'bg-red-600' : 'bg-white/5'}`}>
+              <button onClick={() => { setSource('replay'); setMenuOpen(false); }} disabled={replayLogs.length === 0} className={`text-left px-3 py-2 rounded-lg disabled:opacity-40 ${source === 'replay' ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
                 {t('読み込んだログを再生して試す', 'Try with a loaded log (replay)')}
               </button>
             </div>
           </div>
           {source === 'replay' && replayLogs.length > 0 && (
             <div className="space-y-2">
-              <select value={replayId} onChange={e => setReplayId(e.target.value)} className="w-full bg-white/5 rounded-lg px-2 py-2" aria-label={t('再生するログ', 'Log to replay')}>
+              <select value={replayId} onChange={e => setReplayId(e.target.value)} className="w-full bg-surface-2 rounded-lg px-2 py-2" aria-label={t('再生するログ', 'Log to replay')}>
                 {replayLogs.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
               <div className="flex gap-1">
                 {[1, 4, 16].map(x => (
-                  <button key={x} onClick={() => setReplaySpeed(x)} className={`flex-1 px-2 py-1.5 rounded-lg ${replaySpeed === x ? 'bg-red-600' : 'bg-white/5'}`}>×{x}</button>
+                  <button key={x} onClick={() => setReplaySpeed(x)} className={`flex-1 px-2 py-1.5 rounded-lg ${replaySpeed === x ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>×{x}</button>
                 ))}
               </div>
             </div>
           )}
           <div data-testid="lap-timer-runs">
-            <div className="text-white/50 text-xs mb-1">{t('走行の記録 (走っている間に 2 秒ごとに保存)', 'Runs (saved every 2 s while driving)')}</div>
-            {saveError && <div className="text-amber-300 text-[11px] mb-1">{t(`保存でエラー: ${saveError}`, `Save error: ${saveError}`)}</div>}
+            <div className="text-slate-400 text-xs mb-1">{t('走行の記録 (走っている間に 2 秒ごとに保存)', 'Runs (saved every 2 s while driving)')}</div>
+            {saveError && <div className="text-amber-500 text-[11px] mb-1">{t(`保存でエラー: ${saveError}`, `Save error: ${saveError}`)}</div>}
             {runs.length === 0 ? (
-              <div className="text-white/40 text-xs">{t('まだありません', 'None yet')}</div>
+              <div className="text-slate-500 text-xs">{t('まだありません', 'None yet')}</div>
             ) : (
               <div className="space-y-1.5">
                 {runs.slice(0, 20).map(r => {
@@ -838,20 +842,20 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
                   // 記録中 (または、たった今まで書いていた) の走行は消せない
                   const recording = recorderRef.current?.current?.id === r.id || Date.now() - r.updatedMs < 10000;
                   return (
-                    <div key={r.id} className="rounded-lg bg-white/5 px-2.5 py-2">
+                    <div key={r.id} className="rounded-lg bg-surface-2 px-2.5 py-2">
                       <div className="flex items-baseline gap-2 text-xs">
                         <span className="font-mono">{`${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`}</span>
-                        <span className="truncate text-white/70 flex-1 min-w-0">{r.courseName ? circuitLabel(r.courseName) : '—'}</span>
-                        {recording && <span className="text-red-400 text-[10px] whitespace-nowrap">{t('記録中', 'Recording')}</span>}
+                        <span className="truncate text-slate-300 flex-1 min-w-0">{r.courseName ? circuitLabel(r.courseName) : '—'}</span>
+                        {recording && <span className="text-red-500 text-[10px] whitespace-nowrap">{t('記録中', 'Recording')}</span>}
                       </div>
-                      <div className="text-[11px] text-white/50 font-mono">
+                      <div className="text-[11px] text-slate-400 font-mono">
                         {t(`${r.lapCount} 周`, `${r.lapCount} laps`)}{r.bestLapSec !== null ? ` · ${t('ベスト', 'best')} ${formatLapTime(r.bestLapSec, 3)}` : ''}{` · ${Math.round(r.fixCount / 20 / 60) || '<1'} min`}
                       </div>
                       <div className="flex gap-1 mt-1.5">
-                        <button onClick={() => { void runAction(r, 'open'); }} className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded bg-white/10 text-xs"><BarChart3 size={12} />{t('解析', 'Analyse')}</button>
-                        <button onClick={() => { void runAction(r, 'nmea'); }} className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded bg-white/10 text-xs"><Save size={12} />NMEA</button>
-                        <button onClick={() => { void runAction(r, 'bon4'); }} className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded bg-white/10 text-xs"><Save size={12} />bon4</button>
-                        <button onClick={() => { void runAction(r, 'delete'); }} disabled={recording} aria-label={t('消す', 'Delete')} title={t('消す', 'Delete')} className="px-2 py-1.5 rounded bg-white/5 text-white/60 disabled:opacity-30"><Trash2 size={12} /></button>
+                        <button onClick={() => { void runAction(r, 'open'); }} className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded bg-surface-3 text-xs"><BarChart3 size={12} />{t('解析', 'Analyse')}</button>
+                        <button onClick={() => { void runAction(r, 'nmea'); }} className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded bg-surface-3 text-xs"><Save size={12} />NMEA</button>
+                        <button onClick={() => { void runAction(r, 'bon4'); }} className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded bg-surface-3 text-xs"><Save size={12} />bon4</button>
+                        <button onClick={() => { void runAction(r, 'delete'); }} disabled={recording} aria-label={t('消す', 'Delete')} title={t('消す', 'Delete')} className="px-2 py-1.5 rounded bg-surface-2 text-slate-400 disabled:opacity-30"><Trash2 size={12} /></button>
                       </div>
                     </div>
                   );
@@ -859,22 +863,22 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               </div>
             )}
             {hasNative() && (
-              <p className="text-[10px] text-white/40 mt-1">{t('「ファイル」アプリの このiPhone内 → このアプリ → LapTimer → サーキット名 にも、走っている間に書いています (.nmea と .bon4)。', 'Also written while driving to Files → On My iPhone → this app → LapTimer → circuit name (.nmea and .bon4).')}</p>
+              <p className="text-[10px] text-slate-500 mt-1">{t('「ファイル」アプリの このiPhone内 → このアプリ → LapTimer → サーキット名 にも、走っている間に書いています (.nmea と .bon4)。', 'Also written while driving to Files → On My iPhone → this app → LapTimer → circuit name (.nmea and .bon4).')}</p>
             )}
           </div>
           {hasNative() && (
-            <button onClick={() => { void flushRecording(true).then(() => { setHistoryOpen(true); setMenuOpen(false); }); }} className="w-full text-left px-3 py-2 rounded-lg bg-white/5" data-testid="lap-timer-history">
+            <button onClick={() => { void flushRecording(true).then(() => { setHistoryOpen(true); setMenuOpen(false); }); }} className="w-full text-left px-3 py-2 rounded-lg bg-surface-2" data-testid="lap-timer-history">
               {t('ラップタイムの記録 (過去の周の一覧)', 'Lap time records (past laps)')}
             </button>
           )}
           {hasNative() && storage && (
             <div data-testid="lap-timer-storage">
-              <div className="text-white/50 text-xs mb-1">{t('記録の保管先', 'Where runs are kept')}</div>
+              <div className="text-slate-400 text-xs mb-1">{t('記録の保管先', 'Where runs are kept')}</div>
               <div className="grid grid-cols-1 gap-1">
-                <button onClick={() => { void chooseStorage('local'); }} className={`text-left px-3 py-2 rounded-lg ${storage.kind === 'local' ? 'bg-red-600' : 'bg-white/5'}`}>
+                <button onClick={() => { void chooseStorage('local'); }} className={`text-left px-3 py-2 rounded-lg ${storage.kind === 'local' ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
                   {t('この iPhone', 'This iPhone')}
                 </button>
-                <button onClick={() => { void chooseStorage('folder'); }} className={`text-left px-3 py-2 rounded-lg flex items-center gap-2 ${storage.kind === 'folder' ? 'bg-red-600' : 'bg-white/5'}`}>
+                <button onClick={() => { void chooseStorage('folder'); }} className={`text-left px-3 py-2 rounded-lg flex items-center gap-2 ${storage.kind === 'folder' ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
                   <FolderOpen size={14} className="shrink-0" />
                   <span className="truncate">
                     {storage.kind === 'folder' && storage.folderName
@@ -884,20 +888,20 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
                 </button>
               </div>
               {syncNote && (
-                <div className={`text-[11px] mt-1 ${syncNote.ok ? 'text-white/50' : 'text-amber-300'}`}>
+                <div className={`text-[11px] mt-1 ${syncNote.ok ? 'text-slate-400' : 'text-amber-500'}`}>
                   {syncNote.ok ? t(`フォルダへ ${syncNote.text} 個のファイルを写しました`, `Copied ${syncNote.text} files to the folder`) : t(`フォルダへ写せませんでした: ${syncNote.text}`, `Could not copy to the folder: ${syncNote.text}`)}
                 </div>
               )}
-              <p className="text-[10px] text-white/40 mt-1">
+              <p className="text-[10px] text-slate-500 mt-1">
                 {t('走っている間は、いつもこの iPhone に書きます (電波がなくても消えないように)。フォルダを選ぶと、アプリを閉じたとき・裏に回したとき・周を数え直したとき (走っている間は 3 分に 1 回まで) に、フォルダ → サーキット名 へ写します。',
                   'While driving, runs are always written to this iPhone (so nothing is lost without signal). With a folder chosen, they are copied to folder → circuit name when the app is closed or sent to the background, when laps are reset, and at most every 3 minutes while driving.')}
               </p>
             </div>
           )}
-          <button onClick={() => { resetRun(); setMenuOpen(false); }} className="w-full px-3 py-2 rounded-lg bg-white/5 text-white/70">
+          <button onClick={() => { resetRun(); setMenuOpen(false); }} className="w-full px-3 py-2 rounded-lg bg-surface-2 text-slate-300">
             {t('周をはじめから数える (新しい走行として記録する)', 'Reset laps (start a new run)')}
           </button>
-          <p className="text-[11px] text-white/40 leading-relaxed">
+          <p className="text-[11px] text-slate-500 leading-relaxed">
             {t('走っている間は、画面を消さずに、このアプリを前に出しておいてください (画面が消えると周を数えません)。',
               'Keep the screen on and this app in front while driving (laps are not counted while the screen is off).')}
           </p>
@@ -908,18 +912,18 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
 
       {/* コースを選ぶ */}
       {coursePicker && (
-        <div className="absolute inset-0 z-20 bg-black/90 flex flex-col p-3" role="dialog" aria-label={t('コースを選ぶ', 'Choose course')}>
+        <div className="absolute inset-0 z-20 bg-surface-0/95 flex flex-col p-3" role="dialog" aria-label={t('コースを選ぶ', 'Choose course')}>
           <div className="flex items-center gap-2 mb-2">
             <div className="font-bold flex-1">{t('コースを選ぶ (近い順)', 'Choose course (nearest first)')}</div>
-            <button onClick={() => setCoursePicker(false)} className="p-2 rounded-full border border-white/20" aria-label={t('閉じる', 'Close')}><X size={18} /></button>
+            <button onClick={() => setCoursePicker(false)} className="p-2 rounded-full border border-line-3" aria-label={t('閉じる', 'Close')}><X size={18} /></button>
           </div>
           <div className="flex-1 overflow-y-auto space-y-1">
-            <button onClick={() => { manualCourseRef.current = false; chooseCourse(null); setCoursePicker(false); }} className="w-full text-left px-3 py-2 rounded-lg bg-white/5">
+            <button onClick={() => { manualCourseRef.current = false; chooseCourse(null); setCoursePicker(false); }} className="w-full text-left px-3 py-2 rounded-lg bg-surface-2">
               {t('自動 (測位の所の近くのコース)', 'Auto (nearest to GPS)')}
             </button>
             {nearbyCourses.map(({ c, d }) => (
-              <button key={c.id} onClick={() => { manualCourseRef.current = true; chooseCourse(c, true); setCoursePicker(false); }} className={`w-full text-left px-3 py-2 rounded-lg ${course?.id === c.id ? 'bg-red-600' : 'bg-white/5'}`}>
-                {circuitLabel(c.name)}{Number.isFinite(d) ? <span className="text-white/40 ml-2 text-xs">{d < 10 ? d.toFixed(1) : Math.round(d)} km</span> : null}
+              <button key={c.id} onClick={() => { manualCourseRef.current = true; chooseCourse(c, true); setCoursePicker(false); }} className={`w-full text-left px-3 py-2 rounded-lg ${course?.id === c.id ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
+                {circuitLabel(c.name)}{Number.isFinite(d) ? <span className="text-slate-500 ml-2 text-xs">{d < 10 ? d.toFixed(1) : Math.round(d)} km</span> : null}
               </button>
             ))}
           </div>
