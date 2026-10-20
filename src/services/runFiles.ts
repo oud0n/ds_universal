@@ -78,7 +78,7 @@ export function bon4Records(fixes: LiveFix[]): Uint8Array {
     v.setUint8(o + 23, d.getUTCMinutes());
     v.setUint8(o + 24, d.getUTCSeconds());
     // 1/100 秒
-    v.setUint8(o + 25, Math.min(99, Math.floor(d.getUTCMilliseconds() / 10)));
+    v.setUint8(o + 25, Math.min(99, Math.round(d.getUTCMilliseconds() / 10)));
   });
   return out;
 }

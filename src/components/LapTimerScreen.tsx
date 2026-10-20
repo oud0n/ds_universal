@@ -9,7 +9,7 @@ import { downloadBlob } from '../services/telemetryVideoExporter';
 import { LiveRunRecorder } from '../services/runRecorder';
 import { deleteRun, listRuns, loadFixes, type RunMeta } from '../services/liveRunStore';
 import { fixesToBon4, fixesToNmea, runFileBase } from '../services/runFiles';
-import { callNative, hasNative } from '../native/bridge';
+import { callNative, hasNative, toBase64 } from '../native/bridge';
 import { canUseLoggerBle } from '../utils/device';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
@@ -183,6 +183,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     lastPosRef.current = fix;
     lastFixPerfRef.current = performance.now();
     fixesRef.current.push(fix);
+    // 画面で持つのは直近の 10 分ほど (コースの選び直しに使うだけ。走った測位は全部、記録の保存先にある)
+    if (fixesRef.current.length > 12000) fixesRef.current.splice(0, 2000);
     // 走っている間の記録 (ログの再生は記録しない)
     const src = sourceRef.current;
     if (src !== 'replay') {
@@ -439,15 +441,21 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     if (fixes.length < 2) return;
     const base = runFileBase(run.startedMs);
     if (action === 'open') { onOpenLog(`${base}.nmea`, fixesToNmea(fixes)); return; }
-    if (action === 'nmea') {
-      const text = fixesToNmea(fixes);
-      if (hasNative()) {
-        try { await callNative('system.shareText', { fileName: `${base}.nmea`, text }); return; } catch { /* 下のダウンロードにする */ }
+    const bytes = action === 'nmea' ? new TextEncoder().encode(fixesToNmea(fixes)) : fixesToBon4(fixes);
+    if (hasNative()) {
+      // アプリでは、データベースの記録からファイルを作って共有の画面で渡す (WKWebView ではダウンロードできないため)
+      try {
+        const path = `exports/${base}.${action}`;
+        await callNative('system.appendFile', { path, b64: toBase64(bytes), truncate: true });
+        await callNative('system.shareFile', { path });
+        return;
+      } catch (e) {
+        setSaveError(e instanceof Error ? e.message : String(e));
+        return;
       }
-      triggerFileDownload(`${base}.nmea`, text, 'text/plain');
-      return;
     }
-    downloadBlob(new Blob([fixesToBon4(fixes) as BlobPart], { type: 'application/octet-stream' }), `${base}.bon4`);
+    if (action === 'nmea') triggerFileDownload(`${base}.nmea`, new TextDecoder().decode(bytes), 'text/plain');
+    else downloadBlob(new Blob([bytes as BlobPart], { type: 'application/octet-stream' }), `${base}.bon4`);
   };
 
   const sectorCount = state?.sectorCount ?? 0;
@@ -606,7 +614,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               <div className="space-y-1.5">
                 {runs.slice(0, 20).map(r => {
                   const d = new Date(r.startedMs);
-                  const recording = recorderRef.current?.current?.id === r.id;
+                  // 記録中 (または、たった今まで書いていた) の走行は消せない
+                  const recording = recorderRef.current?.current?.id === r.id || Date.now() - r.updatedMs < 10000;
                   return (
                     <div key={r.id} className="rounded-lg bg-white/5 px-2.5 py-2">
                       <div className="flex items-baseline gap-2 text-xs">

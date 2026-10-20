@@ -31,8 +31,12 @@ final class SystemModule {
             do {
                 let fm = FileManager.default
                 try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                if (params["truncate"] as? Bool) == true || !fm.fileExists(atPath: url.path) {
+                if (params["truncate"] as? Bool) == true {
                     try data.write(to: url)
+                } else if !fm.fileExists(atPath: url.path) {
+                    // 足す先がない (途中で消された) ときは、頭のないファイルを作らずに知らせる (.bon4 は先頭の 8 バイトが要るため)
+                    done(.failure(NativeError(.notFound, "file was removed")))
+                    return
                 } else {
                     let handle = try FileHandle(forWritingTo: url)
                     defer { try? handle.close() }
@@ -48,8 +52,11 @@ final class SystemModule {
                 done(.failure(NativeError(.notFound, "no file")))
                 return
             }
-            share(url: url)
-            done(.success([:]))
+            if share(url: url) {
+                done(.success([:]))
+            } else {
+                done(.failure(NativeError(.io, "could not show the share sheet")))
+            }
         case "system.shareText":
             // Web で作った文 (変換した CSV など) を一時ファイルにして共有する
             guard let name = params["fileName"] as? String, !name.contains("/"), let text = params["text"] as? String else {
@@ -77,15 +84,17 @@ final class SystemModule {
     }
 
     /// 共有の画面 (AirDrop・「ファイル」に保存・メールなど) を出す
-    func share(url: URL) {
+    @discardableResult
+    func share(url: URL) -> Bool {
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
-              var top = scene.windows.first(where: \.isKeyWindow)?.rootViewController else { return }
+              var top = (scene.windows.first(where: \.isKeyWindow) ?? scene.windows.first)?.rootViewController else { return false }
         while let presented = top.presentedViewController { top = presented }
         let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
         // iPad では、出す場所を決めないと落ちる
         sheet.popoverPresentationController?.sourceView = top.view
         sheet.popoverPresentationController?.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 0, height: 0)
         top.present(sheet, animated: true)
+        return true
     }
 
     func startObservingAppState() {
