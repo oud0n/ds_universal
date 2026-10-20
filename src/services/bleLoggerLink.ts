@@ -36,6 +36,14 @@ const DEVICE_INFORMATION: Array<[string, string]> = [
 const CHARACTERISTIC = LOCATION_AND_SPEED_CHARACTERISTIC.toString(16).padStart(4, '0');
 
 const STORAGE_KEY = 'ds_ble_logger_device';
+/** 利用者が切断ボタンで切ったか (アプリを起動し直しても、ロガー設定を開いただけではつなぎに行かないため。2026-10-20) */
+const USER_OFF_KEY = 'ds_ble_logger_user_off';
+function loadUserOff(): boolean {
+  try { return localStorage.getItem(USER_OFF_KEY) === '1'; } catch { return false; }
+}
+function saveUserOff(off: boolean): void {
+  try { if (off) localStorage.setItem(USER_OFF_KEY, '1'); else localStorage.removeItem(USER_OFF_KEY); } catch { /* 覚えられなくてもよい */ }
+}
 /** これより長く測位が来なければ、途切れとして残す (秒) */
 const GAP_SEC = 0.5;
 /** これより長く測位が来なければ、測位待ちに戻す (ミリ秒) */
@@ -188,10 +196,20 @@ export class BleLoggerLink {
     return this.ready;
   }
 
-  /** BLE の層を用意し、登録してある機器につないでいなければつなぐ (ロガー設定・ラップタイマーの画面を開いたとき) */
-  async startAndConnect(): Promise<void> {
+  /**
+   * BLE の層を用意し、登録してある機器につないでいなければつなぐ (ロガー設定・ラップタイマーの画面を開いたとき)。
+   * 利用者が切断ボタンで切っていたら、ロガー設定を開いただけではつながない (force: ラップタイマーを開いたときは、使うつもりなのでつなぐ)
+   */
+  async startAndConnect(force = false): Promise<void> {
     await this.start();
+    if (!force && loadUserOff()) return;
     if (this.central && this.snap.registered && this.linkState === 'idle') await this.connect(true);
+  }
+
+  /** 利用者が切断ボタンで切る (起動し直しても、自分でつなぐまでつなぎに行かない) */
+  async disconnectByUser(): Promise<void> {
+    saveUserOff(true);
+    await this.disconnect();
   }
 
   async startScan(): Promise<void> {
@@ -246,6 +264,8 @@ export class BleLoggerLink {
     const central = this.central;
     const registered = this.snap.registered;
     if (!central || !registered) return;
+    // つなぐ (自分で押した・ラップタイマーを開いた) ので、切断ボタンで切った印は外す
+    saveUserOff(false);
     this.assembler.reset();
     // 新しくつなぐときは、前のつなぎの測位と途切れを持ち越さない (前の日の測位との差を途切れと数えないため)。
     // つなぎ直し (BLE の層が切れて戻る) の間は持ち越して、途切れを残す

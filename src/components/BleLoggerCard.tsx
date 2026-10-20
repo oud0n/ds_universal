@@ -103,7 +103,7 @@ export const BleLoggerCard: React.FC<{ active?: boolean; onOpenLapTimer?: () => 
             </div>
             <div className="flex gap-2">
               {linked ? (
-                <button onClick={() => bleLoggerLink.disconnect()} className={`${btn} bg-slate-700 hover:bg-slate-600 text-slate-200`}>
+                <button onClick={() => bleLoggerLink.disconnectByUser()} className={`${btn} bg-slate-700 hover:bg-slate-600 text-slate-200`}>
                   <Unlink size={14} />{t('切る', 'Disconnect')}
                 </button>
               ) : (
