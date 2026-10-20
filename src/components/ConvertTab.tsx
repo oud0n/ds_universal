@@ -163,7 +163,8 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
 
   return (
     <div className="h-full w-full overflow-y-auto">
-      <div className="max-w-4xl mx-auto space-y-3 pb-6">
+      {/* ログがないときは、グラフ・動画の画面と同じく、読み込むカードを真ん中に出す (目の動きをそろえる) */}
+      <div className={`max-w-4xl mx-auto space-y-3 pb-6 ${!session ? 'min-h-full flex flex-col justify-center' : ''}`}>
         {/* 読み込み */}
         <div
           onDragOver={e => { e.preventDefault(); setDragOver(true); }}
@@ -173,10 +174,10 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
             setDragOver(false);
             if (e.dataTransfer.files.length > 0) onDropFiles(e.dataTransfer.files);
           }}
-          className={`bg-surface-2 border rounded-xl p-5 flex flex-col sm:flex-row items-center gap-4 ${dragOver ? 'border-red-500' : 'border-line-2'}`}
+          className={`bg-surface-2 border rounded-xl p-5 flex flex-col items-center gap-4 ${session ? 'sm:flex-row' : 'w-full max-w-xl mx-auto shadow-lg'} ${dragOver ? 'border-red-500' : 'border-line-2'}`}
         >
           <div className="p-2.5 rounded-lg bg-red-500/10 text-red-400"><Repeat size={20} /></div>
-          <div className="flex-1 text-center sm:text-left">
+          <div className={`flex-1 text-center ${session ? 'sm:text-left' : ''}`}>
             <h2 className="text-sm font-bold text-slate-100">{t('ログ変換', 'Log conversion')}</h2>
             <p className="text-xs text-slate-400 mt-0.5">
               {t('走行ログ (.bnx4 / .bon4 / .dtb / NMEA / CSV / VBO / GPX / AiM / iRacing / GoPro の動画) を読み込み、NMEA・GPX・CSV などに書き出します。 ファイルをここにドロップしても読み込めます。処理はすべてこの端末内で行われます。',
@@ -189,11 +190,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
           </button>
         </div>
 
-        {!session ? (
-          <div className="bg-surface-2 border border-line-2 rounded-xl p-8 text-center text-xs text-slate-500">
-            {t('まだログが読み込まれていません。', 'No log loaded yet.')}
-          </div>
-        ) : (
+        {!session ? null : (
           <>
             {/* 設定 */}
             <div className="bg-surface-2 border border-line-2 rounded-xl p-4 space-y-3">
