@@ -39,9 +39,9 @@ interface VideoTileProps {
   children?: React.ReactNode;
 }
 
-/** メーターを描く板の幅 (映っている動画の幅の 1.4 倍、560〜1280) */
+/** メーターを描く板の幅 (映っている動画の幅の 2 倍、800〜1280。スマートフォンではメーターを動画に対して約 1.5 倍に出す) */
 export function overlayLogicalWidth(displayWidth: number): number {
-  return Math.round(Math.min(1280, Math.max(560, displayWidth * 1.4)));
+  return Math.round(Math.min(1280, Math.max(800, displayWidth * 2)));
 }
 
 export const VideoTile: React.FC<VideoTileProps> = ({
