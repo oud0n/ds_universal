@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Download, FolderOpen, Repeat } from 'lucide-react';
 import { Session } from '../types/telemetry';
 import {
-  ConvertRange, selectConvertPoints, toTelemetryPoints, hasRecordedClock, convertToNmea, convertToGpx, convertToCsv, convertToHtmlMap, convertToKml, convertToTxt, convertToVbo
+  ConvertRange, selectConvertPoints, toTelemetryPoints, hasRecordedClock, convertToNmea, convertToGpx, convertToCsv, convertToHtmlMap, convertToKml, convertToTxt, convertToVbo, convertToBon4
 } from '../services/logConverter';
 import { exportDtb } from '../services/dtbParser';
 import { triggerFileDownload } from '../services/nmeaExporter';
@@ -333,10 +333,16 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
                     onClick={() => save('html', convertToHtmlMap(points, baseName), 'text/html')}>
                     <Download size={13} /> {t('地図 HTML', 'Map HTML')}
                   </button>
+                  <button disabled={disabled} className={btnCls} data-testid="convert-bon4"
+                    // .bon4 の時刻はいつも UTC なので、ファイル名に時差は付けない
+                    onClick={() => triggerFileDownload(`${baseName}.bon4`, convertToBon4(points, offsetHours), 'application/octet-stream')}
+                    title={t('デジスパイスの生ログの形（公式ソフトで開けます）。時刻は UTC、標高の無い点は 0 m', 'DigSpice raw log (opens in the official software). Times are UTC; points without altitude get 0 m')}>
+                    <Download size={13} /> .bon4
+                  </button>
                 </div>
                 <p className="text-[11px] text-slate-500 mt-2">
-                  {t('NMEA / GPX は RaceChrono などの解析アプリに読み込めます。CSV は位置・速度・方位・衛星数の表、TXT は同じ内容の空白区切りです。ファイル名の末尾は時刻の調整（_UTC / _JST など）です。記録されていない項目（標高・衛星数）は空欄にします。 KML は Google Earth で開けます（線の色は車速）。地図 HTML は開くときにインターネット接続が必要です（地図は OpenStreetMap、表示用のスクリプトは unpkg.com から読み込みます）。',
-                    'NMEA / GPX can be loaded into analysis apps such as RaceChrono. CSV is a table of position, speed, heading and satellites; TXT is the same, space-separated. The end of the file name shows the time offset (_UTC / _JST etc.). Fields that were not recorded (altitude, satellites) are left blank. KML opens in Google Earth (line coloured by speed). Map HTML needs an internet connection when opened (maps from OpenStreetMap, display script from unpkg.com).')}
+                  {t('NMEA / GPX は RaceChrono などの解析アプリに読み込めます。CSV は位置・速度・方位・衛星数の表、TXT は同じ内容の空白区切りです。ファイル名の末尾は時刻の調整（_UTC / _JST など）です。記録されていない項目（標高・衛星数）は空欄にします。 KML は Google Earth で開けます（線の色は車速）。地図 HTML は開くときにインターネット接続が必要です（地図は OpenStreetMap、表示用のスクリプトは unpkg.com から読み込みます）。.bon4 はデジスパイスの生ログの形で、デジスパイスの公式ソフトで開けます（時刻は UTC で書き、標高の無い点は 0 m にします）。',
+                    'NMEA / GPX can be loaded into analysis apps such as RaceChrono. CSV is a table of position, speed, heading and satellites; TXT is the same, space-separated. The end of the file name shows the time offset (_UTC / _JST etc.). Fields that were not recorded (altitude, satellites) are left blank. KML opens in Google Earth (line coloured by speed). Map HTML needs an internet connection when opened (maps from OpenStreetMap, display script from unpkg.com). .bon4 is the DigSpice raw log format and opens in the official DigSpice software (times are written in UTC; points without altitude get 0 m).')}
                 </p>
               </div>
               <div>
