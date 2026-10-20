@@ -138,6 +138,21 @@ final class SystemModule {
                 }.value
                 done(r.map { _ in [:] })
             }
+        case "system.readRunRange":
+            guard let rel = params["path"] as? String, let offset = params["offset"] as? Double, let length = params["length"] as? Int, offset >= 0 else {
+                return done(.failure(NativeError(.notFound, "bad params")))
+            }
+            Task {
+                let r: Result<Data, NativeError> = await Task.detached(priority: .userInitiated) {
+                    do { return .success(try RunFiles.readRange(rel, offset: UInt64(offset), length: length)) }
+                    catch let e as NativeError { return .failure(e) }
+                    catch { return .failure(NativeError(.io, error.localizedDescription)) }
+                }.value
+                done(r.map { ["b64": $0.base64EncodedString()] })
+            }
+        case "system.runFileStatus":
+            guard let rel = params["path"] as? String else { return done(.failure(NativeError(.notFound, "no path"))) }
+            done(.success(RunFiles.status(rel)))
         case "system.downloadRunFile":
             guard let rel = params["path"] as? String else { return done(.failure(NativeError(.notFound, "no path"))) }
             do { try RunFiles.startDownload(rel); done(.success([:])) }
