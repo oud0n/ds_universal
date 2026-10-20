@@ -125,6 +125,11 @@ export interface NativeMethods {
   /** つないでいる機器の特性を 1 回読む (Device Information など)。b はバイト列 (base64) */
   'ble.read': { params: { deviceId: string } & GattCharacteristicRef; result: { b: string } };
   /**
+   * 特性に書く (b は base64)。答えのある書き込みができる特性は、書き終わってから返す (2026-10-20 に足した。版は 1 のまま。前のアプリは not-supported)。
+   * OBD-II の命令・GoPro の操作に使う。暗号化が要る機器でペアリングしていなければ permission-denied
+   */
+  'ble.write': { params: { deviceId: string; b: string } & GattCharacteristicRef; result: Record<string, never> };
+  /**
    * つないでいる機器の通知を、そのままファイルに書き足し始める (画面が消えていても続く。OS がアプリを止めても、起こし直したときに続ける)。
    * header は見出しの行 (機器の名前など)。ファイルの形は RecordingFile の説明
    */
