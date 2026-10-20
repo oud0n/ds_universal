@@ -529,7 +529,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           // デジスパイスにつないでいないときは、押すとつなぐ
           onClick={() => { if (source === 'digspice' && link.status === 'idle') void bleLoggerLink.connect(); else setMenuOpen(o => !o); }}
           // 幅が足りないときは、こちら (出どころの状態) を縮める (コースのボタンが「コ…」にならないように)
-          className={`flex items-center gap-1 px-2 py-1 rounded-full border whitespace-nowrap overflow-hidden text-ellipsis min-w-0 flex-1 basis-0 max-w-fit ${sourceStatus.ok ? 'border-emerald-500/50 text-emerald-300 bg-emerald-500/10' : 'border-amber-500/50 text-amber-300 bg-amber-500/10'}`}
+          className={`flex items-center gap-1 px-2 py-1 rounded-full border whitespace-nowrap overflow-hidden text-ellipsis min-w-0 ${sourceStatus.ok ? 'border-emerald-500/50 text-emerald-300 bg-emerald-500/10' : 'border-amber-500/50 text-amber-300 bg-amber-500/10'}`}
           data-testid="lap-timer-source"
         >
           {source === 'digspice' ? <Bluetooth size={14} className="shrink-0" /> : source === 'phone' ? <Smartphone size={14} className="shrink-0" /> : <PlayCircle size={14} className="shrink-0" />}
@@ -539,19 +539,19 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           <MapPin size={14} className="shrink-0" />
           <span className="truncate">{course ? circuitLabel(course.name) : t('コース: 自動', 'Course: auto')}</span>
         </button>
-        <div className="flex-1 min-w-0" />
+        {/* 右のボタンの並びは右に寄せる (余った幅は出どころの状態の表示に回す) */}
         {wakeLockOk === false && (
-          <span className="text-amber-300/80 text-[11px] leading-tight max-w-[30vw]" data-testid="lap-timer-wake-warning">
+          <span className="ml-auto text-amber-300/80 text-[11px] leading-tight max-w-[30vw]" data-testid="lap-timer-wake-warning">
             {t('画面が消えます: 設定の自動ロックを「なし」に', 'Screen may sleep: set Auto-Lock to Never')}
           </span>
         )}
-        <button onClick={() => setVoice(v => !v)} className="p-2 rounded-full border border-white/20" aria-label={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')} title={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')}>
+        <button onClick={() => setVoice(v => !v)} className={`p-2 rounded-full border border-white/20 shrink-0 ${wakeLockOk === false ? '' : 'ml-auto'}`} aria-label={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')} title={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')}>
           {voice ? <Volume2 size={18} /> : <VolumeX size={18} className="text-white/50" />}
         </button>
-        <button onClick={() => setMenuOpen(o => !o)} className="p-2 rounded-full border border-white/20" aria-label={t('メニュー', 'Menu')} title={t('メニュー', 'Menu')}>
+        <button onClick={() => setMenuOpen(o => !o)} className="p-2 rounded-full border border-white/20 shrink-0" aria-label={t('メニュー', 'Menu')} title={t('メニュー', 'Menu')}>
           <Menu size={18} />
         </button>
-        <button onClick={onClose} className="p-2 rounded-full border border-white/20" aria-label={t('閉じる', 'Close')} title={t('閉じる', 'Close')} data-testid="lap-timer-close">
+        <button onClick={onClose} className="p-2 rounded-full border border-white/20 shrink-0" aria-label={t('閉じる', 'Close')} title={t('閉じる', 'Close')} data-testid="lap-timer-close">
           <X size={18} />
         </button>
       </header>
