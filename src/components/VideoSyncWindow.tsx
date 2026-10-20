@@ -138,6 +138,9 @@ function compareSessionTimeAtDistance(aligned: Lap, original: Lap, d: number): n
 /**
  * テレメトリオーバーレイを Canvas に描画する共通関数 (リアルタイム表示 & 動画エクスポートで共用)
  */
+/** G メーターの大きさ (速度の枠に対する倍率) */
+const G_METER_SCALE = 1.3;
+
 export function drawTelemetryOverlayOnCanvas(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -210,7 +213,10 @@ export function drawTelemetryOverlayOnCanvas(
   // 2. Gフォースメーター (右下 - フラットデザイン)
   if (showGForce) {
     ctx.save();
-    ctx.translate(avoidCorner === 'bottom-right' ? w - pipInset - 96 : w - 128, h - 96);
+    // G メーターだけ 1.3 倍に描く (2026-10-20。右下の角からの余白は変えない)
+    const gs = G_METER_SCALE;
+    ctx.translate(avoidCorner === 'bottom-right' ? w - pipInset - 96 * gs : w - 32 - 96 * gs, h - 24 - 72 * gs);
+    ctx.scale(gs, gs);
 
     // フラット背景プレート
     ctx.fillStyle = 'rgba(15, 20, 30, 0.85)';
