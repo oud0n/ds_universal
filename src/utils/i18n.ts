@@ -14,23 +14,36 @@ function deviceLang(): Lang {
   return /^ja\b/i.test(nav) || nav === '' ? 'ja' : 'en';
 }
 
-/** 保存した言語 (端末と違う言語を選んだときだけ)。端末と同じものが残っていたら (前の版で保存したもの)、自動に戻す */
-function savedLang(): Lang | null {
+/** 前の版で保存した言語を、この版で一度だけ見直した印 */
+const MIGRATED_KEY = 'ds_lang_auto_v1';
+
+/**
+ * 画面のボタンで選んだ言語 (端末と違う言語を選んだときだけ)。保存できない環境 (プライベートウインドウ) でも、
+ * このページを開いている間はここで覚える
+ */
+let override: Lang | null = loadOverride();
+
+function loadOverride(): Lang | null {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
-    if (v !== 'ja' && v !== 'en') return null;
-    if (v === deviceLang()) {
-      localStorage.removeItem(STORAGE_KEY);
-      return null;
+    const saved = v === 'ja' || v === 'en' ? v : null;
+    // 前の版は、ボタンを押すと端末と同じ言語でも保存していた。この版で初めて開いたときだけ、端末と同じものは自動に戻す
+    // (そのあとは消さない。端末の言語を変えても、ボタンで選んだ言語は残る)
+    if (!localStorage.getItem(MIGRATED_KEY)) {
+      localStorage.setItem(MIGRATED_KEY, '1');
+      if (saved && saved === deviceLang()) {
+        localStorage.removeItem(STORAGE_KEY);
+        return null;
+      }
     }
-    return v;
+    return saved;
   } catch {
     // 保存先が使えない (プライベートウインドウなど) ときは端末の言語に合わせる
     return null;
   }
 }
 
-let lang: Lang = savedLang() ?? deviceLang();
+let lang: Lang = override ?? deviceLang();
 const listeners = new Set<() => void>();
 
 function apply() {
@@ -44,7 +57,7 @@ apply();
 // 端末の言語を変えたら、自動のときはすぐ合わせる
 if (typeof window !== 'undefined') {
   window.addEventListener('languagechange', () => {
-    if (savedLang() !== null) return;
+    if (override !== null) return;
     const next = deviceLang();
     if (next !== lang) {
       lang = next;
@@ -59,17 +72,18 @@ export function getLang(): Lang {
 
 /** 端末の言語に合わせているか (画面のボタンで端末と違う言語を選んでいなければ true) */
 export function isLangAuto(): boolean {
-  return savedLang() === null;
+  return override === null;
 }
 
 export function setLang(l: Lang) {
   lang = l;
+  // 端末と同じ言語を選んだら自動に戻す (端末の言語を変えたら、それに合わせる)。違う言語なら、その言語に決める
+  override = l === deviceLang() ? null : l;
   try {
-    // 端末と同じ言語を選んだら、保存を消して自動に戻す (端末の言語を変えたら、それに合わせる)
-    if (l === deviceLang()) localStorage.removeItem(STORAGE_KEY);
-    else localStorage.setItem(STORAGE_KEY, l);
+    if (override === null) localStorage.removeItem(STORAGE_KEY);
+    else localStorage.setItem(STORAGE_KEY, override);
   } catch {
-    // 保存できなくても、この画面では切り替える
+    // 保存できなくても、このページを開いている間は覚えている
   }
   apply();
 }
