@@ -56,6 +56,7 @@ export function exportOverlayOnly(options: OverlayExportOptions): VideoExportCon
   let output: Output | null = null;
   let videoSink: VideoSink | null = null;
   let byteSink: ByteSink | null = null;
+  let zipRef: Zip | null = null;
 
   const run = async () => {
     const canvas = document.createElement('canvas');
@@ -99,8 +100,10 @@ export function exportOverlayOnly(options: OverlayExportOptions): VideoExportCon
     let pending: Promise<void> = Promise.resolve();
     const zip = new Zip((err, data) => {
       if (err) { zipError = err; return; }
-      pending = sink.write(data);
+      // 書き込みは sink の中で順に並ぶ。pending は、それまでの書き込みが全部終わると解ける
+      if (!cancelled) pending = sink.write(data);
     });
+    zipRef = zip;
     const digits = String(frames).length < 6 ? 6 : String(frames).length;
     for (let i = 0; i < frames; i++) {
       if (cancelled) throw new Error('エクスポートがユーザーによりキャンセルされました');
@@ -133,6 +136,8 @@ export function exportOverlayOnly(options: OverlayExportOptions): VideoExportCon
       if (cancelled) return;
       cancelled = true;
       void output?.cancel();
+      // ZIP は作るのをやめる (このあとの書き込みを止める)
+      zipRef?.terminate();
     },
     promise
   };
