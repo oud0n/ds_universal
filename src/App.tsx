@@ -1543,7 +1543,8 @@ export const App: React.FC = () => {
           items={plan.primary}
           bottom={plan.more}
           current={currentTab}
-          onSelect={s => navStore.go(s)}
+          // 設定をもう一度押したら閉じる (来た画面へ戻る)
+          onSelect={s => (s === 'settings' && currentTab === 'settings' ? navStore.back() : navStore.go(s))}
           badges={{ data: sessions.length }}
         />
       )}

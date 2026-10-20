@@ -36,7 +36,7 @@ export interface RunItem {
   synced: boolean;
   /** 同じフォルダの動画 */
   folderVideos: RunFileInfo[];
-  /** 周をまだ数えていない (iCloud にだけあって、まだ落としていない) */
+  /** 周をまだ数えていない (iCloud にだけあって、まだ落としていない)。コースの分からないフォルダ (unsorted) の走行は含めない */
   pending: boolean;
   entry: RunEntry | null;
 }
@@ -63,6 +63,7 @@ export async function listRuns(store: RunStore, onProgress?: (folder: string) =>
   // フォルダごとの動画と .bon4 を先に 1 回だけ分けておく (走行ごとに全部のファイルを探すと、数千件で遅くなる)
   const videosByDir = new Map<string, RunFileInfo[]>();
   const bon4ByDir = new Map<string, string[]>();
+  const remoteOnly = new Set(all.filter(x => x.local === false).map(x => x.path));
   for (const x of all) {
     const dir = dirName(x.path);
     if (isRunVideoName(baseName(x.path))) {
@@ -105,7 +106,7 @@ export async function listRuns(store: RunStore, onProgress?: (folder: string) =>
         videos,
         synced: !!entry?.sync,
         folderVideos,
-        pending: !rec,
+        pending: !rec && remoteOnly.has(`${f.folder}/${file}`),
         entry
       });
     }
