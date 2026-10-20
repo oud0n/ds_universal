@@ -102,6 +102,9 @@ export function liveDelta(lap: Lap, t: number, ref: Lap): number | null {
   const lapDist = interpAt(lap.points, 'time', elapsed, 'distance');
   const refTotal = ref.points[ref.points.length - 1].distance;
   if (!(lapDist >= 0)) return null;
+  // 長さが 10% より違う周 (別のコース) とは比べない
+  const lapTotal = lap.points[lap.points.length - 1].distance;
+  if (refTotal > 0 && Math.abs(lapTotal - refTotal) > refTotal * 0.1) return null;
   // 基準の周より長く走ったときは、基準の周の終わりと比べる
   const refElapsed = lapDist >= refTotal ? ref.lapTime : interpAt(ref.points, 'distance', lapDist, 'time');
   return elapsed - refElapsed;
@@ -194,7 +197,8 @@ export function drawLapPanel(
     const start = i > 0 ? sectors[i - 1].splitTime : 0;
     if (elapsed >= s.splitTime) {
       value(r, lapClock(s.time));
-      const refSector = ref?.sectors[i];
+      // セクターの数が違う周 (別のコース・セクター線の違うログ) とは、セクターを比べない
+      const refSector = ref && ref.sectors.length === sectors.length ? ref.sectors[i] : undefined;
       if (refSector && lap !== ref) diff(r, s.time - refSector.time);
     } else if (elapsed >= start) {
       value(r, lapClock(elapsed - start));
@@ -205,7 +209,8 @@ export function drawLapPanel(
 
   if (ref && lap && !frozen && !waiting) {
     const r = 2 + sectors.length;
-    const d = lap === ref ? 0 : liveDelta(lap, t, ref);
+    // 比べる周そのものを走っているときは、差を出さない (セクター・周のタイムと同じ)
+    const d = lap === ref ? null : liveDelta(lap, t, ref);
     label(r, 'Δ');
     if (d !== null) value(r, signed(d), diffColor(d));
   }

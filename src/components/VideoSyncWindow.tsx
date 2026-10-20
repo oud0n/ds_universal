@@ -339,15 +339,6 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const isLandscape = useLandscape();
   const { pipPosition, showOverlay, showGForce } = win;
   // 重ねる部品 (画面の重ね表示と書き出しで同じ)
-  // ラップの欄で比べる周: 'best' (そのログのベスト) か、Car の枠 (0〜3) で選んだ周
-  const refCar = selectedCars.find(c => win.lapRef !== 'best' && c.slot === win.lapRef);
-  const refSession = refCar ? sessions.find(s => s.id === refCar.sessionId) : undefined;
-  const refLapPicked = refSession?.laps.find(l => l.lapNumber === refCar!.lapNumber && !l.isWholeSession);
-  const overlayParts: OverlayPartsOptions = {
-    lapPanel: win.showLapPanel,
-    map: win.showMap,
-    reference: refCar && refLapPicked ? { lap: refLapPicked, label: `Car${refCar.slot + 1}` } : null
-  };
   const setShowOverlay = (v: boolean) => setWin({ showOverlay: v });
   // 全部の <video> を、1 か所で App の時刻に合わせる
   // iPhone・iPad では、音のある動画の速さは変えない (映像が重くなるため)
@@ -414,6 +405,20 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const baseSelected = selectedCars.find(c => c.slot === 0);
   const speedSessionId = targetSessionId || baseSelected?.sessionId;
   const baseSession = sessions.find(s => s.id === speedSessionId) || sessions[0];
+  // ラップの欄で比べる周: 'best' (そのログのベスト) か、Car の枠 (0〜3) で選んだ周
+  // 同じコースの周だけ比べられる (コースの名前が同じ Car の周)
+  const sameCourse = (s: Session | undefined) => !!s && !!baseSession && s.circuitName === baseSession.circuitName;
+  const refCar = selectedCars.find(c => win.lapRef !== 'best' && c.slot === win.lapRef);
+  const refSession = refCar ? sessions.find(s => s.id === refCar.sessionId) : undefined;
+  const refLapPicked = sameCourse(refSession) ? refSession!.laps.find(l => l.lapNumber === refCar!.lapNumber && !l.isWholeSession) : undefined;
+  useEffect(() => {
+    if (win.lapRef !== 'best' && sessions.length > 0 && !refLapPicked) setWin({ lapRef: 'best' });
+  }, [win.lapRef, sessions.length, refLapPicked]);
+  const overlayParts: OverlayPartsOptions = {
+    lapPanel: win.showLapPanel,
+    map: win.showMap,
+    reference: refCar && refLapPicked ? { lap: refLapPicked, label: `Car${refCar.slot + 1}` } : null
+  };
   const baseLap = targetLap || baseSession?.laps.find(l => l.lapNumber === baseSelected?.lapNumber) || baseSession?.laps[0];
   // グラフ画面の動画では、App の時刻は選んだ周の時刻 (0〜周のタイム)。周の外へは動かさない
   // (周の外の時刻にすると、次のコマで周の始めに戻ってしまう)
@@ -2032,7 +2037,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 <div className="flex items-center gap-2 pt-1">
                   <label className="text-[10px] font-medium text-slate-400 whitespace-nowrap">{t('比べる周:', 'Compare with:')}</label>
                   <select
-                    value={String(win.lapRef)}
+                    value={overlayParts.reference ? String(win.lapRef) : 'best'}
                     onChange={e => setWin({ lapRef: e.target.value === 'best' ? 'best' : Number(e.target.value) })}
                     className="flex-1 min-w-0 bg-surface-1 border border-line-3 text-xs px-2 py-1 rounded outline-none text-slate-200 cursor-pointer"
                     data-testid="lap-ref"
@@ -2040,7 +2045,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     <option value="best">{t('このログのベストラップ', 'Best lap of this log')}</option>
                     {selectedCars.map(c => {
                       const sess = sessions.find(s => s.id === c.sessionId);
-                      const lap = sess?.laps.find(l => l.lapNumber === c.lapNumber && !l.isWholeSession);
+                      const lap = sameCourse(sess) ? sess!.laps.find(l => l.lapNumber === c.lapNumber && !l.isWholeSession) : undefined;
                       if (!lap) return null;
                       return <option key={c.slot} value={c.slot}>{`Car ${c.slot + 1}: ${c.label} L${lap.lapNumber} ${formatMinSec(lap.lapTime, 3)}`}</option>;
                     })}
