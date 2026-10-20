@@ -241,6 +241,8 @@ export const App: React.FC = () => {
   const [runsSheetOpen, setRunsSheetOpen] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
   const runOpeningRef = useRef(false);
+  /** 保管場所から開いた走行の道と、そのログ (同じ名前のほかのフォルダの走行と取り違えないため) */
+  const runSessionsRef = useRef(new Map<string, string[]>());
   // 開発サーバーで試すとき: #openrun=<フォルダ>/<ファイル> で、その走行を開く (画面を押せないシミュレーターで確かめるため)
   useEffect(() => {
     if (import.meta.env.DEV && window.location.hash === '#runsheet') setRunsSheetOpen(true);
@@ -757,8 +759,11 @@ export const App: React.FC = () => {
       if (!store) return;
       const bytes = await store.read(`${item.folder}/${item.file}`);
       const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-      const already = latestRef.current.sessions.filter(x => x.fileName === item.file);
+      const runPath = `${item.folder}/${item.file}`;
+      const openedIds = runSessionsRef.current.get(runPath) ?? [];
+      const already = latestRef.current.sessions.filter(x => openedIds.includes(x.id));
       const added = already.length ? already : await loadFileData(item.file, buffer);
+      runSessionsRef.current.set(runPath, added.map(x => x.id));
       setRunsSheetOpen(false);
       setCurrentTab('graph');
       if (added.length === 0) return;

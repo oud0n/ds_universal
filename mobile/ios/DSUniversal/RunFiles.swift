@@ -107,8 +107,14 @@ enum RunFiles {
             guard let url = resolve(rel, in: root), allowed.contains(url.pathExtension.lowercased()) else {
                 throw NativeError(.notFound, "no file")
             }
+            // 無いファイル (iCloud にだけあるもの .名前.icloud も無いとき) は not-found。読めないときの io と分ける
+            // (runs.json が読めないのに「無い」とみなして書くと、ほかの走行の行を消すため)
+            let placeholder = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).icloud")
+            if !FileManager.default.fileExists(atPath: url.path) && !FileManager.default.fileExists(atPath: placeholder.path) {
+                throw NativeError(.notFound, "no file")
+            }
             var coordError: NSError?
-            var result: Result<Data, Error> = .failure(NativeError(.notFound, "no file"))
+            var result: Result<Data, Error> = .failure(NativeError(.io, "could not read"))
             NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { u in
                 let size = ((try? FileManager.default.attributesOfItem(atPath: u.path))?[.size] as? Int) ?? 0
                 if size > 64 * 1024 * 1024 {
@@ -219,7 +225,8 @@ final class LapFileSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked Senda
         let (root, scoped) = RunFiles.root()
         let access = scoped && root.startAccessingSecurityScopedResource()
         defer { if access { root.stopAccessingSecurityScopedResource() } }
-        guard let file = RunFiles.resolve(rel, in: root) else { return fail(task, 404, url) }
+        // 読めるのは動画だけ (ログ・控えは system.readRunFile で読む)
+        guard let file = RunFiles.resolve(rel, in: root), RunFiles.videoExt.contains(file.pathExtension.lowercased()) else { return fail(task, 404, url) }
 
         // iCloud から落ちてきていなければ、落ちてくるまで待つ (Web は開く前に、大きさを知らせて聞いておく)
         var coordError: NSError?
@@ -247,6 +254,12 @@ final class LapFileSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked Senda
                 }
                 partial = true
             }
+        }
+        if size == 0 && !partial {
+            let headers = ["Content-Type": RunFiles.mimeType(file.pathExtension), "Content-Length": "0", "Access-Control-Allow-Origin": "*"]
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)!
+            send(task) { $0.didReceive(response) }
+            return finish(task)
         }
         if size == 0 || start > end || start >= size {
             let headers = ["Content-Range": "bytes */\(size)", "Access-Control-Allow-Origin": "*", "Content-Length": "0"]

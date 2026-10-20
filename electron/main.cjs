@@ -498,8 +498,10 @@ ipcMain.handle('laps-read-text', async (_event, rel) => {
     const st = await fs.promises.stat(full);
     if (st.size > MAX_LAP_TEXT_BYTES) return { success: false, error: 'too large' };
     return { success: true, text: await fs.promises.readFile(full, 'utf8') };
-  } catch {
-    return { success: true, text: null };
+  } catch (err) {
+    // 無いときだけ null。読めないとき (ほかのアプリが開いているなど) は失敗を返す (無いとみなして書くと、ほかの走行の行を消すため)
+    if (err && err.code === 'ENOENT') return { success: true, text: null };
+    return { success: false, error: err?.message ?? 'read failed' };
   }
 });
 ipcMain.handle('laps-write-text', async (_event, rel, text) => {
@@ -553,6 +555,7 @@ async function serveLapFile(request) {
       if (m[2] !== '') end = Math.min(end, Number(m[2]));
     }
   }
+  if (size === 0 && !partial) return new Response(null, { status: 200, headers: { ...headers, 'Content-Type': type, 'Content-Length': '0' } });
   if (size === 0 || start > end || start >= size) {
     return new Response(null, { status: 416, headers: { ...headers, 'Content-Range': `bytes */${size}` } });
   }
