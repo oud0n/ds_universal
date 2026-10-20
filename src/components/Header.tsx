@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { FolderOpen, Settings, Repeat, BarChart2, List, Video, Coffee, Sun, Moon, Monitor, MoreHorizontal, Contrast } from 'lucide-react';
+import { FolderOpen, Settings, Repeat, BarChart2, List, Video, Coffee, Sun, Moon, Monitor, MoreHorizontal, Contrast, Download } from 'lucide-react';
 import { Session } from '../types/telemetry';
 import { ThemeSetting, setThemeSetting, useThemeSetting } from '../utils/theme';
 import { canUseLogger } from '../utils/device';
 import { BleStatusPill } from './BleLoggerCard';
 import { Lang, setLang, useLang, useT } from '../utils/i18n';
+import { desktopDownloadUrl, isBrowserVersionOnPc } from '../utils/desktopApp';
+import { openExternalUrl } from '../utils/url';
 
 // テーマの切り替え (ライト / ダーク / システムに合わせる)
 const THEME_OPTIONS: { value: ThemeSetting; label: [string, string]; short: [string, string]; Icon: typeof Sun }[] = [
@@ -204,6 +206,19 @@ export const Header: React.FC<HeaderProps> = ({
           <FolderOpen size={13} />
           <span className="hidden md:inline">{t('ファイル読込', 'Open file')}</span>
         </button>
+
+        {/* デスクトップ版の案内 (パソコンのブラウザ版だけ。デスクトップ版・iPhone アプリの中では出さない) */}
+        {isBrowserVersionOnPc() && (
+          <button
+            onClick={() => openExternalUrl(desktopDownloadUrl())}
+            className="flex items-center gap-1.5 text-xs bg-surface-3 hover:bg-surface-4 text-slate-300 hover:text-fg border border-line-3 font-medium px-2.5 py-1.5 rounded transition-colors cursor-pointer"
+            title={t('デスクトップ版（Mac・Windows）のダウンロード', 'Download the desktop app (Mac / Windows)')}
+            aria-label={t('デスクトップ版', 'Desktop app')}
+          >
+            <Download size={13} />
+            <span className="hidden xl:inline whitespace-nowrap">{t('デスクトップ版', 'Desktop app')}</span>
+          </button>
+        )}
 
         {/* 開発支援 / Buy Me a Coffee */}
         {onOpenDonate && (
