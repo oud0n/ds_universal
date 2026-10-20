@@ -38,6 +38,7 @@ import { LoggerTab } from './components/LoggerTab';
 import { LapTimerScreen, type ReplayLog } from './components/LapTimerScreen';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
 import { DonateModal } from './components/DonateModal';
+import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
 import { bleLoggerLink } from './services/bleLoggerLink';
@@ -667,10 +668,18 @@ export const App: React.FC = () => {
       // 加える設定のときは、同じ走行のログがあれば聞く (OK なら今までどおり加える)
       if (better && addGps) {
         const name = better.sessionName || better.fileName;
-        const keep = window.confirm(tr(
-          `この動画には GPS の記録があります。同じ走行のログ「${name}」がもう読み込まれています。\n\n動画の GPS も走行ログとして加えますか？ (加えると、同じ走行が 2 つ並びます。キャンセルすると、動画を「${name}」に合わせるだけにします)`,
-          `This video has GPS data, and a log of the same run ("${name}") is already loaded.\n\nAdd the video GPS as another log too? (The same run would appear twice. Cancel to just sync the video to "${name}".)`
-        ));
+        const keep = await askChoice(
+          tr('動画の GPS も取り込みますか？', 'Import the video GPS too?'),
+          tr(
+            `同じ走行のログ「${name}」がもう読み込まれています。\n\n取り込む: 動画の GPS も走行ログとして加えます (同じ走行が 2 つ並びます)\n取り込まない: 動画を「${name}」に合わせるだけにします`,
+            `A log of the same run ("${name}") is already loaded.\n\nImport: add the video GPS as another log (the same run appears twice)\nDon't import: just sync the video to "${name}"`
+          ),
+          [
+            { label: tr('取り込む', 'Import'), value: true },
+            { label: tr('取り込まない', "Don't import"), value: false, primary: true }
+          ],
+          false
+        );
         if (keep) better = undefined;
       }
       if (better && betterStart !== null) {
@@ -1912,6 +1921,7 @@ export const App: React.FC = () => {
       )}
 
       {/* 開発支援 (Buy Me a Coffee) モーダル */}
+      <ChoiceDialogHost />
       <DonateModal
         isOpen={isDonateModalOpen}
         onClose={() => setIsDonateModalOpen(false)}
