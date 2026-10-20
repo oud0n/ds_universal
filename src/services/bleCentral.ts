@@ -27,6 +27,8 @@ export interface BleDeviceInfo {
 export interface BleNotification {
   tMs: number;
   bytes: Uint8Array;
+  /** どの特性の通知か (通知を複数受け取るとき。GoPro の命令の答え・問い合わせの答えなど) */
+  characteristic?: string;
 }
 
 export interface BleLinkHandlers {
@@ -48,10 +50,13 @@ export interface BleCentral {
    */
   scan(options: BleScanOptions, onDevice: (d: BleDeviceInfo) => void, onEnd: () => void): Promise<void>;
   stopScan(): Promise<void>;
-  connect(deviceId: string, notify: GattCharacteristicRef, handlers: BleLinkHandlers): Promise<void>;
+  /** notify: 通知を受け取る特性 (複数でもよい) */
+  connect(deviceId: string, notify: GattCharacteristicRef | GattCharacteristicRef[], handlers: BleLinkHandlers): Promise<void>;
   disconnect(deviceId: string): Promise<void>;
   /** つないでいる機器の特性を 1 回読む (Device Information など) */
   read(deviceId: string, ref: GattCharacteristicRef): Promise<Uint8Array>;
+  /** つないでいる機器の特性に書く (OBD-II の命令・GoPro の操作。2026-10-20) */
+  write(deviceId: string, ref: GattCharacteristicRef, bytes: Uint8Array): Promise<void>;
   /** 許可を断られたときに、OS の設定の画面を開ける (ネイティブだけ) */
   openSettings?: () => Promise<void>;
 }

@@ -2,7 +2,7 @@
  * BLE の層のネイティブ版 (iPhone・Android のアプリ)。窓口の ble.* を呼び、知らせを BleCentral の形にする
  */
 
-import { callNative, fromBase64, NativeError, onNative } from '../native/bridge';
+import { callNative, fromBase64, NativeError, onNative, toBase64 } from '../native/bridge';
 import type { BleCentral, BleLinkHandlers } from './bleCentral';
 import type { GattCharacteristicRef } from '../native/contract';
 import { tr } from '../utils/i18n';
@@ -46,7 +46,7 @@ export const nativeBleCentral: BleCentral = {
     await callNative('ble.stopScan', {});
   },
 
-  async connect(deviceId: string, notify: GattCharacteristicRef, handlers: BleLinkHandlers) {
+  async connect(deviceId: string, notify: GattCharacteristicRef | GattCharacteristicRef[], handlers: BleLinkHandlers) {
     await ensurePermission();
     links.get(deviceId)?.();
     const offState = onNative('ble.state', e => {
@@ -55,11 +55,11 @@ export const nativeBleCentral: BleCentral = {
     });
     const offNotify = onNative('ble.notify', e => {
       if (e.deviceId !== deviceId) return;
-      handlers.onNotify(e.items.map(it => ({ tMs: it.t / 1e6, bytes: fromBase64(it.b) })));
+      handlers.onNotify(e.items.map(it => ({ tMs: it.t / 1e6, bytes: fromBase64(it.b), characteristic: e.characteristic })));
     });
     links.set(deviceId, () => { offState(); offNotify(); });
     try {
-      await callNative('ble.connect', { deviceId, notify: [notify], autoReconnect: true, highThroughput: true });
+      await callNative('ble.connect', { deviceId, notify: Array.isArray(notify) ? notify : [notify], autoReconnect: true, highThroughput: true });
     } catch (e) {
       links.get(deviceId)?.();
       links.delete(deviceId);
@@ -79,6 +79,10 @@ export const nativeBleCentral: BleCentral = {
   async read(deviceId, ref) {
     const { b } = await callNative('ble.read', { deviceId, ...ref });
     return fromBase64(b);
+  },
+
+  async write(deviceId, ref, bytes) {
+    await callNative('ble.write', { deviceId, ...ref, b: toBase64(bytes) });
   },
 
   async openSettings() {

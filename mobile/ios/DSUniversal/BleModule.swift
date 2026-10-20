@@ -36,6 +36,17 @@ final class BleModule: NSObject {
     /// 読み出し (ble.read) の答え待ち。キーは「機器の ID / 特性」
     private var readWaiters: [String: [(Result<[String: Any], NativeError>) -> Void]] = [:]
     private var pendingReads: [(id: UUID, service: CBUUID, characteristic: CBUUID)] = []
+    /// 書く (ble.write) のうち、特性をまだ見つけていないもの
+    private var pendingWrites: [PendingWrite] = []
+    /// 答えのある書き込みの、書き終わりの知らせ待ち。キーは「機器の ID / 特性」(書いた順)
+    private var writeWaiters: [String: [(Result<[String: Any], NativeError>) -> Void]] = [:]
+    struct PendingWrite {
+        let id: UUID
+        let service: CBUUID
+        let characteristic: CBUUID
+        let data: Data
+        let done: (Result<[String: Any], NativeError>) -> Void
+    }
 
     /// まとめて送る前の通知
     private var pending: [UUID: [(characteristic: String, t: UInt64, bytes: Data)]] = [:]
@@ -68,6 +79,7 @@ final class BleModule: NSObject {
         case "ble.connect": connect(params: params, done: done)
         case "ble.disconnect": disconnect(id: params["deviceId"] as? String, done: done)
         case "ble.read": read(params: params, done: done)
+        case "ble.write": write(params: params, done: done)
         case "recorder.start": startRecording(params: params, done: done)
         case "recorder.stop": done(.success(recorder.stop()))
         case "recorder.status": done(.success(recordingStatus()))
@@ -256,6 +268,46 @@ final class BleModule: NSObject {
         }
     }
 
+    // MARK: - 書く (OBD-II の命令・GoPro の操作など。2026-10-20)
+
+    private func write(params: [String: Any], done: @escaping (Result<[String: Any], NativeError>) -> Void) {
+        guard let idText = params["deviceId"] as? String, let id = UUID(uuidString: idText),
+              let s = params["service"] as? String, let c = params["characteristic"] as? String,
+              let b = params["b"] as? String, let data = Data(base64Encoded: b) else {
+            done(.failure(NativeError(.notFound, "bad params")))
+            return
+        }
+        guard let peripheral = links[id]?.peripheral, peripheral.state == .connected else {
+            done(.failure(NativeError(.notConnected)))
+            return
+        }
+        let service = CBUUID(string: s), characteristic = CBUUID(string: c)
+        if let found = peripheral.services?.first(where: { $0.uuid == service })?.characteristics?.first(where: { $0.uuid == characteristic }) {
+            writeValue(peripheral, found, data, done)
+            return
+        }
+        // まだ見つけていない特性は、探してから書く
+        pendingWrites.append(PendingWrite(id: id, service: service, characteristic: characteristic, data: data, done: done))
+        if let found = peripheral.services?.first(where: { $0.uuid == service }) {
+            peripheral.discoverCharacteristics(nil, for: found)
+        } else {
+            peripheral.discoverServices([service])
+        }
+    }
+
+    /// 答えのある書き込み (write) ができる特性なら書き終わりを待ち、できなければ答えなしで書いてすぐ返す
+    private func writeValue(_ peripheral: CBPeripheral, _ characteristic: CBCharacteristic, _ data: Data, _ done: @escaping (Result<[String: Any], NativeError>) -> Void) {
+        if characteristic.properties.contains(.write) {
+            writeWaiters[Self.readKey(peripheral.identifier, characteristic.uuid), default: []].append(done)
+            peripheral.writeValue(data, for: characteristic, type: .withResponse)
+        } else if characteristic.properties.contains(.writeWithoutResponse) {
+            peripheral.writeValue(data, for: characteristic, type: .withoutResponse)
+            done(.success([:]))
+        } else {
+            done(.failure(NativeError(.notSupported, "characteristic is not writable")))
+        }
+    }
+
     private static func readKey(_ id: UUID, _ characteristic: CBUUID) -> String {
         "\(id.uuidString)/\(characteristic.uuidString)"
     }
@@ -401,6 +453,12 @@ extension BleModule: @preconcurrency CBCentralManagerDelegate {
             readWaiters.removeValue(forKey: key)?.forEach { $0(.failure(NativeError(.notConnected))) }
         }
         pendingReads.removeAll { $0.id == id }
+        // 書き込みの待ちも、つながっていないで返す
+        for key in writeWaiters.keys where key.hasPrefix(id.uuidString) {
+            writeWaiters.removeValue(forKey: key)?.forEach { $0(.failure(NativeError(.notConnected))) }
+        }
+        pendingWrites.filter { $0.id == id }.forEach { $0.done(.failure(NativeError(.notConnected))) }
+        pendingWrites.removeAll { $0.id == id }
         guard let link = links[id] else { return }
         if link.userClosed || !link.autoReconnect {
             links[id] = nil
@@ -419,8 +477,12 @@ extension BleModule: @preconcurrency CBPeripheralDelegate {
         for service in peripheral.services ?? [] {
             var wanted = link.notify.filter { $0.service == service.uuid }.map(\.characteristic)
             wanted += pendingReads.filter { $0.id == id && $0.service == service.uuid }.map(\.characteristic)
+            wanted += pendingWrites.filter { $0.id == id && $0.service == service.uuid }.map(\.characteristic)
             if !wanted.isEmpty { peripheral.discoverCharacteristics(Array(Set(wanted)), for: service) }
         }
+        let foundServices = Set((peripheral.services ?? []).map(\.uuid))
+        pendingWrites.filter { $0.id == id && !foundServices.contains($0.service) }.forEach { $0.done(.failure(NativeError(.notFound))) }
+        pendingWrites.removeAll { $0.id == id && !foundServices.contains($0.service) }
         // 見つからなかったサービスの読み出しは失敗で返す
         let found = Set((peripheral.services ?? []).map(\.uuid))
         for r in pendingReads where r.id == id && !found.contains(r.service) {
@@ -446,8 +508,31 @@ extension BleModule: @preconcurrency CBPeripheralDelegate {
         for r in pendingReads where r.id == id && r.service == service.uuid {
             finishRead(id, r.characteristic, .failure(NativeError(.notFound)))
         }
+        // 探していた特性に書く (見つからなければ失敗で返す)
+        let writes = pendingWrites.filter { $0.id == id && $0.service == service.uuid }
+        pendingWrites.removeAll { $0.id == id && $0.service == service.uuid }
+        for w in writes {
+            if let c = service.characteristics?.first(where: { $0.uuid == w.characteristic }) {
+                writeValue(peripheral, c, w.data, w.done)
+            } else {
+                w.done(.failure(NativeError(.notFound)))
+            }
+        }
         pendingReads.removeAll { $0.id == id && $0.service == service.uuid }
         if subscribed { emitState(id, "connected") }
+    }
+
+    func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+        let key = Self.readKey(peripheral.identifier, characteristic.uuid)
+        guard var waiters = writeWaiters[key], !waiters.isEmpty else { return }
+        let done = waiters.removeFirst()
+        writeWaiters[key] = waiters.isEmpty ? nil : waiters
+        // 暗号化が要る機器 (GoPro) でペアリングしていないと、ここで失敗が返る
+        if let error {
+            done(.failure(NativeError(.permissionDenied, error.localizedDescription)))
+        } else {
+            done(.success([:]))
+        }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
