@@ -178,11 +178,11 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   }, [chooseCourse]);
 
   /** ためた測位を保存する (周の数とベストも一緒に) */
-  const flushRecording = useCallback((): Promise<void> => {
+  const flushRecording = useCallback((force = false): Promise<void> => {
     const rec = recorderRef.current;
     if (!rec) return Promise.resolve();
     const st = timerRef.current?.getState();
-    return rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null });
+    return rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, force);
   }, []);
 
   /**
@@ -190,9 +190,10 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
    * 裏に回ったとき・閉じたとき・周を数え直したとき・周を終えたとき (3 分に 1 回まで) に呼ぶ
    */
   const syncStorage = useCallback(async (): Promise<void> => {
-    if (!hasNative()) return;
     lastSyncMsRef.current = Date.now();
-    await flushRecording();
+    // 閉じる・裏に回る・数え直すときは、コースを待っている途中の測位も保存する (ブラウザ版も)
+    await flushRecording(true);
+    if (!hasNative()) return;
     try {
       const r = await callNative('system.syncLapFiles', {});
       if (r.kind !== 'folder') return;
