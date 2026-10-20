@@ -293,8 +293,12 @@ export class PlaybackController {
         const wasMuted = el.muted;
         const target = localTime;
         el.muted = true;
+        // 一瞬だけ再生している印 (この間に画面に触れても、VideoTile が音を戻さないように。戻すと一瞬音が鳴る。2026-10-20)
+        const ds = (el as { dataset?: DOMStringMap }).dataset;
+        if (ds) ds.dsPriming = '1';
+        const done = () => { if (ds) delete ds.dsPriming; el.muted = wasMuted; el.currentTime = target; };
         // 再生が始まったら止めて、今の位置へ移す (移し終えると seeked で、もう一度合わせる)
-        el.play().then(() => { el.pause(); el.muted = wasMuted; el.currentTime = target; }).catch(() => { el.muted = wasMuted; el.currentTime = target; });
+        el.play().then(() => { el.pause(); done(); }).catch(done);
         return;
       }
       if (!el.paused) el.pause();

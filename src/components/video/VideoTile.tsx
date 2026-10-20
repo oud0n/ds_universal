@@ -67,7 +67,9 @@ export const VideoTile: React.FC<VideoTileProps> = ({
   // (画面に触れた操作の中なら、音を戻しても再生が止まらない)
   useEffect(() => {
     if (muted) return;
-    const restore = () => { const el = videoRef.current; if (el && el.muted) el.muted = false; };
+    // 最初のコマを出すために音を消して一瞬だけ再生している間 (PlaybackController が dsPriming の印を付ける) は戻さない
+    // (動画のタブを押した指を離したときに戻すと、止めるまでの間、一瞬音が鳴る)
+    const restore = () => { const el = videoRef.current; if (el && el.muted && !el.dataset.dsPriming) el.muted = false; };
     document.addEventListener('pointerup', restore);
     document.addEventListener('touchend', restore);
     return () => { document.removeEventListener('pointerup', restore); document.removeEventListener('touchend', restore); };
