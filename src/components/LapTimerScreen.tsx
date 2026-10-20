@@ -7,6 +7,7 @@ import { CIRCUIT_PRESETS, findMatchingCircuit } from '../services/circuitDatabas
 import { triggerFileDownload } from '../services/nmeaExporter';
 import { downloadBlob } from '../services/telemetryVideoExporter';
 import { LiveRunRecorder } from '../services/runRecorder';
+import { courseFolder } from '../utils/courseNames';
 import { deleteRun, listRuns, loadFixes, type RunMeta } from '../services/liveRunStore';
 import { fixesToBon4, fixesToNmea, runFileBase } from '../services/runFiles';
 import { callNative, hasNative, toBase64 } from '../native/bridge';
@@ -215,7 +216,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     // 走っている間の記録 (ログの再生は記録しない)
     const src = sourceRef.current;
     if (src !== 'replay') {
-      recorderRef.current ??= new LiveRunRecorder(src, () => courseRef.current?.name ?? '', m => setSaveError(m));
+      recorderRef.current ??= new LiveRunRecorder(src, () => courseRef.current?.name ?? '', m => setSaveError(m),
+        () => (courseRef.current ? courseFolder(courseRef.current.name, courseRef.current.folder) : ''));
       recorderRef.current.add(fix);
     }
     // コースを決めていなければ、初めの測位の所で選ぶ。周を数える前は、ときどき選び直す
