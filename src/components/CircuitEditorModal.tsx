@@ -17,8 +17,10 @@ interface CircuitEditorModalProps {
   sectors: Sector[];
   // 保存したコースを消したとき (データ管理の件数の表示を直す)
   onSavedCircuitsChange?: () => void;
-  // remember: アプリに保存して、次から同じ場所のログに使う
-  onSaveCircuit: (name: string, controlLine: ControlLine, sectors: Sector[], remember: boolean) => void;
+  // ゴールの線 (スタートとゴールが別のコース)。無ければ計測線から計測線まで
+  finishLine?: ControlLine;
+  // remember: アプリに保存して、次から同じ場所のログに使う。extra.finishLine: ゴールの線 (スタートとゴールが別のとき)
+  onSaveCircuit: (name: string, controlLine: ControlLine, sectors: Sector[], remember: boolean, extra: { finishLine?: ControlLine }) => void;
 }
 
 // 自動で判定したユーザーコースの名前に付く印。保存するときは外す
@@ -57,6 +59,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   defaultPosition,
   sectors: initialSectors,
   onSavedCircuitsChange,
+  finishLine,
   onSaveCircuit
 }) => {
   const t = useT();
@@ -106,6 +109,11 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   const [clLonA, setClLonA] = useState(initial ? initial.lonA.toString() : '');
   const [clLatB, setClLatB] = useState(initial ? initial.latB.toString() : '');
   const [clLonB, setClLonB] = useState(initial ? initial.lonB.toString() : '');
+  // ゴールの線 (スタートとゴールが別のコース。ジムカーナ・ヒルクライムなど)
+  const [separateFinish, setSeparateFinish] = useState(!!finishLine);
+  const [fin, setFin] = useState(() => finishLine
+    ? [finishLine.latA, finishLine.lonA, finishLine.latB, finishLine.lonB].map(String)
+    : ['', '', '', '']);
   const [saveError, setSaveError] = useState('');
 
   const [sectors, setSectors] = useState<Sector[]>(initialSectors);
@@ -259,6 +267,20 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
       return;
     }
     const newControlLine: ControlLine = { name: 'Start/Finish Line', latA, lonA, latB, lonB };
+    // ゴールの線 (別にするとき)。スタートの線と同じ所は使えない
+    let newFinish: ControlLine | undefined;
+    if (separateFinish) {
+      const f = fin.map(v => parseFloat(v));
+      if (f.some(v => !Number.isFinite(v)) || Math.abs(f[0]) > 90 || Math.abs(f[2]) > 90 || Math.abs(f[1]) > 180 || Math.abs(f[3]) > 180 || (f[0] === f[2] && f[1] === f[3])) {
+        setSaveError(tr('ゴールの線の 2 点の緯度・経度を正しく入力してください', 'Enter valid latitude and longitude for both points of the finish line'));
+        return;
+      }
+      if (f[0] === latA && f[1] === lonA && f[2] === latB && f[3] === lonB) {
+        setSaveError(tr('ゴールの線がスタートの線と同じです。同じなら「スタートとゴールが別」を外してください', 'The finish line is the same as the start line. If they are the same, turn off "separate start and finish"'));
+        return;
+      }
+      newFinish = { name: 'Finish Line', latA: f[0], lonA: f[1], latB: f[2], lonB: f[3] };
+    }
     const badSector = findBadSector(withFinish(sectors, newControlLine));
     if (badSector) {
       setSaveError(tr(`セクター「${badSector.name}」の 2 点の緯度・経度を正しく入力してください`, `Enter valid latitude and longitude for both points of sector "${badSector.name}"`));
@@ -271,7 +293,8 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
       return;
     }
 
-    onSaveCircuit(saveName, newControlLine, withFinish(sectors, newControlLine), remember);
+    // スタートとゴールが別のときは、最後のセクターをゴールの線までにする (周を数えるところでゴールの線を最後に置く)
+    onSaveCircuit(saveName, newControlLine, newFinish ? sectors.filter(sec => !sec.id.endsWith('_finish')) : withFinish(sectors, newControlLine), remember, { finishLine: newFinish });
     onClose();
   };
 
@@ -413,6 +436,37 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                 />
               </div>
             </div>
+          </div>
+
+          {/* ゴールの線 (スタートとゴールが別のコース) */}
+          <div className="bg-surface-1 border border-line-2 rounded-lg p-4 space-y-3">
+            <label className="flex items-center gap-2 font-bold text-sky-400 cursor-pointer">
+              <input type="checkbox" checked={separateFinish} onChange={e => setSeparateFinish(e.target.checked)} data-testid="course-separate-finish" />
+              {t('スタートとゴールが別 (ジムカーナ・ヒルクライムなど)', 'Separate start and finish (gymkhana, hill climb, etc.)')}
+            </label>
+            {separateFinish && (
+              <>
+                <p className="text-[11px] text-slate-400">
+                  {t('上の線をスタート、ここの線をゴールにして、スタートからゴールまでを 1 本として数えます。セクターは、その間に置いてください (最後のセクターはゴールまで)。',
+                    'The line above is the start and this one is the finish; each run from start to finish is counted as one. Put sectors in between (the last sector ends at the finish).')}
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  {([[0, t('点A 緯度 (Lat A)', 'Point A latitude')], [1, t('点A 経度 (Lon A)', 'Point A longitude')], [2, t('点B 緯度 (Lat B)', 'Point B latitude')], [3, t('点B 経度 (Lon B)', 'Point B longitude')]] as const).map(([i, label]) => (
+                    <div key={i}>
+                      <label className="block text-slate-400 text-[11px] mb-1">{label}</label>
+                      <input
+                        type="number"
+                        step="0.000001"
+                        value={fin[i]}
+                        data-testid={`course-finish-${i}`}
+                        onChange={e => setFin(v => v.map((x, k) => (k === i ? e.target.value : x)))}
+                        className="w-full bg-surface-2 border border-line-3 rounded p-1.5 font-mono"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           {/* セクターゲート */}

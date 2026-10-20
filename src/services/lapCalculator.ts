@@ -391,13 +391,37 @@ function orderSectorsByTravel(
 // 計測線の通過が 1 回のログで、通過点より後ろをラップとして扱う最短の長さ (秒)
 const PARTIAL_LAP_MIN_SEC = 15;
 
+/** 2 本の線が同じ所にあるか (端の 2 点がどちらも 1 m 以内。向きは問わない) */
+function sameLine(a: { latA: number; lonA: number; latB: number; lonB: number }, b: { latA: number; lonA: number; latB: number; lonB: number }): boolean {
+  const near = (la1: number, lo1: number, la2: number, lo2: number) => Math.abs(la1 - la2) < 1e-5 && Math.abs(lo1 - lo2) < 1e-5;
+  return (near(a.latA, a.lonA, b.latA, b.lonA) && near(a.latB, a.lonB, b.latB, b.lonB))
+    || (near(a.latA, a.lonA, b.latB, b.lonB) && near(a.latB, a.lonB, b.latA, b.lonA));
+}
+
+/**
+ * 計測線で周を区切る。
+ * finishLine があるコース (ジムカーナ・ヒルクライムなど、スタートとゴールが別のコース) では、
+ * スタートの線 (controlLine) を通ってから、次にゴールの線を通るまでを 1 本 (1 周) とする。
+ * ゴールまでに次のスタートを通ったら、その本は数えない (ゴールしていない)。最後のセクターはゴールの線まで
+ */
 export function extractLaps(
   points: TelemetryPoint[],
   controlLine?: ControlLine,
-  sectors: Sector[] = []
+  sectors: Sector[] = [],
+  finishLine?: ControlLine
 ): { laps: Lap[]; bestLapIndex: number; theoreticalBestTime: number; sectors: Sector[] } {
   if (points.length < 5) {
     return { laps: [], bestLapIndex: -1, theoreticalBestTime: 0, sectors };
+  }
+  // スタートとゴールが別のコースでは、ゴールの線を最後のセクター線にする (スタートの線と同じ所のセクター線は外す)
+  const pointToPoint = !!(controlLine && finishLine);
+  if (pointToPoint) {
+    // 名前は並びの順に S1・S2 … と振り直す (もとの名前のままだと、ゴールのセクターと名前が重なることがある)
+    const mids = sectors.filter(sec => !sameLine(sec, controlLine!) && !sameLine(sec, finishLine!));
+    sectors = mids.length > 0 || sectors.length > 0
+      ? [...mids, { id: 'finish_line', name: '', latA: finishLine!.latA, lonA: finishLine!.lonA, latB: finishLine!.latB, lonB: finishLine!.lonB }]
+        .map((sec, i) => ({ ...sec, name: `S${i + 1}` }))
+      : [];
   }
 
   let lapRanges: Array<{
@@ -411,8 +435,25 @@ export function extractLaps(
   }> = [];
   let isPartialLap = false;
 
-  // コントロールラインがある場合は交差検出でラップ分割
-  if (controlLine) {
+  if (pointToPoint) {
+    // スタート → 次のゴール (その間に次のスタートが無いもの) を 1 本にする
+    const starts = lapCrossings(points, controlLine!);
+    const finishes = lapCrossings(points, finishLine!);
+    starts.forEach((s0, i) => {
+      const nextStart = starts[i + 1]?.time ?? Infinity;
+      const f = finishes.find(fc => fc.time > s0.time && fc.time < nextStart);
+      if (!f) return;
+      lapRanges.push({
+        startIndex: s0.index,
+        endIndex: f.index,
+        startTime: s0.time,
+        endTime: f.time,
+        startPoint: s0.interpolatedPoint,
+        endPoint: f.interpolatedPoint
+      });
+    });
+  } else if (controlLine) {
+    // コントロールラインがある場合は交差検出でラップ分割
     const crossings = lapCrossings(points, controlLine); // ふつうは最低 15 秒間隔
     if (crossings.length >= 2) {
       for (let c = 0; c < crossings.length - 1; c++) {
@@ -460,7 +501,8 @@ export function extractLaps(
     });
   }
 
-  if (controlLine && !isWholeSession) sectors = orderSectorsByTravel(points, controlLine, sectors, lapRanges);
+  // スタートとゴールが別のコースは、向きが決まっている (スタート → ゴール) ので、並べ直さない
+  if (controlLine && !isWholeSession && !pointToPoint) sectors = orderSectorsByTravel(points, controlLine, sectors, lapRanges);
 
   const laps: Lap[] = [];
   const sectorDirections = sectors.map(s => gateDirection(points, s));

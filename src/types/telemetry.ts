@@ -107,6 +107,8 @@ export interface Session {
   bestLapIndex: number;
   theoreticalBestTime: number; // 各セクターベストの合計
   controlLine?: ControlLine;
+  /** ゴールの線 (スタートとゴールが別のコース。ジムカーナ・ヒルクライムなど)。無ければ計測線から計測線までを 1 周とする */
+  finishLine?: ControlLine;
   sectors: Sector[];
   // コース図 (.pth や OpenStreetMap から取得した線)。セッションごとに持ち、表示は基準車のセッションのものを使う
   pathPolylines?: Array<Array<[number, number]>>;
@@ -145,6 +147,8 @@ export interface CircuitPreset {
   centerLon: number;
   // 計測線を持たないプリセットもある (中心座標だけでコース名とコース図を引く)
   controlLine?: ControlLine;
+  /** ゴールの線 (スタートとゴールが別のコース。ジムカーナ・ヒルクライムなど)。無ければ計測線から計測線までを 1 周とする */
+  finishLine?: ControlLine;
   sectors: Sector[];
   // コース図を OpenStreetMap から引く範囲 (m)。大きな施設の中のカートコースなどで、施設全体のコースを引かないように狭める (既定 2000)
   mapRadius?: number;
