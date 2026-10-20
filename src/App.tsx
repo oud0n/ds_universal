@@ -1815,7 +1815,11 @@ export const App: React.FC = () => {
 
       {lapTimerOpen && (
         <LapTimerScreen
-          onClose={() => setLapTimerOpen(false)}
+          onClose={() => {
+            setLapTimerOpen(false);
+            // #laptimer で開いたときは、閉じたら外す (読み込み直したときに、また開かないように)
+            if (window.location.hash === '#laptimer') history.replaceState(null, '', window.location.pathname + window.location.search);
+          }}
           replayLogs={sessions.map((s): ReplayLog => ({ id: s.id, name: s.sessionName || s.fileName, points: s.points, startDate: s.points[0]?.timestamp ? new Date(s.points[0].timestamp) : undefined }))}
           onOpenLog={(fileName, text) => {
             setLapTimerOpen(false);

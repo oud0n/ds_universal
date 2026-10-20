@@ -1,6 +1,6 @@
 import UIKit
 
-/// 約束の system.* (設定の画面を開く・ファイルを共有する) と、アプリが前に出た・裏に回ったの知らせ
+/// 約束の system.* (設定の画面を開く・ファイルを共有する・画面の自動ロックを止める) と、アプリが前に出た・裏に回ったの知らせ
 @MainActor
 final class SystemModule {
     private unowned let core: NativeCore
@@ -16,6 +16,10 @@ final class SystemModule {
             if let url = URL(string: UIApplication.openSettingsURLString) {
                 UIApplication.shared.open(url)
             }
+            done(.success([:]))
+        case "system.keepAwake":
+            // ラップタイマーを開いている間、画面の自動ロックを止める
+            UIApplication.shared.isIdleTimerDisabled = (params["on"] as? Bool) ?? false
             done(.success([:]))
         case "system.shareText":
             // Web で作った文 (変換した CSV など) を一時ファイルにして共有する

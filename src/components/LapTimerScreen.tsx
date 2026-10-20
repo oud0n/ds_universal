@@ -141,19 +141,47 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const lastPosRef = useRef<LiveFix | null>(null);
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
+  /** 利用者がコースを選んだ (自動で選び直さない) */
+  const manualCourseRef = useRef(false);
+  /** iPhone の GPS の前の測位 (速さが来ないときに、位置から求める) */
+  const prevPhoneRef = useRef<LiveFix | null>(null);
+  /** 出した経過 (同じ周の間は戻さない。測位がまとめて届いたときに、表示が戻って見えないように) */
+  const shownElapsedRef = useRef<{ lapStartMs: number | null; value: number }>({ lapStartMs: null, value: 0 });
 
   // Esc で、開いている選ぶ画面・メニュー・ラップタイマーの順に閉じる (開いている間は、後ろの画面の再生のキーは効かない)
   useEscapeKey(true, onClose);
   useEscapeKey(menuOpen, () => setMenuOpen(false));
   useEscapeKey(coursePicker, () => setCoursePicker(false));
 
-  const chooseCourse = useCallback((c: CircuitPreset | null) => {
+  /** コースを決める。replay なら、それまでに届いた測位を新しいコースで数え直す (声は出さない) */
+  const chooseCourse = useCallback((c: CircuitPreset | null, replay = false) => {
     courseRef.current = c;
     setCourse(c);
-    timerRef.current = c?.controlLine ? new LiveLapTimer({ controlLine: c.controlLine, sectors: c.sectors }) : null;
-    setState(timerRef.current?.getState() ?? null);
+    const timer = c?.controlLine ? new LiveLapTimer({ controlLine: c.controlLine, sectors: c.sectors }) : null;
+    if (timer && replay) fixesRef.current.forEach(f => timer.push(f));
+    timerRef.current = timer;
+    setState(timer?.getState() ?? null);
     setFlash(null);
   }, []);
+
+  /**
+   * 自動で選んだコースを、周を数える前は、届いた測位で選び直す (同じ敷地に計測線の違うコースがあるとき、
+   * 測位の所に近いだけのコースではなく、計測線を横切ったコースにする。筑波 2000 / 1000 など)
+   */
+  const recheckCourse = useCallback(() => {
+    const fixes = fixesRef.current;
+    const last = fixes[fixes.length - 1];
+    if (!last || manualCourseRef.current || (timerRef.current?.getState().laps.length ?? 0) > 0) return;
+    let dist = 0;
+    const points = fixes.map((f, i) => {
+      if (i > 0) dist += distanceKm(fixes[i - 1].latitude, fixes[i - 1].longitude, f.latitude, f.longitude);
+      return { time: (f.tMs - fixes[0].tMs) / 1000, latitude: f.latitude, longitude: f.longitude, speed: f.speedKmh, distance: dist } as TelemetryPoint;
+    });
+    const found = findMatchingCircuit(last.latitude, last.longitude, points);
+    if (found?.controlLine && found.id !== courseRef.current?.id && distanceKm(last.latitude, last.longitude, found.centerLat, found.centerLon) < 5) {
+      chooseCourse(found, true);
+    }
+  }, [chooseCourse]);
 
   /** 測位を 1 つ受け取る (出どころによらず同じ) */
   const handleFix = useCallback((fix: LiveFix) => {
@@ -161,13 +189,15 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     lastPosRef.current = fix;
     lastFixPerfRef.current = performance.now();
     fixesRef.current.push(fix);
-    // コースを決めていなければ、初めの測位の所で選ぶ
+    // コースを決めていなければ、初めの測位の所で選ぶ。周を数える前は、ときどき選び直す
     if (!courseRef.current) {
       const found = findMatchingCircuit(fix.latitude, fix.longitude);
       if (found?.controlLine && distanceKm(fix.latitude, fix.longitude, found.centerLat, found.centerLon) < 5) chooseCourse(found);
+    } else if (fixesRef.current.length % 200 === 0) {
+      recheckCourse();
     }
     const timer = timerRef.current;
-    if (!timer) { setState(null); return; }
+    if (!timer) return;
     const events = timer.push(fix);
     for (const e of events) {
       if (e.kind === 'lap') {
@@ -178,13 +208,16 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
         }
       }
     }
-    setState(timer.getState());
-  }, [chooseCourse]);
+    // 表示は 0.1 秒ごとにまとめて描き直す (測位ごと (20 Hz) に描き直すと、車の中で端末が熱くなる)。周を終えたときだけすぐ
+    if (events.length > 0) setState(timer.getState());
+  }, [chooseCourse, recheckCourse]);
 
   // 出どころを替えたら、測位と周をはじめからにする (コースはそのまま)
   const resetRun = useCallback(() => {
     fixesRef.current = [];
     lastPosRef.current = null;
+    prevPhoneRef.current = null;
+    shownElapsedRef.current = { lapStartMs: null, value: 0 };
     chooseCourse(courseRef.current);
   }, [chooseCourse]);
 
@@ -211,15 +244,24 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       const id = navigator.geolocation.watchPosition(
         pos => {
           setPhoneInfo({ accuracy: pos.coords.accuracy, error: null });
-          handleFix({
+          // 速さが来ない (null・負) ときは、前の測位からの位置と時刻で求める (iPhone はよく来ない)
+          const prev = prevPhoneRef.current;
+          const reported = pos.coords.speed;
+          let speedKmh = reported !== null && reported >= 0 ? reported * 3.6 : 0;
+          if ((reported === null || reported < 0) && prev && pos.timestamp > prev.tMs) {
+            speedKmh = (distanceKm(prev.latitude, prev.longitude, pos.coords.latitude, pos.coords.longitude) / ((pos.timestamp - prev.tMs) / 3600000));
+          }
+          const fix: LiveFix = {
             tMs: pos.timestamp,
             latitude: pos.coords.latitude,
             longitude: pos.coords.longitude,
-            speedKmh: Math.max(0, (pos.coords.speed ?? 0) * 3.6),
+            speedKmh,
             altitude: pos.coords.altitude ?? undefined,
             // 誤差の大きい測位 (屋内・測位の始め) は使わない
             valid: pos.coords.accuracy <= 30
-          });
+          };
+          if (fix.valid) prevPhoneRef.current = fix;
+          handleFix(fix);
         },
         err => setPhoneInfo({
           accuracy: null,
@@ -255,7 +297,10 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
 
   // ---- 経過を進める (測位の間も、表示の時計で滑らかに) ----
   useEffect(() => {
-    const iv = setInterval(() => setNow(performance.now()), 50);
+    const iv = setInterval(() => {
+      setNow(performance.now());
+      setState(timerRef.current?.getState() ?? null);
+    }, 100);
     return () => clearInterval(iv);
   }, []);
 
@@ -263,7 +308,19 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   useEffect(() => {
     let lock: { release: () => Promise<void> } | null = null;
     let cancelled = false;
+    let nativeOn = false;
     const request = async () => {
+      // iPhone のアプリ: 画面の自動ロックを止める (isIdleTimerDisabled)。古いアプリは not-supported を返すので、下の Wake Lock にする
+      if (hasNative()) {
+        try {
+          await callNative('system.keepAwake', { on: true });
+          nativeOn = true;
+          if (!cancelled) setWakeLockOk(true);
+          return;
+        } catch {
+          // 下へ
+        }
+      }
       try {
         const wl = (navigator as unknown as { wakeLock?: { request: (k: 'screen') => Promise<{ release: () => Promise<void> }> } }).wakeLock;
         if (!wl) { setWakeLockOk(false); return; }
@@ -282,15 +339,23 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       cancelled = true;
       document.removeEventListener('visibilitychange', onVisible);
       void lock?.release().catch(() => {});
+      if (nativeOn) void callNative('system.keepAwake', { on: false }).catch(() => {});
     };
   }, []);
 
   // ---- 表示する値 ----
   const sincePerf = (now - lastFixPerfRef.current) / 1000;
   const lastFix = state?.lastFix ?? lastPosRef.current;
-  const elapsed = state?.lapStartMs != null && state.lastFix
+  const rawElapsed = state?.lapStartMs != null && state.lastFix
     ? (state.lastFix.tMs - state.lapStartMs) / 1000 + Math.min(EXTRAPOLATE_SEC, Math.max(0, sincePerf)) * (source === 'replay' ? replaySpeed : 1)
     : null;
+  // 同じ周の間は、出した経過より戻さない
+  let elapsed = rawElapsed;
+  if (rawElapsed !== null && state) {
+    const shown = shownElapsedRef.current;
+    if (shown.lapStartMs === state.lapStartMs) elapsed = Math.max(shown.value, rawElapsed);
+    shownElapsedRef.current = { lapStartMs: state.lapStartMs, value: elapsed! };
+  }
   const flashing = flash && now < flash.until ? flash.event : null;
   const lastLap = state?.laps[state.laps.length - 1] ?? null;
   const prevBestForLast = useMemo(() => {
@@ -348,16 +413,26 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     >
       {/* 上の段: 出どころの状態・コース・声・メニュー・閉じる */}
       <header className="flex items-center gap-2 px-3 py-2 text-xs sm:text-sm shrink-0 min-w-0">
-        <span className={`flex items-center gap-1 px-2 py-1 rounded-full border whitespace-nowrap overflow-hidden text-ellipsis min-w-0 ${sourceStatus.ok ? 'border-emerald-500/50 text-emerald-300 bg-emerald-500/10' : 'border-amber-500/50 text-amber-300 bg-amber-500/10'}`} data-testid="lap-timer-source">
+        <button
+          type="button"
+          // デジスパイスにつないでいないときは、押すとつなぐ
+          onClick={() => { if (source === 'digspice' && link.status === 'idle') void bleLoggerLink.connect(); else setMenuOpen(o => !o); }}
+          className={`flex items-center gap-1 px-2 py-1 rounded-full border whitespace-nowrap overflow-hidden text-ellipsis min-w-0 ${sourceStatus.ok ? 'border-emerald-500/50 text-emerald-300 bg-emerald-500/10' : 'border-amber-500/50 text-amber-300 bg-amber-500/10'}`}
+          data-testid="lap-timer-source"
+        >
           {source === 'digspice' ? <Bluetooth size={14} className="shrink-0" /> : source === 'phone' ? <Smartphone size={14} className="shrink-0" /> : <PlayCircle size={14} className="shrink-0" />}
-          <span className="truncate">{sourceStatus.text}</span>
-        </span>
+          <span className="truncate">{sourceStatus.text}{source === 'digspice' && link.status === 'idle' ? t(' (押すとつなぐ)', ' (tap to connect)') : ''}</span>
+        </button>
         <button onClick={() => setCoursePicker(true)} className="flex items-center gap-1 px-2 py-1 rounded-full border border-white/20 text-white/80 whitespace-nowrap min-w-0" data-testid="lap-timer-course">
           <MapPin size={14} className="shrink-0" />
           <span className="truncate max-w-[40vw]">{course ? circuitLabel(course.name) : t('コース: 自動', 'Course: auto')}</span>
         </button>
         <div className="flex-1" />
-        {wakeLockOk === false && <span className="hidden sm:inline text-white/40 whitespace-nowrap">{t('画面が消えることがあります', 'Screen may turn off')}</span>}
+        {wakeLockOk === false && (
+          <span className="text-amber-300/80 text-[11px] leading-tight max-w-[30vw]" data-testid="lap-timer-wake-warning">
+            {t('画面が消えます: 設定の自動ロックを「なし」に', 'Screen may sleep: set Auto-Lock to Never')}
+          </span>
+        )}
         <button onClick={() => setVoice(v => !v)} className="p-2 rounded-full border border-white/20" aria-label={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')} title={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')}>
           {voice ? <Volume2 size={18} /> : <VolumeX size={18} className="text-white/50" />}
         </button>
@@ -430,7 +505,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
                 return (
                   <div key={i} className="flex-1 min-w-0">
                     <div className="text-[11px] text-white/50 font-sans">S{i + 1}</div>
-                    <div className="text-base sm:text-lg">{cur ? cur.timeSec.toFixed(2) : bestSectors[i] !== undefined ? <span className="text-white/30">{bestSectors[i].toFixed(2)}</span> : '--'}</div>
+                    <div className="text-base sm:text-lg">{cur ? (Number.isFinite(cur.timeSec) ? cur.timeSec.toFixed(2) : '--') : bestSectors[i] !== undefined ? <span className="text-white/30">{bestSectors[i].toFixed(2)}</span> : '--'}</div>
                     <div className={`text-sm ${deltaClass(cur?.diffSec)}`}>{cur && cur.diffSec !== null ? formatDelta(cur.diffSec) : ' '}</div>
                   </div>
                 );
@@ -497,11 +572,11 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
             <button onClick={() => setCoursePicker(false)} className="p-2 rounded-full border border-white/20" aria-label={t('閉じる', 'Close')}><X size={18} /></button>
           </div>
           <div className="flex-1 overflow-y-auto space-y-1">
-            <button onClick={() => { chooseCourse(null); setCoursePicker(false); }} className="w-full text-left px-3 py-2 rounded-lg bg-white/5">
+            <button onClick={() => { manualCourseRef.current = false; chooseCourse(null); setCoursePicker(false); }} className="w-full text-left px-3 py-2 rounded-lg bg-white/5">
               {t('自動 (測位の所の近くのコース)', 'Auto (nearest to GPS)')}
             </button>
             {nearbyCourses.map(({ c, d }) => (
-              <button key={c.id} onClick={() => { chooseCourse(c); setCoursePicker(false); }} className={`w-full text-left px-3 py-2 rounded-lg ${course?.id === c.id ? 'bg-red-600' : 'bg-white/5'}`}>
+              <button key={c.id} onClick={() => { manualCourseRef.current = true; chooseCourse(c, true); setCoursePicker(false); }} className={`w-full text-left px-3 py-2 rounded-lg ${course?.id === c.id ? 'bg-red-600' : 'bg-white/5'}`}>
                 {circuitLabel(c.name)}{Number.isFinite(d) ? <span className="text-white/40 ml-2 text-xs">{d < 10 ? d.toFixed(1) : Math.round(d)} km</span> : null}
               </button>
             ))}
