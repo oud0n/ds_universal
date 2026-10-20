@@ -133,6 +133,40 @@ describe('LiveLapTimer (レビューで見つけた場面)', () => {
     laps.forEach(l => expect(l.timeSec).toBeCloseTo((2 * Math.PI * R) / 20, 1));
   });
 
+  it('パドックで逆向きにゆっくり横切っても、周の番号はずれない', () => {
+    const timer = new LiveLapTimer({ controlLine, sectors });
+    const fixes = circleFixes([20, 20, 20]);
+    const a = onCircle(0.32);
+    const b = onCircle(0.28);
+    const t0 = fixes[0].tMs - 30000;
+    run(timer, [{ tMs: t0, ...a, speedKmh: 10, valid: true }, { tMs: t0 + 500, ...b, speedKmh: 10, valid: true }, ...fixes]);
+    expect(timer.getState().laps.map(l => l.number)).toEqual([1, 2]);
+  });
+
+  it('ベストの周でセクター線を取りこぼしても、セクターの差の基準は残る', () => {
+    const timer = new LiveLapTimer({ controlLine, sectors });
+    // 2 周目 (速い) で、1 本目のセクター線の外を通らせて、取りこぼさせる
+    const fixes = circleFixes([20, 22, 20]);
+    // 2 周目 (2 つ目の円) の中で、1 本目のセクター線にいちばん近い測位
+    const target = onCircle(0.3 + (2 * Math.PI) / 3);
+    const firstCircleEnd = Math.round(((2 * Math.PI * R) / 20) * 20);
+    let s1 = firstCircleEnd;
+    for (let i = firstCircleEnd; i < firstCircleEnd + Math.round(((2 * Math.PI * R) / 22) * 20); i++) {
+      const d = (f: LiveFix) => Math.hypot(f.latitude - target.latitude, f.longitude - target.longitude);
+      if (d(fixes[i]) < d(fixes[s1])) s1 = i;
+    }
+    // 線の外 (半径 200 m) を通ったことにする
+    const holed = fixes.map((f, i) => {
+      if (Math.abs(i - s1) > 10) return f;
+      const ang = Math.atan2((f.latitude - C_LAT) * M_PER_DEG_LAT, (f.longitude - C_LON) * M_PER_DEG_LON);
+      return { ...f, ...onCircle(ang, 200) };
+    });
+    run(timer, holed);
+    const st = timer.getState();
+    expect(st.best?.sectorsSec.length).toBe(0);
+    expect(st.referenceSectorsSec.length).toBe(3);
+  });
+
   it('セクター線を 1 本取りこぼしても、その先のセクター線で続ける', () => {
     const missOne = [{ ...sectors[0], latA: sectors[0].latA + 0.01, latB: sectors[0].latB + 0.01 }, sectors[1], sectors[2]];
     // 取りこぼしを作るため、1 本目の線を遠くにずらしたコースで数え、2 本目は数えることを確かめる

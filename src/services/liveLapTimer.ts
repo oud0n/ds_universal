@@ -49,7 +49,7 @@ export interface LiveSectorEvent {
   /** 0 から */
   index: number;
   timeSec: number;
-  /** ベストの周の同じセクターとの差 (秒)。ベストがまだない・ベストの周でセクターを取りこぼしたときは null */
+  /** 基準 (ベストの周) の同じセクターとの差 (秒)。基準がまだないときは null */
   diffSec: number | null;
 }
 
@@ -70,10 +70,14 @@ export interface LiveLapState {
   currentSectors: Array<{ timeSec: number; diffSec: number | null }>;
   /** セクターの数 (計測線と重ならないセクター線の数 + 1。セクター線がなければ 0) */
   sectorCount: number;
+  /** セクターの差の基準のタイム (ふつうはベストの周のセクター) */
+  referenceSectorsSec: number[];
   /** 今の周で走った距離 (m) */
   lapDistanceM: number;
 }
 
+/** 通過の向きの票に入れる最低の速さ (パドックで逆向きにゆっくり横切ったのは入れない) */
+const VOTE_KMH = 20;
 /** 周の区切りとして数える最短の間隔 (秒)。GPS の揺れで同じ通過を 2 回数えないように */
 const MIN_LAP_SEC = 15;
 /** これより遅い通過は、周の区切りとして数えない (ピットで線の上に止まっているときの揺れ) */
@@ -124,6 +128,8 @@ export class LiveLapTimer {
   private bestTrace: number[] | null = null;
   private laps: LiveLap[] = [];
   private best: LiveLap | null = null;
+  /** セクターの差を出す基準 (ベストの周。ベストの周でセクター線を取りこぼしたときは、その前の基準のまま) */
+  private refSectors: number[] = [];
   private deltaSec: number | null = null;
 
   constructor(course: LiveCourse) {
@@ -160,7 +166,8 @@ export class LiveLapTimer {
       const speed = prev.speedKmh + cross.t * (fix.speedKmh - prev.speedKmh);
       // コースのデータの線には向きがないので、横切った向きに速さの分だけ票を入れ、多い方をコースの向きとする
       // (初めに逆向きにゆっくり横切っても (ピットなど)、周回で速く横切れば、すぐそちらの向きになる)
-      if (speed >= SLOW_CROSSING_KMH) this.sideScore += cross.side * speed;
+      // 1 周を数えたら、向きは決める (そのあとのスピンなどで替えない)
+      if (speed >= VOTE_KMH && this.laps.length === 0) this.sideScore += cross.side * speed;
       const direction = Math.sign(this.sideScore);
       // 最短の間隔は、同じ向きの通過どうしで見る (逆向きの通過のすぐあとの周回の通過は数える)
       const counted = direction !== 0 && cross.side === direction && speed >= SLOW_CROSSING_KMH
@@ -171,6 +178,8 @@ export class LiveLapTimer {
         // 横切るまでの分を足して周を終える。向きが替わったあとの初めての通過は、前の (逆向きの) 通過からを周と数えない
         this.lapDistanceM += seg * cross.t;
         if (this.lapStartMs !== null && this.lapDirection === direction) events.push(this.finishLap(tMs));
+        // 逆向きで始めた周は数えないので、周の番号も進めない
+        else if (this.lapStartMs !== null && this.lapNumber !== null) this.lapNumber--;
         this.startLap(tMs, seg * (1 - cross.t), fix);
         this.lapDirection = direction;
       }
@@ -198,6 +207,7 @@ export class LiveLapTimer {
       deltaSec: this.deltaSec,
       currentSectors: this.currentSectors,
       sectorCount: this.sectorCount,
+      referenceSectorsSec: this.refSectors,
       lapDistanceM: this.lapDistanceM
     };
   }
@@ -229,6 +239,9 @@ export class LiveLapTimer {
     if (isBest) {
       this.best = lap;
       this.bestTrace = this.trace;
+      if (lap.sectorsSec.length > 0) this.refSectors = lap.sectorsSec;
+    } else if (this.refSectors.length === 0 && lap.sectorsSec.length > 0) {
+      this.refSectors = lap.sectorsSec;
     }
     return { kind: 'lap', lap, diffToBestSec: prevBest ? timeSec - prevBest.timeSec : null, isBest };
   }
@@ -251,7 +264,7 @@ export class LiveLapTimer {
       const split = (tMs - this.lapStartMs!) / 1000;
       const prevSplit = j > 0 ? this.splitsSec[j - 1] : 0;
       const timeSec = split - prevSplit;
-      const bestSector = this.best?.sectorsSec[j];
+      const bestSector = this.refSectors[j];
       const diffSec = bestSector !== undefined && Number.isFinite(timeSec) ? timeSec - bestSector : null;
       this.splitsSec.push(split);
       this.currentSectors = [...this.currentSectors, { timeSec, diffSec }];

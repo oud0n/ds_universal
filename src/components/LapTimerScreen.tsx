@@ -169,9 +169,14 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
    * 測位の所に近いだけのコースではなく、計測線を横切ったコースにする。筑波 2000 / 1000 など)
    */
   const recheckCourse = useCallback(() => {
-    const fixes = fixesRef.current;
-    const last = fixes[fixes.length - 1];
-    if (!last || manualCourseRef.current || (timerRef.current?.getState().laps.length ?? 0) > 0) return;
+    const all = fixesRef.current;
+    const last = all[all.length - 1];
+    const cur = courseRef.current;
+    if (!last || !cur || manualCourseRef.current || (timerRef.current?.getState().laps.length ?? 0) > 0) return;
+    // 近く (3 km 以内) に計測線のある別のコースがない所 (袖ヶ浦など) では、選び直さない
+    if (!presetsWithLine.some(c => c.id !== cur.id && distanceKm(cur.centerLat, cur.centerLon, c.centerLat, c.centerLon) < 3)) return;
+    // 見るのは直近の 2 分ほど (20 Hz で 2400 点) まで (重くならないように)
+    const fixes = all.slice(-2400);
     let dist = 0;
     const points = fixes.map((f, i) => {
       if (i > 0) dist += distanceKm(fixes[i - 1].latitude, fixes[i - 1].longitude, f.latitude, f.longitude);
@@ -193,7 +198,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     if (!courseRef.current) {
       const found = findMatchingCircuit(fix.latitude, fix.longitude);
       if (found?.controlLine && distanceKm(fix.latitude, fix.longitude, found.centerLat, found.centerLon) < 5) chooseCourse(found);
-    } else if (fixesRef.current.length % 200 === 0) {
+    } else if (fixesRef.current.length % 200 === 0 && fixesRef.current.length <= 4800) {
       recheckCourse();
     }
     const timer = timerRef.current;
@@ -314,8 +319,10 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       if (hasNative()) {
         try {
           await callNative('system.keepAwake', { on: true });
+          // 頼んでいる間に閉じたら、すぐ戻す
+          if (cancelled) { void callNative('system.keepAwake', { on: false }).catch(() => {}); return; }
           nativeOn = true;
-          if (!cancelled) setWakeLockOk(true);
+          setWakeLockOk(true);
           return;
         } catch {
           // 下へ
@@ -403,7 +410,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   };
 
   const sectorCount = state?.sectorCount ?? 0;
-  const bestSectors = state?.best?.sectorsSec ?? [];
+  const bestSectors = state?.referenceSectorsSec ?? [];
 
   return (
     <div
