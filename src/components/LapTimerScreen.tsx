@@ -528,17 +528,18 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           type="button"
           // デジスパイスにつないでいないときは、押すとつなぐ
           onClick={() => { if (source === 'digspice' && link.status === 'idle') void bleLoggerLink.connect(); else setMenuOpen(o => !o); }}
-          className={`flex items-center gap-1 px-2 py-1 rounded-full border whitespace-nowrap overflow-hidden text-ellipsis min-w-0 ${sourceStatus.ok ? 'border-emerald-500/50 text-emerald-300 bg-emerald-500/10' : 'border-amber-500/50 text-amber-300 bg-amber-500/10'}`}
+          // 幅が足りないときは、こちら (出どころの状態) を縮める (コースのボタンが「コ…」にならないように)
+          className={`flex items-center gap-1 px-2 py-1 rounded-full border whitespace-nowrap overflow-hidden text-ellipsis min-w-0 flex-1 basis-0 max-w-fit ${sourceStatus.ok ? 'border-emerald-500/50 text-emerald-300 bg-emerald-500/10' : 'border-amber-500/50 text-amber-300 bg-amber-500/10'}`}
           data-testid="lap-timer-source"
         >
           {source === 'digspice' ? <Bluetooth size={14} className="shrink-0" /> : source === 'phone' ? <Smartphone size={14} className="shrink-0" /> : <PlayCircle size={14} className="shrink-0" />}
           <span className="truncate">{sourceStatus.text}{source === 'digspice' && link.status === 'idle' ? t(' (押すとつなぐ)', ' (tap to connect)') : ''}</span>
         </button>
-        <button onClick={() => setCoursePicker(true)} className="flex items-center gap-1 px-2 py-1 rounded-full border border-white/20 text-white/80 whitespace-nowrap min-w-0" data-testid="lap-timer-course">
+        <button onClick={() => setCoursePicker(true)} className="flex items-center gap-1 px-2 py-1 rounded-full border border-white/20 text-white/80 whitespace-nowrap shrink-0 max-w-[40vw]" data-testid="lap-timer-course">
           <MapPin size={14} className="shrink-0" />
-          <span className="truncate max-w-[40vw]">{course ? circuitLabel(course.name) : t('コース: 自動', 'Course: auto')}</span>
+          <span className="truncate">{course ? circuitLabel(course.name) : t('コース: 自動', 'Course: auto')}</span>
         </button>
-        <div className="flex-1" />
+        <div className="flex-1 min-w-0" />
         {wakeLockOk === false && (
           <span className="text-amber-300/80 text-[11px] leading-tight max-w-[30vw]" data-testid="lap-timer-wake-warning">
             {t('画面が消えます: 設定の自動ロックを「なし」に', 'Screen may sleep: set Auto-Lock to Never')}
