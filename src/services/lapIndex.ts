@@ -257,11 +257,14 @@ export function videosInFolder(files: LapFileInfo[], folder: string): string[] {
   return files.filter(f => f.path.startsWith(`${folder}/`)).map(f => f.path.slice(folder.length + 1)).filter(isRunVideoName).sort();
 }
 
-/** フォルダ分けした .bon4 (保管場所/<フォルダ>/<ファイル>.bon4。ほかの階層・形式は数えない) */
+/**
+ * フォルダ分けした .bon4。保管場所/<サーキットのフォルダ>/<日付 YYYYMMDD>/<ファイル>.bon4 (2026-10-20 から) と、
+ * 日付のフォルダのない 保管場所/<サーキットのフォルダ>/<ファイル>.bon4 (それより前) の両方を数える。ほかの階層・形式は数えない
+ */
 export function groupBon4ByFolder(files: LapFileInfo[]): Map<string, LapFileInfo[]> {
   const out = new Map<string, LapFileInfo[]>();
   for (const f of files) {
-    const m = /^([^/]+)\/([^/]+\.bon4)$/i.exec(f.path);
+    const m = /^([^/]+)\/((?:\d{8}\/)?[^/]+\.bon4)$/i.exec(f.path);
     if (!m) continue;
     out.set(m[1], [...(out.get(m[1]) ?? []), f]);
   }
