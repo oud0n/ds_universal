@@ -267,7 +267,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   useEffect(() => {
     resetRun();
     if (source === 'digspice') {
-      void bleLoggerLink.startAndConnect();
+      // ラップタイマーを開いたのは使うつもりなので、切断ボタンで切っていてもつなぐ
+      void bleLoggerLink.startAndConnect(true);
       return bleLoggerLink.onFix(fix => handleFix({
         tMs: fix.timestamp.getTime(),
         latitude: fix.latitude,
