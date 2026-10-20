@@ -4,22 +4,46 @@ import { useSyncExternalStore } from 'react';
 // (キーの一覧を別に持たないので、日本語を直すときに英語の書き忘れに気づける)
 export type Lang = 'ja' | 'en';
 
-// 選んだ言語はこの端末のブラウザに保存する
+// 言語は、ふだんは端末 (PC・スマホ) の言語に合わせる (日本語なら日本語、ほかは英語)。
+// 画面のボタンで端末と違う言語を選んだときだけ、それをこの端末のブラウザに保存する (端末と同じ言語を選ぶと、自動に戻す)
 const STORAGE_KEY = 'ds_lang';
 
-function loadLang(): Lang {
-  try {
-    const v = localStorage.getItem(STORAGE_KEY);
-    if (v === 'ja' || v === 'en') return v;
-  } catch {
-    // 保存先が使えない (プライベートウインドウなど) ときはブラウザの言語に合わせる
-  }
-  // 最初はブラウザの言語に合わせる (日本語以外なら英語)
+/** 端末の言語 (日本語でなければ英語) */
+function deviceLang(): Lang {
   const nav = typeof navigator !== 'undefined' ? navigator.languages?.[0] || navigator.language || '' : '';
   return /^ja\b/i.test(nav) || nav === '' ? 'ja' : 'en';
 }
 
-let lang: Lang = loadLang();
+/** 前の版で保存した言語を、この版で一度だけ見直した印 */
+const MIGRATED_KEY = 'ds_lang_auto_v1';
+
+/**
+ * 画面のボタンで選んだ言語 (端末と違う言語を選んだときだけ)。保存できない環境 (プライベートウインドウ) でも、
+ * このページを開いている間はここで覚える
+ */
+let override: Lang | null = loadOverride();
+
+function loadOverride(): Lang | null {
+  try {
+    const v = localStorage.getItem(STORAGE_KEY);
+    const saved = v === 'ja' || v === 'en' ? v : null;
+    // 前の版は、ボタンを押すと端末と同じ言語でも保存していた。この版で初めて開いたときだけ、端末と同じものは自動に戻す
+    // (そのあとは消さない。端末の言語を変えても、ボタンで選んだ言語は残る)
+    if (!localStorage.getItem(MIGRATED_KEY)) {
+      localStorage.setItem(MIGRATED_KEY, '1');
+      if (saved && saved === deviceLang()) {
+        localStorage.removeItem(STORAGE_KEY);
+        return null;
+      }
+    }
+    return saved;
+  } catch {
+    // 保存先が使えない (プライベートウインドウなど) ときは端末の言語に合わせる
+    return null;
+  }
+}
+
+let lang: Lang = override ?? deviceLang();
 const listeners = new Set<() => void>();
 
 function apply() {
@@ -30,16 +54,59 @@ function apply() {
 }
 apply();
 
+// 端末の言語を変えたら、自動のときはすぐ合わせる
+if (typeof window !== 'undefined') {
+  window.addEventListener('languagechange', () => {
+    if (override !== null) return;
+    const next = deviceLang();
+    if (next !== lang) {
+      lang = next;
+      apply();
+    }
+  });
+}
+
 export function getLang(): Lang {
   return lang;
 }
 
+/** 端末の言語に合わせているか (画面のボタンで端末と違う言語を選んでいなければ true) */
+export function isLangAuto(): boolean {
+  return override === null;
+}
+
+/** 言語の設定: 'auto' は端末の言語に合わせる */
+export type LangSetting = 'auto' | Lang;
+
+export function getLangSetting(): LangSetting {
+  return override ?? 'auto';
+}
+
+/** 設定を変える ('auto' なら端末の言語に合わせる) */
+export function setLangSetting(v: LangSetting) {
+  if (v === 'auto') {
+    override = null;
+    lang = deviceLang();
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // 保存できなくても、このページを開いている間は覚えている
+    }
+    apply();
+    return;
+  }
+  setLang(v);
+}
+
 export function setLang(l: Lang) {
   lang = l;
+  // 端末と同じ言語を選んだら自動に戻す (端末の言語を変えたら、それに合わせる)。違う言語なら、その言語に決める
+  override = l === deviceLang() ? null : l;
   try {
-    localStorage.setItem(STORAGE_KEY, l);
+    if (override === null) localStorage.removeItem(STORAGE_KEY);
+    else localStorage.setItem(STORAGE_KEY, override);
   } catch {
-    // 保存できなくても、この画面では切り替える
+    // 保存できなくても、このページを開いている間は覚えている
   }
   apply();
 }
@@ -48,6 +115,11 @@ const subscribe = (l: () => void) => {
   listeners.add(l);
   return () => listeners.delete(l);
 };
+
+/** 言語の設定 (自動・日本語・English。切り替えると描き直す) */
+export function useLangSetting(): LangSetting {
+  return useSyncExternalStore(subscribe, getLangSetting, getLangSetting);
+}
 
 /** 今の言語 (切り替えると描き直す) */
 export function useLang(): Lang {
