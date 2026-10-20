@@ -9,7 +9,8 @@
  * コマは、時刻を 1 コマずつ進めて描く (再生しない)。動画を読まないので、元の動画のファイルは要らない
  */
 
-import { BufferTarget, CanvasSource, Output, WebMOutputFormat, canEncodeVideo } from 'mediabunny';
+import { CanvasSource, Output, WebMOutputFormat, canEncodeVideo } from 'mediabunny';
+import { createByteSink, createVideoSink, type ByteSink, type VideoSink } from './exportSink';
 import { Zip, ZipPassThrough } from 'fflate';
 import { downloadBlob, type VideoExportController } from './telemetryVideoExporter';
 
@@ -53,8 +54,10 @@ export function exportOverlayOnly(options: OverlayExportOptions): VideoExportCon
   const { startSessionSec, endSessionSec, width, height, fps, format, draw, baseName, onProgress } = options;
   let cancelled = false;
   let output: Output | null = null;
+  let videoSink: VideoSink | null = null;
+  let byteSink: ByteSink | null = null;
 
-  const promise = (async () => {
+  const run = async () => {
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
@@ -69,8 +72,9 @@ export function exportOverlayOnly(options: OverlayExportOptions): VideoExportCon
     const progress = (i: number) => onProgress?.({ currentSec: i / fps, totalSec, percent: Number(((i / frames) * 100).toFixed(1)) });
 
     if (format === 'webm-alpha') {
-      const target = new BufferTarget();
-      output = new Output({ format: new WebMOutputFormat(), target });
+      // できたファイルは、ブラウザの中のファイル置き場に少しずつ書く (exportSink.ts)
+      videoSink = await createVideoSink();
+      output = new Output({ format: new WebMOutputFormat(), target: videoSink.target });
       const source = new CanvasSource(canvas, { codec: 'vp9', bitrate: 4_000_000, alpha: 'keep' });
       output.addVideoTrack(source, { frameRate: fps });
       await output.start();
@@ -82,17 +86,20 @@ export function exportOverlayOnly(options: OverlayExportOptions): VideoExportCon
       }
       await output.finalize();
       if (cancelled) throw new Error('エクスポートがユーザーによりキャンセルされました');
-      const blob = new Blob([target.buffer!], { type: 'video/webm' });
+      const blob = await videoSink.finish('video/webm');
       downloadBlob(blob, `${baseName}.webm`);
       return blob;
     }
 
-    // PNG の連番を ZIP にまとめる (PNG はもう縮んでいるので、ZIP では縮めずに入れる)
-    const chunks: Uint8Array[] = [];
+    // PNG の連番を ZIP にまとめる (PNG はもう縮んでいるので、ZIP では縮めずに入れる)。
+    // ZIP はブラウザの中のファイル置き場に少しずつ書き、コマごとに書き終わるのを待つ (メモリにためない。exportSink.ts)
+    const sink = await createByteSink();
+    byteSink = sink;
     let zipError: Error | null = null;
+    let pending: Promise<void> = Promise.resolve();
     const zip = new Zip((err, data) => {
       if (err) { zipError = err; return; }
-      chunks.push(data);
+      pending = sink.write(data);
     });
     const digits = String(frames).length < 6 ? 6 : String(frames).length;
     for (let i = 0; i < frames; i++) {
@@ -104,15 +111,22 @@ export function exportOverlayOnly(options: OverlayExportOptions): VideoExportCon
       const entry = new ZipPassThrough(`meters_${fps}fps/meters_${String(i).padStart(digits, '0')}.png`);
       zip.add(entry);
       entry.push(png, true);
+      await pending;
       if (i % 15 === 0) progress(i);
     }
     zip.end();
+    await pending;
     if (zipError) throw zipError;
     if (cancelled) throw new Error('エクスポートがユーザーによりキャンセルされました');
-    const blob = new Blob(chunks as BlobPart[], { type: 'application/zip' });
+    const blob = await sink.finish('application/zip');
     downloadBlob(blob, `${baseName}_${fps}fps_png.zip`);
     return blob;
-  })();
+  };
+  const promise = run().catch(async err => {
+    await videoSink?.abort();
+    await byteSink?.abort();
+    throw err;
+  });
 
   return {
     cancel: () => {

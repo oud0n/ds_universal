@@ -11,7 +11,8 @@
  * ファイルの読み書きは mediabunny (MPL-2.0) を使う
  */
 
-import { ALL_FORMATS, BlobSource, BufferTarget, Conversion, Input, Mp4OutputFormat, Output, canEncodeVideo } from 'mediabunny';
+import { ALL_FORMATS, BlobSource, Conversion, Input, Mp4OutputFormat, Output, canEncodeVideo } from 'mediabunny';
+import { createVideoSink, type VideoSink } from './exportSink';
 import { downloadBlob, type VideoExportController } from './telemetryVideoExporter';
 
 export interface EncodeExportOptions {
@@ -42,14 +43,17 @@ export function exportEncodedVideo(options: EncodeExportOptions): VideoExportCon
   const { file, startVideoSec, endVideoSec, toSessionSec, drawOverlay, width, height, fps, bitrate = 8_000_000, outputFileName, onProgress, onWarning } = options;
   let conversion: Conversion | null = null;
   let cancelled = false;
+  let sink: VideoSink | null = null;
 
-  const promise = (async () => {
+  const run = async () => {
     if (!(await canEncodeVideo('avc', { width, height, bitrate }))) {
       throw new Error('このブラウザでは H.264 で書き出せません');
     }
     const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
-    const target = new BufferTarget();
-    const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target });
+    // できたファイルは、ブラウザの中のファイル置き場に少しずつ書く (長い書き出しでメモリを使い切らない。exportSink.ts)。
+    // そのときは MP4 の目次を最後に書く (先頭に置くには、全部をメモリに持つ必要がある)
+    sink = await createVideoSink();
+    const output = new Output({ format: new Mp4OutputFormat({ fastStart: sink.onDisk ? false : 'in-memory' }), target: sink.target });
 
     // メーターを重ねる canvas (コマごとに描き直して渡す。渡したコマはすぐエンコーダーに写されるので、同じ canvas を使い回せる)
     const canvas = document.createElement('canvas');
@@ -102,11 +106,15 @@ export function exportEncodedVideo(options: EncodeExportOptions): VideoExportCon
     };
     await conversion.execute();
     if (cancelled) throw new Error('エクスポートがユーザーによりキャンセルされました');
-    const blob = new Blob([target.buffer!], { type: 'video/mp4' });
+    const blob = await sink.finish('video/mp4');
     downloadBlob(blob, outputFileName.replace(/\.(mp4|webm|mov)$/i, '') + '.mp4');
     if (audioDropped) onWarning?.('音は入れられませんでした (この動画の音の形は、MP4 にそのまま入れられません)');
     return blob;
-  })();
+  };
+  const promise = run().catch(async err => {
+    await sink?.abort();
+    throw err;
+  });
 
   return {
     cancel: () => {

@@ -14,6 +14,8 @@ export interface OverlayPartsOptions {
   lapPanel: boolean;
   /** コース図 */
   map: boolean;
+  /** ラップの欄で比べる周 (Car で選んだ周など)。ないときは、そのログのベストラップ */
+  reference?: { lap: Lap; label: string } | null;
 }
 
 /** 周を終えたあと、その周のタイムと差を止めて出しておく秒 (9 の案) */
@@ -117,9 +119,12 @@ export function drawLapPanel(
   session: Session,
   holdLap: Lap | null,
   /** 右の端からの距離 (PinP の小窓をよけるとき大きくする) */
-  rightInset = 24
+  rightInset = 24,
+  /** 比べる周 (Car で選んだ周など)。ないときは、そのログのベストラップ */
+  reference: { lap: Lap; label: string } | null = null
 ): void {
-  const ref = referenceLap(session);
+  const ref = reference?.lap ?? referenceLap(session);
+  const refLabel = reference?.label ?? 'Best';
   let lap = lapAt(session, t);
   let frozen = false;
   // 周に入る前 (前後を足した書き出しで、前の周がないとき): 0 で待つ。差は出さない
@@ -175,7 +180,7 @@ export function drawLapPanel(
     ctx.fillText(`(${signed(d)})`, x + boxW - 10, row(i));
   };
 
-  label(0, 'Best');
+  label(0, refLabel);
   value(0, ref ? lapClock(ref.lapTime) : "-'--.---");
 
   const elapsed = lap ? (frozen ? lap.lapTime : Math.max(0, t - lap.startTime)) : NaN;
