@@ -108,8 +108,16 @@ final class SystemModule {
             }
             done(.success(["files": files]))
         case "system.readLapFile":
-            guard let rel = params["path"] as? String, let url = lapTimerURL(rel), let data = try? Data(contentsOf: url) else {
+            // 読めるのは走行のログと控えだけ。大きいファイル (動画など) は読まない (base64 で Web に渡すとメモリが足りなくなるため)
+            let allowed = ["bon4", "nmea", "json"]
+            guard let rel = params["path"] as? String, let url = lapTimerURL(rel),
+                  allowed.contains(url.pathExtension.lowercased()) else {
                 done(.failure(NativeError(.notFound, "no file")))
+                return
+            }
+            let size = ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int) ?? 0
+            guard size <= 64 * 1024 * 1024, let data = try? Data(contentsOf: url) else {
+                done(.failure(NativeError(size > 64 * 1024 * 1024 ? .io : .notFound, size > 64 * 1024 * 1024 ? "file too large" : "no file")))
                 return
             }
             done(.success(["b64": data.base64EncodedString()]))

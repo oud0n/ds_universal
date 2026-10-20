@@ -3,11 +3,11 @@
  * 周ごとに非表示にできる (ファイルは消さない)。iPhone のアプリ (ラップタイマーのメニューから) とデスクトップ版 (データの画面から) で使う
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X, FolderOpen, EyeOff, Eye, RefreshCw, BarChart3 } from 'lucide-react';
 import { loadLapHistory, toggleLapHidden, type LapFolder } from '../services/lapHistory';
 import { electronLapStore, nativeLapStore } from '../services/lapStores';
-import type { LapFileStore, LapRow } from '../services/lapIndex';
+import { lapKey, type LapFileStore, type LapRow } from '../services/lapIndex';
 import { formatLapTime } from '../services/liveLapTimer';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
@@ -34,6 +34,10 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
   const [store, setStore] = useState<LapFileStore | null>(null);
   const [folderPath, setFolderPath] = useState<string | null>(null);
   const [folders, setFolders] = useState<LapFolder[] | null>(null);
+  // 隠す操作を続けて押しても、前の操作を消さないよう、いつも最新の一覧から直し、書くのは 1 つずつ
+  const foldersRef = useRef<LapFolder[] | null>(null);
+  foldersRef.current = folders;
+  const toggleChain = useRef<Promise<void>>(Promise.resolve());
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState('');
@@ -90,14 +94,19 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
   }, [visible]);
   const byTime = useMemo(() => [...visible].sort((a, b) => a.time - b.time), [visible]);
 
-  const toggle = async (r: LapRow) => {
-    if (!store || !current) return;
-    try {
-      const next = await toggleLapHidden(store, current, r.file, r.n, !r.hidden);
-      setFolders(fs => fs?.map(f => (f.folder === next.folder ? next : f)) ?? fs);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
+  const toggle = (r: LapRow) => {
+    if (!store) return;
+    toggleChain.current = toggleChain.current.then(async () => {
+      const latest = foldersRef.current?.find(f => f.folder === r.folder);
+      if (!latest) return;
+      try {
+        const next = await toggleLapHidden(store, latest, r.file, r.part, r.n, !r.hidden);
+        foldersRef.current = foldersRef.current?.map(f => (f.folder === next.folder ? next : f)) ?? null;
+        setFolders(foldersRef.current);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    });
   };
 
   /** 走行を解析で開く (同じフォルダのファイルを読んで渡す) */
@@ -112,15 +121,15 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
   };
 
   const lapLine = (r: LapRow, withDate: boolean) => (
-    <div key={`${r.file}#${r.n}`} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs ${r.hidden ? 'opacity-40' : ''} ${!r.hidden && r.time === best ? 'bg-fuchsia-500/15' : 'bg-surface-3/60'}`} data-testid="lap-history-row">
-      <span className="w-8 text-slate-500 font-mono">L{r.n}</span>
+    <div key={lapKey(r.file, r.part, r.n)} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs ${r.hidden ? 'opacity-40' : ''} ${!r.hidden && r.time === best ? 'bg-fuchsia-500/15' : 'bg-surface-3/60'}`} data-testid="lap-history-row">
+      <span className="w-10 text-slate-500 font-mono" title={r.part ? t(`${r.part} つめのまとまり (解析では _${r.part})`, `Part ${r.part} (_${r.part} in analysis)`) : undefined}>{r.part ? `${r.part}-` : ''}L{r.n}</span>
       <span className={`font-mono font-bold w-20 ${!r.hidden && r.time === best ? 'text-fuchsia-400' : 'text-slate-100'}`}>{formatLapTime(r.time, 3)}</span>
-      {withDate && <span className="text-slate-400 font-mono text-[11px]">{fmtDate(r.runStartMs)}</span>}
+      {withDate && <span className="text-slate-400 font-mono text-[11px]">{fmtDate(r.startMs || r.runStartMs)}</span>}
       <span className="hidden sm:flex gap-2 text-slate-400 font-mono text-[11px] flex-1 min-w-0 truncate">
         {r.sectors.map((s, i) => <span key={i}>S{i + 1} {s.toFixed(3)}</span>)}
       </span>
       <span className="text-slate-500 text-[11px] ml-auto whitespace-nowrap">{r.topSpeed.toFixed(0)} km/h</span>
-      <button onClick={() => { void toggle(r); }} className="p-1 rounded text-slate-400 hover:text-fg" title={r.hidden ? t('表示に戻す', 'Show') : t('この周を隠す (ファイルは消しません)', 'Hide this lap (the file is kept)')} aria-label={r.hidden ? t('表示に戻す', 'Show') : t('隠す', 'Hide')}>
+      <button onClick={() => toggle(r)} className="p-1 rounded text-slate-400 hover:text-fg" title={r.hidden ? t('表示に戻す', 'Show') : t('この周を隠す (ファイルは消しません)', 'Hide this lap (the file is kept)')} aria-label={r.hidden ? t('表示に戻す', 'Show') : t('隠す', 'Hide')}>
         {r.hidden ? <Eye size={13} /> : <EyeOff size={13} />}
       </button>
     </div>
@@ -139,7 +148,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
           {desktop && (
             <div className="flex items-center gap-2 text-xs">
               <span className="text-slate-400 truncate flex-1 min-w-0" title={folderPath ?? ''}>{folderPath ?? t('保管場所を選んでいません', 'No folder chosen')}</span>
-              <button onClick={() => { void pickFolder(); }} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-surface-4 hover:bg-surface-5 border border-line-4 whitespace-nowrap" data-testid="lap-history-pick">
+              <button onClick={() => { void pickFolder(); }} disabled={busy !== null} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-surface-4 hover:bg-surface-5 border border-line-4 whitespace-nowrap disabled:opacity-40" data-testid="lap-history-pick">
                 <FolderOpen size={13} />{t('保管場所を選ぶ', 'Choose folder')}
               </button>
             </div>

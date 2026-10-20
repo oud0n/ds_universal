@@ -413,12 +413,37 @@ function loadLapFolder() {
   }
   return lapFolder || null;
 }
-/** 保管場所からの道を、保管場所の中の場所にする (外へ出る道は断る) */
-function lapPath(rel) {
+/** 控えとして読み書きしてよいファイルの名前と、読む大きさの上限 */
+const LAP_TEXT_NAMES = new Set(['laptimes.json', 'runs.json']);
+const MAX_LAP_TEXT_BYTES = 20 * 1024 * 1024;
+/**
+ * 保管場所からの道を、保管場所の中の実際の場所にする (外へ出る道は断る)。
+ * 別名 (シンボリックリンク) をたどった先も保管場所の中か確かめる。ファイルがまだ無いとき (書くとき) は、入るフォルダで確かめる
+ */
+async function lapPath(rel) {
   const root = loadLapFolder();
   if (!root || typeof rel !== 'string' || !rel || path.isAbsolute(rel)) return null;
-  const full = path.resolve(root, rel);
-  return full.startsWith(path.resolve(root) + path.sep) ? full : null;
+  let realRoot;
+  try {
+    realRoot = await fs.promises.realpath(root);
+  } catch {
+    return null;
+  }
+  // ドライブの直下 (/ や C:\) を選んだときも、区切りを二重にしない
+  const prefix = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep;
+  const full = path.resolve(realRoot, rel);
+  if (!full.startsWith(prefix)) return null;
+  let real;
+  try {
+    real = await fs.promises.realpath(full);
+  } catch {
+    try {
+      real = path.join(await fs.promises.realpath(path.dirname(full)), path.basename(full));
+    } catch {
+      return null;
+    }
+  }
+  return real.startsWith(prefix) ? real : null;
 }
 ipcMain.handle('laps-get-folder', async () => loadLapFolder());
 ipcMain.handle('laps-pick-folder', async () => {
@@ -454,7 +479,7 @@ ipcMain.handle('laps-list', async () => {
   }
 });
 ipcMain.handle('laps-read', async (_event, rel) => {
-  const full = lapPath(rel);
+  const full = await lapPath(rel);
   if (!full) return { success: false, error: 'not allowed' };
   try {
     const st = await fs.promises.stat(full);
@@ -466,17 +491,19 @@ ipcMain.handle('laps-read', async (_event, rel) => {
   }
 });
 ipcMain.handle('laps-read-text', async (_event, rel) => {
-  const full = lapPath(rel);
-  if (!full) return { success: false, error: 'not allowed' };
+  const full = await lapPath(rel);
+  if (!full || !LAP_TEXT_NAMES.has(path.basename(full))) return { success: false, error: 'not allowed' };
   try {
+    const st = await fs.promises.stat(full);
+    if (st.size > MAX_LAP_TEXT_BYTES) return { success: false, error: 'too large' };
     return { success: true, text: await fs.promises.readFile(full, 'utf8') };
   } catch {
     return { success: true, text: null };
   }
 });
 ipcMain.handle('laps-write-text', async (_event, rel, text) => {
-  const full = lapPath(rel);
-  if (!full || path.basename(full) !== 'laptimes.json' || typeof text !== 'string') return { success: false, error: 'not allowed' };
+  const full = await lapPath(rel);
+  if (!full || path.basename(full) !== 'laptimes.json' || typeof text !== 'string' || text.length > MAX_LAP_TEXT_BYTES) return { success: false, error: 'not allowed' };
   try {
     // 一時ファイルに書いてから入れ替える (途中で止まっても、前の控えが残る)
     const tmp = `${full}.tmp`;

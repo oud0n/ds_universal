@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
-import { courseHash, groupBon4ByFolder, lapRows, lapsFromBon4, reconcileFolder, setHidden, setRunVideos, videosInFolder, type LapCourse, type LapRecord } from './lapIndex';
+import { courseHash, lapKey, groupBon4ByFolder, lapRows, lapsFromBon4, reconcileFolder, setHidden, setRunVideos, videosInFolder, type LapCourse, type LapRecord } from './lapIndex';
 import { CIRCUIT_PRESETS } from './circuitDatabase';
 
 const line = (lat: number) => ({ name: 'x', latA: lat, lonA: 140, latB: lat + 0.0001, lonB: 140.0001 });
@@ -62,8 +62,8 @@ describe('控えの作り直し (変わったところだけ計算する)', () =
   it('非表示は、計算し直して周の番号が変わっても、同じ時刻の周に引き継ぐ。近い周がなければ捨てる', async () => {
     const f = fakeCompute(table);
     const first = await reconcileFolder('sodegaura', files, course, null, read, f.compute);
-    let index = setHidden(first.index, 'a.bon4', 2, true);
-    index = setHidden(index, 'b.bon4', 1, true);
+    let index = setHidden(first.index, 'a.bon4', undefined, 2, true);
+    index = setHidden(index, 'b.bon4', undefined, 1, true);
     expect(lapRows('sodegaura', index).filter(r => r.hidden).length).toBe(2);
     // 計測線を直したら、a の 2 周目が 3 周目になり (前に 1 周増えた)、b の周は無くなった
     const g = fakeCompute({ 'a.bon4': [lap(1, -89000), lap(2, 1000), lap(3, 92000)], 'b.bon4': [] });
@@ -74,8 +74,8 @@ describe('控えの作り直し (変わったところだけ計算する)', () =
   it('非表示を戻せる', async () => {
     const f = fakeCompute(table);
     const first = await reconcileFolder('sodegaura', files, course, null, read, f.compute);
-    const hidden = setHidden(first.index, 'a.bon4', 1, true);
-    expect(setHidden(hidden, 'a.bon4', 1, false).hidden).toEqual([]);
+    const hidden = setHidden(first.index, 'a.bon4', undefined, 1, true);
+    expect(setHidden(hidden, 'a.bon4', undefined, 1, false).hidden).toEqual([]);
   });
 });
 
@@ -137,5 +137,40 @@ describe('走行の動画 (同じフォルダの動画だけ)', () => {
       { path: 'sodegaura/a.bon4', size: 1, mtimeMs: 1 },
       { path: 'fsw/GX010002.MP4', size: 1, mtimeMs: 1 }
     ], 'sodegaura')).toEqual(['GX010001.MP4']);
+  });
+});
+
+
+describe('レビューで直したこと', () => {
+  const files = [{ path: 'sodegaura/a.bon4', size: 100, mtimeMs: 1 }];
+
+  it('読めなかったときは前の控えを残し、隠した周の印を消さない', async () => {
+    const f = fakeCompute({ 'a.bon4': [lap(1, 1000), lap(2, 91000)] });
+    const first = await reconcileFolder('sodegaura', files, course, null, read, f.compute);
+    const hidden = setHidden(first.index, 'a.bon4', undefined, 2, true);
+    const failing = () => { throw new Error('io'); };
+    const next = await reconcileFolder('sodegaura', [{ ...files[0], size: 110 }], course, hidden, read, failing);
+    expect(next.index.hidden.length).toBe(1);
+    expect(next.index.files['a.bon4'].laps.length).toBe(2);
+    // 大きさは前のままなので、次に開いたときに読み直す
+    expect(next.index.files['a.bon4'].size).toBe(100);
+  });
+
+  it('分かれた走行は、まとまりごとに番号を振り、まとまりも含めて見分ける', async () => {
+    const parts = { 'a.bon4': [{ ...lap(1, 1000), part: 1 }, { ...lap(1, 5000000), part: 2 }] };
+    const f = fakeCompute(parts);
+    const { index } = await reconcileFolder('sodegaura', files, course, null, read, f.compute);
+    const h = setHidden(index, 'a.bon4', 2, 1, true);
+    const rows = lapRows('sodegaura', h);
+    expect(rows.map(r => [r.part, r.n, r.hidden])).toEqual([[1, 1, false], [2, 1, true]]);
+    expect(lapKey('a.bon4', 2, 1)).not.toBe(lapKey('a.bon4', 1, 1));
+  });
+
+  it('開始時刻が同じ走行の周は、ファイルごとにまとめて並べる', () => {
+    const index = { version: 1 as const, courseHash: '', courseName: '', hidden: [], files: {
+      'b.bon4': { size: 1, mtimeMs: 1, startMs: null, laps: [lap(1, 0), lap(2, 1)] },
+      'a.bon4': { size: 1, mtimeMs: 1, startMs: null, laps: [lap(1, 0), lap(2, 1)] }
+    } };
+    expect(lapRows('x', index).map(r => `${r.file}${r.n}`)).toEqual(['a.bon41', 'a.bon42', 'b.bon41', 'b.bon42']);
   });
 });
