@@ -129,7 +129,7 @@ export const Header: React.FC<HeaderProps> = ({
     );
   }
   return (
-    <header className="bg-surface-1 border-b border-line-1 text-slate-200 px-4 py-2 flex items-center justify-between select-none">
+    <header className="bg-surface-1 border-b border-line-1 text-slate-200 px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] flex items-center justify-between select-none">
       {/* タブ切り替え (ブラウザ版。デスクトップ版・iPad は左のサイドバー) */}
       {/* ウインドウが狭いときは、タブの名前を隠してアイコンだけにする (名前が 2 行に折り返さないように) */}
       {plan.chrome === 'top' ? (

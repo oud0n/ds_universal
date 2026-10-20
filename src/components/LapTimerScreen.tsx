@@ -170,7 +170,10 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const shownElapsedRef = useRef<{ lapStartMs: number | null; value: number }>({ lapStartMs: null, value: 0 });
 
   // Esc で、開いている選ぶ画面・メニュー・ラップタイマーの順に閉じる (開いている間は、後ろの画面の再生のキーは効かない)
-  useEscapeKey(true, onClose);
+  // 閉じる: 測っている間は、先に測定終了の確認を出す (誤って閉じて記録が止まらないように)
+  const requestClose = () => { if (measuringRef.current) setConfirmStop(true); else onClose(); };
+  // タブの 1 つとして出すときは Esc で閉じない (ほかの画面のキー操作を止めないように)
+  useEscapeKey(!embedded, requestClose);
   useEscapeKey(menuOpen, () => setMenuOpen(false));
   useEscapeKey(coursePicker, () => setCoursePicker(false));
 
@@ -632,7 +635,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   return (
     <div
       className={`${embedded && !measuring ? 'absolute inset-0 z-[30]' : 'fixed inset-0 z-[90]'} bg-black text-white flex flex-col select-none`}
-      style={embedded && !measuring ? { paddingTop: 'env(safe-area-inset-top)' } : { paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)', paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' }}
+      style={embedded && !measuring ? { paddingTop: 'env(safe-area-inset-top)', paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' } : { paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)', paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' }}
       data-testid="lap-timer"
     >
       {/* 上の段: 出どころの状態・コース・声・メニュー・閉じる */}
@@ -665,7 +668,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           <Menu size={18} />
         </button>
         {!embedded && (
-          <button onClick={onClose} className="p-2 rounded-full border border-white/20 shrink-0" aria-label={t('閉じる', 'Close')} title={t('閉じる', 'Close')} data-testid="lap-timer-close">
+          <button onClick={requestClose} className="p-2 rounded-full border border-white/20 shrink-0" aria-label={t('閉じる', 'Close')} title={t('閉じる', 'Close')} data-testid="lap-timer-close">
             <X size={18} />
           </button>
         )}

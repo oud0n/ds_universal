@@ -26,10 +26,9 @@ export function parseHash(hash: string, plan: NavPlan): Screen | null {
   return s && plan.available.has(s) ? s : null;
 }
 
-/** 画面ごとの URL の末尾 (離れるときに、その末尾だったら外す) */
-const SCREEN_HASH: Partial<Record<Screen, string>> = { timer: '#laptimer', convert: '#convert', data: '#data', logger: '#logger', video: '#video' };
-
 let plan: NavPlan | null = null;
+/** ⚙ の中の画面を重ねて開いたときの戻り先 (⚙ → データ管理 → 戻る → 戻る で、はじめの画面へ) */
+let backStack: Screen[] = [];
 let state: NavState = { screen: 'analysis', from: null, locked: false };
 let initialized = false;
 const listeners = new Set<() => void>();
@@ -37,9 +36,8 @@ const listeners = new Set<() => void>();
 function set(next: NavState) {
   if (next.screen === state.screen && next.from === state.from && next.locked === state.locked) return;
   // 離れる画面を URL の末尾で開いていたら外す (読み込み直したときに、またその画面を開かないように)。#openrun= などは触らない
-  if (next.screen !== state.screen && typeof window !== 'undefined') {
-    const h = SCREEN_HASH[state.screen];
-    if (h && window.location.hash === h) history.replaceState(null, '', window.location.pathname + window.location.search);
+  if (next.screen !== state.screen && typeof window !== 'undefined' && plan && parseHash(window.location.hash, plan) === state.screen) {
+    history.replaceState(null, '', window.location.pathname + window.location.search);
   }
   state = next;
   listeners.forEach(l => l());
@@ -71,14 +69,17 @@ export const navStore = {
       console.warn(`[nav] ${screen} はこの環境にありません`);
       return;
     }
+    if (screen === state.screen) return;
     const isMore = !!plan?.more.includes(screen) && !plan.primary.includes(screen);
-    set({ ...state, screen, from: isMore ? (state.screen === screen ? state.from : state.screen) : null });
+    if (isMore) backStack.push(state.screen);
+    else backStack = [];
+    set({ ...state, screen, from: isMore ? state.screen : null });
   },
   /** ⚙ の中の画面から戻る */
   back(): void {
     if (state.locked) return;
-    const to = state.from ?? plan?.home ?? 'analysis';
-    set({ ...state, screen: to, from: null });
+    const to = backStack.pop() ?? plan?.home ?? 'analysis';
+    set({ ...state, screen: to, from: backStack[backStack.length - 1] ?? null });
   },
   /** 測っている間は、ほかの画面へ行けないようにする */
   setLocked(on: boolean): void {
@@ -88,6 +89,7 @@ export const navStore = {
   resetForTest(): void {
     plan = null;
     initialized = false;
+    backStack = [];
     state = { screen: 'analysis', from: null, locked: false };
   }
 };
