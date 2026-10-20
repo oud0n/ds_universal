@@ -100,7 +100,9 @@ export async function videoCandidates(store: RunStore, item: RunItem): Promise<{
       // 読めない動画は候補にしない
     }
   }
-  return { local, missing: [], fromRuns: false };
+  // iCloud にだけある動画は中を読めないので、ファイルの日時 (GoPro から写した動画は撮影の終わりの時刻のことが多い) で候補にし、取り込むか聞く
+  const missing = item.folderVideos.filter(x => !x.local && !/\.lrv$/i.test(x.path) && Math.abs(x.mtimeMs - item.startMs!) <= 14 * 3600_000);
+  return { local, missing, fromRuns: false };
 }
 
 /** 開いている走行 (動画と同期を runs.json に書くため) */
