@@ -107,6 +107,41 @@ final class SystemModule {
                 return ["path": rel, "size": size, "mtimeMs": mtime.rounded()]
             }
             done(.success(["files": files]))
+        // 走行の置き場 (選んだフォルダ、なければ LapTimer/) のファイル (RunFiles.swift。2026-10-20)
+        case "system.runRoot":
+            let (root, scoped) = RunFiles.root()
+            done(.success(["urlBase": RunFiles.urlBase, "kind": scoped ? "folder" : "local", "name": root.lastPathComponent]))
+        case "system.listRunFiles":
+            Task {
+                let files = await Task.detached(priority: .userInitiated) { RunFiles.list() }.value
+                done(.success(["files": files.map(\.dict)]))
+            }
+        case "system.readRunFile":
+            guard let rel = params["path"] as? String else { return done(.failure(NativeError(.notFound, "no path"))) }
+            Task {
+                let r: Result<Data, NativeError> = await Task.detached(priority: .userInitiated) {
+                    do { return .success(try RunFiles.read(rel)) }
+                    catch let e as NativeError { return .failure(e) }
+                    catch { return .failure(NativeError(.io, error.localizedDescription)) }
+                }.value
+                done(r.map { ["b64": $0.base64EncodedString()] })
+            }
+        case "system.writeRunFile":
+            guard let rel = params["path"] as? String, let b64 = params["b64"] as? String, let data = Data(base64Encoded: b64) else {
+                return done(.failure(NativeError(.notFound, "bad params")))
+            }
+            Task {
+                let r: Result<Bool, NativeError> = await Task.detached(priority: .userInitiated) {
+                    do { try RunFiles.write(rel, data); return .success(true) }
+                    catch let e as NativeError { return .failure(e) }
+                    catch { return .failure(NativeError(.io, error.localizedDescription)) }
+                }.value
+                done(r.map { _ in [:] })
+            }
+        case "system.downloadRunFile":
+            guard let rel = params["path"] as? String else { return done(.failure(NativeError(.notFound, "no path"))) }
+            do { try RunFiles.startDownload(rel); done(.success([:])) }
+            catch { done(.failure(NativeError(.io, error.localizedDescription))) }
         case "system.readLapFile":
             // 読めるのは走行のログと控えだけ。大きいファイル (動画など) は読まない (base64 で Web に渡すとメモリが足りなくなるため)
             let allowed = ["bon4", "nmea", "json"]
