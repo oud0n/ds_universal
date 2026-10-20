@@ -54,7 +54,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
                 {t('開発者を支援', 'Support the developer')} <span className="text-xs font-normal text-amber-400">{t('（Buy Me a Coffee）', '(Buy Me a Coffee)')}</span>
               </h2>
               <p className="text-[11px] text-slate-400">
-                {t('DS Universal の継続的な開発・検証を応援していただけます', 'Help keep DS Universal developed and tested')}
+                {t('LapLoupe の継続的な開発・検証を応援していただけます', 'Help keep LapLoupe developed and tested')}
               </p>
             </div>
           </div>
@@ -73,10 +73,10 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
           <div className="bg-gradient-to-r from-surface-3 to-surface-2 border border-line-3 rounded-xl p-4 space-y-2">
             <div className="flex items-center gap-2 text-xs font-semibold text-amber-300">
               <Sparkles size={15} className="text-amber-400" />
-              <span>{t('いつもご利用ありがとうございます！', 'Thank you for using DS Universal!')}</span>
+              <span>{t('いつもご利用ありがとうございます！', 'Thank you for using LapLoupe!')}</span>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              <strong className="text-fg">DS Universal（ds_universal）</strong>
+              <strong className="text-fg">LapLoupe（旧名 DS Universal、ds_universal）</strong>
               {t('は、個人が休日や夜間に開発している、無料でソースコードを公開しているソフトウェアです。 デジスパイスIV実機での通信テストやサーキットでの実走ログ検証、GoPro動画同期・高精度解析機能の継続開発をサポートしていただけると大変励みになります☕🏁',
                 ' is free, source-available software developed by one person on weekends and evenings. Your support for testing with a real DigSpice IV, checking logs at the track, and continued work on GoPro sync and precise analysis is a big encouragement ☕🏁')}
             </p>
