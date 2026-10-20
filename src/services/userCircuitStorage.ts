@@ -521,6 +521,11 @@ class UserCircuitStorage {
     return this.edited;
   }
 
+  /** 自分のコース全部 (コース編集で保存したもの → 読み込んだコースデータの順) */
+  public getAllCircuits(): UserCircuitItem[] {
+    return [...this.edited, ...this.circuits];
+  }
+
   /** 同じ名前で保存したコースが、別の場所 (計測線が 1 km 以上離れている) にあるか */
   public isEditedNameUsedElsewhere(name: string, controlLine: ControlLine): boolean {
     const prev = this.edited.find(c => c.name === name);

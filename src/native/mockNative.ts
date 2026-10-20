@@ -293,6 +293,13 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         }
         return { kind: 'folder', copied, skipped, failed: 0 };
       }
+      case 'system.listLapFiles':
+        return { files: [...lapTimerFiles.entries()].filter(([p]) => !p.startsWith('exports/')).map(([path, b64]) => ({ path, size: b64.length, mtimeMs: 0 })) };
+      case 'system.readLapFile': {
+        const { path } = req.params as { path: string };
+        if (!lapTimerFiles.has(path)) throw { code: 'not-found', message: 'no file' };
+        return { b64: lapTimerFiles.get(path)! };
+      }
       case 'system.shareFile':
         shared.push({ fileName: (req.params as { path: string }).path });
         return {};

@@ -18,5 +18,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   // 画面の言語をメニューに知らせる
   setLanguage: (lang) => ipcRenderer.send('set-language', lang),
+  // ラップタイムの一覧の保管場所 (選んだフォルダの中だけ読める。書けるのは laptimes.json だけ)
+  laps: {
+    getFolder: () => ipcRenderer.invoke('laps-get-folder'),
+    pickFolder: () => ipcRenderer.invoke('laps-pick-folder'),
+    list: () => ipcRenderer.invoke('laps-list'),
+    read: (p) => ipcRenderer.invoke('laps-read', p),
+    readText: (p) => ipcRenderer.invoke('laps-read-text', p),
+    writeText: (p, text) => ipcRenderer.invoke('laps-write-text', p, text)
+  },
   isElectron: true
 });
