@@ -10,6 +10,8 @@ import { LoggerSettingsCard } from './LoggerSettingsCard';
 import { BleLoggerCard } from './BleLoggerCard';
 import { canUseLoggerBle, canUseLoggerUsb } from '../utils/device';
 import { tr, useT } from '../utils/i18n';
+import { desktopDownloadUrl, isBrowserVersionOnPc } from '../utils/desktopApp';
+import { openExternalUrl } from '../utils/url';
 
 // 開発サーバーで `?sim=1` を付けると、実機の代わりにシミュレーターへ接続する
 function isSimulatorRequested(): boolean {
@@ -270,6 +272,16 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
             {!('serial' in navigator) && !(import.meta.env.DEV && isSimulatorRequested()) && (
               <p className="text-xs text-amber-400 mt-1" data-testid="logger-unsupported">
                 {t('このブラウザはロガーとの USB 通信に対応していません。パソコンの Chrome または Edge で開いてください。', 'This browser cannot talk to the logger over USB. Open this page in Chrome or Edge on a PC.')}
+                {/* Safari・Firefox などのパソコンでは、デスクトップ版でもつなげる */}
+                {isBrowserVersionOnPc() && (
+                  <>
+                    {t(' または、', ' Or use the ')}
+                    <button onClick={() => openExternalUrl(desktopDownloadUrl())} className="underline hover:text-amber-300 cursor-pointer">
+                      {t('デスクトップ版（Mac・Windows）', 'desktop app (Mac / Windows)')}
+                    </button>
+                    {t(' を使ってください。', '.')}
+                  </>
+                )}
               </p>
             )}
           </div>
