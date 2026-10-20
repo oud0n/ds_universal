@@ -140,7 +140,7 @@ export function convertToGpx(points: ConvertedPoint[], trackName: string, offset
     })
     .join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="DS Universal" xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v2">
+<gpx version="1.1" creator="LapLoupe" xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v2">
   <metadata>
     <name>${name}</name>
     <time>${new Date().toISOString()}</time>
@@ -180,7 +180,7 @@ export function convertToVbo(points: ConvertedPoint[]): string {
     'height',
     '',
     '[comments]',
-    'Exported by DS Universal',
+    'Exported by LapLoupe',
     '',
     '[column names]',
     'sats time lat long velocity heading height',
@@ -253,7 +253,7 @@ export function convertToKml(points: ConvertedPoint[], title: string, offsetHour
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
     <name>${name}</name>
-    <description>DS Universal で書き出し。線の色は車速 (${min.toFixed(0)}〜${max.toFixed(0)} km/h、青が遅く赤が速い)</description>
+    <description>LapLoupe で書き出し。線の色は車速 (${min.toFixed(0)}〜${max.toFixed(0)} km/h、青が遅く赤が速い)</description>
 ${styles}
     <Folder>
       <name>走行ライン (車速)</name>
