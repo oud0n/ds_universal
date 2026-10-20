@@ -173,4 +173,13 @@ describe('レビューで直したこと', () => {
     } };
     expect(lapRows('x', index).map(r => `${r.file}${r.n}`)).toEqual(['a.bon41', 'a.bon42', 'b.bon41', 'b.bon42']);
   });
+  it('日付のフォルダの中の走行も、サーキットのフォルダで数える (2026-10-20)', () => {
+    const g = groupBon4ByFolder([
+      { path: 'sodegaura/20261024/20261024100000.bon4', size: 1, mtimeMs: 0 },
+      { path: 'sodegaura/20260913092357.bon4', size: 1, mtimeMs: 0 },
+      { path: 'sodegaura/misc/x.bon4', size: 1, mtimeMs: 0 },
+      { path: 'sodegaura/20261024/GX010001.MP4', size: 1, mtimeMs: 0 }
+    ]);
+    expect(g.get('sodegaura')?.map(f => f.path)).toEqual(['sodegaura/20261024/20261024100000.bon4', 'sodegaura/20260913092357.bon4']);
+  });
 });

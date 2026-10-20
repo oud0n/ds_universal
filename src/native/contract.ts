@@ -169,6 +169,20 @@ export interface NativeMethods {
   'system.listLapFiles': { params: Record<string, never>; result: { files: Array<{ path: string; size: number; mtimeMs: number }> } };
   /** LapTimer/ の下のファイルを読む (base64) */
   'system.readLapFile': { params: { path: string }; result: { b64: string } };
+  /** 走行の置き場 (選んだフォルダ、なければ LapTimer/) と、動画を読む URL の頭 (lapfile://run/。2026-10-20) */
+  'system.runRoot': { params: Record<string, never>; result: { urlBase: string; kind: 'folder' | 'local'; name: string } };
+  /** 走行の置き場のファイルの一覧。local: false は iCloud にだけあるファイル */
+  'system.listRunFiles': { params: Record<string, never>; result: { files: Array<{ path: string; size: number; mtimeMs: number; local: boolean }> } };
+  /** 走行の置き場のログ・控え (.bon4・.nmea・.json・.csv) を読む (base64) */
+  'system.readRunFile': { params: { path: string }; result: { b64: string } };
+  /** 走行の置き場の runs.json・laptimes.json を書く */
+  'system.writeRunFile': { params: { path: string; b64: string }; result: Record<string, never> };
+  /** 動画の一部を読む (base64。8 MB まで) */
+  'system.readRunRange': { params: { path: string; offset: number; length: number }; result: { b64: string } };
+  /** ファイルが端末にあるか・iCloud から取り込み中か */
+  'system.runFileStatus': { params: { path: string }; result: { local: boolean; downloading: boolean } };
+  /** iCloud からの取り込みを始める */
+  'system.downloadRunFile': { params: { path: string }; result: Record<string, never> };
   /** OS の設定の画面 (このアプリの許可) を開く。一度断られた許可は、OS がもう聞いてくれないため */
   'system.openSettings': { params: Record<string, never>; result: Record<string, never> };
 }

@@ -43,7 +43,7 @@ describe('走っている間の記録 (アプリ)', () => {
     course = '袖ヶ浦';
     rec.add(fix(1));
     await rec.flush();
-    expect(bon4Paths()).toEqual([`sodegaura/${NAME()}.bon4`]);
+    expect(bon4Paths()).toEqual([`sodegaura/${NAME().slice(0, 8)}/${NAME()}.bon4`]);
     expect(rec.current?.fixCount).toBe(2);
   });
 
@@ -73,6 +73,6 @@ describe('走っている間の記録 (アプリ)', () => {
     rec.add(fix(0));
     await rec.flush();
     expect(files.get(`sodegaura/${NAME()}.bon4`)).toBe(5);
-    expect(rec.current?.fileBase).toBe(`sodegaura/${NAME()}_2`);
+    expect(rec.current?.fileBase).toBe(`sodegaura/${NAME().slice(0, 8)}/${NAME()}_2`);
   });
 });

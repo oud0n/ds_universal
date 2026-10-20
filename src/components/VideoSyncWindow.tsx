@@ -46,6 +46,7 @@ import { fileAccept, isIOS, isWebKitBrowser } from '../utils/device';
 import { setClockMaster } from '../services/clockMaster';
 import { useCompactLayout, useLandscape } from '../hooks/useCompactLayout';
 import { EmptyLoadPrompt } from './EmptyLoadPrompt';
+import { RunFolderVideos } from './RunFolderVideos';
 import { SKIP_SEC, Skip10Icon } from './Skip10Icon';
 import { useWheelScrollX } from '../hooks/useWheelScrollX';
 import { useEscapeKey } from '../hooks/useEscapeKey';
@@ -1550,7 +1551,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               : t('GoPro（H.265 / HEVC・4GB で分かれたチャプターにも対応）や、複数のカメラの MP4 / MOV 動画を、ここにドロップするか、ボタンから選んでください。', 'Drop GoPro (H.265 / HEVC, 4 GB chapters supported) or other MP4 / MOV videos from one or more cameras here, or choose them with the button.')}
             buttonLabel={t('動画を選ぶ', 'Choose videos')}
             onClick={() => fileInputRef.current?.click()}
-          />
+          >
+            <RunFolderVideos />
+          </EmptyLoadPrompt>
         )}
       </div>
 
