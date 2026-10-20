@@ -1864,10 +1864,10 @@ export const App: React.FC = () => {
         }
         sectors={currentSectors}
         onSavedCircuitsChange={() => setUserCircuitCount(userCircuitStorage.getCircuitCount())}
-        onSaveCircuit={(name, cl, sec, remember) => {
+        onSaveCircuit={(name, cl, sec, remember, names) => {
           // アプリに保存して、次から同じ場所のログに使う (閉じても消えない)
           if (remember) {
-            userCircuitStorage.saveEditedCircuit(name, cl, sec, baseSession && passesNearControlLine(baseSession.points, cl) ? baseSession.pathPolylines : undefined).then(r => {
+            userCircuitStorage.saveEditedCircuit(name, cl, sec, baseSession && passesNearControlLine(baseSession.points, cl) ? baseSession.pathPolylines : undefined, names).then(r => {
               if (!r.saved) alert(`${tr('コースを保存できませんでした (この画面には反映しています)', 'Could not save the course (it is applied on this screen)')}: ${r.saveError ?? ''}`);
               setUserCircuitCount(userCircuitStorage.getCircuitCount());
             });
