@@ -225,3 +225,32 @@ describe('.bon4 で書き出す', () => {
     expect(Array.from(bytes.slice(0, 8))).toEqual(Array.from(bon4Header({ tMs: 0, latitude: from[0].latitude, longitude: from[0].longitude, speedKmh: from[0].speed })));
   });
 });
+
+describe('.bon4 の読み込み', () => {
+  it('1/100 秒が 99 の点 (時刻が前後と合わない点) は読まない', () => {
+    const n = 5;
+    const buf = new ArrayBuffer(8 + n * 26);
+    const v = new DataView(buf);
+    // 24.94 → (99: 位置は 25.0 前後) → 25.10 → 25.15 → 25.20
+    const rows: Array<[number, number, number]> = [[24, 94, 0], [25, 99, 1], [25, 10, 2], [25, 15, 3], [25, 20, 4]];
+    rows.forEach(([sec, sub, k], i) => {
+      const o = 8 + i * 26;
+      v.setUint16(o, 0x2085, true);
+      v.setUint16(o + 2, 2300, true);
+      v.setInt32(o + 4, 353937096 - k * 62, true);
+      v.setInt32(o + 8, 1400881716 - k * 100, true);
+      v.setInt32(o + 12, 926, true);
+      v.setUint16(o + 16, 0x00c0, true);
+      v.setUint16(o + 18, 2026, true);
+      v.setUint8(o + 20, 9);
+      v.setUint8(o + 21, 13);
+      v.setUint8(o + 22, 0);
+      v.setUint8(o + 23, 42);
+      v.setUint8(o + 24, sec);
+      v.setUint8(o + 25, sub);
+    });
+    const [part] = parseDigispiceRawBinary('a.bon4', buf);
+    const times = (part.points as TelemetryPoint[]).map(p => p.timestamp);
+    expect(times).toEqual(['2026-09-13T00:42:24.940Z', '2026-09-13T00:42:25.100Z', '2026-09-13T00:42:25.150Z', '2026-09-13T00:42:25.200Z']);
+  });
+});
