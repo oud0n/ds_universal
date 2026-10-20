@@ -116,6 +116,8 @@ export class PlaybackController {
       seekStartedAt: null, seekDone: false, seekTarget: 0, lastLocal: 0, lastSyncAt: null, seekAudible: false, seekLead: [0, 0],
       appOffset: null, masterLast: null, masterBlockedUntil: 0,
       onSeeked: () => {
+        // 移動の途中で止めていたら、移動が終わったときに止める (止めたあとは sync が呼ばれないため)
+        if (!this.playing && !el.paused) el.pause();
         if (entry.seekStartedAt === null) return;
         // コマが出たのを知らせてもらえるときは、次のコマが出るまで待って測る (watchFrames)
         if ((el as FrameVideo).requestVideoFrameCallback) entry.seekDone = true;
@@ -275,6 +277,9 @@ export class PlaybackController {
       if (!el.paused) el.pause();
       return;
     }
+    // 止める指示は、移動中 (seeking) でも先に出す (止めたあとの App は描き直さないので、
+    // 移動が終わってから合わせる機会がなく、動画だけ再生を続けてしまう。2026-10-20 iPhone で見つけた)
+    if (!isPlaying && !el.paused) el.pause();
     // 移動中 (seeking) は合わせない。移動が終わったら (seeked) もう一度合わせる
     if (el.seeking) return;
     // 動画の本当の長さを超えた位置には移動できない (移動しても終わりに止まり、移動が終わるたびに合わせ直して止まらなくなる)
