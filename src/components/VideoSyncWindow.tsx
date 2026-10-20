@@ -1753,8 +1753,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           <button
             onClick={() => seekTo(Math.max(0, currentTimeSec - SKIP_SEC))}
             className="p-1 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
-            title={t('10 秒戻す', 'Back 10 s')}
-            aria-label={t('10 秒戻す', 'Back 10 seconds')}
+            title={t('5 秒戻す', 'Back 5 s')}
+            aria-label={t('5 秒戻す', 'Back 5 seconds')}
           >
             <Skip10Icon dir="back" size={isCompactLayout ? 18 : 15} />
           </button>
@@ -1768,8 +1768,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           <button
             onClick={() => seekTo(currentTimeSec + SKIP_SEC)}
             className="p-1 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
-            title={t('10 秒進める', 'Forward 10 s')}
-            aria-label={t('10 秒進める', 'Forward 10 seconds')}
+            title={t('5 秒進める', 'Forward 5 s')}
+            aria-label={t('5 秒進める', 'Forward 5 seconds')}
           >
             <Skip10Icon dir="forward" size={isCompactLayout ? 18 : 15} />
           </button>
