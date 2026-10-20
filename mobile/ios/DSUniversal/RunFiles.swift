@@ -184,6 +184,33 @@ enum RunFiles {
         }
     }
 
+    /// 動画の一部を読む (撮影日時・GoPro の GPS を読むため。https のページからは lapfile:// を fetch で読めないので、窓口で渡す)
+    static func readRange(_ rel: String, offset: UInt64, length: Int) throws -> Data {
+        guard length > 0, length <= 8 * 1024 * 1024 else { throw NativeError(.io, "bad length") }
+        return try withRoot { root in
+            guard let url = resolve(rel, in: root), videoExt.contains(url.pathExtension.lowercased()) else { throw NativeError(.notFound, "no file") }
+            guard FileManager.default.fileExists(atPath: url.path) else { throw NativeError(.notFound, "not downloaded") }
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            try handle.seek(toOffset: offset)
+            return try handle.read(upToCount: length) ?? Data()
+        }
+    }
+
+    /// ファイルが端末にあるか・iCloud から取り込み中か
+    static func status(_ rel: String) -> [String: Any] {
+        withRoot { root in
+            guard let url = resolve(rel, in: root) else { return ["local": false, "downloading": false] }
+            let placeholder = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).icloud")
+            let values = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey, .ubiquitousItemIsDownloadingKey, .isUbiquitousItemKey])
+            let exists = FileManager.default.fileExists(atPath: url.path)
+            var local = exists
+            if values?.isUbiquitousItem == true, values?.ubiquitousItemDownloadingStatus == .notDownloaded { local = false }
+            if !exists && FileManager.default.fileExists(atPath: placeholder.path) { local = false }
+            return ["local": local, "downloading": values?.ubiquitousItemIsDownloading ?? false]
+        }
+    }
+
     /// runs.json・laptimes.json だけを書く (一時ファイルに書いてから入れ替える)
     static func write(_ rel: String, _ data: Data) throws {
         let allowed = ["runs.json", "laptimes.json"]

@@ -24,7 +24,7 @@ export const RunFolderVideos: React.FC = () => {
         alert(t('取り込みを始めました。終わったら、もう一度押してください。', 'Download started. Tap again when it finishes.'));
         return;
       }
-      await addVideoToOpenRun({ name: name(path), size, url: run.store.videoUrl(path), path, lastModified: mtimeMs });
+      await addVideoToOpenRun({ name: name(path), size, url: run.store.videoUrl(path), path, lastModified: mtimeMs, readRange: run.store.rangeReader?.(path) });
     } finally {
       setBusy(null);
     }

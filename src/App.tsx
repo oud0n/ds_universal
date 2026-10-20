@@ -243,6 +243,9 @@ export const App: React.FC = () => {
   const [runsSheetOpen, setRunsSheetOpen] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
   const runOpeningRef = useRef(false);
+  // iCloud から取り込み中の動画 (取り込み終わったら、走行に付けて開く)。percent はふつう分からない (取り込み中とだけ出す)
+  const [runDownload, setRunDownload] = useState<{ names: string[]; done: number } | null>(null);
+  const runDownloadTokenRef = useRef(0);
   /** 保管場所から開いた走行の道と、そのログ (同じ名前のほかのフォルダの走行と取り違えないため) */
   const runSessionsRef = useRef(new Map<string, string[]>());
   // 開発サーバーで試すとき: #openrun=<フォルダ>/<ファイル> で、その走行を開く (画面を押せないシミュレーターで確かめるため)
@@ -755,6 +758,9 @@ export const App: React.FC = () => {
   const openRun = async (item: RunItem) => {
     // 続けて押しても 1 回だけ開く
     if (runOpeningRef.current) return;
+    // ほかの走行を開いたら、前の走行の取り込み待ちはやめる
+    runDownloadTokenRef.current++;
+    setRunDownload(null);
     runOpeningRef.current = true;
     setRunBusy(true);
     try {
@@ -788,6 +794,33 @@ export const App: React.FC = () => {
           false
         );
         if (download) for (const m of cand.missing) await store.startDownload(m.path);
+        // 取り込みが終わるのを待って、終わったら付ける (この走行を開いている間だけ)
+        if (download) {
+          const token = ++runDownloadTokenRef.current;
+          const paths = cand.missing.map(m => m.path);
+          setRunDownload({ names: paths.map(p => p.slice(p.lastIndexOf('/') + 1)), done: 0 });
+          void (async () => {
+            const started = Date.now();
+            for (;;) {
+              await new Promise(r => setTimeout(r, 3000));
+              if (token !== runDownloadTokenRef.current) return;
+              const st = await Promise.all(paths.map(p => store.fileStatus(p).catch(() => ({ local: false, downloading: false }))));
+              const done = st.filter(s => s.local).length;
+              setRunDownload(d => (d ? { ...d, done } : d));
+              if (done === paths.length) break;
+              // 1 時間で待つのをやめる (取り込みは「ファイル」アプリでも続く。終わってから開き直せば付く)
+              if (Date.now() - started > 3600_000) { setRunDownload(null); return; }
+            }
+            const refreshed: RunItem = { ...item, folderVideos: item.folderVideos.map(v => (paths.includes(v.path) ? { ...v, local: true } : v)) };
+            const again = await videoCandidates(store, refreshed);
+            if (token !== runDownloadTokenRef.current) return;
+            await attachRunVideos({
+              store, item: refreshed, runSessions: added, videos: again.local, fromRuns: again.fromRuns,
+              sessions: sessionsNow, circuitName: () => added[0]?.circuitName ?? '', setClockOffset: setSessionClockOffset
+            }).catch(() => undefined);
+            setRunDownload(null);
+          })();
+        }
       }
       await attachRunVideos({
         store, item, runSessions: added, videos: cand.local, fromRuns: cand.fromRuns,
@@ -2026,6 +2059,14 @@ export const App: React.FC = () => {
 
       {/* 開発支援 (Buy Me a Coffee) モーダル */}
       <ChoiceDialogHost />
+      {runDownload && (
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-24 z-[56] max-w-[90vw] flex items-center gap-2 px-3 py-2 rounded-full bg-surface-2/95 border border-sky-500/50 text-xs text-sky-200 shadow-lg" data-testid="run-download">
+          <span className="w-3 h-3 rounded-full border-2 border-sky-400 border-t-transparent animate-spin shrink-0" />
+          <span className="truncate">
+            {T(`動画をダウンロード中… (${runDownload.done}/${runDownload.names.length})`, `Downloading video… (${runDownload.done}/${runDownload.names.length})`)}
+          </span>
+        </div>
+      )}
       {runsSheetOpen && (
         <RunsSheet
           onClose={() => setRunsSheetOpen(false)}
