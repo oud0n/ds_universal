@@ -215,6 +215,12 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         }
         return {};
       }
+      case 'ble.write': {
+        // 書いたものは requests に残るので、試験ではそこを見る
+        const p = req.params as { deviceId: string };
+        if (link?.deviceId !== p.deviceId || link.pending) throw { code: 'not-connected', message: 'not connected' };
+        return {};
+      }
       case 'ble.read': {
         const p = req.params as { deviceId: string; service: string; characteristic: string };
         if (link?.deviceId !== p.deviceId || link.pending) throw { code: 'not-connected', message: 'not connected' };
