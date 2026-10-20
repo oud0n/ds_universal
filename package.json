@@ -36,6 +36,7 @@
   ],
   "dependencies": {
     "lucide-react": "^1.16.0",
+    "mediabunny": "^1.61.6",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"

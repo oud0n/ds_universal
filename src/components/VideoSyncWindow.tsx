@@ -30,6 +30,7 @@ import {
   downloadBlob,
   VideoExportController 
 } from '../services/telemetryVideoExporter';
+import { canUseEncodeExport, exportEncodedVideo } from '../services/encodeVideoExporter';
 import { MasterTimelineTrackBar } from './MasterTimelineTrackBar';
 import { formatMinSec } from '../utils/timeFormat';
 import { tr, useT } from '../utils/i18n';
@@ -341,6 +342,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   useEscapeKey(showExportModal && isVisible, () => setShowExportModal(false));
   const [exportRange, setExportRange] = useState<'lap' | 'all'>('lap');
   const [exportResolution, setExportResolution] = useState<'1080p' | '720p'>('1080p');
+  // 書き出しの方式。encode: 元のファイルを 1 コマずつ読んで書く (速く、コマが抜けない)。record: 再生しながら録る (これまでの方式)
+  const [exportMethod, setExportMethod] = useState<'encode' | 'record'>(() => (canUseEncodeExport() ? 'encode' : 'record'));
   const [exportFps, setExportFps] = useState<number>(30);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   // 枠の並びの書き出しで、低画質のファイル (.LRV) を使う (下書き)
@@ -734,6 +737,38 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     setIsExporting(true);
     videoViewStore.set({ isExporting: true });
     setShowExportModal(false);
+
+    // エンコードの方式 (元のファイルがあるとき)。範囲は動画の中の秒に直す
+    if (exportMethod === 'encode' && activeTrack.file && canUseEncodeExport()) {
+      const offset = activeTrack.syncOffsetSec;
+      const startVideoSec = Math.max(0, startSec - offset);
+      const endVideoSec = Math.min(activeTrack.durationSec || Infinity, endSec - offset);
+      const encController = exportEncodedVideo({
+        file: activeTrack.file,
+        startVideoSec,
+        endVideoSec,
+        toSessionSec: v => v + offset,
+        drawOverlay: (ctx, w, h, curTime) => drawTelemetryOverlayOnCanvas(ctx, w, h, curTime, baseSession, baseLap, showGForce),
+        width: exportW,
+        height: exportH,
+        fps: exportFps,
+        outputFileName: filename,
+        onProgress: p => setExportProgress(p)
+      });
+      exportControllerRef.current = encController;
+      const finishEnc = () => {
+        exportControllerRef.current = null;
+        setIsExporting(false);
+        setExportProgress(null);
+        videoViewStore.set({ isExporting: false });
+      };
+      encController.promise.then(finishEnc).catch(err => {
+        console.warn('Export finished or cancelled:', err);
+        if (!/キャンセル|cancel/i.test(String(err?.message ?? err))) alert(t(`書き出せませんでした: ${err?.message ?? err}`, `Export failed: ${err?.message ?? err}`));
+        finishEnc();
+      });
+      return;
+    }
 
     const controller = exportBurnedInVideo({
       videoElement: el,
@@ -1859,6 +1894,22 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     <span>{t('下書き: GoPro の .LRV (低画質のファイル) で軽く録る。.LRV を読み込んだ動画だけ', 'Draft: record with the GoPro .LRV low-res copies (lighter). Only for videos whose .LRV is loaded')}</span>
                   </label>
                 )}
+              </div>
+            )}
+
+            {/* 書き出しの方式 (1 つの動画のとき) */}
+            {!(exportStage && tileCount > 1) && canUseEncodeExport() && activeTrack?.file && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-slate-400">{t('書き出しの方式:', 'Export method:')}</label>
+                <select
+                  value={exportMethod}
+                  onChange={e => setExportMethod(e.target.value as 'encode' | 'record')}
+                  className="w-full bg-surface-1 border border-line-3 text-xs px-2 py-1 rounded outline-none text-slate-200 cursor-pointer"
+                  data-testid="export-method"
+                >
+                  <option value="encode">{t('エンコード (推奨・コマが抜けない・再生しない)', 'Encode (recommended, no dropped frames)')}</option>
+                  <option value="record">{t('再生しながら録る (これまでの方式)', 'Record while playing (previous method)')}</option>
+                </select>
               </div>
             )}
 
