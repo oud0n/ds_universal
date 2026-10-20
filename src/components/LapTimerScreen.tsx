@@ -631,6 +631,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       </main>
 
       {/* メニュー: 出どころ・再生の設定・記録 */}
+      {/* メニューの外を押したら閉じる (透明な受け皿をメニューの後ろに敷く) */}
+      {menuOpen && <div className="absolute inset-0 z-[9]" onClick={() => setMenuOpen(false)} aria-hidden="true" data-testid="lap-timer-menu-backdrop" />}
       {menuOpen && (
         <div className="absolute right-2 top-14 z-10 w-[min(92vw,360px)] max-h-[80vh] overflow-y-auto rounded-2xl bg-neutral-900 border border-white/15 p-3 space-y-3 text-sm shadow-2xl">
           <div>
