@@ -1,4 +1,5 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeTheme } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeTheme, protocol } = require('electron');
+const { Readable } = require('stream');
 const path = require('path');
 const fs = require('fs');
 
@@ -503,7 +504,7 @@ ipcMain.handle('laps-read-text', async (_event, rel) => {
 });
 ipcMain.handle('laps-write-text', async (_event, rel, text) => {
   const full = await lapPath(rel);
-  if (!full || path.basename(full) !== 'laptimes.json' || typeof text !== 'string' || text.length > MAX_LAP_TEXT_BYTES) return { success: false, error: 'not allowed' };
+  if (!full || !LAP_TEXT_NAMES.has(path.basename(full)) || typeof text !== 'string' || text.length > MAX_LAP_TEXT_BYTES) return { success: false, error: 'not allowed' };
   try {
     // 一時ファイルに書いてから入れ替える (途中で止まっても、前の控えが残る)
     const tmp = `${full}.tmp`;
@@ -515,7 +516,61 @@ ipcMain.handle('laps-write-text', async (_event, rel, text) => {
   }
 });
 
+// ---- 保管場所の動画を lapfile://run/<道> で読む (2026-10-20、docs/session_storage_design.md) ----
+// 大きな動画を丸ごと読まずに、頼まれた範囲 (Range) だけ返す。読めるのは保管場所の中の動画だけ
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'lapfile', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true, bypassCSP: true } }
+]);
+const LAP_VIDEO_TYPES = { mp4: 'video/mp4', m4v: 'video/mp4', lrv: 'video/mp4', insv: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', mkv: 'video/x-matroska' };
+async function serveLapFile(request) {
+  const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges', 'Cache-Control': 'no-store' };
+  let rel;
+  try {
+    const url = new URL(request.url);
+    if (url.host !== 'run') return new Response(null, { status: 404, headers });
+    rel = decodeURIComponent(url.pathname.replace(/^\//, ''));
+  } catch {
+    return new Response(null, { status: 400, headers });
+  }
+  const type = LAP_VIDEO_TYPES[path.extname(rel).slice(1).toLowerCase()];
+  const full = type ? await lapPath(rel) : null;
+  if (!full) return new Response(null, { status: 404, headers });
+  let size;
+  try {
+    size = (await fs.promises.stat(full)).size;
+  } catch {
+    return new Response(null, { status: 404, headers });
+  }
+  let start = 0;
+  let end = size - 1;
+  let partial = false;
+  const m = /^bytes=(\d*)-(\d*)/.exec(request.headers.get('range') || '');
+  if (m) {
+    partial = true;
+    if (m[1] === '' && m[2] !== '') start = Math.max(0, size - Number(m[2]));
+    else {
+      start = Number(m[1] || 0);
+      if (m[2] !== '') end = Math.min(end, Number(m[2]));
+    }
+  }
+  if (size === 0 || start > end || start >= size) {
+    return new Response(null, { status: 416, headers: { ...headers, 'Content-Range': `bytes */${size}` } });
+  }
+  const body = Readable.toWeb(fs.createReadStream(full, { start, end }));
+  return new Response(body, {
+    status: partial ? 206 : 200,
+    headers: {
+      ...headers,
+      'Content-Type': type,
+      'Content-Length': String(end - start + 1),
+      'Accept-Ranges': 'bytes',
+      ...(partial ? { 'Content-Range': `bytes ${start}-${end}/${size}` } : {})
+    }
+  });
+}
+
 app.whenReady().then(() => {
+  protocol.handle('lapfile', serveLapFile);
   createWindow();
 
   app.on('activate', () => {
