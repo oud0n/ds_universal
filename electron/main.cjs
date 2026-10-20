@@ -8,7 +8,7 @@ app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 
-// アプリ名を「DS Universal Suite」から「DS Universal」に変えたので、データ (保存したユーザーコース・設定など) の
+// アプリ名を「DS Universal Suite」から「DS Universal」、さらに「LapLoupe」に変えたので、データ (保存したユーザーコース・設定など) の
 // 保存先は前の名前のフォルダを使い続ける (名前に合わせて変わると、更新した人のデータが引き継がれないため)。
 // 開発中 (npm run electron:dev など、パッケージしていないとき) は従来どおり
 if (app.isPackaged) {
@@ -110,13 +110,13 @@ function buildMenu() {
         },
         { type: 'separator' },
         {
-          label: L('DS Universal について', 'About DS Universal'),
+          label: L('LapLoupe について', 'About LapLoupe'),
           click: () => {
             dialog.showMessageBox(mainWindow, {
               type: 'info',
               title: L('バージョン情報', 'About'),
-              message: `DS Universal v${app.getVersion()}`,
-              detail: L('デジスパイスIV USB直接通信・ダウンロード & オフライン走行解析ユニバーサルアプリケーション\n作者: oud0n (https://github.com/oud0n/ds_universal)', 'DigSpice IV USB communication and download, and offline driving analysis\nAuthor: oud0n (https://github.com/oud0n/ds_universal)')
+              message: `LapLoupe v${app.getVersion()}`,
+              detail: L('ラップ・走行ログの解析と、デジスパイスIV の USB 通信・ログのダウンロード (旧名 DS Universal)\n作者: oud0n (https://github.com/oud0n/ds_universal)', 'Lap and driving log analysis, and DigSpice IV USB communication and download (formerly DS Universal)\nAuthor: oud0n (https://github.com/oud0n/ds_universal)')
             });
           }
         }
@@ -133,7 +133,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: 'DS Universal - GPS Data Logger & Telemetry Analyser',
+    title: 'LapLoupe — Lap / Track Analyzer',
     // 画面が出るまでの背景。テーマ (システムに合わせる場合) と同じく OS の設定に合わせる
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#0f1117' : '#e9edf2',
     webPreferences: {

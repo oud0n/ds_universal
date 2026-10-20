@@ -105,9 +105,11 @@ P0〜P2 は完了（P2 は実データ確認が残り）。P3（多言語化・�
 - [x] **UI 修正案の反映** → **クローズ**（2026-10-17。修正案は出さず、ここまでの UI 調整で区切る）
 - [x] **（2026-10-17 対応、v0.9.0）スマートフォン向けレイアウト**（ブラウザ版）: ロガー設定タブ（USB 通信）はスマートフォン・タブレットでは出さない（2026-10-17 対応済み）。iPhone / iPad は Web Serial 非対応、Android の Chrome も USB 接続のシリアルは使えないため
 - [x] **（2026-10-17 対応）アプリ名の表記の統一**: 「DS Universal」に統一した（画面・README・書き出すファイルの作成元・Electron の productName）。デスクトップ版のデータの保存先は、前の名前のフォルダ（DS Universal Suite）を使い続ける
-- [ ] **名前を LapLoupe（ラップルーペ）に変える**（2026-10-19 決定。「DS Universal」で検索すると関係のないサイトばかり出るため。App Store・J-PlatPat に同じ名前がないことは作者が確認済み）
+- [x] **名前を LapLoupe（ラップルーペ）に変える**（2026-10-19 決定。「DS Universal」で検索すると関係のないサイトばかり出るため。App Store・J-PlatPat に同じ名前がないことは作者が確認済み）
   - [x] README（日本語・英語）の題名・最初の説明・名前を変えたことの案内
-  - [ ] 画面（ヘッダー・ページの題名・ドネート・設定）、書き出すファイルの作成元、Electron の productName・appId、インストーラーとリリースの名前、Pages の題名、README の残りの「DS Universal」
+  - [x] （2026-10-20）ページの題名と説明、ドネート、書き出すファイルの作成元 (GPX・KML・MoTeC CSV など)、Electron の productName・ウインドウの題名・「について」、README の macOS の手順。iPhone アプリの表示名は先に LapLoupe にしてある
+  - appId（`com.oud0n.dsuniversal`）は変えない（変えると、Windows では前の版と別のアプリとして入り、macOS でも別のアプリ扱いになるため）
+  - [ ] Windows で、前の版 (DS Universal) の上に新しい版を入れたとき、前の版が消えて 1 つになるか（ショートカットの名前も）を実機で確かめる
   - 変えないもの: リポジトリ名（`ds_universal`）とブラウザ版の URL、保存のキー（`ds_` で始まるもの）、デスクトップ版のデータの保存先のフォルダ（今の名前のフォルダを使い続ける。変えると設定とコースが消えたように見える）
 - [x] **（2026-10-17 対応）README のロゴ差し替え**: 新しいアイコン（`build/icon.svg`）に置き換える（アプリ内ヘッダーのロゴ「DS-ANALYSER」と名称「DS Universal Analyser」は 2026-10-17 に削除した）
 - [x] **（2026-10-17 対応）ブラウザ版（GitHub Pages）のファビコン設定**: `index.html` が存在しない `/vite.svg` を参照しており 404 になっているため、`build/icon.svg`（および `apple-touch-icon` 用の `build/icon.png`）を `public/` に配置して相対パスで参照させる
