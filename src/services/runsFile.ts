@@ -67,7 +67,11 @@ export async function updateRun(store: RunStore, folder: string, file: string, p
   const text = await store.readTextStrict(`${folder}/${RUNS_FILE}`);
   if (text !== null && !isRunsFileText(text)) throw new Error('runs.json could not be read');
   const current = parseRunsFile(text);
-  const entry: RunEntry = { ...current.runs[file], ...patch, updatedAt: new Date().toISOString() };
+  // 日付のフォルダへ移す前に、ファイルの名前だけで書いた行は、新しい名前 (日付/ファイル) の行へ移す
+  const short = file.slice(file.lastIndexOf('/') + 1);
+  const old = short !== file ? current.runs[short] : undefined;
+  if (old) delete current.runs[short];
+  const entry: RunEntry = { ...old, ...current.runs[file], ...patch, updatedAt: new Date().toISOString() };
   current.runs[file] = entry;
   await store.writeText(`${folder}/${RUNS_FILE}`, JSON.stringify(current, null, 1));
   return entry;

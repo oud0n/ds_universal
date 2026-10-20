@@ -39,24 +39,32 @@ export interface RunItem {
   entry: RunEntry | null;
 }
 
-/** 保管場所の全部の走行 (新しい順) */
+/** 道の最後の名前 */
+export const baseName = (p: string) => p.slice(p.lastIndexOf('/') + 1);
+/** 道のフォルダ */
+const dirName = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
+
+/** 保管場所の全部の走行 (新しい順)。走行は <サーキットのフォルダ>/<日付>/ か <サーキットのフォルダ>/ に置く。動画は走行と同じフォルダのものだけ */
 export async function listRuns(store: RunStore, onProgress?: (folder: string) => void): Promise<RunItem[]> {
   const all = await store.listAll();
   const folders = await loadLapHistory(store, onProgress);
   const out: RunItem[] = [];
   for (const f of folders) {
     const runs = await readRunsFile(store, f.folder);
-    const folderVideos = all.filter(x => x.path.startsWith(`${f.folder}/`) && isRunVideoName(x.path.slice(f.folder.length + 1)));
     const hidden = new Set((f.index?.hidden ?? []).map(h => lapKey(h.file, h.part, h.n)));
     const names = new Set([
       ...Object.keys(f.index?.files ?? {}),
       ...all.filter(x => x.path.startsWith(`${f.folder}/`) && /\.bon4$/i.test(x.path)).map(x => x.path.slice(f.folder.length + 1))
     ]);
     for (const file of names) {
-      if (file.includes('/')) continue;
+      if (!/^(\d{8}\/)?[^/]+$/.test(file)) continue;
+      const runDir = dirName(`${f.folder}/${file}`);
+      // 走行と同じフォルダの動画。日付のフォルダの走行には、サーキットのフォルダにじかに置いた動画 (前の置き方) も候補にする
+      const folderVideos = all.filter(x => (dirName(x.path) === runDir || dirName(x.path) === f.folder) && isRunVideoName(baseName(x.path)));
       const rec = f.index?.files[file];
       const laps = (rec?.laps ?? []).filter(l => !hidden.has(lapKey(file, l.part, l.n)));
-      const entry = runs.runs[file] ?? null;
+      // 日付のフォルダへ移す前に書いた行は、ファイルの名前だけで引く
+      const entry = runs.runs[file] ?? runs.runs[baseName(file)] ?? null;
       const videos = entry?.videos ?? rec?.videos ?? [];
       out.push({
         folder: f.folder,
@@ -80,10 +88,10 @@ export const totalBytes = (files: RunFileInfo[]) => files.reduce((s, f) => s + f
 /** 走行の動画にする候補: runs.json に書いたもの。なければ、同じフォルダの端末にある動画のうち、撮影の時刻が走り始めの ±14 時間のもの
  * (時差の分を広めに取る。最後は動画の GPS・撮影時刻での照合で、この走行に合わなかったものを外す) */
 export async function videoCandidates(store: RunStore, item: RunItem): Promise<{ local: RemoteVideo[]; missing: RunFileInfo[]; fromRuns: boolean }> {
-  const byName = new Map(item.folderVideos.map(v => [v.path.slice(item.folder.length + 1), v]));
+  const byName = new Map(item.folderVideos.map(v => [baseName(v.path), v]));
   // 古いアプリ (lapfile:// を読めない) では、動画は開かない
   if (!(await store.supportsVideos())) return { local: [], missing: [], fromRuns: !!item.videos.length };
-  const toRemote = (v: RunFileInfo): RemoteVideo => ({ name: v.path.slice(item.folder.length + 1), size: v.size, url: store.videoUrl(v.path), path: v.path, lastModified: v.mtimeMs });
+  const toRemote = (v: RunFileInfo): RemoteVideo => ({ name: baseName(v.path), size: v.size, url: store.videoUrl(v.path), path: v.path, lastModified: v.mtimeMs });
   if (item.videos.length) {
     const listed = item.videos.map(n => byName.get(n)).filter((v): v is RunFileInfo => !!v);
     return { local: listed.filter(v => v.local).map(toRemote), missing: listed.filter(v => !v.local), fromRuns: true };
