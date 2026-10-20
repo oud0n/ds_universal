@@ -1823,6 +1823,7 @@ export const App: React.FC = () => {
           replayLogs={sessions.map((s): ReplayLog => ({ id: s.id, name: s.sessionName || s.fileName, points: s.points, startDate: s.points[0]?.timestamp ? new Date(s.points[0].timestamp) : undefined }))}
           onOpenLog={(fileName, text) => {
             setLapTimerOpen(false);
+            if (window.location.hash === '#laptimer') history.replaceState(null, '', window.location.pathname + window.location.search);
             void loadFileData(fileName, null, parseNmea(text)).then(() => setCurrentTab('graph'));
           }}
         />
