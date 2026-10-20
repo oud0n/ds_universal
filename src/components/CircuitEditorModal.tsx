@@ -4,6 +4,7 @@ import { X, Plus, Trash2, Check, MapPin, Upload, Download } from 'lucide-react';
 import { parseCln, exportCln } from '../services/pthParser';
 import { parseSci, exportSci, userCircuitStorage, UserCircuitItem } from '../services/userCircuitStorage';
 import { tr, useT, getLang } from '../utils/i18n';
+import { CIRCUIT_PRESETS } from '../services/circuitDatabase';
 import { checkEnglishName, checkFolderName, courseFolder, guessEnglishName, toFolderName } from '../utils/courseNames';
 import { fileAccept } from '../utils/device';
 import { useEscapeKey } from '../hooks/useEscapeKey';
@@ -66,7 +67,9 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   // 英語名とフォルダ名: 保存したコースならそれ、なければコースの名前から作った候補
   const initialSaved = userCircuitStorage.getEditedCircuits().find(c => c.name === (currentCircuitName || '').replace(USER_SUFFIX, ''));
   const [nameEn, setNameEn] = useState(() => initialSaved?.nameEn ?? guessEnglishName(currentCircuitName.replace(USER_SUFFIX, '')));
-  const [folder, setFolder] = useState(() => initialSaved?.folder ?? (guessEnglishName(currentCircuitName.replace(USER_SUFFIX, '')) ? courseFolder(currentCircuitName.replace(USER_SUFFIX, '')) : ''));
+  // 入っているコースなら、その ID (コースのファイルの名前) を候補にする
+  const presetId = CIRCUIT_PRESETS.find(p => p.name === currentCircuitName)?.id;
+  const [folder, setFolder] = useState(() => initialSaved?.folder ?? (presetId || guessEnglishName(currentCircuitName.replace(USER_SUFFIX, '')) ? courseFolder(currentCircuitName.replace(USER_SUFFIX, ''), undefined, presetId) : ''));
   // フォルダ名を手で直したか (直していなければ、英語名に合わせて作り直す)
   const [folderEdited, setFolderEdited] = useState(() => !!initialSaved?.folder);
   const nameEnError = nameEn.trim() ? checkEnglishName(nameEn) : null;
@@ -345,8 +348,9 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                 type="text"
                 value={folder}
                 data-testid="course-folder"
-                placeholder="Sodegaura_Forest_Raceway"
-                onChange={e => { setFolder(e.target.value); setFolderEdited(true); }}
+                placeholder="sodegaura_forest_raceway"
+                // 大文字は小文字にする (それ以外の使えない文字は、エラーで知らせる)
+                onChange={e => { setFolder(e.target.value.replace(/[A-Z]/g, c => c.toLowerCase())); setFolderEdited(true); }}
                 className={`w-full bg-surface-0 border rounded-lg p-2 text-slate-100 font-mono outline-none ${folderError ? 'border-red-500' : 'border-line-3 focus:border-red-500'}`}
               />
             </div>
@@ -355,8 +359,8 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
             <p className="text-[11px] text-red-400" data-testid="course-name-error">{msg((nameEnError ?? folderError)!)}</p>
           )}
           <p className="text-[11px] text-slate-500 -mt-3">
-            {t('英語名と保存フォルダ名は、半角の英字・数字などだけです。保存フォルダ名は、ラップタイマーの記録を入れるフォルダの名前です（英語名から自動で作ります。直すこともできます）。',
-              'The English name and folder name use half-width letters and digits only. The folder name is where lap timer runs for this course are kept (made from the English name; you can change it).')}
+            {t('英語名は半角の英字・数字・空白など、保存フォルダ名は半角の英小文字・数字と _ だけです（空白は使えません）。保存フォルダ名は、ラップタイマーの記録を入れるフォルダの名前です（英語名から自動で作ります。直すこともできます）。',
+              'The English name uses half-width letters, digits, spaces and a few symbols; the folder name uses lowercase half-width letters, digits and _ only (no spaces). The folder name is where lap timer runs for this course are kept (made from the English name; you can change it).')}
           </p>
 
           {/* ファイルの読み込み・書き出し (公式アプリと同じ .cln / .sci) */}

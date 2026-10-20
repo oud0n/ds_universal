@@ -217,7 +217,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     const src = sourceRef.current;
     if (src !== 'replay') {
       recorderRef.current ??= new LiveRunRecorder(src, () => courseRef.current?.name ?? '', m => setSaveError(m),
-        () => (courseRef.current ? courseFolder(courseRef.current.name, courseRef.current.folder) : ''));
+        () => (courseRef.current ? courseFolder(courseRef.current.name, courseRef.current.folder, courseRef.current.id) : ''));
       recorderRef.current.add(fix);
     }
     // コースを決めていなければ、初めの測位の所で選ぶ。周を数える前は、ときどき選び直す
