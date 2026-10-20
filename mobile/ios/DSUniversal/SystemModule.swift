@@ -1,10 +1,17 @@
 import UIKit
+import UniformTypeIdentifiers
 
 /// 約束の system.* (設定の画面を開く・ファイルを共有する・画面の自動ロックを止める・ラップタイマーの記録を書く) と、アプリが前に出た・裏に回ったの知らせ
 @MainActor
 final class SystemModule {
     private unowned let core: NativeCore
     private var observers: [NSObjectProtocol] = []
+    /// フォルダを選ぶ画面の受け手 (選び終わるまで持っておく)
+    private var folderPicker: FolderPickerDelegate?
+
+    /// ラップタイマーの記録の保管先 ("local" = この iPhone、"folder" = 選んだフォルダ) と、選んだフォルダのブックマーク
+    private static let storageKindKey = "lapTimer.storage.kind"
+    private static let storageBookmarkKey = "lapTimer.storage.bookmark"
 
     init(core: NativeCore) {
         self.core = core
@@ -71,24 +78,170 @@ final class SystemModule {
             } catch {
                 done(.failure(NativeError(.io, error.localizedDescription)))
             }
+        case "system.storageInfo":
+            done(.success(storageInfo()))
+        case "system.pickStorageFolder":
+            pickStorageFolder(done: done)
+        case "system.setStorageLocal":
+            UserDefaults.standard.set("local", forKey: Self.storageKindKey)
+            done(.success(storageInfo()))
+        case "system.syncLapFiles":
+            syncLapFiles(done: done)
         default:
             done(.failure(NativeError(.notSupported, "unknown method \(method)")))
         }
     }
 
+    /// 書類のフォルダの LapTimer/ (走っている間は、いつもここに書く)
+    private static var lapTimerRoot: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("LapTimer", isDirectory: true)
+    }
+
     /// 書類のフォルダの LapTimer/ の下の場所 (上のフォルダへ出る名前・絶対の道は断る)
     private func lapTimerURL(_ rel: String) -> URL? {
         guard !rel.isEmpty, !rel.contains(".."), !rel.hasPrefix("/") else { return nil }
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return docs.appendingPathComponent("LapTimer", isDirectory: true).appendingPathComponent(rel)
+        return Self.lapTimerRoot.appendingPathComponent(rel)
+    }
+
+    // MARK: - 記録の保管先 (この iPhone / 選んだフォルダ)
+
+    /// 選んだフォルダ (ブックマークから戻す。古くなっていたら作り直す)
+    private func storageFolder() -> URL? {
+        guard let data = UserDefaults.standard.data(forKey: Self.storageBookmarkKey) else { return nil }
+        var stale = false
+        guard let url = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) else { return nil }
+        if stale {
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            if let fresh = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) {
+                UserDefaults.standard.set(fresh, forKey: Self.storageBookmarkKey)
+            }
+        }
+        return url
+    }
+
+    private func storageInfo() -> [String: Any] {
+        let folder = storageFolder()
+        let kind = UserDefaults.standard.string(forKey: Self.storageKindKey) == "folder" && folder != nil ? "folder" : "local"
+        return ["kind": kind, "folderName": folder?.lastPathComponent ?? "", "folderOk": folder != nil]
+    }
+
+    /// 「ファイル」のフォルダを選ぶ画面を出す (iCloud Drive・この iPhone・ほかのクラウドのフォルダ)
+    private func pickStorageFolder(done: @escaping (Result<[String: Any], NativeError>) -> Void) {
+        guard let top = topViewController() else {
+            done(.failure(NativeError(.io, "could not show the folder picker")))
+            return
+        }
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType.folder])
+        picker.allowsMultipleSelection = false
+        let delegate = FolderPickerDelegate { [weak self] url in
+            guard let self else { return }
+            self.folderPicker = nil
+            guard let url else {
+                done(.failure(NativeError(.notFound, "cancelled")))
+                return
+            }
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
+                UserDefaults.standard.set(bookmark, forKey: Self.storageBookmarkKey)
+                UserDefaults.standard.set("folder", forKey: Self.storageKindKey)
+                DebugLog.write("storage folder picked")
+                done(.success(self.storageInfo()))
+            } catch {
+                done(.failure(NativeError(.io, error.localizedDescription)))
+            }
+        }
+        folderPicker = delegate
+        picker.delegate = delegate
+        top.present(picker, animated: true)
+    }
+
+    /// LapTimer/ の下のファイルを、選んだフォルダの同じ場所 (サーキット名/ファイル) へ写す。大きさの違うもの・ないものだけ
+    private func syncLapFiles(done: @escaping (Result<[String: Any], NativeError>) -> Void) {
+        guard UserDefaults.standard.string(forKey: Self.storageKindKey) == "folder" else {
+            done(.success(["kind": "local", "copied": 0, "skipped": 0, "failed": 0]))
+            return
+        }
+        guard let dest = storageFolder() else {
+            done(.failure(NativeError(.notFound, "the chosen folder is not available")))
+            return
+        }
+        let src = Self.lapTimerRoot
+        Task { @MainActor in
+            let r = await Task.detached(priority: .utility) { Self.copyChanged(from: src, to: dest) }.value
+            if r.failed > 0 { DebugLog.write("storage sync failed=\(r.failed) error=\(r.error ?? "-")") }
+            var out: [String: Any] = ["kind": "folder", "copied": r.copied, "skipped": r.skipped, "failed": r.failed]
+            if let e = r.error { out["error"] = e }
+            done(.success(out))
+        }
+    }
+
+    struct SyncResult: Sendable {
+        var copied = 0
+        var skipped = 0
+        var failed = 0
+        var error: String?
+    }
+
+    nonisolated private static func copyChanged(from src: URL, to dest: URL) -> SyncResult {
+        var r = SyncResult()
+        let access = dest.startAccessingSecurityScopedResource()
+        defer { if access { dest.stopAccessingSecurityScopedResource() } }
+        let fm = FileManager()
+        let base = src.resolvingSymlinksInPath().path
+        guard let e = fm.enumerator(at: src, includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey], options: [.skipsHiddenFiles]) else { return r }
+        for case let file as URL in e {
+            let path = file.resolvingSymlinksInPath().path
+            guard path.hasPrefix(base + "/") else { continue }
+            let rel = String(path.dropFirst(base.count + 1))
+            // 共有のために作った一時のファイルは写さない
+            if rel == "exports" || rel.hasPrefix("exports/") {
+                e.skipDescendants()
+                continue
+            }
+            guard (try? file.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            let target = dest.appendingPathComponent(rel)
+            let srcSize = (try? fm.attributesOfItem(atPath: file.path)[.size] as? Int) ?? -1
+            let dstSize = (try? fm.attributesOfItem(atPath: target.path)[.size] as? Int) ?? -2
+            if srcSize == dstSize {
+                r.skipped += 1
+                continue
+            }
+            var coordError: NSError?
+            var copyError: Error?
+            NSFileCoordinator().coordinate(writingItemAt: target, options: .forReplacing, error: &coordError) { url in
+                do {
+                    try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    if fm.fileExists(atPath: url.path) { try fm.removeItem(at: url) }
+                    try fm.copyItem(at: file, to: url)
+                } catch {
+                    copyError = error
+                }
+            }
+            if let err = copyError ?? coordError {
+                r.failed += 1
+                r.error = err.localizedDescription
+            } else {
+                r.copied += 1
+            }
+        }
+        return r
+    }
+
+    /// いちばん上に出ている画面
+    private func topViewController() -> UIViewController? {
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+              var top = (scene.windows.first(where: \.isKeyWindow) ?? scene.windows.first)?.rootViewController else { return nil }
+        while let presented = top.presentedViewController { top = presented }
+        return top
     }
 
     /// 共有の画面 (AirDrop・「ファイル」に保存・メールなど) を出す
     @discardableResult
     func share(url: URL) -> Bool {
-        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
-              var top = (scene.windows.first(where: \.isKeyWindow) ?? scene.windows.first)?.rootViewController else { return false }
-        while let presented = top.presentedViewController { top = presented }
+        guard let top = topViewController() else { return false }
         let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
         // iPad では、出す場所を決めないと落ちる
         sheet.popoverPresentationController?.sourceView = top.view
@@ -122,5 +275,25 @@ final class SystemModule {
                 self?.core.ble.recorder.flush()
             }
         })
+    }
+}
+
+/// フォルダを選ぶ画面の受け手。選んだフォルダ (やめたら nil) を一度だけ返す
+@MainActor
+final class FolderPickerDelegate: NSObject, UIDocumentPickerDelegate {
+    private var onPick: ((URL?) -> Void)?
+
+    init(onPick: @escaping (URL?) -> Void) {
+        self.onPick = onPick
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        onPick?(urls.first)
+        onPick = nil
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        onPick?(nil)
+        onPick = nil
     }
 }

@@ -106,6 +106,15 @@ export interface RecordingFile {
   modifiedMs: number;
 }
 
+/** ラップタイマーの記録の保管先 */
+export interface StorageInfo {
+  kind: 'local' | 'folder';
+  /** 選んだフォルダの名前 (選んでいなければ '') */
+  folderName: string;
+  /** 選んだフォルダを今も開けるか */
+  folderOk: boolean;
+}
+
 export interface NativeMethods {
   'caps.get': { params: Record<string, never>; result: Capabilities };
   'ble.permission': { params: { request: boolean }; result: { state: PermissionState } };
@@ -143,6 +152,18 @@ export interface NativeMethods {
   'system.appendFile': { params: { path: string; b64: string; truncate?: boolean }; result: Record<string, never> };
   /** LapTimer/ の下のファイルを、OS の共有の画面で渡す (2026-10-20 に足した) */
   'system.shareFile': { params: { path: string }; result: Record<string, never> };
+  /**
+   * ラップタイマーの記録の保管先 (2026-10-20 に足した。版は 1 のまま)。
+   * local: この iPhone (LapTimer/<サーキット名>/)。folder: 利用者が「ファイル」で選んだフォルダ (iCloud Drive など) にも写す。
+   * 走っている間は、どちらでも LapTimer/ に書く (電波がなくても記録が消えないように)
+   */
+  'system.storageInfo': { params: Record<string, never>; result: StorageInfo };
+  /** 「ファイル」のフォルダを選ぶ画面を出し、選んだフォルダを保管先にする。やめたら not-found (message: cancelled) */
+  'system.pickStorageFolder': { params: Record<string, never>; result: StorageInfo };
+  /** 保管先を この iPhone に戻す */
+  'system.setStorageLocal': { params: Record<string, never>; result: StorageInfo };
+  /** LapTimer/ の下のファイルのうち、選んだフォルダにない・大きさの違うものを写す (保管先が local なら何もしない) */
+  'system.syncLapFiles': { params: Record<string, never>; result: { kind: 'local' | 'folder'; copied: number; skipped: number; failed: number; error?: string } };
   /** OS の設定の画面 (このアプリの許可) を開く。一度断られた許可は、OS がもう聞いてくれないため */
   'system.openSettings': { params: Record<string, never>; result: Record<string, never> };
 }
