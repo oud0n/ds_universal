@@ -1,4 +1,4 @@
-import { bleMaybeAvailable } from '../services/bleCentral';
+import { hasNative } from '../native/bridge';
 
 /**
  * スマートフォンか (タブレットは含まない)。端末の画面の短い辺で決める (600px 未満)。スマートフォンを回しても変わらない。
@@ -16,19 +16,26 @@ export const isPhone: boolean = typeof screen !== 'undefined' && Math.min(screen
 export const canUseLoggerUsb: boolean = (() => {
   if (typeof navigator === 'undefined' || typeof window === 'undefined') return false;
   if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('sim')) return true;
+  // スマートフォンのアプリでは USB のメニューを出さない (2026-10-20)
+  if (hasNative()) return false;
   return 'serial' in navigator && !/Android/i.test(navigator.userAgent);
 })();
 
 /**
- * ロガー (デジスパイス) と Bluetooth でつなげそうか。iPhone・Android のアプリ (ネイティブの窓口がある) と、
- * Web Bluetooth があるブラウザ (Electron 版・パソコンと Android の Chrome / Edge)。Safari・Firefox にはない。
+ * ロガー (デジスパイス) と Bluetooth でつなぐ機能 (と、それを使うラップタイマー) を出すか。
+ * スマートフォンのアプリ (iPhone・Android) だけで出す (2026-10-20)。ブラウザ版・デスクトップ版では、Web Bluetooth があっても出さない。
+ * アプリかどうかは、アプリが入れるネイティブの窓口 (window.webkit.messageHandlers.dsNative・window.dsNativeAndroid) で見分ける
+ * (ユーザーエージェントは書き換えられるため使わない)。
  * 開発サーバーで `?native=mock` を付けたときは、ネイティブのふりをする窓口 (src/native/mockNative.ts) につなぐので出す
  */
 export const canUseLoggerBle: boolean = (() => {
   if (typeof navigator === 'undefined' || typeof window === 'undefined') return false;
   if (isMockNativeRequested()) return true;
-  return bleMaybeAvailable();
+  return hasNative();
 })();
+
+/** ラップタイマーを出すか (スマートフォンのアプリだけ。開発サーバーでは試せるように出す) */
+export const canUseLapTimer: boolean = canUseLoggerBle || import.meta.env.DEV;
 
 /** ロガー設定のタブを出すか (USB か Bluetooth のどちらかでつなげる) */
 export const canUseLogger: boolean = canUseLoggerUsb || canUseLoggerBle;
