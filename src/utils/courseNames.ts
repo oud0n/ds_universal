@@ -25,6 +25,10 @@ export function toFolderName(s: string): string {
     .replace(/^_+/, '').slice(0, COURSE_NAME_MAX).replace(/_+$/, '');
 }
 
+/** 自動で選んだ、自分で作ったコースの名前の終わりに付く印 (英語表示では (user))。名前を作るときは外す */
+const USER_MARK = /\s*\((ユーザー設置|user)\)\s*$/;
+const withoutUserMark = (name: string) => name.trim().replace(USER_MARK, '').trim();
+
 /** 英字の名前として使えるか (日本語などが混じっていないか。アクセントの付いた字はよい) */
 const isLatin = (s: string) => /[A-Za-z]/.test(s) && !/[^ -ɏ]/.test(s);
 
@@ -33,7 +37,7 @@ const isLatin = (s: string) => /[A-Za-z]/.test(s) && !/[^ -ɏ]/.test(s);
  * (「袖ヶ浦フォレストレースウェイ (Sodegaura)」の Sodegaura) → 名前の英字の部分 の順。無ければ ''
  */
 export function guessEnglishName(name: string): string {
-  const n = name.trim();
+  const n = withoutUserMark(name);
   if (!n) return '';
   const paren = /\(([^()]+)\)\s*$/.exec(n)?.[1] ?? '';
   const before = n.replace(/\s*\([^()]*\)\s*$/, '');
@@ -55,7 +59,7 @@ export function guessEnglishName(name: string): string {
 export function courseFolder(name: string, folder?: string, id?: string): string {
   if (folder && FOLDER_RE.test(folder)) return folder;
   if (id && FOLDER_RE.test(id)) return id;
-  const n = name.trim();
+  const n = withoutUserMark(name);
   if (!n) return UNSORTED_FOLDER;
   const a = toFolderName(guessEnglishName(n));
   if (a) return a;

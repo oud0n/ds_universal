@@ -68,7 +68,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   const initialSaved = userCircuitStorage.getEditedCircuits().find(c => c.name === (currentCircuitName || '').replace(USER_SUFFIX, ''));
   const [nameEn, setNameEn] = useState(() => initialSaved?.nameEn ?? guessEnglishName(currentCircuitName.replace(USER_SUFFIX, '')));
   // 入っているコースなら、その ID (コースのファイルの名前) を候補にする
-  const presetId = CIRCUIT_PRESETS.find(p => p.name === currentCircuitName)?.id;
+  const presetId = CIRCUIT_PRESETS.find(p => p.name === currentCircuitName.replace(USER_SUFFIX, ''))?.id;
   const [folder, setFolder] = useState(() => initialSaved?.folder ?? (presetId || guessEnglishName(currentCircuitName.replace(USER_SUFFIX, '')) ? courseFolder(currentCircuitName.replace(USER_SUFFIX, ''), undefined, presetId) : ''));
   // フォルダ名を手で直したか (直していなければ、英語名に合わせて作り直す)
   const [folderEdited, setFolderEdited] = useState(() => !!initialSaved?.folder);
@@ -94,7 +94,9 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   const handleLoadSaved = (c: UserCircuitItem) => {
     setName(c.name);
     setNameEn(c.nameEn ?? guessEnglishName(c.name));
-    setFolder(c.folder ?? (guessEnglishName(c.name) ? courseFolder(c.name) : ''));
+    // 内蔵のコースから作ったコースなら、その ID (コースのファイルの名前) を候補にする
+    const savedPresetId = CIRCUIT_PRESETS.find(p => p.name === c.name)?.id;
+    setFolder(c.folder ?? (savedPresetId || guessEnglishName(c.name) ? courseFolder(c.name, undefined, savedPresetId) : ''));
     setFolderEdited(!!c.folder);
     setClLatA(String(c.controlLine.latA));
     setClLonA(String(c.controlLine.lonA));
@@ -239,7 +241,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
     }
     setSaveError('');
     // ファイル名に使えない文字と、末尾の点・空白 (Windows で使えない) を置き換える
-    const base = (name.trim() || 'course').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/[. ]+$/, '').replace(/^cl_/i, '') || 'course';
+    const base = (name.trim() || nameEn.trim() || 'course').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/[. ]+$/, '').replace(/^cl_/i, '') || 'course';
     const sci = exportSci(finished, cl);
     // 1 つずつ保存する (.cln をキャンセルしても .sci は保存できるように、続けて聞く)
     const files: [string, string][] = [[`cl_${base}.cln`, exportCln(cl)], ...(sci ? [[`${base}.sci`, sci] as [string, string]] : [])];
