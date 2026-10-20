@@ -82,3 +82,13 @@ describe('コース編集の英語名・保存フォルダ名', () => {
     expect(checkFolderName('a'.repeat(61))).not.toBeNull();
   });
 });
+
+describe('自分で作ったコースの印 (ユーザー設置)', () => {
+  it('印を外してから名前を作る', () => {
+    expect(guessEnglishName('茂原ツインサーキット (Mobara) (ユーザー設置)')).toBe('Mobara');
+    expect(courseFolder('茂原ツインサーキット (Mobara) (ユーザー設置)')).toBe('mobara');
+    expect(courseFolder('My Track (user)')).toBe('my_track');
+    expect(courseFolder('My Track (ユーザー設置)')).toBe(courseFolder('My Track'));
+    expect(courseFolder('うちのコース (ユーザー設置)')).toBe(courseFolder('うちのコース'));
+  });
+});
