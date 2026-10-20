@@ -39,6 +39,7 @@ import { LapTimerScreen, type ReplayLog } from './components/LapTimerScreen';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
 import { DonateModal } from './components/DonateModal';
 import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
+import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
 import { bleLoggerLink } from './services/bleLoggerLink';
@@ -1412,25 +1413,19 @@ export const App: React.FC = () => {
       <main className={`relative flex-1 overflow-hidden ${isCompact ? 'p-2' : 'p-3'}`}>
         {/* ログを読み込む前のグラフ解析: 読み込み方を案内する (何もない画面で、どうすればよいか分からないため) */}
         {currentTab === 'graph' && sessions.length === 0 && (
-          <div className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none p-4 bg-surface-0/60">
-            <div className="pointer-events-auto max-w-md w-full max-h-full overflow-y-auto bg-surface-2 border border-line-2 rounded-xl p-5 text-center shadow-xl">
-              <h2 className="text-sm font-bold text-slate-100">{T('走行ログを読み込む', 'Load a driving log')}</h2>
-              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-                {/* スマートフォンではファイルを落とせないので、ボタンだけを案内する */}
-                {isCompact
-                  ? T('ロガーのログ (.bnx4 / .bon4 / .dtb)・NMEA・CSV・VBO・GPX・AiM・iRacing・GoPro の動画を、ボタンから選んでください。',
-                    'Choose a logger file (.bnx4 / .bon4 / .dtb), NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video with the button.')
-                  : T('ロガーのログ (.bnx4 / .bon4 / .dtb)・NMEA・CSV・VBO・GPX・AiM・iRacing・GoPro の動画を、ここにドロップするか、ボタンから選んでください。',
-                    'Drop a logger file (.bnx4 / .bon4 / .dtb), NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video here, or choose one with the button.')}
-              </p>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-xs text-white font-bold cursor-pointer"
-              >
-                <FolderOpen size={14} />
-                {T('ファイルを選ぶ', 'Choose files')}
-              </button>
-            </div>
+          // 後ろの空のグラフ・コース図は隠す (動画・変換の画面と同じ見た目にする)
+          <div className="absolute inset-0 z-40 bg-surface-0">
+            <EmptyLoadPrompt
+              title={T('走行ログを読み込む', 'Load a driving log')}
+              text={isCompact
+                // スマートフォンではファイルを落とせないので、ボタンだけを案内する
+                ? T('ロガーのログ (.bnx4 / .bon4 / .dtb)・NMEA・CSV・VBO・GPX・AiM・iRacing・GoPro の動画を、ボタンから選んでください。',
+                  'Choose a logger file (.bnx4 / .bon4 / .dtb), NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video with the button.')
+                : T('ロガーのログ (.bnx4 / .bon4 / .dtb)・NMEA・CSV・VBO・GPX・AiM・iRacing・GoPro の動画を、ここにドロップするか、ボタンから選んでください。',
+                  'Drop a logger file (.bnx4 / .bon4 / .dtb), NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video here, or choose one with the button.')}
+              buttonLabel={T('ファイルを選ぶ', 'Choose files')}
+              onClick={() => fileInputRef.current?.click()}
+            />
           </div>
         )}
         {/* 計測線はあるのに周回を区切れず、ログ全体を 1 周として表示しているときの注意 (違うコースを当てはめた・計測線がコースの外にあるなど。issue #17) */}
