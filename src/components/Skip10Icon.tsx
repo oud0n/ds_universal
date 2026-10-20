@@ -1,16 +1,11 @@
-import React from 'react';
 import { RotateCcw, RotateCw } from 'lucide-react';
+import React from 'react';
 
-/** 10 秒戻す / 進めるの印 (よくある、まるい矢印の中に 10) */
+/** 少し戻す / 進めるの印 (まるい矢印だけ。数字は入れない) */
 export const Skip10Icon: React.FC<{ dir: 'back' | 'forward'; size: number }> = ({ dir, size }) => {
   const Arrow = dir === 'back' ? RotateCcw : RotateCw;
-  return (
-    <span className="relative inline-flex items-center justify-center" style={{ width: size + 4, height: size + 4 }}>
-      <Arrow size={size + 4} strokeWidth={1.75} />
-      <span className="absolute inset-0 flex items-center justify-center font-bold leading-none" style={{ fontSize: Math.round(size * 0.5), paddingTop: 1 }}>10</span>
-    </span>
-  );
+  return <Arrow size={size} />;
 };
 
-/** 戻す・進める秒数 */
-export const SKIP_SEC = 10;
+/** 戻す・進める秒数 (2026-10-20 に 10 秒から 5 秒へ) */
+export const SKIP_SEC = 5;
