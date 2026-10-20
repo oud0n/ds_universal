@@ -16,6 +16,7 @@ import { callNative, hasNative, toBase64 } from '../native/bridge';
 import type { StorageInfo } from '../native/contract';
 import { canUseLoggerBle } from '../utils/device';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { OrientationToggle, StopConfirm, loadTimerOrientation, saveTimerOrientation, type TimerOrientation } from './LapTimerControls';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
 import type { CircuitPreset, TelemetryPoint } from '../types/telemetry';
 
@@ -114,6 +115,10 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   // 測っているか (測定開始のボタンを押してから、測定終了まで)。測っていない間は、位置と速度を出すだけで、周を数えず記録もしない (2026-10-20)
   const [measuring, setMeasuring] = useState(false);
   const measuringRef = useRef(false);
+  // 測定終了の確認 (全画面) を出しているか
+  const [confirmStop, setConfirmStop] = useState(false);
+  // 画面の向き (アプリだけ。測る前に選び、測っている間は固める)
+  const [orientation, setOrientation] = useState<TimerOrientation>(loadTimerOrientation);
   const [coursePicker, setCoursePicker] = useState(false);
   const [now, setNow] = useState(() => performance.now());
   const [phoneInfo, setPhoneInfo] = useState<{ accuracy: number | null; error: string | null }>({ accuracy: null, error: null });
@@ -422,6 +427,22 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     return () => clearInterval(iv);
   }, []);
 
+  // 測っていないときは、終了の確認を出さない (出どころを替えたときなど)
+  useEffect(() => { if (!measuring) setConfirmStop(false); }, [measuring]);
+  const cancelStop = useCallback(() => setConfirmStop(false), []);
+  const confirmStopYes = useCallback(() => { setConfirmStop(false); void stopMeasuring(); }, [stopMeasuring]);
+
+  // ---- 画面の向き (アプリ) ----
+  // 測っている間は今の向きに固める (コーナーの横 G で向きが変わらないように)。閉じたらふつうに戻す。前のアプリは not-supported を返すので何もしない
+  useEffect(() => {
+    if (!hasNative()) return;
+    void callNative('system.setOrientation', { mode: measuring ? 'hold' : orientation }).catch(() => {});
+  }, [measuring, orientation]);
+  useEffect(() => () => {
+    if (hasNative()) void callNative('system.setOrientation', { mode: 'system' }).catch(() => {});
+  }, []);
+  const changeOrientation = useCallback((v: TimerOrientation) => { setOrientation(v); saveTimerOrientation(v); }, []);
+
   // ---- 画面を消さない ----
   useEffect(() => {
     let lock: { release: () => Promise<void> } | null = null;
@@ -713,19 +734,24 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
 
       {/* 測定開始 / 測定終了 (ログの再生のときは出さない) */}
       {source !== 'replay' && (
-        <div className="shrink-0 px-3 pb-3">
+        <div className="shrink-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-3">
+          {/* 画面の向きは測る前だけ (アプリのみ) */}
+          {!measuring && hasNative() && <OrientationToggle value={orientation} onChange={changeOrientation} />}
           <button
             onClick={() => {
               if (!measuring) startMeasuring();
-              // 走っている間に誤って押しても止まらないよう、終了は確かめる
-              else if (window.confirm(t('測定を終了しますか？ (ここまでの走行を保存します)', 'Stop timing? (The run so far is saved)'))) void stopMeasuring();
+              // 走っている間に誤って押しても止まらないよう、終了は全画面で確かめる
+              else setConfirmStop(true);
             }}
-            className={`w-full flex items-center justify-center gap-2 rounded-2xl font-bold text-lg py-4 ${measuring ? 'bg-red-600 active:bg-red-700' : 'bg-emerald-600 active:bg-emerald-700'}`}
+            className={`w-full flex items-center justify-center gap-3 rounded-2xl font-bold ${measuring ? 'min-h-[72px] landscape:min-h-[56px] text-2xl border-[3px] border-red-500 text-red-300 active:bg-red-900/40' : 'min-h-[88px] landscape:min-h-[64px] text-3xl bg-emerald-600 active:bg-emerald-700'}`}
             data-testid="lap-timer-start-stop"
           >
-            {measuring ? <><Square size={20} fill="currentColor" />{t('測定終了', 'Stop')}</> : <><Play size={20} fill="currentColor" />{t('測定開始', 'Start')}</>}
+            {measuring ? <><Square size={24} fill="currentColor" />{t('測定終了', 'Stop')}</> : <><Play size={28} fill="currentColor" />{t('測定開始', 'Start')}</>}
           </button>
         </div>
+      )}
+      {confirmStop && measuring && (
+        <StopConfirm lapCount={state?.laps.length ?? 0} onYes={confirmStopYes} onNo={cancelStop} />
       )}
 
       {/* メニュー: 出どころ・再生の設定・記録 */}

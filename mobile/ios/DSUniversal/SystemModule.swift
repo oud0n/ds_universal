@@ -33,6 +33,10 @@ final class SystemModule {
             // ラップタイマーを開いている間、画面の自動ロックを止める
             UIApplication.shared.isIdleTimerDisabled = (params["on"] as? Bool) ?? false
             done(.success([:]))
+        case "system.setOrientation":
+            // ラップタイマーの画面の向き (Orientation.swift)
+            let mode = (params["mode"] as? String) ?? "system"
+            done(.success(["orientation": OrientationControl.shared.set(mode: mode)]))
         case "system.appendFile":
             // ラップタイマーの走行の記録を、走っている間に書類のフォルダの LapTimer/ に足していく
             guard let rel = params["path"] as? String, let url = lapTimerURL(rel),
