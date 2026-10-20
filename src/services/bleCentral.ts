@@ -40,6 +40,8 @@ export interface BleScanOptions {
   namePrefixes: string[];
   /** つないだあとに使うサービス (Web Bluetooth は、選ぶときに書いておかないと使えない) */
   services: string[];
+  /** 広告にこのサービスを載せている機器も探す (名前がまちまちな機器のため) */
+  advertisedServices?: string[];
 }
 
 export interface BleCentral {

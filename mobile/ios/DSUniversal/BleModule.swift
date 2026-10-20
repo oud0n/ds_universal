@@ -22,6 +22,8 @@ final class BleModule: NSObject {
     private var permissionWaiters: [(String) -> Void] = []
 
     private var scanPrefixes: [String]?
+    /// 広告にこのサービスを載せている機器も知らせる (心拍計・GoPro など、名前がまちまちな機器のため。2026-10-20)
+    private var scanServices: [CBUUID] = []
     private var scanTimer: DispatchWorkItem?
     private var discovered: [UUID: CBPeripheral] = [:]
 
@@ -74,7 +76,7 @@ final class BleModule: NSObject {
     func handle(method: String, params: [String: Any], done: @escaping (Result<[String: Any], NativeError>) -> Void) {
         switch method {
         case "ble.permission": permission(request: params["request"] as? Bool ?? false, done: done)
-        case "ble.scan": scan(prefixes: params["namePrefixes"] as? [String] ?? [], done: done)
+        case "ble.scan": scan(prefixes: params["namePrefixes"] as? [String] ?? [], services: (params["services"] as? [String] ?? []).map { CBUUID(string: $0) }, done: done)
         case "ble.stopScan": stopScan(); done(.success([:]))
         case "ble.connect": connect(params: params, done: done)
         case "ble.disconnect": disconnect(id: params["deviceId"] as? String, done: done)
@@ -155,10 +157,11 @@ final class BleModule: NSObject {
 
     // MARK: - 探す
 
-    private func scan(prefixes: [String], done: @escaping (Result<[String: Any], NativeError>) -> Void) {
+    private func scan(prefixes: [String], services: [CBUUID], done: @escaping (Result<[String: Any], NativeError>) -> Void) {
         onPoweredOn({ [self] in
             stopScan(notify: false)
             scanPrefixes = prefixes
+            scanServices = services
             // デジスパイスは広告のサービスが GATT と違う (0x180D を載せている) ので、サービスでは絞らず名前で絞る
             central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
             let timer = DispatchWorkItem { [weak self] in self?.stopScan() }
@@ -426,7 +429,11 @@ extension BleModule: @preconcurrency CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
         guard let prefixes = scanPrefixes else { return }
         let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? peripheral.name ?? ""
-        guard prefixes.contains(where: { name.hasPrefix($0) }) else { return }
+        // 名前の頭か、広告に載せているサービスのどちらかが合えば知らせる
+        let advertised = (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []) + (advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID] ?? [])
+        let byName = prefixes.contains(where: { name.hasPrefix($0) })
+        let byService = !scanServices.isEmpty && advertised.contains(where: { scanServices.contains($0) })
+        guard byName || byService else { return }
         discovered[peripheral.identifier] = peripheral
         core.emit("ble.device", ["deviceId": peripheral.identifier.uuidString, "name": name, "rssi": RSSI.intValue])
     }

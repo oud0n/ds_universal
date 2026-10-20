@@ -65,8 +65,10 @@ export interface GattCharacteristicRef {
 }
 
 export interface BleScanParams {
-  /** 名前がこれで始まる機器だけを知らせる */
+  /** 名前がこれで始まる機器を知らせる */
   namePrefixes: string[];
+  /** 広告にこのサービスを載せている機器も知らせる (名前がまちまちな心拍計・GoPro など。2026-10-20 に足した。前のアプリは見ない) */
+  services?: string[];
 }
 
 export interface BleConnectParams {

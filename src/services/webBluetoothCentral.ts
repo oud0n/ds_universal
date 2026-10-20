@@ -37,7 +37,7 @@ interface WbDevice extends EventTarget {
   gatt?: WbServer;
 }
 interface WbBluetooth {
-  requestDevice(options: { filters: Array<{ namePrefix: string }>; optionalServices: Array<number | string> }): Promise<WbDevice>;
+  requestDevice(options: { filters: Array<{ namePrefix: string } | { services: Array<number | string> }>; optionalServices: Array<number | string> }): Promise<WbDevice>;
   getDevices?: () => Promise<WbDevice[]>;
 }
 
@@ -73,7 +73,10 @@ export const webBluetoothCentral: BleCentral = {
   async scan(options, onDevice, onEnd) {
     try {
       const device = await bluetooth().requestDevice({
-        filters: options.namePrefixes.map(namePrefix => ({ namePrefix })),
+        filters: [
+          ...options.namePrefixes.map(namePrefix => ({ namePrefix })),
+          ...(options.advertisedServices ?? []).map(s => ({ services: [uuidForWeb(s)] }))
+        ],
         optionalServices: options.services.map(uuidForWeb)
       });
       known.set(device.id, device);
