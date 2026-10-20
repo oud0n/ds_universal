@@ -255,13 +255,15 @@ export class PlaybackController {
     // 再生中に、App の時刻が前に合わせたときから進むはずの分より 0.15 秒以上動いたら、見ている位置を動かしたので、やはり待たない。
     // 前に合わせてから 0.25 秒より空いたとき (タブを隠したなど) は、そのあいだの倍率の変わり方がわからないので見分けない
     const nowMs = performance.now();
+    let userMoved = false;
     const moving = isPlaying && t.localTime >= 0 && !(t.durationSec > 0 && t.localTime > t.durationSec)
       && base >= MIN_RATE * speed && base <= MAX_RATE * speed;
     if (!moving) {
       this.stopSeekWait(entry);
     } else {
       const dt = entry.lastSyncAt === null ? Infinity : (nowMs - entry.lastSyncAt) / 1000;
-      if (dt <= 0.25 && Math.abs(t.localTime - (entry.lastLocal + base * dt)) > 0.15) {
+      userMoved = dt <= 0.25 && Math.abs(t.localTime - (entry.lastLocal + base * dt)) > 0.15;
+      if (userMoved) {
         entry.seekStartedAt = null;
         entry.seekDone = false;
       }
@@ -308,7 +310,8 @@ export class PlaybackController {
     const seeking = entry.seekStartedAt !== null && nowMs - entry.seekStartedAt < SEEK_HOLD_MS;
     if (seeking) {
       if (Math.abs(el.playbackRate - base) > 0.001) el.playbackRate = base;
-    } else if (Math.abs(diff) > jump) {
+    } else if (Math.abs(diff) > jump || (isMaster && userMoved && Math.abs(diff) > 0.02)) {
+      // 時計の元の動画は、見ている位置を少し動かしただけでも、その位置へ飛ぶ (App はこの動画に付いてくるので、飛ばないと位置が戻される)
       // 大きくずれたら (シーク・周の始めに戻ったときなど) 飛ぶ。前の移動にかかった時間の分だけ先へ
       let lead = isMaster ? 0 : Math.min(entry.seekLead[audible ? 1 : 0] * base, MAX_SEEK_LEAD_SEC);
       // 終わりの近くでは先へずらさない (終わりで止まった動画を見て、飛び直し続けないように)

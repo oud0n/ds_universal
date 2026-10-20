@@ -139,6 +139,8 @@ class Sim {
 
   /** App の時計を、音を出している動画に付いていかせる (App.tsx のループと同じ。clockMaster.ts) */
   masterClock = false;
+  /** App のループが最後に入れた時刻 (外で動かしたかを見分ける。App.tsx と同じ) */
+  private loopTime: number | null = null;
 
   constructor(model: Model, opts: { adjustAudibleRate: boolean; muted?: boolean; duration?: number; masterClock?: boolean }) {
     this.masterClock = opts.masterClock ?? false;
@@ -157,7 +159,9 @@ class Sim {
     if (this.playing) {
       const next = this.appTime + (dt / 1000) * (this.rate ?? 1);
       const m = this.masterClock ? this.controller.masterAppTime() : null;
-      this.appTime = m !== null && Math.abs(m - next) < 1 ? Math.max(this.appTime, m) : next;
+      const movedOutside = this.loopTime !== null && Math.abs(this.appTime - this.loopTime) > 1e-6;
+      this.appTime = m !== null && !movedOutside && Math.abs(m - next) < 1 ? Math.max(this.appTime, m) : next;
+      this.loopTime = this.appTime;
     }
     const t: PlaybackTarget = { localTime: this.appTime, durationSec: this.durationSec, outOfRange: false, ...(this.rate !== undefined ? { rate: this.rate } : {}) };
     this.controller.sync(new Map([['main', t]]), this.playing, 1, this.masterClock ? this.appTime : undefined);
@@ -211,6 +215,20 @@ describe('PlaybackController (音を出している動画を時計の元にす�
     sim.run(3000);
     expect(sim.video.seeks - seeksBefore).toBe(1);
     expect(sim.maxDiffOverLast(1500)).toBeLessThan(0.05);
+  });
+
+  it('再生中に少しだけ戻しても (0.3 秒)、動画の位置に引き戻されず、動画がその位置へ飛ぶ', () => {
+    const sim = new Sim(SAFARI_AUDIBLE, { adjustAudibleRate: false, masterClock: true });
+    sim.play();
+    sim.run(3000);
+    const seeksBefore = sim.video.seeks;
+    const target = sim.appTime - 0.3;
+    sim.appTime = target;
+    sim.run(2000);
+    expect(sim.video.seeks - seeksBefore).toBe(1);
+    // 戻した位置から進んでいる (引き戻されていれば、target + 2 秒より 0.3 秒先にいる)
+    expect(sim.appTime).toBeLessThan(target + 2.05);
+    expect(sim.maxDiffOverLast(1000)).toBeLessThan(0.05);
   });
 
   it('動画が動かないとき (再生できない) は、2 秒で時計の元をやめ、App の時計で進む', () => {
