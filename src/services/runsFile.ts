@@ -7,6 +7,7 @@
 
 import type { SyncProjectData } from './videoSyncManager';
 import type { LapFileStore } from './lapIndex';
+import type { RunStore } from './runStore';
 import { isRunVideoName } from './lapIndex';
 
 export const RUNS_FILE = 'runs.json';
@@ -46,13 +47,26 @@ export function parseRunsFile(text: string | null): RunsFile {
   }
 }
 
+/** runs.json として読める文か (壊れたものに書き足して、ほかの行を消さないため) */
+function isRunsFileText(text: string): boolean {
+  try {
+    const v = JSON.parse(text);
+    return !!v && v.version === 1 && typeof v.runs === 'object' && !!v.runs;
+  } catch {
+    return false;
+  }
+}
+
 export async function readRunsFile(store: LapFileStore, folder: string): Promise<RunsFile> {
   return parseRunsFile(await store.readText(`${folder}/${RUNS_FILE}`));
 }
 
 /** 1 つの走行の行を書き換える (直前に読み直して、ほかの行はそのまま) */
-export async function updateRun(store: LapFileStore, folder: string, file: string, patch: Omit<RunEntry, 'updatedAt'>): Promise<RunEntry> {
-  const current = await readRunsFile(store, folder);
+export async function updateRun(store: RunStore, folder: string, file: string, patch: Omit<RunEntry, 'updatedAt'>): Promise<RunEntry> {
+  // 読めないとき (無いのではなく) は書かない (空とみなして書くと、ほかの走行の行を消すため)
+  const text = await store.readTextStrict(`${folder}/${RUNS_FILE}`);
+  if (text !== null && !isRunsFileText(text)) throw new Error('runs.json could not be read');
+  const current = parseRunsFile(text);
   const entry: RunEntry = { ...current.runs[file], ...patch, updatedAt: new Date().toISOString() };
   current.runs[file] = entry;
   await store.writeText(`${folder}/${RUNS_FILE}`, JSON.stringify(current, null, 1));

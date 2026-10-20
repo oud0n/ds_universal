@@ -19,6 +19,10 @@ export interface RunStore extends LapFileStore {
   videoUrl(path: string): string;
   /** iCloud からの取り込みを始める (終わるのは待たない) */
   startDownload(path: string): Promise<void>;
+  /** 読む。無いときだけ null、読めないときは例外 (runs.json を書く前に読むため) */
+  readTextStrict(path: string): Promise<string | null>;
+  /** 動画を lapfile:// で読めるか (古いアプリは読めない。listAll のあとに分かる) */
+  videos: boolean;
 }
 
 const encoder = new TextEncoder();
@@ -47,12 +51,14 @@ export function nativeRunStore(): RunStore | null {
     }
   };
   const store: RunStore = {
+    videos: true,
     async listAll() {
       await sync();
       try {
         return (await callNative('system.listRunFiles', {})).files;
       } catch (e) {
         if (!isOldApp(e)) throw e;
+        store.videos = false;
         const files: LapFileInfo[] = (await callNative('system.listLapFiles', {})).files;
         return files.map(f => ({ ...f, local: true }));
       }
@@ -66,6 +72,14 @@ export function nativeRunStore(): RunStore | null {
         return decoder.decode(await readBytes(path));
       } catch {
         return null;
+      }
+    },
+    async readTextStrict(path) {
+      try {
+        return decoder.decode(await readBytes(path));
+      } catch (e) {
+        if (e instanceof NativeError && e.code === 'not-found') return null;
+        throw e;
       }
     },
     async writeText(path, text) {
@@ -90,6 +104,7 @@ export async function electronRunStore(): Promise<RunStore | null> {
   if (!api || !(await api.getFolder())) return null;
   const fail = (e?: string) => new Error(e ?? 'failed');
   const store: RunStore = {
+    videos: true,
     async listAll() {
       const r = await api.list();
       if (!r.success || !r.files) throw fail(r.error);
@@ -104,6 +119,11 @@ export async function electronRunStore(): Promise<RunStore | null> {
     async readText(path) {
       const r = await api.readText(path);
       return r.success ? r.text ?? null : null;
+    },
+    async readTextStrict(path) {
+      const r = await api.readText(path);
+      if (!r.success) throw fail(r.error);
+      return r.text ?? null;
     },
     async writeText(path, text) {
       const r = await api.writeText(path, text);
