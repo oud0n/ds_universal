@@ -39,6 +39,11 @@ interface VideoTileProps {
   children?: React.ReactNode;
 }
 
+/** メーターを描く板の幅 (映っている動画の幅の 1.4 倍、560〜1280) */
+export function overlayLogicalWidth(displayWidth: number): number {
+  return Math.round(Math.min(1280, Math.max(560, displayWidth * 1.4)));
+}
+
 export const VideoTile: React.FC<VideoTileProps> = ({
   tileKey, controller, position, muted, onSeeked, overlay, avoidRef, badge, accent, onClick, className = '', emptyText, useProxy = false, active = true, children
 }) => {
@@ -47,6 +52,11 @@ export const VideoTile: React.FC<VideoTileProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [box, setBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  // メーターを描く板の大きさ。動画が小さく映っているときは板を小さくして、メーターを動画に対して大きく出す
+  // (1280 × 720 のまま縮めると、スマートフォンでは文字が 4〜12 px になる。2026-10-20)
+  const logical = box ? { w: overlayLogicalWidth(box.width), h: Math.round(overlayLogicalWidth(box.width) * box.height / box.width) } : { w: 1280, h: 720 };
+  const dpr = typeof window !== 'undefined' ? Math.min(3, window.devicePixelRatio || 1) : 1;
+  const canvasPx = box ? { w: Math.max(1, Math.round(box.width * dpr)), h: Math.max(1, Math.round(box.height * dpr)) } : { w: 1280, h: 720 };
   const [avoidW, setAvoidW] = useState(0);
   const [released, setReleased] = useState(false);
   useEffect(() => {
@@ -91,7 +101,7 @@ export const VideoTile: React.FC<VideoTileProps> = ({
       const bl = vr.left + (vr.width - w) / 2, bt = vr.top + (vr.height - h) / 2;
       const ow = pr ? Math.max(0, Math.min(pr.right, bl + w) - Math.max(pr.left, bl)) : 0;
       const oh = pr ? Math.max(0, Math.min(pr.bottom, bt + h) - Math.max(pr.top, bt)) : 0;
-      setAvoidW(ow > 0 && oh > 0 ? Math.round((ow * 1280) / w) : 0);
+      setAvoidW(ow > 0 && oh > 0 ? Math.round((ow * overlayLogicalWidth(w)) / w) : 0);
     };
     update();
     const ro = new ResizeObserver(update);
@@ -107,9 +117,12 @@ export const VideoTile: React.FC<VideoTileProps> = ({
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    // メーターは「描く板」の座標で描く。板の画素は画面の細かさに合わせて増やす (にじまないように)
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    overlay?.draw(ctx, canvas.width, canvas.height, avoidW);
-  }, [overlay?.tick, overlay?.draw, avoidW]);
+    ctx.setTransform(canvas.width / logical.w, 0, 0, canvas.height / logical.h, 0, 0);
+    overlay?.draw(ctx, logical.w, logical.h, avoidW);
+  }, [overlay?.tick, overlay?.draw, avoidW, logical.w, logical.h, canvasPx.w, canvasPx.h]);
 
   return (
     <div
@@ -136,8 +149,8 @@ export const VideoTile: React.FC<VideoTileProps> = ({
       {overlay && (
         <canvas
           ref={canvasRef}
-          width={1280}
-          height={720}
+          width={canvasPx.w}
+          height={canvasPx.h}
           style={box ? { left: box.left, top: box.top, width: box.width, height: box.height } : undefined}
           className={`absolute ${box ? '' : 'inset-0 w-full h-full'} pointer-events-none z-[15]`}
         />
