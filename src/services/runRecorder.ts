@@ -35,6 +35,9 @@ function uniqueBase(startedMs: number, folder: string): string {
   return name;
 }
 
+/** 同じ名前のファイルがあって作れなかった (前に起動したときの走行。system.appendFile の createNew) */
+const isFileExists = (e: unknown) => (e as { code?: string } | null)?.code === 'busy';
+
 export class LiveRunRecorder {
   private run: RunMeta | null = null;
   private starting: Promise<void> | null = null;
@@ -44,6 +47,8 @@ export class LiveRunRecorder {
   private chain: Promise<void> = Promise.resolve();
   private toFiles = false;
   private retryAt = 0;
+  /** 最初の測位を受け取った時刻 (端末の時計。測位が途切れても、コースを待つのを COURSE_WAIT_MS で止めるため) */
+  private firstAddMs = 0;
 
   constructor(
     private readonly source: 'digspice' | 'phone',
@@ -55,22 +60,35 @@ export class LiveRunRecorder {
 
   /** 測位を 1 つ足す (保存は flush でまとめて) */
   add(fix: LiveFix): void {
+    if (this.buffer.length === 0 && !this.run) this.firstAddMs ||= Date.now();
     this.buffer.push(fix);
     if (this.buffer.length > MAX_BUFFER) this.buffer.splice(0, this.buffer.length - MAX_BUFFER);
-    // ファイルをサーキット名のフォルダに入れるため、アプリではコースが決まるまで (長くて COURSE_WAIT_MS) 始めない
-    const waitCourse = hasNative() && !this.courseName() && fix.tMs - this.buffer[0].tMs < COURSE_WAIT_MS;
-    if (!this.run && !this.starting && !waitCourse && Date.now() >= this.retryAt) {
-      // 始めるのに失敗したら、少しおいてもう一度 (失敗したままにしない)
-      this.starting = this.begin(this.buffer[0]).catch(e => {
-        this.onError(e instanceof Error ? e.message : String(e));
-        this.retryAt = Date.now() + RETRY_MS;
-      }).finally(() => { this.starting = null; });
-    }
+    this.tryBegin(false);
   }
 
-  /** ためた測位を保存する。stats は走行の一覧に出す周の数とベスト */
-  flush(stats: { lapCount: number; bestLapSec: number | null } = { lapCount: 0, bestLapSec: null }): Promise<void> {
-    this.chain = this.chain.then(() => this.write(stats)).catch(e => this.onError(e instanceof Error ? e.message : String(e)));
+  /**
+   * まだなら、走行の記録を始める。ファイルをサーキット名のフォルダに入れるため、アプリではコースが決まるまで
+   * (測位の時刻でも端末の時計でも、長くて COURSE_WAIT_MS) 待つ。force (閉じる・裏に回る・数え直す) なら待たない
+   */
+  private tryBegin(force: boolean): void {
+    if (this.run || this.starting || this.buffer.length === 0 || Date.now() < this.retryAt) return;
+    const last = this.buffer[this.buffer.length - 1];
+    const waitCourse = hasNative() && !force && !this.courseName()
+      && last.tMs - this.buffer[0].tMs < COURSE_WAIT_MS && Date.now() - this.firstAddMs < COURSE_WAIT_MS;
+    if (waitCourse) return;
+    // 始めるのに失敗したら、少しおいてもう一度 (失敗したままにしない)
+    this.starting = this.begin(this.buffer[0]).catch(e => {
+      this.onError(e instanceof Error ? e.message : String(e));
+      this.retryAt = Date.now() + RETRY_MS;
+    }).finally(() => { this.starting = null; });
+  }
+
+  /**
+   * ためた測位を保存する。stats は走行の一覧に出す周の数とベスト。
+   * force: コースを待っている途中でも始めて保存する (閉じる・裏に回る・数え直すとき。待っている間の測位を失わないように)
+   */
+  flush(stats: { lapCount: number; bestLapSec: number | null } = { lapCount: 0, bestLapSec: null }, force = false): Promise<void> {
+    this.chain = this.chain.then(() => this.write(stats, force)).catch(e => this.onError(e instanceof Error ? e.message : String(e)));
     return this.chain;
   }
 
@@ -81,21 +99,36 @@ export class LiveRunRecorder {
 
   private async begin(first: LiveFix): Promise<void> {
     const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `run-${first.tMs}-${Math.random().toString(36).slice(2)}`;
-    const fileBase = hasNative() ? uniqueBase(first.tMs, this.folderOf() || UNSORTED_FOLDER) : null;
-    this.run = await startRun({ id, startedMs: first.tMs, courseName: this.courseName(), source: this.source, fileBase });
-    if (!fileBase) return;
-    try {
-      await callNative('system.appendFile', { path: `${fileBase}.bon4`, b64: toBase64(bon4Header(first)), truncate: true });
-      await callNative('system.appendFile', { path: `${fileBase}.nmea`, b64: '', truncate: true });
-      this.toFiles = true;
-    } catch {
-      // 前のアプリ (ファイルに書けない) では、データベースにだけ保存する
-      this.toFiles = false;
-      this.run = { ...this.run, fileBase: null };
+    let fileBase: string | null = null;
+    if (hasNative()) {
+      const folder = this.folderOf() || UNSORTED_FOLDER;
+      try {
+        // 同じ名前のファイル (前に起動したときの、同じ秒に始めた走行) があれば、_2・_3 … にする (上書きしない)
+        for (let tries = 0; ; tries++) {
+          // 断られた名前は usedBases に入っているので、次は _2・_3 … になる
+          const base = uniqueBase(first.tMs, folder);
+          try {
+            await callNative('system.appendFile', { path: `${base}.bon4`, b64: toBase64(bon4Header(first)), truncate: true, createNew: true });
+            fileBase = base;
+            break;
+          } catch (e) {
+            if (!isFileExists(e) || tries >= 20) throw e;
+          }
+        }
+        await callNative('system.appendFile', { path: `${fileBase}.nmea`, b64: '', truncate: true });
+        this.toFiles = true;
+      } catch {
+        // 前のアプリ (ファイルに書けない) では、データベースにだけ保存する
+        this.toFiles = false;
+        fileBase = null;
+      }
     }
+    this.run = await startRun({ id, startedMs: first.tMs, courseName: this.courseName(), source: this.source, fileBase });
   }
 
-  private async write(stats: { lapCount: number; bestLapSec: number | null }): Promise<void> {
+  private async write(stats: { lapCount: number; bestLapSec: number | null }, force: boolean): Promise<void> {
+    // コースを待っている間でも、測位が途切れて COURSE_WAIT_MS たった・閉じるときは、ここで始める
+    this.tryBegin(force);
     if (this.starting) await this.starting;
     const run = this.run;
     if (!run) return;

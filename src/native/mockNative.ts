@@ -268,7 +268,8 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
       case 'system.keepAwake':
         return {};
       case 'system.appendFile': {
-        const { path, b64, truncate } = req.params as { path: string; b64: string; truncate?: boolean };
+        const { path, b64, truncate, createNew } = req.params as { path: string; b64: string; truncate?: boolean; createNew?: boolean };
+        if (createNew && lapTimerFiles.has(path)) throw { code: 'busy', message: 'file exists' };
         lapTimerFiles.set(path, (truncate ? '' : lapTimerFiles.get(path) ?? '') + b64);
         return {};
       }

@@ -8,6 +8,11 @@ final class SystemModule {
     private var observers: [NSObjectProtocol] = []
     /// フォルダを選ぶ画面の受け手 (選び終わるまで持っておく)
     private var folderPicker: FolderPickerDelegate?
+    /// 選んだフォルダへ写している最中か・その間に頼まれたか・終わったら返す相手・裏で続けるための OS の約束
+    private var syncRunning = false
+    private var syncAgain = false
+    private var syncWaiters: [(Result<[String: Any], NativeError>) -> Void] = []
+    private var syncBackgroundTask: UIBackgroundTaskIdentifier = .invalid
 
     /// ラップタイマーの記録の保管先 ("local" = この iPhone、"folder" = 選んだフォルダ) と、選んだフォルダのブックマーク
     private static let storageKindKey = "lapTimer.storage.kind"
@@ -38,6 +43,11 @@ final class SystemModule {
             do {
                 let fm = FileManager.default
                 try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                if (params["createNew"] as? Bool) == true && fm.fileExists(atPath: url.path) {
+                    // 新しい走行のファイルは、同じ名前のファイル (前に起動したときの走行) を上書きしない
+                    done(.failure(NativeError(.busy, "file exists")))
+                    return
+                }
                 if (params["truncate"] as? Bool) == true {
                     try data.write(to: url)
                 } else if !fm.fileExists(atPath: url.path) {
@@ -158,7 +168,8 @@ final class SystemModule {
         top.present(picker, animated: true)
     }
 
-    /// LapTimer/ の下のファイルを、選んだフォルダの同じ場所 (サーキット名/ファイル) へ写す。大きさの違うもの・ないものだけ
+    /// LapTimer/ の下のファイルを、選んだフォルダの同じ場所 (サーキット名/ファイル) へ写す。大きさの違うもの・ないものだけ。
+    /// 写している間にもう一度頼まれたら、終わってからもう一度だけ回す (同時に 2 つは走らせない)
     private func syncLapFiles(done: @escaping (Result<[String: Any], NativeError>) -> Void) {
         guard UserDefaults.standard.string(forKey: Self.storageKindKey) == "folder" else {
             done(.success(["kind": "local", "copied": 0, "skipped": 0, "failed": 0]))
@@ -168,14 +179,41 @@ final class SystemModule {
             done(.failure(NativeError(.notFound, "the chosen folder is not available")))
             return
         }
-        let src = Self.lapTimerRoot
-        Task { @MainActor in
-            let r = await Task.detached(priority: .utility) { Self.copyChanged(from: src, to: dest) }.value
-            if r.failed > 0 { DebugLog.write("storage sync failed=\(r.failed) error=\(r.error ?? "-")") }
-            var out: [String: Any] = ["kind": "folder", "copied": r.copied, "skipped": r.skipped, "failed": r.failed]
-            if let e = r.error { out["error"] = e }
-            done(.success(out))
+        syncWaiters.append(done)
+        if syncRunning {
+            syncAgain = true
+            return
         }
+        syncRunning = true
+        // 裏に回った直後に頼まれても、写し終わるまで OS に止められないようにする
+        syncBackgroundTask = UIApplication.shared.beginBackgroundTask(withName: "LapTimerSync") { [weak self] in
+            MainActor.assumeIsolated { self?.endSyncBackgroundTask() }
+        }
+        Task { @MainActor in
+            var total = SyncResult()
+            repeat {
+                syncAgain = false
+                let r = await copyChanged(to: dest)
+                total.copied += r.copied
+                total.skipped += r.skipped
+                total.failed += r.failed
+                total.error = r.error ?? total.error
+            } while syncAgain
+            if total.failed > 0 { DebugLog.write("storage sync failed=\(total.failed) error=\(total.error ?? "-")") }
+            var out: [String: Any] = ["kind": "folder", "copied": total.copied, "skipped": total.skipped, "failed": total.failed]
+            if let e = total.error { out["error"] = e }
+            let waiters = syncWaiters
+            syncWaiters = []
+            syncRunning = false
+            endSyncBackgroundTask()
+            waiters.forEach { $0(.success(out)) }
+        }
+    }
+
+    private func endSyncBackgroundTask() {
+        guard syncBackgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(syncBackgroundTask)
+        syncBackgroundTask = .invalid
     }
 
     struct SyncResult: Sendable {
@@ -185,23 +223,20 @@ final class SystemModule {
         var error: String?
     }
 
-    nonisolated private static func copyChanged(from src: URL, to dest: URL) -> SyncResult {
+    enum WriteOutcome: Sendable {
+        case copied
+        case failed(String)
+    }
+
+    /// 写す。ファイルを読むのは、書き足し (system.appendFile) と同じ MainActor の上 (書きかけのファイルを読まないように)。
+    /// 書くのは別のスレッドで、一時ファイルに書いてから入れ替える (途中で失敗しても、写し先の前のファイルは残る)
+    private func copyChanged(to dest: URL) async -> SyncResult {
         var r = SyncResult()
+        // 選んだフォルダを使う許可。アプリの中のフォルダを選んだときは false でも書けるので、ここでは止めない (書けなければ failed に数える)
         let access = dest.startAccessingSecurityScopedResource()
         defer { if access { dest.stopAccessingSecurityScopedResource() } }
-        let fm = FileManager()
-        let base = src.resolvingSymlinksInPath().path
-        guard let e = fm.enumerator(at: src, includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey], options: [.skipsHiddenFiles]) else { return r }
-        for case let file as URL in e {
-            let path = file.resolvingSymlinksInPath().path
-            guard path.hasPrefix(base + "/") else { continue }
-            let rel = String(path.dropFirst(base.count + 1))
-            // 共有のために作った一時のファイルは写さない
-            if rel == "exports" || rel.hasPrefix("exports/") {
-                e.skipDescendants()
-                continue
-            }
-            guard (try? file.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+        let fm = FileManager.default
+        for (file, rel) in Self.lapTimerFiles() {
             let target = dest.appendingPathComponent(rel)
             let srcSize = (try? fm.attributesOfItem(atPath: file.path)[.size] as? Int) ?? -1
             let dstSize = (try? fm.attributesOfItem(atPath: target.path)[.size] as? Int) ?? -2
@@ -209,25 +244,62 @@ final class SystemModule {
                 r.skipped += 1
                 continue
             }
-            var coordError: NSError?
-            var copyError: Error?
-            NSFileCoordinator().coordinate(writingItemAt: target, options: .forReplacing, error: &coordError) { url in
-                do {
-                    try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    if fm.fileExists(atPath: url.path) { try fm.removeItem(at: url) }
-                    try fm.copyItem(at: file, to: url)
-                } catch {
-                    copyError = error
-                }
-            }
-            if let err = copyError ?? coordError {
+            guard let data = try? Data(contentsOf: file) else {
                 r.failed += 1
-                r.error = err.localizedDescription
-            } else {
-                r.copied += 1
+                r.error = "could not read \(rel)"
+                continue
+            }
+            let outcome = await Task.detached(priority: .utility) { Self.writeCoordinated(data, to: target) }.value
+            switch outcome {
+            case .copied: r.copied += 1
+            case .failed(let message):
+                r.failed += 1
+                r.error = message
             }
         }
         return r
+    }
+
+    /// LapTimer/ の下のファイル (共有のために作った exports/ は除く) と、LapTimer/ からの道
+    private static func lapTimerFiles() -> [(URL, String)] {
+        let src = lapTimerRoot
+        let base = src.resolvingSymlinksInPath().path
+        var files: [(URL, String)] = []
+        guard let e = FileManager.default.enumerator(at: src, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else { return files }
+        for case let file as URL in e {
+            let path = file.resolvingSymlinksInPath().path
+            guard path.hasPrefix(base + "/") else { continue }
+            let rel = String(path.dropFirst(base.count + 1))
+            if rel == "exports" || rel.hasPrefix("exports/") {
+                e.skipDescendants()
+                continue
+            }
+            guard (try? file.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            files.append((file, rel))
+        }
+        return files
+    }
+
+    nonisolated private static func writeCoordinated(_ data: Data, to target: URL) -> WriteOutcome {
+        let fm = FileManager()
+        do {
+            // サーキットのフォルダを先に作る (書き込みの手続きは、ある場所に対して始める)
+            try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+        var coordError: NSError?
+        var writeError: Error?
+        NSFileCoordinator().coordinate(writingItemAt: target, options: .forReplacing, error: &coordError) { url in
+            do {
+                // .atomic: 一時ファイルに書いてから入れ替える
+                try data.write(to: url, options: .atomic)
+            } catch {
+                writeError = error
+            }
+        }
+        if let err = writeError ?? coordError { return .failed(err.localizedDescription) }
+        return .copied
     }
 
     /// いちばん上に出ている画面

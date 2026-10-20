@@ -149,7 +149,8 @@ export interface NativeMethods {
    * truncate なら、はじめから書き直す。ファイルは「ファイル」アプリの「このiPhone内 → このアプリ → LapTimer」に出る。
    * 2026-10-20 に足した。版は 1 のまま (前のアプリは not-supported を返し、Web はブラウザの中のデータベースにだけ保存する)
    */
-  'system.appendFile': { params: { path: string; b64: string; truncate?: boolean }; result: Record<string, never> };
+  /** createNew: 同じ名前のファイルがあれば書かずに busy を返す (新しい走行のファイルで、前の走行を上書きしないように。前のアプリは見ない) */
+  'system.appendFile': { params: { path: string; b64: string; truncate?: boolean; createNew?: boolean }; result: Record<string, never> };
   /** LapTimer/ の下のファイルを、OS の共有の画面で渡す (2026-10-20 に足した) */
   'system.shareFile': { params: { path: string }; result: Record<string, never> };
   /**
