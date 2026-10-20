@@ -6,7 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X, FolderOpen, EyeOff, Eye, RefreshCw, BarChart3 } from 'lucide-react';
 import { loadLapHistory, toggleLapHidden, type LapFolder } from '../services/lapHistory';
-import { electronLapStore, nativeLapStore } from '../services/lapStores';
+import { electronRunStore as electronLapStore, nativeRunStore as nativeLapStore } from '../services/runStore';
 import { lapKey, type LapFileStore, type LapRow } from '../services/lapIndex';
 import { formatLapTime } from '../services/liveLapTimer';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
