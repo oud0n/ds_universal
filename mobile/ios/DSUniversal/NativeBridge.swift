@@ -18,10 +18,17 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
 
     private weak var webView: WKWebView?
     private let core = NativeCore.shared
+    /// Web のダウンロード (書き出したファイル) を受け取って共有の画面を出す (WebDownloads.swift)。webView は受け手を弱く持つので、ここで持つ
+    private var downloads: WebDownloads?
 
     func attach(to webView: WKWebView) {
         self.webView = webView
         webView.configuration.userContentController.add(self, name: Self.handlerName)
+        let downloads = WebDownloads(system: core.system)
+        self.downloads = downloads
+        webView.navigationDelegate = downloads
+        // alert・confirm・prompt を出す (出さないと confirm がいつも「いいえ」になる)
+        webView.uiDelegate = downloads
         core.sink = { [weak self] event, data in self?.emit(event, data) }
     }
 

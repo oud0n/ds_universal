@@ -1,0 +1,269 @@
+/**
+ * ラップタイムの一覧 (2026-10-20、PLAN-19)。
+ *
+ * 記録のフォルダ (保管場所/<サーキットのフォルダ>/) の .bon4 から周を数え、同じフォルダの laptimes.json に控えておく。
+ * 一覧を開くたびにフォルダと控えを照らし合わせ、増えた・変わったファイルだけ計算し、消えたファイルの周は控えから消す。
+ * コースの計測線・セクター線を直したとき (コースのハッシュが変わったとき) は、そのフォルダの周を全部計算し直す。
+ * 周の非表示は控えにだけ書く (ファイルは消さない)。計算し直しても、同じファイルの同じ時刻の周に引き継ぐ。
+ *
+ * ファイルの読み書きは LapFileStore (iPhone のアプリ・デスクトップ版で別々) に任せる
+ */
+
+import type { ControlLine, Sector, TelemetryPoint } from '../types/telemetry';
+import { parseDigispiceRawBinary } from './rawBinaryParser';
+import { extractLaps } from './lapCalculator';
+
+/** 記録のフォルダのファイル (path は保管場所からの道。例: sodegaura/20261024100000.bon4) */
+export interface LapFileInfo {
+  path: string;
+  size: number;
+  mtimeMs: number;
+}
+
+/** ファイルの読み書き (iPhone のアプリ・デスクトップ版で別々に用意する) */
+export interface LapFileStore {
+  list(): Promise<LapFileInfo[]>;
+  read(path: string): Promise<Uint8Array>;
+  /** ない・読めないときは null */
+  readText(path: string): Promise<string | null>;
+  writeText(path: string, text: string): Promise<void>;
+}
+
+/** 控えの 1 周 */
+export interface LapRecord {
+  /** 何周目か (1 から。走行が途中で長く止まって分かれたときは、分かれたまとまりごとに 1 から) */
+  n: number;
+  /** 分かれたまとまりの何番目か (1 から。分かれていない走行では無い)。解析で開くと _1・_2 … に分かれるのと同じ */
+  part?: number;
+  /** ラップタイム (秒) */
+  time: number;
+  /** 周の始まりの時刻 (UTC ミリ秒) */
+  startMs: number;
+  /** セクタータイム (秒。セクター線の順) */
+  sectors: number[];
+  topSpeed: number;
+}
+
+export interface LapFileRecord {
+  size: number;
+  mtimeMs: number;
+  /** 走り始めの時刻 (UTC ミリ秒。ファイルの最初の点) */
+  startMs: number | null;
+  laps: LapRecord[];
+  /**
+   * この走行の動画 (同じフォルダにある動画のファイル名だけ。2026-10-20 に口だけ用意)。
+   * 解析で開くときに一緒に読み込む。ファイルから作り直せないので、計算し直しても引き継ぐ
+   */
+  videos?: string[];
+}
+
+/** 非表示にした周 (ファイルと時刻で見分ける。計算し直して周の番号が変わっても引き継ぐため) */
+export interface HiddenLap {
+  file: string;
+  part?: number;
+  n: number;
+  startMs: number;
+}
+
+/** 周を見分ける名前 (ファイル・まとまり・何周目か) */
+export const lapKey = (file: string, part: number | undefined, n: number) => `${file}#${part ?? 1}#${n}`;
+
+/** laptimes.json の中身 */
+export interface LapIndex {
+  version: 1;
+  /** 計算に使ったコースのハッシュ (計測線とセクター線) */
+  courseHash: string;
+  courseName: string;
+  files: Record<string, LapFileRecord>;
+  hidden: HiddenLap[];
+}
+
+export const LAP_INDEX_FILE = 'laptimes.json';
+/** 走行に付けられる動画の拡張子 */
+const VIDEO_EXT = /\.(mp4|mov|m4v|lrv|insv|mkv|webm)$/i;
+
+/** 走行に付けられる動画の名前か (同じフォルダのファイル名だけ。別のフォルダ・上のフォルダは指せない) */
+export function isRunVideoName(name: string): boolean {
+  return !!name && !/[\\/]/.test(name) && name !== '.' && name !== '..' && !name.startsWith('.') && VIDEO_EXT.test(name);
+}
+/** 非表示を引き継ぐときに、同じ周とみなす周の始まりの時刻の差 */
+const SAME_LAP_MS = 5000;
+
+/** 計算に使うコース */
+export interface LapCourse {
+  name: string;
+  controlLine: ControlLine;
+  sectors: Sector[];
+}
+
+/**
+ * コースのハッシュ: 計測線とセクター線の位置から求める (コース図はラップタイムに効かないので入れない)。
+ * 位置は 1/10,000,000 度に丸めるので、同じ線なら同じハッシュになる
+ */
+export function courseHash(course: Pick<LapCourse, 'controlLine' | 'sectors'>): string {
+  const q = (v: number) => Math.round(v * 1e7);
+  const line = (l: { latA: number; lonA: number; latB: number; lonB: number }) => [q(l.latA), q(l.lonA), q(l.latB), q(l.lonB)].join(',');
+  const text = [line(course.controlLine), ...course.sectors.map(line)].join('|');
+  // FNV-1a (32 ビット) を 2 つ、違う初めの値で求めてつなぐ (偶然の一致を減らす)
+  const fnv = (seed: number) => {
+    let h = seed >>> 0;
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h.toString(16).padStart(8, '0');
+  };
+  return fnv(0x811c9dc5) + fnv(0x2f6b5a1d);
+}
+
+/** .bon4 から周を数える (計測線で区切れた周だけ。ログ全体や途中で終わった周は入れない) */
+export function lapsFromBon4(name: string, bytes: Uint8Array, course: LapCourse): { startMs: number | null; laps: LapRecord[] } {
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const parts = parseDigispiceRawBinary(name, buffer);
+  const laps: LapRecord[] = [];
+  let startMs: number | null = null;
+  parts.forEach((part, pi) => {
+    const points = part.points as TelemetryPoint[];
+    const first = points[0]?.timestamp ? Date.parse(points[0].timestamp) : NaN;
+    if (startMs === null && Number.isFinite(first)) startMs = first;
+    const t0 = points[0]?.time ?? 0;
+    let n = 0;
+    for (const lap of extractLaps(points, course.controlLine, course.sectors).laps) {
+      if (lap.isWholeSession || lap.isPartialLap) continue;
+      n++;
+      laps.push({
+        n,
+        ...(parts.length > 1 ? { part: pi + 1 } : {}),
+        time: Number(lap.lapTime.toFixed(3)),
+        // 時刻の無いログでも、周ごとに違う値になるよう、ファイルの頭からの時間にする (隠した周の引き継ぎに使う)
+        startMs: Math.round((Number.isFinite(first) ? first : pi * 1e9) + (lap.startTime - t0) * 1000),
+        sectors: lap.sectors.map(s => Number(s.time.toFixed(3))),
+        topSpeed: Number(lap.topSpeed.toFixed(1))
+      });
+    }
+  });
+  return { startMs, laps };
+}
+
+/** 控えを読む (無い・壊れている・形が違うときは null) */
+export function parseLapIndex(text: string | null): LapIndex | null {
+  if (!text) return null;
+  try {
+    const v = JSON.parse(text) as LapIndex;
+    if (v?.version !== 1 || typeof v.files !== 'object' || !Array.isArray(v.hidden)) return null;
+    return v;
+  } catch {
+    return null;
+  }
+}
+
+/** 非表示の印を、計算し直した周へ引き継ぐ (同じファイルで、始まりの時刻がいちばん近い周。SAME_LAP_MS より離れていれば捨てる) */
+function carryHidden(hidden: HiddenLap[], files: Record<string, LapFileRecord>): HiddenLap[] {
+  const out: HiddenLap[] = [];
+  for (const h of hidden) {
+    const laps = files[h.file]?.laps ?? [];
+    let best: LapRecord | null = null;
+    for (const l of laps) if (!best || Math.abs(l.startMs - h.startMs) < Math.abs(best.startMs - h.startMs)) best = l;
+    if (best && Math.abs(best.startMs - h.startMs) <= SAME_LAP_MS && !out.some(o => o.file === h.file && o.part === best!.part && o.n === best!.n)) {
+      out.push({ file: h.file, ...(best.part ? { part: best.part } : {}), n: best.n, startMs: best.startMs });
+    }
+  }
+  return out;
+}
+
+/**
+ * 1 つのサーキットのフォルダの控えを、フォルダのファイルに合わせて作り直す (変わったところだけ計算する)。
+ * files はそのフォルダの .bon4 (folder/xxx.bon4)。変わっていなければ、前の控えをそのまま返す (changed: false)
+ */
+export async function reconcileFolder(
+  folder: string,
+  files: LapFileInfo[],
+  course: LapCourse,
+  prev: LapIndex | null,
+  read: (path: string) => Promise<Uint8Array>,
+  compute: (name: string, bytes: Uint8Array, course: LapCourse) => { startMs: number | null; laps: LapRecord[] } = lapsFromBon4
+): Promise<{ index: LapIndex; changed: boolean; computed: number }> {
+  const hash = courseHash(course);
+  const sameCourse = prev?.courseHash === hash;
+  const next: Record<string, LapFileRecord> = {};
+  let changed = !prev || !sameCourse || prev.courseName !== course.name;
+  let computed = 0;
+  for (const f of files) {
+    const name = f.path.slice(folder.length + 1);
+    const old = sameCourse ? prev?.files[name] : undefined;
+    if (old && old.size === f.size && old.mtimeMs === f.mtimeMs) {
+      next[name] = old;
+      continue;
+    }
+    // 動画は計算では作れないので、前の控えから引き継ぐ (コースを直したときも)
+    const videos = prev?.files[name]?.videos;
+    const keep = videos?.length ? { videos } : {};
+    try {
+      const { startMs, laps } = compute(name, await read(f.path), course);
+      next[name] = { size: f.size, mtimeMs: f.mtimeMs, startMs, laps, ...keep };
+    } catch {
+      // 読めなかったら、前の控えがあればそのまま残す (隠した周の印を消さない。大きさが違うままなので、次に開いたときに読み直す)。
+      // 前の控えが無ければ、周なしで覚えておく (壊れたファイルを毎回読み直さないように。ファイルが変われば読み直す)
+      const before = prev?.files[name];
+      next[name] = before ?? { size: f.size, mtimeMs: f.mtimeMs, startMs: null, laps: [], ...keep };
+    }
+    computed++;
+    changed = true;
+  }
+  if (prev && Object.keys(prev.files).some(k => !(k in next))) changed = true;
+  const hidden = carryHidden(prev?.hidden ?? [], next);
+  if (prev && hidden.length !== prev.hidden.length) changed = true;
+  return { index: { version: 1, courseHash: hash, courseName: course.name, files: next, hidden }, changed, computed };
+}
+
+/** 一覧に出す 1 周 */
+export interface LapRow extends LapRecord {
+  folder: string;
+  file: string;
+  /** 走り始めの時刻 */
+  runStartMs: number | null;
+  hidden: boolean;
+}
+
+/** 控えから、一覧の行を作る (新しい走行が先、走行の中は周の順) */
+export function lapRows(folder: string, index: LapIndex): LapRow[] {
+  const hidden = new Set(index.hidden.map(h => lapKey(h.file, h.part, h.n)));
+  const rows: LapRow[] = [];
+  for (const [file, rec] of Object.entries(index.files)) {
+    for (const l of rec.laps) rows.push({ ...l, folder, file, runStartMs: rec.startMs, hidden: hidden.has(lapKey(file, l.part, l.n)) });
+  }
+  // 新しい走行が先。同じ時刻の走行はファイル名で分け、走行の中は周の順 (まとまり → 何周目か)
+  return rows.sort((a, b) => (b.runStartMs ?? 0) - (a.runStartMs ?? 0) || a.file.localeCompare(b.file) || (a.part ?? 1) - (b.part ?? 1) || a.n - b.n);
+}
+
+/** 周の非表示を切り替えた控え */
+export function setHidden(index: LapIndex, file: string, part: number | undefined, n: number, hide: boolean): LapIndex {
+  const others = index.hidden.filter(h => !(h.file === file && (h.part ?? 1) === (part ?? 1) && h.n === n));
+  const lap = index.files[file]?.laps.find(l => (l.part ?? 1) === (part ?? 1) && l.n === n);
+  return { ...index, hidden: hide && lap ? [...others, { file, ...(lap.part ? { part: lap.part } : {}), n, startMs: lap.startMs }] : others };
+}
+
+/** 走行に動画を付けた控え (同じフォルダの動画のファイル名だけ。それ以外の名前は捨てる。空なら外す) */
+export function setRunVideos(index: LapIndex, file: string, names: string[]): LapIndex {
+  const rec = index.files[file];
+  if (!rec) return index;
+  const videos = [...new Set(names.filter(isRunVideoName))];
+  const { videos: _old, ...rest } = rec;
+  return { ...index, files: { ...index.files, [file]: videos.length ? { ...rest, videos } : rest } };
+}
+
+/** 同じフォルダにある動画 (走行に付けられるもの) のファイル名 */
+export function videosInFolder(files: LapFileInfo[], folder: string): string[] {
+  return files.filter(f => f.path.startsWith(`${folder}/`)).map(f => f.path.slice(folder.length + 1)).filter(isRunVideoName).sort();
+}
+
+/** フォルダ分けした .bon4 (保管場所/<フォルダ>/<ファイル>.bon4。ほかの階層・形式は数えない) */
+export function groupBon4ByFolder(files: LapFileInfo[]): Map<string, LapFileInfo[]> {
+  const out = new Map<string, LapFileInfo[]>();
+  for (const f of files) {
+    const m = /^([^/]+)\/([^/]+\.bon4)$/i.exec(f.path);
+    if (!m) continue;
+    out.set(m[1], [...(out.get(m[1]) ?? []), f]);
+  }
+  return out;
+}

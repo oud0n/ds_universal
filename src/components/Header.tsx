@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
-import { FolderOpen, Settings, Repeat, BarChart2, List, Video, Coffee, Sun, Moon, Monitor, MoreHorizontal, Contrast } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { FolderOpen, Settings, Repeat, BarChart2, List, Video, Coffee, Sun, Moon, Monitor, MoreHorizontal, Contrast, Download, Languages } from 'lucide-react';
 import { Session } from '../types/telemetry';
 import { ThemeSetting, setThemeSetting, useThemeSetting } from '../utils/theme';
 import { canUseLogger } from '../utils/device';
 import { BleStatusPill } from './BleLoggerCard';
-import { Lang, setLang, useLang, useT } from '../utils/i18n';
+import { setLangSetting, useLangSetting, useT, type LangSetting } from '../utils/i18n';
+import { hasNative } from '../native/bridge';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { desktopDownloadUrl, isBrowserVersionOnPc } from '../utils/desktopApp';
+import { openExternalUrl } from '../utils/url';
 
 // テーマの切り替え (ライト / ダーク / システムに合わせる)
 const THEME_OPTIONS: { value: ThemeSetting; label: [string, string]; short: [string, string]; Icon: typeof Sun }[] = [
@@ -14,11 +18,58 @@ const THEME_OPTIONS: { value: ThemeSetting; label: [string, string]; short: [str
   { value: 'contrast', label: ['ハイコントラスト (屋外の日差しの下で見やすい)', 'High contrast (easier to read in sunlight)'], short: ['高コントラスト', 'Contrast'], Icon: Contrast }
 ];
 
-// 言語の切り替え
-const LANG_OPTIONS: { value: Lang; label: string }[] = [
-  { value: 'ja', label: '日本語' },
-  { value: 'en', label: 'English' }
+// 言語の切り替え (ふだんは端末の言語に合わせるので、目立たない所に置く。
+// iPhone のアプリは、設定アプリでアプリごとに言語を選べるので出さない)
+const LANG_OPTIONS: { value: LangSetting; label: [string, string] }[] = [
+  { value: 'auto', label: ['自動 (端末の言語)', 'Auto (device language)'] },
+  { value: 'ja', label: ['日本語', '日本語'] },
+  { value: 'en', label: ['English', 'English'] }
 ];
+const showLangSwitch = !hasNative();
+
+/** 言語の切り替え (地球のアイコンを押すと、自動・日本語・English を出す) */
+const LangMenu: React.FC = () => {
+  const t = useT();
+  const setting = useLangSetting();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEscapeKey(open, () => setOpen(false));
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    window.addEventListener('pointerdown', onDown);
+    return () => window.removeEventListener('pointerdown', onDown);
+  }, [open]);
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        aria-label={t('言語', 'Language')}
+        aria-expanded={open}
+        title={t('言語', 'Language')}
+        data-testid="lang-menu"
+        className={`p-1 rounded transition-colors cursor-pointer ${open ? 'bg-surface-5 text-fg' : 'text-slate-400 hover:text-slate-200'}`}
+      >
+        <Languages size={13} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] bg-surface-2 border border-line-3 rounded shadow-lg p-1" role="radiogroup" aria-label={t('言語', 'Language')}>
+          {LANG_OPTIONS.map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => { setLangSetting(value); setOpen(false); }}
+              role="radio"
+              aria-checked={setting === value}
+              className={`w-full text-left px-2 py-1.5 rounded text-xs ${setting === value ? 'bg-surface-5 text-fg' : 'text-slate-300 hover:bg-surface-4'}`}
+            >
+              {t(...label)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface HeaderProps {
   currentTab: 'graph' | 'data' | 'logger' | 'video' | 'convert';
@@ -39,7 +90,7 @@ export const Header: React.FC<HeaderProps> = ({
   compact = false
 }) => {
   const themeSetting = useThemeSetting();
-  const lang = useLang();
+  const langSetting = useLangSetting();
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -89,20 +140,24 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 ))}
               </div>
-              <div className="border-t border-line-2 mt-1 pt-2 px-1 text-[11px] text-slate-500">{t('言語', 'Language')}</div>
-              <div className="flex gap-1 px-1 pb-1" role="radiogroup" aria-label={t('言語', 'Language')}>
-                {LANG_OPTIONS.map(({ value, label }) => (
-                  <button
-                    key={value}
-                    onClick={() => setLang(value)}
-                    role="radio"
-                    aria-checked={lang === value}
-                    className={`flex-1 py-2 rounded text-xs ${lang === value ? 'bg-surface-5 text-fg' : 'text-slate-400'}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              {showLangSwitch && (
+                <>
+                  <div className="border-t border-line-2 mt-1 pt-2 px-1 text-[11px] text-slate-500">{t('言語', 'Language')}</div>
+                  <div className="flex gap-1 px-1 pb-1" role="radiogroup" aria-label={t('言語', 'Language')}>
+                    {LANG_OPTIONS.map(({ value, label }) => (
+                      <button
+                        key={value}
+                        onClick={() => setLangSetting(value)}
+                        role="radio"
+                        aria-checked={langSetting === value}
+                        className={`flex-1 py-2 rounded text-xs ${langSetting === value ? 'bg-surface-5 text-fg' : 'text-slate-400'}`}
+                      >
+                        {value === 'auto' ? t('自動', 'Auto') : t(...label)}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           </>
         )}
@@ -205,6 +260,19 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="hidden md:inline">{t('ファイル読込', 'Open file')}</span>
         </button>
 
+        {/* デスクトップ版の案内 (パソコンのブラウザ版だけ。デスクトップ版・iPhone アプリの中では出さない) */}
+        {isBrowserVersionOnPc() && (
+          <button
+            onClick={() => openExternalUrl(desktopDownloadUrl())}
+            className="flex items-center gap-1.5 text-xs bg-surface-3 hover:bg-surface-4 text-slate-300 hover:text-fg border border-line-3 font-medium px-2.5 py-1.5 rounded transition-colors cursor-pointer"
+            title={t('デスクトップ版（Mac・Windows）のダウンロード', 'Download the desktop app (Mac / Windows)')}
+            aria-label={t('デスクトップ版', 'Desktop app')}
+          >
+            <Download size={13} />
+            <span className="hidden xl:inline whitespace-nowrap">{t('デスクトップ版', 'Desktop app')}</span>
+          </button>
+        )}
+
         {/* 開発支援 / Buy Me a Coffee */}
         {onOpenDonate && (
           <button
@@ -217,24 +285,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden xl:inline whitespace-nowrap">{t('開発支援', 'Support')}</span>
           </button>
         )}
-
-        {/* 言語 */}
-        <div className="flex bg-surface-3 p-0.5 rounded border border-line-3" role="radiogroup" aria-label={t('言語', 'Language')}>
-          {LANG_OPTIONS.map(({ value, label }) => (
-            <button
-              key={value}
-              onClick={() => setLang(value)}
-              role="radio"
-              aria-checked={lang === value}
-              title={label}
-              className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
-                lang === value ? 'bg-surface-5 text-fg' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {value === 'ja' ? 'JA' : 'EN'}
-            </button>
-          ))}
-        </div>
 
         {/* テーマ */}
         <div className="flex bg-surface-3 p-0.5 rounded border border-line-3" role="radiogroup" aria-label={t('テーマ', 'Theme')}>
@@ -252,6 +302,7 @@ export const Header: React.FC<HeaderProps> = ({
               <Icon size={13} />
             </button>
           ))}
+          {showLangSwitch && <LangMenu />}
         </div>
       </div>
     </header>

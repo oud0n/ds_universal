@@ -106,6 +106,15 @@ export interface RecordingFile {
   modifiedMs: number;
 }
 
+/** ラップタイマーの記録の保管先 */
+export interface StorageInfo {
+  kind: 'local' | 'folder';
+  /** 選んだフォルダの名前 (選んでいなければ '') */
+  folderName: string;
+  /** 選んだフォルダを今も開けるか */
+  folderOk: boolean;
+}
+
 export interface NativeMethods {
   'caps.get': { params: Record<string, never>; result: Capabilities };
   'ble.permission': { params: { request: boolean }; result: { state: PermissionState } };
@@ -130,6 +139,36 @@ export interface NativeMethods {
   'recorder.share': { params: { fileName: string }; result: Record<string, never> };
   /** Web で作った文 (変換した CSV など) を、ファイルにして共有の画面で渡す */
   'system.shareText': { params: { fileName: string; text: string }; result: Record<string, never> };
+  /**
+   * 画面の自動ロックを止める・戻す (ラップタイマーを開いている間。iPhone は isIdleTimerDisabled)。
+   * 2026-10-20 に足した。版は 1 のまま (足しただけ。前のアプリは not-supported を返し、Web は Wake Lock にする)
+   */
+  'system.keepAwake': { params: { on: boolean }; result: Record<string, never> };
+  /**
+   * アプリの書類のフォルダの LapTimer/ の下のファイルに、バイト列 (base64) を足す (ラップタイマーの走行の記録を、走っている間に書くため)。
+   * truncate なら、はじめから書き直す。ファイルは「ファイル」アプリの「このiPhone内 → このアプリ → LapTimer」に出る。
+   * 2026-10-20 に足した。版は 1 のまま (前のアプリは not-supported を返し、Web はブラウザの中のデータベースにだけ保存する)
+   */
+  /** createNew: 同じ名前のファイルがあれば書かずに busy を返す (新しい走行のファイルで、前の走行を上書きしないように。前のアプリは見ない) */
+  'system.appendFile': { params: { path: string; b64: string; truncate?: boolean; createNew?: boolean }; result: Record<string, never> };
+  /** LapTimer/ の下のファイルを、OS の共有の画面で渡す (2026-10-20 に足した) */
+  'system.shareFile': { params: { path: string }; result: Record<string, never> };
+  /**
+   * ラップタイマーの記録の保管先 (2026-10-20 に足した。版は 1 のまま)。
+   * local: この iPhone (LapTimer/<サーキット名>/)。folder: 利用者が「ファイル」で選んだフォルダ (iCloud Drive など) にも写す。
+   * 走っている間は、どちらでも LapTimer/ に書く (電波がなくても記録が消えないように)
+   */
+  'system.storageInfo': { params: Record<string, never>; result: StorageInfo };
+  /** 「ファイル」のフォルダを選ぶ画面を出し、選んだフォルダを保管先にする。やめたら not-found (message: cancelled) */
+  'system.pickStorageFolder': { params: Record<string, never>; result: StorageInfo };
+  /** 保管先を この iPhone に戻す */
+  'system.setStorageLocal': { params: Record<string, never>; result: StorageInfo };
+  /** LapTimer/ の下のファイルのうち、選んだフォルダにない・大きさの違うものを写す (保管先が local なら何もしない) */
+  'system.syncLapFiles': { params: Record<string, never>; result: { kind: 'local' | 'folder'; copied: number; skipped: number; failed: number; error?: string } };
+  /** LapTimer/ の下のファイルの一覧 (ラップタイムの一覧のため。exports/ は除く。2026-10-20 に足した) */
+  'system.listLapFiles': { params: Record<string, never>; result: { files: Array<{ path: string; size: number; mtimeMs: number }> } };
+  /** LapTimer/ の下のファイルを読む (base64) */
+  'system.readLapFile': { params: { path: string }; result: { b64: string } };
   /** OS の設定の画面 (このアプリの許可) を開く。一度断られた許可は、OS がもう聞いてくれないため */
   'system.openSettings': { params: Record<string, never>; result: Record<string, never> };
 }

@@ -2,7 +2,7 @@
  * デジスパイスとの BLE のつなぎ (ペアリング・機器の登録) と、届いた測位 (PLAN-01、docs/iphone_app_design.md の 4)。
  *
  * - 探す: 名前が DS3 / DS4 で始まる機器を一覧にする (シリアル番号は名前の番号の部分)
- * - 登録する: 選んだ機器を覚え、次からはアプリを開いたときに自動でつなぐ。OS のペアリング (ボンディング) はしない
+ * - 登録する: 選んだ機器を覚え、次からはロガー設定・ラップタイマーの画面を開いたときに自動でつなぐ。OS のペアリング (ボンディング) はしない
  * - つないでいる間に切れたら、BLE の層 (bleCentral) がつなぎ直す。測位が途切れた間は gaps に残す
  * - 届いた通知は BleFixAssembler で測位にして、onFix で渡す (ラップタイマー・記録はここから受け取る)
  *
@@ -36,6 +36,14 @@ const DEVICE_INFORMATION: Array<[string, string]> = [
 const CHARACTERISTIC = LOCATION_AND_SPEED_CHARACTERISTIC.toString(16).padStart(4, '0');
 
 const STORAGE_KEY = 'ds_ble_logger_device';
+/** 利用者が切断ボタンで切ったか (アプリを起動し直しても、ロガー設定を開いただけではつなぎに行かないため。2026-10-20) */
+const USER_OFF_KEY = 'ds_ble_logger_user_off';
+function loadUserOff(): boolean {
+  try { return localStorage.getItem(USER_OFF_KEY) === '1'; } catch { return false; }
+}
+function saveUserOff(off: boolean): void {
+  try { if (off) localStorage.setItem(USER_OFF_KEY, '1'); else localStorage.removeItem(USER_OFF_KEY); } catch { /* 覚えられなくてもよい */ }
+}
 /** これより長く測位が来なければ、途切れとして残す (秒) */
 const GAP_SEC = 0.5;
 /** これより長く測位が来なければ、測位待ちに戻す (ミリ秒) */
@@ -175,15 +183,33 @@ export class BleLoggerLink {
 
   // ---- 操作 ----
 
-  /** BLE の層を用意し、登録してある機器があればつなぐ (アプリを開いたとき) */
+  /**
+   * BLE の層を用意する (アプリを開いたとき)。つなぐのは、ロガー設定・ラップタイマーの画面を開いたとき (startAndConnect)。
+   * アプリを開くたびにつなぎに行くと、サーキットの外でも探し続けて電池を使うため (2026-10-20 決定)
+   */
   start(): Promise<void> {
     this.ready ??= (async () => {
       this.central = await this.centralSource();
       this.update({ centralKind: this.central?.kind ?? null });
       this.refreshStatus();
-      if (this.central && this.snap.registered) await this.connect(true);
     })();
     return this.ready;
+  }
+
+  /**
+   * BLE の層を用意し、登録してある機器につないでいなければつなぐ (ロガー設定・ラップタイマーの画面を開いたとき)。
+   * 利用者が切断ボタンで切っていたら、ロガー設定を開いただけではつながない (force: ラップタイマーを開いたときは、使うつもりなのでつなぐ)
+   */
+  async startAndConnect(force = false): Promise<void> {
+    await this.start();
+    if (!force && loadUserOff()) return;
+    if (this.central && this.snap.registered && this.linkState === 'idle') await this.connect(true);
+  }
+
+  /** 利用者が切断ボタンで切る (起動し直しても、自分でつなぐまでつなぎに行かない) */
+  async disconnectByUser(): Promise<void> {
+    saveUserOff(true);
+    await this.disconnect();
   }
 
   async startScan(): Promise<void> {
@@ -238,6 +264,8 @@ export class BleLoggerLink {
     const central = this.central;
     const registered = this.snap.registered;
     if (!central || !registered) return;
+    // つなぐ (自分で押した・ラップタイマーを開いた) ので、切断ボタンで切った印は外す
+    saveUserOff(false);
     this.assembler.reset();
     // 新しくつなぐときは、前のつなぎの測位と途切れを持ち越さない (前の日の測位との差を途切れと数えないため)。
     // つなぎ直し (BLE の層が切れて戻る) の間は持ち越して、途切れを残す

@@ -31,8 +31,17 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>ja</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>ja</string>
+		<string>en</string>
+	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>デジスパイスから走行中の位置と速度を受け取るために Bluetooth を使います。</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>ラップタイマーで、デジスパイスを使わずに iPhone の GPS で周を数えるときに、位置を使います。</string>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>

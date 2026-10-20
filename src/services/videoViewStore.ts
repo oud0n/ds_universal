@@ -147,6 +147,11 @@ export interface WindowViewState {
   pipPosition: PipPosition;
   showOverlay: boolean;
   showGForce: boolean;
+  /** 重ねる部品: ラップの欄 (Best・Lap・セクター・タイム差) と、コース図 (docs/overlay_parts_design.md) */
+  showLapPanel: boolean;
+  showMap: boolean;
+  /** ラップの欄で比べる周。'best': そのログのベストラップ、数字: その Car の枠 (0〜3) で選んだ周 */
+  lapRef: 'best' | number;
   /**
    * 走行比較の合わせ方。distance: Car 1 と同じ地点を走ったときの映像 (比べる車の動画は速さを変えて回す)。
    * time: 周の始めからの同じ経過時間の映像 (比べる車も 1 倍で回す。差が開くと映る場所がずれる)
@@ -156,7 +161,7 @@ export interface WindowViewState {
 
 export type CompareAlign = 'distance' | 'time';
 
-const WINDOW_DEFAULT: WindowViewState = { mode: 'cameras', layout: 'grid', focus: null, pipPosition: 'bottom-right', showOverlay: true, showGForce: true, compareAlign: 'distance' };
+const WINDOW_DEFAULT: WindowViewState = { mode: 'cameras', layout: 'grid', focus: null, pipPosition: 'bottom-right', showOverlay: true, showGForce: true, showLapPanel: true, showMap: true, lapRef: 'best', compareAlign: 'distance' };
 
 /**
  * ウインドウごとの表示の状態。key ごとにブラウザに覚える (読めないとき・書けないときは既定のまま。動作には要らない)
