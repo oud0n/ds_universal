@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import { Video } from 'lucide-react';
 import { useT } from '../utils/i18n';
-import { addVideoToOpenRun, getOpenRun } from '../services/runOpener';
+import { addVideoToOpenRun, baseName, getOpenRun } from '../services/runOpener';
 
 export const RunFolderVideos: React.FC = () => {
   const t = useT();
@@ -14,7 +14,7 @@ export const RunFolderVideos: React.FC = () => {
   if (!run) return null;
   const videos = run.item.folderVideos.filter(v => !/\.lrv$/i.test(v.path));
   if (videos.length === 0) return null;
-  const name = (p: string) => p.slice(run.item.folder.length + 1);
+  const name = baseName;
   const open = async (path: string, size: number, mtimeMs: number, local: boolean) => {
     setBusy(path);
     try {

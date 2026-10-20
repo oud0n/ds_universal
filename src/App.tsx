@@ -765,7 +765,7 @@ export const App: React.FC = () => {
       const runPath = `${item.folder}/${item.file}`;
       const openedIds = runSessionsRef.current.get(runPath) ?? [];
       const already = latestRef.current.sessions.filter(x => openedIds.includes(x.id));
-      const added = already.length ? already : await loadFileData(item.file, buffer);
+      const added = already.length ? already : await loadFileData(item.file.slice(item.file.lastIndexOf('/') + 1), buffer);
       runSessionsRef.current.set(runPath, added.map(x => x.id));
       setRunsSheetOpen(false);
       setCurrentTab('graph');
