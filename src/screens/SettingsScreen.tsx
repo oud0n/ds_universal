@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronRight, Coffee, Download } from 'lucide-react';
+import { ChevronRight, Fuel, Download } from 'lucide-react';
 import { setThemeSetting, useThemeSetting } from '../utils/theme';
 import { setLangSetting, useLangSetting, useT } from '../utils/i18n';
 import { desktopDownloadUrl, isBrowserVersionOnPc } from '../utils/desktopApp';
@@ -84,7 +84,7 @@ export const SettingsScreen: React.FC<{ plan: NavPlan; onOpenDonate?: () => void
         <section className="flex flex-col gap-2">
           {onOpenDonate && (
             <button onClick={onOpenDonate} className="flex items-center gap-2 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm cursor-pointer">
-              <Coffee size={16} />{t('開発支援', 'Support')}
+              <Fuel size={16} />{t('開発支援', 'Support')}
             </button>
           )}
           {isBrowserVersionOnPc() && (

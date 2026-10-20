@@ -1,13 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { FolderOpen, Coffee, Sun, Moon, Monitor, Contrast, Download, Languages, SlidersHorizontal, ChevronLeft } from 'lucide-react';
-import { ThemeSetting, setThemeSetting, useThemeSetting } from '../utils/theme';
+import React from 'react';
+import { FolderOpen, Fuel, Sun, Moon, Monitor, Contrast, Download, SlidersHorizontal, ChevronLeft } from 'lucide-react';
+import type { ThemeSetting } from '../utils/theme';
 import { BleStatusPill } from './BleLoggerCard';
-import { setLangSetting, useLangSetting, useT, type LangSetting } from '../utils/i18n';
+import { useT, type LangSetting } from '../utils/i18n';
 import type { NavPlan, Screen } from '../app/navPlan';
 import { SCREEN_META } from '../app/screenMeta';
 import { navStore } from '../app/navStore';
 import { hasNative } from '../native/bridge';
-import { useEscapeKey } from '../hooks/useEscapeKey';
 import { desktopDownloadUrl, isBrowserVersionOnPc } from '../utils/desktopApp';
 import { openExternalUrl } from '../utils/url';
 
@@ -28,50 +27,6 @@ export const LANG_OPTIONS: { value: LangSetting; label: [string, string] }[] = [
 ];
 export const showLangSwitch = !hasNative();
 
-/** 言語の切り替え (地球のアイコンを押すと、自動・日本語・English を出す) */
-const LangMenu: React.FC = () => {
-  const t = useT();
-  const setting = useLangSetting();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEscapeKey(open, () => setOpen(false));
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
-    window.addEventListener('pointerdown', onDown);
-    return () => window.removeEventListener('pointerdown', onDown);
-  }, [open]);
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        aria-label={t('言語', 'Language')}
-        aria-expanded={open}
-        title={t('言語', 'Language')}
-        data-testid="lang-menu"
-        className={`p-1 rounded transition-colors cursor-pointer ${open ? 'bg-surface-5 text-fg' : 'text-slate-400 hover:text-slate-200'}`}
-      >
-        <Languages size={13} />
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] bg-surface-2 border border-line-3 rounded shadow-lg p-1" role="radiogroup" aria-label={t('言語', 'Language')}>
-          {LANG_OPTIONS.map(({ value, label }) => (
-            <button
-              key={value}
-              onClick={() => { setLangSetting(value); setOpen(false); }}
-              role="radio"
-              aria-checked={setting === value}
-              className={`w-full text-left px-2 py-1.5 rounded text-xs ${setting === value ? 'bg-surface-5 text-fg' : 'text-slate-300 hover:bg-surface-4'}`}
-            >
-              {t(...label)}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
 interface HeaderProps {
   plan: NavPlan;
   screen: Screen;
@@ -91,21 +46,22 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenDonate,
   compact = false
 }) => {
-  const themeSetting = useThemeSetting();
   const t = useT();
   // ⚙ の中の画面 (タブ・サイドバーに並ばない画面) を出しているときは、戻るボタンを出す
   const secondary = !plan.primary.includes(screen);
   const go = (s: Screen) => navStore.go(s);
+  // ⚙: 設定を開く。設定を出しているときは閉じる (来た画面へ戻る)
+  const toggleSettings = () => (screen === 'settings' ? navStore.back() : go('settings'));
 
   if (compact) {
     return (
       <header className="relative bg-surface-1 border-b border-line-1 text-slate-200 px-2 py-1 pt-[max(0.25rem,env(safe-area-inset-top))] flex items-center justify-between gap-2 select-none">
-        {secondary ? (
+        {secondary && screen !== 'settings' ? (
           <button onClick={() => navStore.back()} className="flex items-center gap-1 text-sm text-slate-200 px-1 py-1.5 rounded" data-testid="nav-back">
             <ChevronLeft size={18} />
             {t(...SCREEN_META[screen].label)}
           </button>
-        ) : screen === 'library' ? (
+        ) : screen === 'library' || screen === 'settings' ? (
           <span className="text-sm font-bold text-slate-200 px-1">{t(...SCREEN_META[screen].label)}</span>
         ) : (
           <button
@@ -122,7 +78,7 @@ export const Header: React.FC<HeaderProps> = ({
           {plan.available.has('logger') && <BleStatusPill onClick={() => go('logger')} />}
           {/* 設定の画面でも同じ場所に出す (消すと左の印の位置がずれるため)。設定の画面では押した状態 */}
           <button
-            onClick={() => go('settings')}
+            onClick={toggleSettings}
             aria-label={t('設定', 'Settings')}
             aria-current={screen === 'settings' ? 'page' : undefined}
             className={`p-1.5 rounded border border-line-3 shrink-0 ${screen === 'settings' ? 'bg-surface-5 text-fg' : 'text-slate-300'}`}
@@ -210,32 +166,14 @@ export const Header: React.FC<HeaderProps> = ({
             title={t('Buy Me a Coffee で開発者を支援', 'Support the developer on Buy Me a Coffee')}
             aria-label={t('開発支援', 'Support')}
           >
-            <Coffee size={13} className="text-amber-400" />
+            <Fuel size={13} className="text-amber-400" />
             <span className="hidden xl:inline whitespace-nowrap">{t('開発支援', 'Support')}</span>
           </button>
         )}
 
-        {/* テーマ */}
-        <div className="flex bg-surface-3 p-0.5 rounded border border-line-3" role="radiogroup" aria-label={t('テーマ', 'Theme')}>
-          {THEME_OPTIONS.map(({ value, label, Icon }) => (
-            <button
-              key={value}
-              onClick={() => setThemeSetting(value)}
-              role="radio"
-              aria-checked={themeSetting === value}
-              title={t(...label)}
-              className={`p-1 rounded transition-colors cursor-pointer ${
-                themeSetting === value ? 'bg-surface-5 text-fg' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Icon size={13} />
-            </button>
-          ))}
-          {showLangSwitch && <LangMenu />}
-        </div>
         {plan.chrome === 'top' && (
           <button
-            onClick={() => go('settings')}
+            onClick={toggleSettings}
             title={t('設定', 'Settings')}
             aria-label={t('設定', 'Settings')}
             className={`p-1.5 rounded border border-line-3 cursor-pointer ${screen === 'settings' ? 'bg-surface-5 text-fg' : 'text-slate-400 hover:text-slate-200'}`}

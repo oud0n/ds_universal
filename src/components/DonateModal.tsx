@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Coffee, ExternalLink, Copy, Check, Heart, Star, Smartphone, Sparkles } from 'lucide-react';
+import { X, Coffee, Fuel, ExternalLink, Copy, Check, Heart, Star, Smartphone, Sparkles } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { openExternalUrl } from '../utils/url';
 import { useT } from '../utils/i18n';
@@ -47,7 +47,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
         <div className="flex items-center justify-between px-6 py-4 border-b border-line-2 bg-surface-1">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-400 shadow-inner">
-              <Coffee size={18} />
+              <Fuel size={18} />
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-100 flex items-center gap-1.5">
