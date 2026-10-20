@@ -58,10 +58,18 @@ const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy: boole
           <span className="text-slate-400 truncate">{run.courseName ?? run.folder}</span>
         </div>
         <div className="flex items-center gap-3 mt-1 text-xs">
-          <span className={`font-mono font-bold ${run.best !== null ? 'text-fuchsia-400' : 'text-slate-500'}`}>
-            {run.best !== null ? formatLapTime(run.best) : '--'}
-          </span>
-          <span className="text-slate-400">{t(`${run.lapCount} 周`, `${run.lapCount} laps`)}</span>
+          {run.pending ? (
+            <span className="text-slate-500" title={t('iCloud にだけあるので、開くと落としてきて周を数えます', 'Only in iCloud. Laps are counted after it downloads when you open it')}>
+              {t('☁️ 未集計', '☁️ Not counted')}
+            </span>
+          ) : (
+            <>
+              <span className={`font-mono font-bold ${run.best !== null ? 'text-fuchsia-400' : 'text-slate-500'}`}>
+                {run.best !== null ? formatLapTime(run.best) : '--'}
+              </span>
+              <span className="text-slate-400">{t(`${run.lapCount} 周`, `${run.lapCount} laps`)}</span>
+            </>
+          )}
           {videoCount > 0 && (
             <span className="inline-flex items-center gap-1 text-sky-300">
               <Video size={12} />{videoCount}{run.synced ? t('・同期済み', ' · synced') : ''}

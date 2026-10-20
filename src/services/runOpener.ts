@@ -36,6 +36,8 @@ export interface RunItem {
   synced: boolean;
   /** 同じフォルダの動画 */
   folderVideos: RunFileInfo[];
+  /** 周をまだ数えていない (iCloud にだけあって、まだ落としていない) */
+  pending: boolean;
   entry: RunEntry | null;
 }
 
@@ -44,23 +46,49 @@ export const baseName = (p: string) => p.slice(p.lastIndexOf('/') + 1);
 /** 道のフォルダ */
 const dirName = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
 
+/** ファイルの名前の時刻 (YYYYMMDDhhmmss、端末の時刻) から走り始めを出す。数えていない走行を並べるため */
+export function startFromName(file: string): number | null {
+  const m = /(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})[^/]*$/.exec(file);
+  if (!m) return null;
+  const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+  return Number.isNaN(d.getTime()) ? null : d.getTime();
+}
+
 /** 保管場所の全部の走行 (新しい順)。走行は <サーキットのフォルダ>/<日付>/ か <サーキットのフォルダ>/ に置く。動画は走行と同じフォルダのものだけ */
 export async function listRuns(store: RunStore, onProgress?: (folder: string) => void): Promise<RunItem[]> {
   const all = await store.listAll();
-  const folders = await loadLapHistory(store, onProgress);
+  // 周の控えを作るときも、今引いたファイルの一覧を使う (iCloud の置き場所では、一覧を引くのに時間がかかるので 2 回引かない)
+  const listed: RunStore = Object.create(store, { list: { value: async () => all } });
+  const folders = await loadLapHistory(listed, onProgress);
+  // フォルダごとの動画と .bon4 を先に 1 回だけ分けておく (走行ごとに全部のファイルを探すと、数千件で遅くなる)
+  const videosByDir = new Map<string, RunFileInfo[]>();
+  const bon4ByDir = new Map<string, string[]>();
+  for (const x of all) {
+    const dir = dirName(x.path);
+    if (isRunVideoName(baseName(x.path))) {
+      const list = videosByDir.get(dir);
+      if (list) list.push(x); else videosByDir.set(dir, [x]);
+    } else if (/\.bon4$/i.test(x.path)) {
+      const top = x.path.slice(0, x.path.indexOf('/'));
+      const list = bon4ByDir.get(top);
+      if (list) list.push(x.path); else bon4ByDir.set(top, [x.path]);
+    }
+  }
   const out: RunItem[] = [];
   for (const f of folders) {
     const runs = await readRunsFile(store, f.folder);
     const hidden = new Set((f.index?.hidden ?? []).map(h => lapKey(h.file, h.part, h.n)));
     const names = new Set([
       ...Object.keys(f.index?.files ?? {}),
-      ...all.filter(x => x.path.startsWith(`${f.folder}/`) && /\.bon4$/i.test(x.path)).map(x => x.path.slice(f.folder.length + 1))
+      ...(bon4ByDir.get(f.folder) ?? []).map(path => path.slice(f.folder.length + 1))
     ]);
     for (const file of names) {
       if (!/^(\d{8}\/)?[^/]+$/.test(file)) continue;
       const runDir = dirName(`${f.folder}/${file}`);
       // 走行と同じフォルダの動画。日付のフォルダの走行には、サーキットのフォルダにじかに置いた動画 (前の置き方) も候補にする
-      const folderVideos = all.filter(x => (dirName(x.path) === runDir || dirName(x.path) === f.folder) && isRunVideoName(baseName(x.path)));
+      const folderVideos = runDir === f.folder
+        ? (videosByDir.get(runDir) ?? [])
+        : [...(videosByDir.get(runDir) ?? []), ...(videosByDir.get(f.folder) ?? [])];
       const rec = f.index?.files[file];
       const laps = (rec?.laps ?? []).filter(l => !hidden.has(lapKey(file, l.part, l.n)));
       // 日付のフォルダへ移す前に書いた行は、ファイルの名前だけで引く
@@ -70,12 +98,13 @@ export async function listRuns(store: RunStore, onProgress?: (folder: string) =>
         folder: f.folder,
         file,
         courseName: f.courseName,
-        startMs: rec?.startMs ?? null,
+        startMs: rec?.startMs ?? startFromName(file),
         lapCount: laps.length,
         best: laps.length ? Math.min(...laps.map(l => l.time)) : null,
         videos,
         synced: !!entry?.sync,
         folderVideos,
+        pending: !rec,
         entry
       });
     }
