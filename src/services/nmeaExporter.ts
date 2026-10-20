@@ -46,8 +46,8 @@ export function formatNmeaCoord(val: number, isLat: boolean): { nmea: string; di
 /**
  * ファイルダウンロード発火ヘルパー
  */
-export function triggerFileDownload(filename: string, content: string, mimeType: string = 'text/plain') {
-  const blob = new Blob([content], { type: mimeType });
+export function triggerFileDownload(filename: string, content: string | Uint8Array, mimeType: string = 'text/plain') {
+  const blob = new Blob([content as BlobPart], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

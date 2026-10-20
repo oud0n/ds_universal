@@ -162,3 +162,66 @@ describe('日付の無い NMEA は、ファイル名の日付を使う', () => {
     expect(fileDateHint('run_20261012133132.nmea')?.localMs).toBe(Date.UTC(2026, 9, 12, 13, 31, 32));
   });
 });
+
+import { convertToBon4 } from './logConverter';
+import { bon4Header } from './bon4Writer';
+
+describe('.bon4 で書き出す', () => {
+  /** 確かめの値まで正しい .bon4 を作る */
+  function makeBon4(n: number): Uint8Array {
+    const out = new Uint8Array(8 + n * 26);
+    const v = new DataView(out.buffer);
+    const t0 = Date.UTC(2026, 9, 12, 4, 31, 31, 750);
+    for (let i = 0; i < n; i++) {
+      const o = 8 + i * 26;
+      const d = new Date(t0 + i * 50);
+      v.setUint16(o, 0x2085, true);
+      v.setUint16(o + 2, (i * 41) % 5000, true);
+      v.setInt32(o + 4, 361497418 + i * 11, true);
+      v.setInt32(o + 8, 1399212518 - i * 5, true);
+      v.setInt32(o + 12, 150 + (i % 30), true);
+      v.setUint16(o + 16, 0x00c0, true);
+      v.setUint16(o + 18, d.getUTCFullYear(), true);
+      v.setUint8(o + 20, d.getUTCMonth() + 1);
+      v.setUint8(o + 21, d.getUTCDate());
+      v.setUint8(o + 22, d.getUTCHours());
+      v.setUint8(o + 23, d.getUTCMinutes());
+      v.setUint8(o + 24, d.getUTCSeconds());
+      v.setUint8(o + 25, Math.round(d.getUTCMilliseconds() / 10));
+    }
+    const first = { tMs: t0, latitude: 361497418 / 1e7, longitude: 1399212518 / 1e7, speedKmh: 0 };
+    out.set(bon4Header(first), 0);
+    return out;
+  }
+
+  it('.bon4 を読み込んで .bon4 で書き出すと、元のファイルと同じになる (時刻の調整をしていても)', () => {
+    const src = makeBon4(300);
+    const [part] = parseDigispiceRawBinary('20261012133132.bon4', src.slice().buffer);
+    const session = sessionOf(part.points as TelemetryPoint[]);
+    expect(convertToBon4(selectConvertPoints(session, { kind: 'all' }, 0), 0)).toEqual(src);
+    expect(convertToBon4(selectConvertPoints(session, { kind: 'all' }, 9), 9)).toEqual(src);
+  });
+
+  it('NMEA から作った .bon4 を読み込むと、NMEA と同じ点になる', () => {
+    const nmea = [
+      line('GPGGA,043131.00,3608.984510,N,13955.275110,E,1,10,,25.3,M,,M,,'),
+      line('GPRMC,043131.00,A,3608.984510,N,13955.275110,E,10.123,90.00,121026,,,A'),
+      line('GPGGA,043131.10,3608.984610,N,13955.275210,E,1,10,,25.4,M,,M,,'),
+      line('GPRMC,043131.10,A,3608.984610,N,13955.275210,E,10.200,90.00,121026,,,A')
+    ].join('\r\n');
+    const from = parseNmea(nmea, 'a.nmea').points;
+    const bytes = convertToBon4(selectConvertPoints(sessionOf(from), { kind: 'all' }));
+    expect(bytes.length).toBe(8 + 2 * 26);
+    const [part] = parseDigispiceRawBinary('a.bon4', bytes.slice().buffer);
+    const back = part.points as TelemetryPoint[];
+    back.forEach((p, i) => {
+      expect(p.latitude).toBeCloseTo(from[i].latitude, 7);
+      expect(p.longitude).toBeCloseTo(from[i].longitude, 7);
+      expect(p.altitude).toBeCloseTo(from[i].altitude, 1);
+      expect(Math.abs(p.speed - from[i].speed)).toBeLessThan(0.02);
+      expect(p.timestamp).toBe(from[i].timestamp);
+    });
+    // 先頭の確かめの値は、書いた最初の点から求めたもの
+    expect(Array.from(bytes.slice(0, 8))).toEqual(Array.from(bon4Header({ tMs: 0, latitude: from[0].latitude, longitude: from[0].longitude, speedKmh: from[0].speed })));
+  });
+});
