@@ -74,6 +74,11 @@ function interpAt(pts: TelemetryPoint[], key: 'time' | 'distance', v: number, ou
   return a[out] + f * (b[out] - a[out]);
 }
 
+/** ラップの欄を出せるか (計測線で区切った周があるか)。ないログ (ヒルクライムなど) は、これまでの小さなラップタイムの箱にする */
+export function hasTimedLaps(session: Session): boolean {
+  return session.laps.some(l => !l.isWholeSession);
+}
+
 /** その時刻を走っている周 */
 function lapAt(session: Session, t: number): Lap | undefined {
   return session.laps.find(l => !l.isWholeSession && t >= l.startTime && t <= l.endTime);
@@ -117,6 +122,8 @@ export function drawLapPanel(
   const ref = referenceLap(session);
   let lap = lapAt(session, t);
   let frozen = false;
+  // 周に入る前 (前後を足した書き出しで、前の周がないとき): 0 で待つ。差は出さない
+  let waiting = false;
   if (holdLap && t > holdLap.endTime) {
     lap = holdLap;
     frozen = true;
@@ -129,9 +136,17 @@ export function drawLapPanel(
     }
   } else if (holdLap && t < holdLap.startTime) {
     lap = holdLap;
+    waiting = true;
+  } else {
+    // 最後の周を終えた直後も、その周のタイムを止めて出す
+    const ended = session.laps.find(l => !l.isWholeSession && t > l.endTime && t - l.endTime < LAP_HOLD_SEC);
+    if (ended) {
+      lap = ended;
+      frozen = true;
+    }
   }
   const sectors = lap?.sectors ?? [];
-  const rows = 2 + sectors.length + (ref && lap && !frozen ? 1 : 0);
+  const rows = 2 + sectors.length + (ref && lap && !frozen && !waiting ? 1 : 0);
   const rowH = 22;
   const boxW = 236;
   const boxH = 14 + rows * rowH;
@@ -183,7 +198,7 @@ export function drawLapPanel(
     }
   });
 
-  if (ref && lap && !frozen) {
+  if (ref && lap && !frozen && !waiting) {
     const r = 2 + sectors.length;
     const d = lap === ref ? 0 : liveDelta(lap, t, ref);
     label(r, 'Δ');
@@ -193,7 +208,7 @@ export function drawLapPanel(
 }
 
 /** 周の点を、コース図の四角に収める変換 (周ごとに 1 回だけ作る) */
-const mapCache = new WeakMap<TelemetryPoint[], { minX: number; minY: number; scale: number; spanX: number; spanY: number; cosLat: number; path: Array<[number, number]> }>();
+const mapCache = new WeakMap<TelemetryPoint[], { minX: number; minY: number; scale: number; spanX: number; spanY: number; cosLat: number; path: Array<[number, number]>; paths: Map<string, Path2D> }>();
 
 function mapOf(points: TelemetryPoint[]) {
   let m = mapCache.get(points);
@@ -201,16 +216,22 @@ function mapOf(points: TelemetryPoint[]) {
   const cosLat = Math.cos(((points[0]?.latitude ?? 0) * Math.PI) / 180);
   const xs = points.map(p => p.longitude * cosLat);
   const ys = points.map(p => -p.latitude);
-  const minX = Math.min(...xs);
-  const minY = Math.min(...ys);
-  const spanX = Math.max(1e-9, Math.max(...xs) - minX);
-  const spanY = Math.max(1e-9, Math.max(...ys) - minY);
+  // 点が多いログ (60 Hz 以上・長い走行) でも落ちないよう、Math.min(...xs) は使わない
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (let i = 0; i < xs.length; i++) {
+    if (xs[i] < minX) minX = xs[i];
+    if (xs[i] > maxX) maxX = xs[i];
+    if (ys[i] < minY) minY = ys[i];
+    if (ys[i] > maxY) maxY = ys[i];
+  }
+  const spanX = Math.max(1e-9, maxX - minX);
+  const spanY = Math.max(1e-9, maxY - minY);
   // 描く点は 400 ほどに間引く
   const stride = Math.max(1, Math.floor(points.length / 400));
   const path: Array<[number, number]> = [];
   for (let i = 0; i < points.length; i += stride) path.push([xs[i], ys[i]]);
   path.push([xs[xs.length - 1], ys[ys.length - 1]]);
-  m = { minX, minY, scale: 1, spanX, spanY, cosLat, path };
+  m = { minX, minY, scale: 1, spanX, spanY, cosLat, path, paths: new Map() };
   mapCache.set(points, m);
   return m;
 }
@@ -239,7 +260,9 @@ export function mapLap(session: Session): Lap | null {
     }
     return true;
   });
-  const pick = (clean.length ? clean : full).reduce<Lap | null>((best, l) => (!best || l.lapTime < best.lapTime ? l : best), null);
+  // 計測線で区切れないログ (ヒルクライムなど) は、走行全体の軌跡
+  const whole = session.laps.find(l => l.isWholeSession && l.points.length >= 10) ?? null;
+  const pick = (clean.length ? clean : full).reduce<Lap | null>((best, l) => (!best || l.lapTime < best.lapTime ? l : best), null) ?? whole;
   mapLapCache.set(session, pick);
   return pick;
 }
@@ -260,17 +283,27 @@ export function drawCourseMap(ctx: CanvasRenderingContext2D, h: number, t: numbe
   const toScreen = (px: number, py: number): [number, number] => [offX + (px - m.minX) * scale, offY + (py - m.minY) * scale];
   ctx.save();
   plate(ctx, x0, y0, size, size);
+  // 今の位置がコース図の外 (ピット・コースの外) でも、箱の外に描かない
+  ctx.beginPath();
+  ctx.rect(x0, y0, size, size);
+  ctx.clip();
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  ctx.beginPath();
-  m.path.forEach(([px, py], i) => {
-    const [sx, sy] = toScreen(px, py);
-    if (i === 0) ctx.moveTo(sx, sy);
-    else ctx.lineTo(sx, sy);
-  });
+  // 軌跡の線は、同じ大きさ・位置なら作り直さない (コマごとに 400 点を変換しない)
+  const key = `${size}:${x0}:${y0}`;
+  let path = m.paths.get(key);
+  if (!path) {
+    path = new Path2D();
+    m.path.forEach(([px, py], i) => {
+      const [sx, sy] = toScreen(px, py);
+      if (i === 0) path!.moveTo(sx, sy);
+      else path!.lineTo(sx, sy);
+    });
+    m.paths.set(key, path);
+  }
   ctx.strokeStyle = 'rgba(248, 250, 252, 0.75)';
   ctx.lineWidth = 3;
-  ctx.stroke();
+  ctx.stroke(path);
   if (current) {
     const [cx, cy] = toScreen(current.longitude * m.cosLat, -current.latitude);
     ctx.beginPath();

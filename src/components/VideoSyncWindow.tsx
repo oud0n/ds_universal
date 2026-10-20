@@ -32,7 +32,10 @@ import {
 } from '../services/telemetryVideoExporter';
 import { canUseEncodeExport, exportEncodedVideo } from '../services/encodeVideoExporter';
 import { canExportWebmAlpha, exportOverlayOnly } from '../services/overlayOnlyExporter';
-import { drawCourseMap, drawLapPanel, type OverlayPartsOptions } from './overlayParts';
+import { drawCourseMap, drawLapPanel, hasTimedLaps, type OverlayPartsOptions } from './overlayParts';
+
+/** 走行比較の枠には、足した部品を出さない (枠が小さく、Car の札・比べる差と重なるため) */
+const NO_PARTS: OverlayPartsOptions = { lapPanel: false, map: false };
 
 /** 1 コマずつ書く書き出しで周を選んだときに、前後に足す秒 (富士のストレートでも、立ち上がりから映るように) */
 const LAP_EXPORT_PAD_SEC = 10;
@@ -260,7 +263,7 @@ export function drawTelemetryOverlayOnCanvas(
   if (parts.map && baseSession) drawCourseMap(ctx, h, effectiveTime, baseSession, curPt, avoidCorner === 'top-left' ? pipInset : 24);
 
   // ラップの欄 (右上、Best・Lap・セクター・タイム差)。出すときは、下の小さなラップタイムの箱の代わりにする
-  if (parts.lapPanel && baseSession) {
+  if (parts.lapPanel && baseSession && hasTimedLaps(baseSession)) {
     drawLapPanel(ctx, w, effectiveTime, baseSession, holdLap, avoidCorner === 'top-right' ? pipInset : 24);
     return;
   }
@@ -804,9 +807,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
     // メーターだけの透明な動画 (PLAN-14)。ログの範囲の外は書かない
     if (exportMethod === 'overlay-png' || exportMethod === 'overlay-webm') {
+      // 動画があるときは動画の範囲のまま (編集ソフトで動画の頭に置けば合うように)。動画がないときはログの範囲
       const pts = baseSession?.points ?? [];
-      const s0 = pts.length ? Math.max(startSec, pts[0].time) : startSec;
-      const s1 = pts.length ? Math.min(endSec, pts[pts.length - 1].time) : endSec;
+      const s0 = !activeTrack && pts.length ? Math.max(startSec, pts[0].time) : startSec;
+      const s1 = !activeTrack && pts.length ? Math.min(endSec, pts[pts.length - 1].time) : endSec;
       finishFrameExport(exportOverlayOnly({
         startSessionSec: s0,
         endSessionSec: s1,
@@ -996,7 +1000,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     if (!g || !showOverlay || !isVisible) return null;
     return {
       tick: g.time,
-      draw: (ctx, w, h, avoidW) => drawTelemetryOverlayOnCanvas(ctx, w, h, g.time, g.session, g.lap, showGForce, i === 0 && win.layout === 'pip' && tileCount > 1 ? pipPosition : null, avoidW, null, overlayParts)
+      draw: (ctx, w, h, avoidW) => drawTelemetryOverlayOnCanvas(ctx, w, h, g.time, g.session, g.lap, showGForce, i === 0 && win.layout === 'pip' && tileCount > 1 ? pipPosition : null, avoidW, null, isCompare ? NO_PARTS : overlayParts)
     };
   };
 
@@ -1951,7 +1955,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                       : 'bg-surface-1 text-slate-400 border-line-3 hover:text-slate-200'
                   }`}
                 >
-                  {t('動画全体', 'Whole video')}
+                  {activeTrack ? t('動画全体', 'Whole video') : t('ログ全体', 'Whole log')}
                 </button>
               </div>
             </div>
@@ -1979,7 +1983,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             )}
 
             {/* 書き出しの方式 (1 つの動画のとき) */}
-            {!(exportStage && tileCount > 1) && canUseEncodeExport() && (
+            {!(exportStage && tileCount > 1) && (
               <div className="space-y-1">
                 <label className="text-[10px] font-medium text-slate-400">{t('書き出しの方式:', 'Export method:')}</label>
                 <select
@@ -1988,7 +1992,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   className="w-full bg-surface-1 border border-line-3 text-xs px-2 py-1 rounded outline-none text-slate-200 cursor-pointer"
                   data-testid="export-method"
                 >
-                  <option value="encode" disabled={!activeTrack?.file}>{t('動画にメーターを焼き込む (エンコード・推奨)', 'Burn meters into the video (encode, recommended)')}</option>
+                  <option value="encode" disabled={!activeTrack?.file || !canUseEncodeExport()}>{t('動画にメーターを焼き込む (エンコード・推奨)', 'Burn meters into the video (encode, recommended)')}</option>
                   <option value="record" disabled={!activeTrack}>{t('動画にメーターを焼き込む (再生しながら録る・これまでの方式)', 'Burn meters into the video (record while playing, previous method)')}</option>
                   <option value="overlay-png">{t('メーターだけ・背景は透明 (PNG の連番の ZIP。Premiere・DaVinci・After Effects 向け)', 'Meters only, transparent (PNG sequence ZIP; Premiere, DaVinci, After Effects)')}</option>
                   {webmAlphaOk && <option value="overlay-webm">{t('メーターだけ・背景は透明 (WebM。小さいが、読めるソフトが限られる)', 'Meters only, transparent (WebM; small, limited editor support)')}</option>}
