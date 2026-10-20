@@ -6,7 +6,7 @@
  * 走り始めの 2 秒は未測位、そのあとは半径 150 m の円を 60 km/h で回る
  */
 
-import { CONTRACT_VERSION, type NativeEvent, type NativeEvents, type NativeRequest, type NativeResponse } from './contract';
+import { CONTRACT_VERSION, type NativeEvent, type NativeEvents, type NativeRequest, type NativeResponse, type StorageInfo } from './contract';
 import { toBase64 } from './bridge';
 
 export interface MockNativeOptions {
@@ -94,6 +94,11 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   const files = new Map<string, { lines: string[]; modifiedMs: number }>();
   let recording: { fileName: string; deviceId: string; lines: string[]; count: number } | null = null;
   const shared: Array<{ fileName: string; text?: string }> = [];
+  // ラップタイマーの記録のファイル (名前 → base64 をつないだもの。ふりなので、つなぎ方は気にしない)
+  const lapTimerFiles = new Map<string, string>();
+  /** 保管先 (選んだフォルダ) に写したファイル */
+  const syncedFiles = new Map<string, string>();
+  let storage: StorageInfo = { kind: 'local', folderName: '', folderOk: false };
   const nowNs = () => Math.round(performance.now() * 1e6);
   const hex = (u8: Uint8Array) => Array.from(u8, b => b.toString(16).padStart(2, '0')).join('');
 
@@ -259,6 +264,44 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         shared.push(req.params as { fileName: string; text: string });
         return {};
       case 'system.openSettings':
+        return {};
+      case 'system.keepAwake':
+        return {};
+      case 'system.appendFile': {
+        const { path, b64, truncate, createNew } = req.params as { path: string; b64: string; truncate?: boolean; createNew?: boolean };
+        if (createNew && lapTimerFiles.has(path)) throw { code: 'busy', message: 'file exists' };
+        lapTimerFiles.set(path, (truncate ? '' : lapTimerFiles.get(path) ?? '') + b64);
+        return {};
+      }
+      case 'system.storageInfo':
+        return { ...storage };
+      case 'system.pickStorageFolder':
+        storage = { kind: 'folder', folderName: 'iCloud Drive/LapLoupe', folderOk: true };
+        return { ...storage };
+      case 'system.setStorageLocal':
+        storage = { ...storage, kind: 'local' };
+        return { ...storage };
+      case 'system.syncLapFiles': {
+        if (storage.kind !== 'folder') return { kind: 'local', copied: 0, skipped: 0, failed: 0 };
+        let copied = 0;
+        let skipped = 0;
+        for (const [path, b64] of lapTimerFiles) {
+          if (path.startsWith('exports/')) continue;
+          if (syncedFiles.get(path) === b64) { skipped++; continue; }
+          syncedFiles.set(path, b64);
+          copied++;
+        }
+        return { kind: 'folder', copied, skipped, failed: 0 };
+      }
+      case 'system.listLapFiles':
+        return { files: [...lapTimerFiles.entries()].filter(([p]) => !p.startsWith('exports/')).map(([path, b64]) => ({ path, size: b64.length, mtimeMs: 0 })) };
+      case 'system.readLapFile': {
+        const { path } = req.params as { path: string };
+        if (!lapTimerFiles.has(path)) throw { code: 'not-found', message: 'no file' };
+        return { b64: lapTimerFiles.get(path)! };
+      }
+      case 'system.shareFile':
+        shared.push({ fileName: (req.params as { path: string }).path });
         return {};
       default:
         throw { code: 'not-supported', message: `unknown method ${String(req.method)}` };

@@ -30,7 +30,20 @@ final class NativeCore {
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // どう起動したか (OS が Bluetooth で裏で起こしたときは bluetoothCentrals が付く)
+        let keys = (launchOptions ?? [:]).keys.map(\.rawValue).sorted().joined(separator: ",")
+        let centrals = (launchOptions?[.bluetoothCentrals] as? [String])?.joined(separator: ",") ?? "-"
+        let state = application.applicationState == .background ? "background" : application.applicationState == .active ? "active" : "inactive"
+        DebugLog.write("launch state=\(state) options=[\(keys)] centrals=\(centrals) footprint=\(String(format: "%.0f", DebugLog.footprintMB()))MB")
         MainActor.assumeIsolated { NativeCore.shared.launch() }
         return true
+    }
+
+    func applicationWillTerminate(_ application: UIApplication) {
+        DebugLog.write("willTerminate")
+    }
+
+    func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
+        DebugLog.write("memoryWarning footprint=\(String(format: "%.0f", DebugLog.footprintMB()))MB state=\(application.applicationState == .background ? "background" : "foreground")")
     }
 }

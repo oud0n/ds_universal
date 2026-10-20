@@ -35,13 +35,17 @@ import { VideoSyncWindow } from './components/VideoSyncWindow';
 import { useVideoTracks, useVideoView, videoEndSessionSec } from './services/videoViewStore';
 import { DataTab } from './components/DataTab';
 import { LoggerTab } from './components/LoggerTab';
+import { LapTimerScreen, type ReplayLog } from './components/LapTimerScreen';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
 import { DonateModal } from './components/DonateModal';
+import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
+import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
 import { bleLoggerLink } from './services/bleLoggerLink';
 import { useWheelScrollX } from './hooks/useWheelScrollX';
 import { isDialogOpen } from './hooks/useEscapeKey';
+import { readClockMaster } from './services/clockMaster';
 import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
 import { Freeze } from './components/Freeze';
 import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
@@ -124,6 +128,8 @@ export const App: React.FC = () => {
     if (h === 'logger' && !canUseLogger) return 'graph';
     return h === 'convert' || h === 'data' || h === 'logger' || h === 'video' ? h : 'graph';
   });
+  // ラップタイマー (走りながら使う、画面いっぱいの表示)。URL の末尾 #laptimer で開いた状態から始める
+  const [lapTimerOpen, setLapTimerOpen] = useState(() => typeof window !== 'undefined' && window.location.hash === '#laptimer');
   const currentTabRef = useRef(currentTab);
   currentTabRef.current = currentTab;
   // 変換画面で書き出すログ (データ管理の「変換画面で開く」で選ぶ。空なら基準車のログ)
@@ -165,7 +171,7 @@ export const App: React.FC = () => {
     });
   };
 
-  // 登録してあるデジスパイスに、Bluetooth で自動でつなぐ
+  // Bluetooth の層を用意する (つなぐのは、ロガー設定・ラップタイマーの画面を開いたとき)
   useEffect(() => {
     if (canUseLoggerBle) void bleLoggerLink.start();
   }, []);
@@ -355,6 +361,8 @@ export const App: React.FC = () => {
   // アニメーションループ (requestAnimationFrame)
   const animRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(performance.now());
+  // このループが最後に入れた時刻 (ほかで時刻を動かしたか (見ている位置を動かした) を見分ける)
+  const loopTimeRef = useRef<number | null>(null);
 
   // 再生の基準はこのループだけにする。動画のウインドウは、この時刻に合わせて動画を再生する (動画の有無にかかわらず時刻が進む)
   // 時刻の基準: グラフ画面では選んでいる周の中の時刻 ('lap')、動画同期タブではセッション全体の時刻 ('session')。
@@ -404,6 +412,7 @@ export const App: React.FC = () => {
     }
 
     lastTimeRef.current = performance.now();
+    loopTimeRef.current = null;
     // スマートフォンでは、画面を描き直すのを 1 秒に 20 回までにする (毎コマ描き直すと、動画のコマが落ちる)。
     // パソコンの Safari (WebKit) も、毎コマ描き直すと動画のコマが落ちるので 1 秒に 30 回まで。Chrome・Electron は毎コマ。
     // 動画は自分で再生し、この時刻に合わせて少しずつ直すだけなので、なめらかなまま。URL の ?redraw=<ms> で試しに変えられる
@@ -420,8 +429,14 @@ export const App: React.FC = () => {
       const dtSec = Math.max(0, ((now - lastTimeRef.current) / 1000) * playbackSpeed);
       lastTimeRef.current = now;
 
+      // 音を出している動画が再生しているときは、その動画の位置を時刻にする (clockMaster.ts)。読むのは state を変える関数の外で
+      const master = readClockMaster();
       setCurrentTimeSec(prevTime => {
         let nextTime = prevTime + dtSec;
+        // 動画が動き出すまでは待つ (戻しはしない)。1 秒より離れているとき (周の始めに戻した) と、
+        // このループの外で時刻を動かした直後 (見ている位置を動かした) は、これまでどおり進め、動画のほうが付いてくる
+        const movedOutside = loopTimeRef.current !== null && Math.abs(prevTime - loopTimeRef.current) > 1e-6;
+        if (master !== null && !movedOutside && Math.abs(master - nextTime) < 1) nextTime = Math.max(prevTime, master);
         if (nextTime > endTime) {
           if (isSessionClock) {
             // セッション全体の時刻では、終わりで止める
@@ -441,6 +456,7 @@ export const App: React.FC = () => {
           setCurrentDistanceKm(curPt.distance);
         }
 
+        loopTimeRef.current = nextTime;
         return nextTime;
       });
 
@@ -631,13 +647,15 @@ export const App: React.FC = () => {
       if (toAdd.length > 0) await videoSyncManager.addVideoFiles(toAdd, latestRef.current.sessions);
       return;
     }
-    // 「動画の GPS も走行ログとして加える」を切っていて、同じ時間に、より記録の細かいログがあれば、GPS のログは加えず、
-    // GPS の時刻で動画をそのログに合わせるだけにする (LATER-12)
-    if (!getAddVideoGpsLog()) {
+    // 同じ走行のログがすでにあるときは、動画の GPS を走行ログとして加えず、GPS の時刻で動画をそのログに合わせるだけにする (LATER-12)。
+    // 「動画の GPS も走行ログとして加える」を切っていれば、より記録の細かいログに聞かずに合わせる。
+    // 入れていれば (既定)、同じ走行のログがあるときだけ、加えるか聞く (同じ走行が 2 重になるため。2026-10-20)
+    const addGps = getAddVideoGpsLog();
+    {
       const first = log.points[0]?.timestamp, last = log.points[log.points.length - 1]?.timestamp;
       const a = first ? Date.parse(first) : NaN, b = last ? Date.parse(last) : NaN;
       const overlapping = latestRef.current.sessions
-        .filter(s => (s.samplingRate || 0) > (log.samplingRate || 0))
+        .filter(s => addGps || (s.samplingRate || 0) > (log.samplingRate || 0))
         .filter(s => {
           const st = sessionStartUtcMs(s), lp = s.points[s.points.length - 1];
           return st !== null && lp && st < b && a < st + lp.time * 1000;
@@ -648,6 +666,23 @@ export const App: React.FC = () => {
       let better: Session | undefined;
       for (const s of overlapping) if (await isSameRun(s, gpsAsLog)) { better = s; break; }
       const betterStart = sessionStartUtcMs(better);
+      // 加える設定のときは、同じ走行のログがあれば聞く (OK なら今までどおり加える)
+      if (better && addGps) {
+        const name = better.sessionName || better.fileName;
+        const keep = await askChoice(
+          tr('動画の GPS も取り込みますか？', 'Import the video GPS too?'),
+          tr(
+            `同じ走行のログ「${name}」がもう読み込まれています。\n\n取り込む: 動画の GPS も走行ログとして加えます (同じ走行が 2 つ並びます)\n取り込まない: 動画を「${name}」に合わせるだけにします`,
+            `A log of the same run ("${name}") is already loaded.\n\nImport: add the video GPS as another log (the same run appears twice)\nDon't import: just sync the video to "${name}"`
+          ),
+          [
+            { label: tr('取り込む', 'Import'), value: true },
+            { label: tr('取り込まない', "Don't import"), value: false, primary: true }
+          ],
+          false
+        );
+        if (keep) better = undefined;
+      }
       if (better && betterStart !== null) {
         const existing = videoSyncManager.getTracks();
         const toAdd = files.filter(f => !existing.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size));
@@ -1378,25 +1413,19 @@ export const App: React.FC = () => {
       <main className={`relative flex-1 overflow-hidden ${isCompact ? 'p-2' : 'p-3'}`}>
         {/* ログを読み込む前のグラフ解析: 読み込み方を案内する (何もない画面で、どうすればよいか分からないため) */}
         {currentTab === 'graph' && sessions.length === 0 && (
-          <div className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none p-4 bg-surface-0/60">
-            <div className="pointer-events-auto max-w-md w-full max-h-full overflow-y-auto bg-surface-2 border border-line-2 rounded-xl p-5 text-center shadow-xl">
-              <h2 className="text-sm font-bold text-slate-100">{T('走行ログを読み込む', 'Load a driving log')}</h2>
-              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-                {/* スマートフォンではファイルを落とせないので、ボタンだけを案内する */}
-                {isCompact
-                  ? T('ロガーのログ (.bnx4 / .bon4 / .dtb)・NMEA・CSV・VBO・GPX・AiM・iRacing・GoPro の動画を、ボタンから選んでください。',
-                    'Choose a logger file (.bnx4 / .bon4 / .dtb), NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video with the button.')
-                  : T('ロガーのログ (.bnx4 / .bon4 / .dtb)・NMEA・CSV・VBO・GPX・AiM・iRacing・GoPro の動画を、ここにドロップするか、ボタンから選んでください。',
-                    'Drop a logger file (.bnx4 / .bon4 / .dtb), NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video here, or choose one with the button.')}
-              </p>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-xs text-white font-bold cursor-pointer"
-              >
-                <FolderOpen size={14} />
-                {T('ファイルを選ぶ', 'Choose files')}
-              </button>
-            </div>
+          // 後ろの空のグラフ・コース図は隠す (動画・変換の画面と同じ見た目にする)
+          <div className="absolute inset-0 z-40 bg-surface-0">
+            <EmptyLoadPrompt
+              title={T('走行ログを読み込む', 'Load a driving log')}
+              text={isCompact
+                // スマートフォンではファイルを落とせないので、ボタンだけを案内する
+                ? T('ロガーのログ (.bnx4 / .bon4 / .dtb)・NMEA・CSV・VBO・GPX・AiM・iRacing・GoPro の動画を、ボタンから選んでください。',
+                  'Choose a logger file (.bnx4 / .bon4 / .dtb), NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video with the button.')
+                : T('ロガーのログ (.bnx4 / .bon4 / .dtb)・NMEA・CSV・VBO・GPX・AiM・iRacing・GoPro の動画を、ここにドロップするか、ボタンから選んでください。',
+                  'Drop a logger file (.bnx4 / .bon4 / .dtb), NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video here, or choose one with the button.')}
+              buttonLabel={T('ファイルを選ぶ', 'Choose files')}
+              onClick={() => fileInputRef.current?.click()}
+            />
           </div>
         )}
         {/* 計測線はあるのに周回を区切れず、ログ全体を 1 周として表示しているときの注意 (違うコースを当てはめた・計測線がコースの外にあるなど。issue #17) */}
@@ -1747,6 +1776,7 @@ export const App: React.FC = () => {
           <Freeze active={currentTab === 'data'}>
           <DataTab
             sessions={sessions}
+            onOpenLapRun={file => { void loadFiles([file]).then(() => setCurrentTab('graph')); }}
             selectedCars={selectedCars}
             onSelectCarSlot={handleSelectCarSlot}
             onClearCarSlot={slotIndex => setSelectedCars(prev => prev.filter(c => c.slot !== slotIndex))}
@@ -1802,11 +1832,34 @@ export const App: React.FC = () => {
             <LoggerTab
               onLoadSession={(fileName, buffer) => loadFileData(fileName, buffer)}
               onNavigateToGraph={() => setCurrentTab('graph')}
+              active={currentTab === 'logger' && !lapTimerOpen}
+              onOpenLapTimer={() => setLapTimerOpen(true)}
             />
             </Freeze>
           </div>
         )}
       </main>
+
+      {lapTimerOpen && (
+        <LapTimerScreen
+          onClose={() => {
+            setLapTimerOpen(false);
+            // #laptimer で開いたときは、閉じたら外す (読み込み直したときに、また開かないように)
+            if (window.location.hash === '#laptimer') history.replaceState(null, '', window.location.pathname + window.location.search);
+          }}
+          replayLogs={sessions.map((s): ReplayLog => ({ id: s.id, name: s.sessionName || s.fileName, points: s.points, startDate: s.points[0]?.timestamp ? new Date(s.points[0].timestamp) : undefined }))}
+          onOpenLog={(fileName, text) => {
+            setLapTimerOpen(false);
+            if (window.location.hash === '#laptimer') history.replaceState(null, '', window.location.pathname + window.location.search);
+            void loadFileData(fileName, null, parseNmea(text)).then(() => setCurrentTab('graph'));
+          }}
+          onOpenFile={file => {
+            setLapTimerOpen(false);
+            if (window.location.hash === '#laptimer') history.replaceState(null, '', window.location.pathname + window.location.search);
+            void loadFiles([file]).then(() => setCurrentTab('graph'));
+          }}
+        />
+      )}
 
       {/* グラフ解析の再生の段 (シークバーと再生のボタン。動画同期の画面の下の段と同じ並び)。スマートフォンでは、この下にタブバー */}
       {currentTab === 'graph' && baseLap && (
@@ -1843,10 +1896,10 @@ export const App: React.FC = () => {
         }
         sectors={currentSectors}
         onSavedCircuitsChange={() => setUserCircuitCount(userCircuitStorage.getCircuitCount())}
-        onSaveCircuit={(name, cl, sec, remember) => {
+        onSaveCircuit={(name, cl, sec, remember, names) => {
           // アプリに保存して、次から同じ場所のログに使う (閉じても消えない)
           if (remember) {
-            userCircuitStorage.saveEditedCircuit(name, cl, sec, baseSession && passesNearControlLine(baseSession.points, cl) ? baseSession.pathPolylines : undefined).then(r => {
+            userCircuitStorage.saveEditedCircuit(name, cl, sec, baseSession && passesNearControlLine(baseSession.points, cl) ? baseSession.pathPolylines : undefined, names).then(r => {
               if (!r.saved) alert(`${tr('コースを保存できませんでした (この画面には反映しています)', 'Could not save the course (it is applied on this screen)')}: ${r.saveError ?? ''}`);
               setUserCircuitCount(userCircuitStorage.getCircuitCount());
             });
@@ -1863,6 +1916,7 @@ export const App: React.FC = () => {
       )}
 
       {/* 開発支援 (Buy Me a Coffee) モーダル */}
+      <ChoiceDialogHost />
       <DonateModal
         isOpen={isDonateModalOpen}
         onClose={() => setIsDonateModalOpen(false)}
