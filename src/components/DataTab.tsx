@@ -40,7 +40,8 @@ interface DataTabProps {
   // ログの時計の補正 (秒) を変える / 同じ時間のほかのログとの比べから見積もる (BUG-08)
   onSetClockOffset?: (sessionId: string, sec: number) => void;
   onEstimateClockOffset?: (sessionId: string) => Promise<ClockEstimateResult | string>;
-  onSelectCircuitPreset: (presetId: string) => void;
+  /** 当てはめなかったとき (確かめてやめたとき) は false */
+  onSelectCircuitPreset: (presetId: string) => boolean;
   onOpenCircuitEditor: () => void;
   onLoadPthFile: () => void;
   onLoadClnFile: () => void;
@@ -205,7 +206,10 @@ export const DataTab: React.FC<DataTabProps> = ({
         <div className={`items-center gap-2 flex-wrap ${showCourseTools ? 'flex' : 'hidden'}`}>
           {/* サーキットプリセット選択 */}
           <select
-            onChange={e => onSelectCircuitPreset(e.target.value)}
+            onChange={e => {
+              // やめたときは、選んだ表示を戻す (次に同じコースを選んでも変化が起きるように)
+              if (!onSelectCircuitPreset(e.target.value)) e.target.value = '';
+            }}
             // 選択肢の名前が長いと、選択肢に合わせて広がって画面からはみ出すので、幅を枠に収める
             className="w-full sm:w-auto max-w-full min-w-0 truncate bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg px-3 py-2 outline-none focus:border-red-500 transition-colors"
           >
