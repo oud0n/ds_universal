@@ -20,6 +20,13 @@ interface Props {
 
 type SortKey = 'date' | 'time';
 
+/** 速い順の 1〜3 番目の色 (ベストは紫、2 番目は緑、3 番目は琥珀色) */
+const RANK_STYLE: Record<number, { bg: string; text: string }> = {
+  1: { bg: 'bg-fuchsia-500/15', text: 'text-fuchsia-400' },
+  2: { bg: 'bg-emerald-500/15', text: 'text-emerald-400' },
+  3: { bg: 'bg-amber-500/15', text: 'text-amber-400' }
+};
+
 const pad = (n: number) => String(n).padStart(2, '0');
 function fmtDate(ms: number | null): string {
   if (ms === null) return '—';
@@ -82,10 +89,11 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
 
   const current = folders?.find(f => f.folder === selected) ?? null;
   const visible = useMemo(() => (current?.rows ?? []).filter(r => showHidden || !r.hidden), [current, showHidden]);
-  const best = useMemo(() => {
-    const shown = (current?.rows ?? []).filter(r => !r.hidden);
-    return shown.length ? Math.min(...shown.map(r => r.time)) : null;
-  }, [current]);
+  // 速い順の上から 3 つのタイム (隠した周は数えない。同じタイムは同じ順位)
+  const top3 = useMemo(() => [...new Set((current?.rows ?? []).filter(r => !r.hidden).map(r => r.time))].sort((a, b) => a - b).slice(0, 3), [current]);
+  const best = top3[0] ?? null;
+  /** 順位 (1〜3。それ以外・隠した周は 0) */
+  const rankOf = (r: LapRow) => (r.hidden ? 0 : top3.indexOf(r.time) + 1);
   // 走行ごとのまとまり (日付順のとき)
   const runs = useMemo(() => {
     const m = new Map<string, LapRow[]>();
@@ -121,9 +129,9 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
   };
 
   const lapLine = (r: LapRow, withDate: boolean) => (
-    <div key={lapKey(r.file, r.part, r.n)} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs ${r.hidden ? 'opacity-40' : ''} ${!r.hidden && r.time === best ? 'bg-fuchsia-500/15' : 'bg-surface-3/60'}`} data-testid="lap-history-row">
+    <div key={lapKey(r.file, r.part, r.n)} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs ${r.hidden ? 'opacity-40' : ''} ${RANK_STYLE[rankOf(r)]?.bg ?? 'bg-surface-3/60'}`} data-testid="lap-history-row" data-rank={rankOf(r) || undefined}>
       <span className="w-10 text-slate-500 font-mono" title={r.part ? t(`${r.part} つめのまとまり (解析では _${r.part})`, `Part ${r.part} (_${r.part} in analysis)`) : undefined}>{r.part ? `${r.part}-` : ''}L{r.n}</span>
-      <span className={`font-mono font-bold w-20 ${!r.hidden && r.time === best ? 'text-fuchsia-400' : 'text-slate-100'}`}>{formatLapTime(r.time, 3)}</span>
+      <span className={`font-mono font-bold w-20 ${RANK_STYLE[rankOf(r)]?.text ?? 'text-slate-100'}`}>{formatLapTime(r.time, 3)}</span>
       {withDate && <span className="text-slate-400 font-mono text-[11px]">{fmtDate(r.startMs || r.runStartMs)}</span>}
       <span className="hidden sm:flex gap-2 text-slate-400 font-mono text-[11px] flex-1 min-w-0 truncate">
         {r.sectors.map((s, i) => <span key={i}>S{i + 1} {s.toFixed(3)}</span>)}
@@ -171,6 +179,8 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
           {current && current.courseName && (
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400">
               <span>{t('ベスト', 'Best')} <b className="text-fuchsia-400 font-mono">{best !== null ? formatLapTime(best, 3) : '—'}</b></span>
+              {top3[1] !== undefined && <span>2nd <b className="text-emerald-400 font-mono">{formatLapTime(top3[1], 3)}</b></span>}
+              {top3[2] !== undefined && <span>3rd <b className="text-amber-400 font-mono">{formatLapTime(top3[2], 3)}</b></span>}
               <span>{t(`${current.rows.filter(r => !r.hidden).length} 周`, `${current.rows.filter(r => !r.hidden).length} laps`)}</span>
               <span>{t(`${current.fileCount} 走行`, `${current.fileCount} runs`)}</span>
             </div>
