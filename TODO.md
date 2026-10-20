@@ -330,6 +330,7 @@ USB シリアル通信をさらに拡張し、公式アプリを使わずにロ�
   - [ ] iPhone のアプリの作り直し: ラップタイマーの間は画面の自動ロックを止める（約束に `system.keepAwake` を足した）、iPhone の GPS を使う許可（`NSLocationWhenInUseUsageDescription`）。作り直すまでは、iPhone の「自動ロック」を「なし」にして使う
 - [ ] **Android 版**（2026-10-19 決定。docs/iphone_app_design.md の 7.6・8 の 9）
   - [ ] Kotlin の窓口（`src/native/contract.ts` の約束を作る。置き場所は `mobile/android/`）
+  - [ ] 言語: アプリごとの言語の設定（Android 13 以降の「設定 → システム → 言語 → アプリの言語」）に出るよう、`localeConfig`（日本語・英語）を宣言する。画面の言語は端末・アプリの言語に合わせ、アプリでは画面の言語の切り替えを出さない（iPhone と同じ。2026-10-20 決定）。Android 12 以前は、画面の切り替えを出すかをそのとき決める
   - [ ] **擬似ロケーション**: デジスパイスなどの位置を Android の位置として流し、ほかのアプリも 20 Hz の位置で動くようにする（開発者向けオプションでこのアプリを選んでもらう。フォアグラウンドサービスで常駐）
   - [ ] **読み方の見本**: 擬似ロケーションのために、標準の形（Location and Speed・NMEA・RaceBox）の読み方を Kotlin にも持つ。TypeScript と Kotlin が同じ見本のファイル（`src/native/fixtures/`）で試験し、片方だけ直すと落ちるようにする。GitHub Actions で両方を走らせる
   - [ ] Google Play の開発者の登録（25 USD）→ クローズドテスト（決まった人数が 14 日続けて参加。人数は登録時に確かめる）で試してくれる人を募る → 公開
