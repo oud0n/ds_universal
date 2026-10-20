@@ -56,8 +56,8 @@ export const PlayBar: React.FC<{
       <button
         onClick={() => onSeekTime(Math.max(0, currentTime - SKIP_SEC))}
         className="p-1 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
-        title={t('10 秒戻す (コマ戻しは B / ←キー、Shift で 1 秒)', 'Back 10 s (step back: B / ← key, Shift for 1 s)')}
-        aria-label={t('10 秒戻す', 'Back 10 seconds')}
+        title={t('5 秒戻す (コマ戻しは B / ←キー、Shift で 1 秒)', 'Back 5 s (step back: B / ← key, Shift for 1 s)')}
+        aria-label={t('5 秒戻す', 'Back 5 seconds')}
       >
         <Skip10Icon dir="back" size={compact ? 18 : 15} />
       </button>
@@ -72,8 +72,8 @@ export const PlayBar: React.FC<{
       <button
         onClick={() => onSeekTime(Math.min(end, currentTime + SKIP_SEC))}
         className="p-1 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
-        title={t('10 秒進める (コマ送りは F / →キー、Shift で 1 秒)', 'Forward 10 s (step forward: F / → key, Shift for 1 s)')}
-        aria-label={t('10 秒進める', 'Forward 10 seconds')}
+        title={t('5 秒進める (コマ送りは F / →キー、Shift で 1 秒)', 'Forward 5 s (step forward: F / → key, Shift for 1 s)')}
+        aria-label={t('5 秒進める', 'Forward 5 seconds')}
       >
         <Skip10Icon dir="forward" size={compact ? 18 : 15} />
       </button>
