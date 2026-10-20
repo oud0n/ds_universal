@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { X, Volume2, VolumeX, Menu, MapPin, Bluetooth, Smartphone, PlayCircle, Save, BarChart3, Trash2, FolderOpen } from 'lucide-react';
+import { X, Volume2, VolumeX, Menu, MapPin, Bluetooth, Smartphone, PlayCircle, Save, BarChart3, Trash2, FolderOpen, Play, Square } from 'lucide-react';
 import { bleLoggerLink } from '../services/bleLoggerLink';
 import { useLoggerLink, useStatusLabel } from './BleLoggerCard';
 import { LiveLapTimer, formatDelta, formatLapTime, type LiveFix, type LiveLapEvent, type LiveLapState } from '../services/liveLapTimer';
@@ -110,6 +110,9 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const [flash, setFlash] = useState<{ event: LiveLapEvent; until: number } | null>(null);
   const [voice, setVoice] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
+  // 測っているか (測定開始のボタンを押してから、測定終了まで)。測っていない間は、位置と速度を出すだけで、周を数えず記録もしない (2026-10-20)
+  const [measuring, setMeasuring] = useState(false);
+  const measuringRef = useRef(false);
   const [coursePicker, setCoursePicker] = useState(false);
   const [now, setNow] = useState(() => performance.now());
   const [phoneInfo, setPhoneInfo] = useState<{ accuracy: number | null; error: string | null }>({ accuracy: null, error: null });
@@ -219,19 +222,21 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     fixesRef.current.push(fix);
     // 画面で持つのは直近の 10 分ほど (コースの選び直しに使うだけ。走った測位は全部、記録の保存先にある)
     if (fixesRef.current.length > 12000) fixesRef.current.splice(0, 2000);
-    // 走っている間の記録 (ログの再生は記録しない)
-    const src = sourceRef.current;
-    if (src !== 'replay') {
-      recorderRef.current ??= new LiveRunRecorder(src, () => courseRef.current?.name ?? '', m => setSaveError(m),
-        () => (courseRef.current ? courseFolder(courseRef.current.name, courseRef.current.folder, courseRef.current.id) : ''));
-      recorderRef.current.add(fix);
-    }
     // コースを決めていなければ、初めの測位の所で選ぶ。周を数える前は、ときどき選び直す
     if (!courseRef.current) {
       const found = findMatchingCircuit(fix.latitude, fix.longitude);
       if (found?.controlLine && distanceKm(fix.latitude, fix.longitude, found.centerLat, found.centerLon) < 5) chooseCourse(found);
     } else if (fixesRef.current.length % 200 === 0 && fixesRef.current.length <= 4800) {
       recheckCourse();
+    }
+    // 測定開始を押すまでは、周を数えず記録もしない (ログの再生はいつも数える・記録しない)
+    const src = sourceRef.current;
+    if (src !== 'replay' && !measuringRef.current) return;
+    // 走っている間の記録 (ログの再生は記録しない)
+    if (src !== 'replay') {
+      recorderRef.current ??= new LiveRunRecorder(src, () => courseRef.current?.name ?? '', m => setSaveError(m),
+        () => (courseRef.current ? courseFolder(courseRef.current.name, courseRef.current.folder, courseRef.current.id) : ''));
+      recorderRef.current.add(fix);
     }
     const timer = timerRef.current;
     if (!timer) return;
@@ -251,6 +256,27 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     // 表示は 0.1 秒ごとにまとめて描き直す (測位ごと (20 Hz) に描き直すと、車の中で端末が熱くなる)。周を終えたときだけすぐ
     if (events.length > 0) setState(timer.getState());
   }, [chooseCourse, recheckCourse]);
+
+  /** 測定開始: 周をはじめから数え、次の測位から新しい走行のファイルに書く */
+  const startMeasuring = useCallback(() => {
+    measuringRef.current = true;
+    setMeasuring(true);
+    recorderRef.current = null;
+    // 押す前の測位で周を数えないよう、コースの選び直しに使う測位も捨てる
+    fixesRef.current = [];
+    shownElapsedRef.current = { lapStartMs: null, value: 0 };
+    chooseCourse(courseRef.current);
+  }, [chooseCourse]);
+
+  /** 測定終了: 書いた走行を閉じて保存し、選んだフォルダへ写す。周の表示は次に測り始めるまで残す */
+  const stopMeasuring = useCallback(async () => {
+    if (!measuringRef.current) return;
+    measuringRef.current = false;
+    setMeasuring(false);
+    await flushRecording(true);
+    recorderRef.current = null;
+    await syncRef.current();
+  }, [flushRecording]);
 
   // 出どころを替えたら、測位と周をはじめからにする (コースはそのまま)。それまでの記録は保存して閉じ、次の測位から新しい走行にする
   const resetRun = useCallback(() => {
@@ -559,7 +585,15 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       {/* 真ん中: 大きな数字 */}
       <main className="flex-1 min-h-0 flex flex-col landscape:flex-row items-stretch gap-2 px-3 pb-3">
         <section className="flex-1 min-w-0 min-h-0 flex flex-col items-center justify-center" data-testid="lap-timer-main">
-          {!course ? (
+          {!measuring && source !== 'replay' && !(state?.laps.length) ? (
+            <div className="text-center space-y-2" data-testid="lap-timer-idle">
+              <div className="font-bold" style={{ fontSize: 'min(7vw, 9vh)' }}>{course ? circuitLabel(course.name) : t('コースを決めています', 'Finding the course')}</div>
+              <div className="font-mono text-white/70 tabular-nums" style={{ fontSize: 'min(9vw, 12vh)' }}>
+                {lastFix ? `${Math.round(lastFix.speedKmh)} km/h` : '--- km/h'}
+              </div>
+              <div className="text-white/60 text-sm">{t('下の「測定開始」を押すと、周を数えて記録します', 'Tap Start below to time laps and record')}</div>
+            </div>
+          ) : !course ? (
             <div className="text-center space-y-3">
               <div className="text-2xl font-bold">{t('コースを決めています', 'Finding the course')}</div>
               <div className="text-white/60 text-sm">{t('測位が届くと、近くのコースを選びます。違うときは上のコースを押して選んでください。', 'The nearest course is chosen when GPS arrives. Tap the course above to change it.')}</div>
@@ -629,6 +663,23 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           )}
         </aside>
       </main>
+
+      {/* 測定開始 / 測定終了 (ログの再生のときは出さない) */}
+      {source !== 'replay' && (
+        <div className="shrink-0 px-3 pb-3">
+          <button
+            onClick={() => {
+              if (!measuring) startMeasuring();
+              // 走っている間に誤って押しても止まらないよう、終了は確かめる
+              else if (window.confirm(t('測定を終了しますか？ (ここまでの走行を保存します)', 'Stop timing? (The run so far is saved)'))) void stopMeasuring();
+            }}
+            className={`w-full flex items-center justify-center gap-2 rounded-2xl font-bold text-lg py-4 ${measuring ? 'bg-red-600 active:bg-red-700' : 'bg-emerald-600 active:bg-emerald-700'}`}
+            data-testid="lap-timer-start-stop"
+          >
+            {measuring ? <><Square size={20} fill="currentColor" />{t('測定終了', 'Stop')}</> : <><Play size={20} fill="currentColor" />{t('測定開始', 'Start')}</>}
+          </button>
+        </div>
+      )}
 
       {/* メニュー: 出どころ・再生の設定・記録 */}
       {/* メニューの外を押したら閉じる (透明な受け皿をメニューの後ろに敷く) */}
