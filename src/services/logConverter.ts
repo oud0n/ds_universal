@@ -111,7 +111,8 @@ export function convertToNmea(points: ConvertedPoint[], talkerId: 'GP' | 'GN' = 
       const alt = p.altitude != null ? p.altitude.toFixed(1) : '';
       lines.push(createNmeaSentence(`${talkerId}GGA,${timeStr},${lat.nmea},${lat.dir},${lon.nmea},${lon.dir},1,${sat},,${alt},M,,M,,`).trimEnd());
     }
-    lines.push(createNmeaSentence(`${talkerId}RMC,${timeStr},A,${lat.nmea},${lat.dir},${lon.nmea},${lon.dir},${(p.speed / 1.852).toFixed(1)},${p.heading.toFixed(2)},${dateStr},,,A`).trimEnd());
+    // 速度は 0.001 ノットまで書く (.bon4 の 0.01 m/s に、ずれずに戻せる細かさ)
+    lines.push(createNmeaSentence(`${talkerId}RMC,${timeStr},A,${lat.nmea},${lat.dir},${lon.nmea},${lon.dir},${(p.speed / 1.852).toFixed(3)},${p.heading.toFixed(2)},${dateStr},,,A`).trimEnd());
   }
   return lines.length > 0 ? lines.join('\r\n') + '\r\n' : '';
 }
