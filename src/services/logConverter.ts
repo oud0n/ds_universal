@@ -1,5 +1,6 @@
 import { Session, TelemetryPoint } from '../types/telemetry';
 import { createNmeaSentence, formatNmeaCoord } from './nmeaExporter';
+import { toBon4 } from './bon4Writer';
 
 /**
  * 変換ページ用: 読み込んだ走行ログを、範囲と時刻を調整して他形式のテキストへ書き出す
@@ -386,4 +387,18 @@ if (line.length > 0) {
 </body>
 </html>
 `;
+}
+
+/**
+ * デジスパイスの生ログ (.bon4)。公式ソフトで開ける形。時刻は UTC で書くので、時刻の調整 (offsetHours) は戻す。
+ * 標高が無い点は 0、速度は 0.01 m/s、位置は 1/10,000,000 度の細かさになる
+ */
+export function convertToBon4(points: ConvertedPoint[], offsetHours = 0): Uint8Array {
+  return toBon4(points.map(p => ({
+    tMs: p.time.getTime() - offsetHours * 3600000,
+    latitude: p.latitude,
+    longitude: p.longitude,
+    speedKmh: p.speed,
+    altitude: p.altitude
+  })));
 }
