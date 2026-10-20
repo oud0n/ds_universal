@@ -144,7 +144,7 @@ export function drawTelemetryOverlayOnCanvas(
   // PinP の小窓がある隅と、小窓がメインの映像に重なる幅 (canvas の座標)。その隅のメーターを小窓の横へずらす (BUG-23)
   avoidCorner: PipPosition | null = null,
   pipOverlapW = 0,
-  // 書き出す周 (前後を足して書き出すとき)。周の前は 0:00.00 で待ち、周のあとはその周のタイムで止めておく
+  // 書き出す周 (前後を足して書き出すとき)。周の前は前の周のタイム (前の周がなければ 0:00.00)、周のあとはその周のタイムで止めておく
   holdLap: { lapNumber: number; lapTime: number; startTime: number; endTime: number } | null = null
 ) {
   const pipInset = Math.round(pipOverlapW) + 24;
@@ -489,6 +489,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const positions = tiles.map(x => x.position);
   // 同期の調整・書き出しの対象は、メインのカメラの今のチャプター
   const activeTrack: PlacedTrack | undefined = positions[0]?.track ?? mainMedia?.tracks[0];
+  // 元のファイルのない動画では、エンコードの方式は使えないので、これまでの方式にする
+  useEffect(() => {
+    if (exportMethod === 'encode' && activeTrack && !activeTrack.file) setExportMethod('record');
+  }, [exportMethod, activeTrack]);
   // 走行比較で動画のない枠も出す (メーターだけ)。マルチカメラでカメラがないときは、動画を読み込む案内を出す
   const hasStage = isCompare ? tileCount > 0 : !!(activeTrack && activeTrack.objectUrl);
   // グラフ解析に埋め込んだときは、タイムゾーン・再同期の段とタイムラインを、ボタンで開くまで隠す。
@@ -798,6 +802,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       const offset = activeTrack.syncOffsetSec;
       const startVideoSec = Math.max(0, startSec - offset);
       const endVideoSec = Math.min(activeTrack.durationSec || Infinity, endSec - offset);
+      // 選んだ周が動画の範囲の外のときは、空の動画を作らずに知らせる
+      if (!(endVideoSec - startVideoSec >= 0.5)) {
+        alert(t('選んだ範囲は、この動画に映っていません', 'The selected range is not in this video'));
+        setIsExporting(false);
+        videoViewStore.set({ isExporting: false });
+        return;
+      }
       const encController = exportEncodedVideo({
         file: activeTrack.file,
         startVideoSec,
@@ -808,7 +819,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         height: exportH,
         fps: exportFps,
         outputFileName: filename,
-        onProgress: p => setExportProgress(p)
+        onProgress: p => setExportProgress(p),
+        onWarning: msg => alert(t(msg, 'The audio could not be included (its format cannot be copied into MP4 as is)'))
       });
       finishFrameExport(encController);
       return;
@@ -1951,13 +1963,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   className="w-full bg-surface-1 border border-line-3 text-xs px-2 py-1 rounded outline-none text-slate-200 cursor-pointer"
                   data-testid="export-method"
                 >
-                  <option value="encode">{t('動画にメーターを焼き込む (エンコード・推奨)', 'Burn meters into the video (encode, recommended)')}</option>
+                  <option value="encode" disabled={!activeTrack?.file}>{t('動画にメーターを焼き込む (エンコード・推奨)', 'Burn meters into the video (encode, recommended)')}</option>
                   <option value="record">{t('動画にメーターを焼き込む (再生しながら録る・これまでの方式)', 'Burn meters into the video (record while playing, previous method)')}</option>
                   <option value="overlay-png">{t('メーターだけ・背景は透明 (PNG の連番の ZIP。Premiere・DaVinci・After Effects 向け)', 'Meters only, transparent (PNG sequence ZIP; Premiere, DaVinci, After Effects)')}</option>
                   {webmAlphaOk && <option value="overlay-webm">{t('メーターだけ・背景は透明 (WebM。小さいが、読めるソフトが限られる)', 'Meters only, transparent (WebM; small, limited editor support)')}</option>}
                 </select>
                 {exportMethod !== 'record' && exportRange === 'lap' && (
-                  <p className="text-[10px] text-slate-500">{t(`周を選んだときは、前後を ${LAP_EXPORT_PAD_SEC} 秒ずつ足して書き出します (周の前は 0:00.00 で待ち、周のあとはその周のタイムで止まります)`, `When a lap is selected, ${LAP_EXPORT_PAD_SEC} s are added before and after it (the lap clock waits at 0:00.00 before and holds the lap time after)`)}</p>
+                  <p className="text-[10px] text-slate-500">{t(`周を選んだときは、前後を ${LAP_EXPORT_PAD_SEC} 秒ずつ足して書き出します (周の前は前の周のタイム、周のあとはその周のタイムで止まります)`, `When a lap is selected, ${LAP_EXPORT_PAD_SEC} s are added before and after it (before: the previous lap's clock; after: the lap time is held)`)}</p>
                 )}
               </div>
             )}

@@ -29,6 +29,8 @@ export interface EncodeExportOptions {
   bitrate?: number;
   outputFileName: string;
   onProgress?: (progress: { currentSec: number; totalSec: number; percent: number }) => void;
+  /** 書き出せたが、知らせておきたいこと (音を入れられなかったなど) */
+  onWarning?: (message: string) => void;
 }
 
 /** このブラウザでエンコードの方式を使えそうか (WebCodecs があるか)。H.264 で書けるかは書き出すときに確かめる */
@@ -37,7 +39,7 @@ export function canUseEncodeExport(): boolean {
 }
 
 export function exportEncodedVideo(options: EncodeExportOptions): VideoExportController {
-  const { file, startVideoSec, endVideoSec, toSessionSec, drawOverlay, width, height, fps, bitrate = 8_000_000, outputFileName, onProgress } = options;
+  const { file, startVideoSec, endVideoSec, toSessionSec, drawOverlay, width, height, fps, bitrate = 8_000_000, outputFileName, onProgress, onWarning } = options;
   let conversion: Conversion | null = null;
   let cancelled = false;
 
@@ -90,6 +92,10 @@ export function exportEncodedVideo(options: EncodeExportOptions): VideoExportCon
     if (!conversion.isValid) {
       throw new Error('この動画は書き出せません: ' + conversion.discardedTracks.map(t => t.reason).join(', '));
     }
+    // 準備の間に取り消されたら、書き出しを始めない
+    if (cancelled) throw new Error('エクスポートがユーザーによりキャンセルされました');
+    // 音を入れられないとき (MP4 に入らない形で、エンコードし直すこともできない) は、映像だけ書き出して知らせる
+    const audioDropped = conversion.discardedTracks.some(t => t.track.type === 'audio');
     conversion.onProgress = (p: number) => {
       const currentSec = p * totalSec;
       onProgress?.({ currentSec, totalSec, percent: Number((p * 100).toFixed(1)) });
@@ -98,6 +104,7 @@ export function exportEncodedVideo(options: EncodeExportOptions): VideoExportCon
     if (cancelled) throw new Error('エクスポートがユーザーによりキャンセルされました');
     const blob = new Blob([target.buffer!], { type: 'video/mp4' });
     downloadBlob(blob, outputFileName.replace(/\.(mp4|webm|mov)$/i, '') + '.mp4');
+    if (audioDropped) onWarning?.('音は入れられませんでした (この動画の音の形は、MP4 にそのまま入れられません)');
     return blob;
   })();
 
