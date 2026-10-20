@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { X, Volume2, VolumeX, Menu, MapPin, Bluetooth, Smartphone, PlayCircle, Save, BarChart3, Trash2 } from 'lucide-react';
+import { X, Volume2, VolumeX, Menu, MapPin, Bluetooth, Smartphone, PlayCircle, Save, BarChart3, Trash2, FolderOpen } from 'lucide-react';
 import { bleLoggerLink } from '../services/bleLoggerLink';
 import { useLoggerLink, useStatusLabel } from './BleLoggerCard';
 import { LiveLapTimer, formatDelta, formatLapTime, type LiveFix, type LiveLapEvent, type LiveLapState } from '../services/liveLapTimer';
@@ -10,12 +10,15 @@ import { LiveRunRecorder } from '../services/runRecorder';
 import { deleteRun, listRuns, loadFixes, type RunMeta } from '../services/liveRunStore';
 import { fixesToBon4, fixesToNmea, runFileBase } from '../services/runFiles';
 import { callNative, hasNative, toBase64 } from '../native/bridge';
+import type { StorageInfo } from '../native/contract';
 import { canUseLoggerBle } from '../utils/device';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
 import type { CircuitPreset, TelemetryPoint } from '../types/telemetry';
 
 /** 走っている間に、記録を保存する間隔 (ミリ秒) */
+/** 選んだフォルダへ写す、走っている間の最短の間隔 */
+const SYNC_INTERVAL_MS = 3 * 60 * 1000;
 const SAVE_INTERVAL_MS = 2000;
 
 /**
@@ -118,6 +121,10 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const sourceRef = useRef<Source>('digspice');
   const [runs, setRuns] = useState<RunMeta[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
+  /** 記録の保管先 (アプリのみ) と、選んだフォルダへ最後に写した結果 */
+  const [storage, setStorage] = useState<StorageInfo | null>(null);
+  const [syncNote, setSyncNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const lastSyncMsRef = useRef(0);
   const lastFixPerfRef = useRef(0);
   const lastPosRef = useRef<LiveFix | null>(null);
   const voiceRef = useRef(voice);
@@ -177,6 +184,26 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     return rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null });
   }, []);
 
+  /**
+   * 保管先に選んだフォルダ (iCloud Drive など) へ、LapTimer/ のファイルを写す (アプリのみ。保管先が この iPhone なら何もしない)。
+   * 裏に回ったとき・閉じたとき・周を数え直したとき・周を終えたとき (3 分に 1 回まで) に呼ぶ
+   */
+  const syncStorage = useCallback(async (): Promise<void> => {
+    if (!hasNative()) return;
+    lastSyncMsRef.current = Date.now();
+    await flushRecording();
+    try {
+      const r = await callNative('system.syncLapFiles', {});
+      if (r.kind !== 'folder') return;
+      if (r.failed > 0) setSyncNote({ ok: false, text: r.error ?? `${r.failed}` });
+      else if (r.copied > 0) setSyncNote({ ok: true, text: `${r.copied}` });
+    } catch (e) {
+      setSyncNote({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    }
+  }, [flushRecording]);
+  const syncRef = useRef(syncStorage);
+  syncRef.current = syncStorage;
+
   /** 測位を 1 つ受け取る (出どころによらず同じ) */
   const handleFix = useCallback((fix: LiveFix) => {
     if (!fix.valid) return;
@@ -204,8 +231,9 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     for (const e of events) {
       if (e.kind === 'lap') {
         setFlash({ event: e, until: performance.now() + FLASH_MS });
-        // 周を終えたら、すぐ保存する
+        // 周を終えたら、すぐ保存する。選んだフォルダへは 3 分に 1 回まで写す
         void flushRecording();
+        if (Date.now() - lastSyncMsRef.current > SYNC_INTERVAL_MS) void syncRef.current();
         if (voiceRef.current) {
           const s = lapSpeech(e);
           speak(s.text, s.lang);
@@ -218,7 +246,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
 
   // 出どころを替えたら、測位と周をはじめからにする (コースはそのまま)。それまでの記録は保存して閉じ、次の測位から新しい走行にする
   const resetRun = useCallback(() => {
-    void flushRecording();
+    void syncRef.current();
     recorderRef.current = null;
     fixesRef.current = [];
     lastPosRef.current = null;
@@ -306,14 +334,14 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   // ---- 走っている間の記録を、2 秒ごと・裏に回ったとき・閉じたときに保存する ----
   useEffect(() => {
     const iv = setInterval(() => { void flushRecording(); }, SAVE_INTERVAL_MS);
-    const onHide = () => { if (document.visibilityState === 'hidden') void flushRecording(); };
+    const onHide = () => { if (document.visibilityState === 'hidden') void syncRef.current(); };
     document.addEventListener('visibilitychange', onHide);
     window.addEventListener('pagehide', onHide);
     return () => {
       clearInterval(iv);
       document.removeEventListener('visibilitychange', onHide);
       window.removeEventListener('pagehide', onHide);
-      void flushRecording();
+      void syncRef.current();
     };
   }, [flushRecording]);
 
@@ -422,6 +450,24 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     }
   }, [flushRecording]);
   useEffect(() => { if (menuOpen) void refreshRuns(); }, [menuOpen, refreshRuns]);
+  // 保管先は、メニューを開いたときに読む (アプリのみ。前のアプリは知らないので出さない)
+  useEffect(() => {
+    if (!menuOpen || !hasNative()) return;
+    callNative('system.storageInfo', {}).then(setStorage, () => setStorage(null));
+  }, [menuOpen]);
+
+  const chooseStorage = async (kind: 'local' | 'folder') => {
+    try {
+      const info = kind === 'folder' ? await callNative('system.pickStorageFolder', {}) : await callNative('system.setStorageLocal', {});
+      setStorage(info);
+      setSyncNote(null);
+      if (info.kind === 'folder') await syncStorage();
+    } catch (e) {
+      // フォルダを選ぶのをやめたときは何もしない
+      const msg = e instanceof Error ? e.message : (e as { message?: string })?.message ?? String(e);
+      if (msg !== 'cancelled') setSyncNote({ ok: false, text: msg });
+    }
+  };
 
   /** 走行を解析で開く・NMEA / bon4 で保存する・消す */
   const runAction = async (run: RunMeta, action: 'open' | 'nmea' | 'bon4' | 'delete') => {
@@ -638,9 +684,36 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               </div>
             )}
             {hasNative() && (
-              <p className="text-[10px] text-white/40 mt-1">{t('「ファイル」アプリの このiPhone内 → このアプリ → LapTimer にも、走っている間に書いています (.nmea と .bon4)。', 'Also written while driving to Files → On My iPhone → this app → LapTimer (.nmea and .bon4).')}</p>
+              <p className="text-[10px] text-white/40 mt-1">{t('「ファイル」アプリの このiPhone内 → このアプリ → LapTimer → サーキット名 にも、走っている間に書いています (.nmea と .bon4)。', 'Also written while driving to Files → On My iPhone → this app → LapTimer → circuit name (.nmea and .bon4).')}</p>
             )}
           </div>
+          {hasNative() && storage && (
+            <div data-testid="lap-timer-storage">
+              <div className="text-white/50 text-xs mb-1">{t('記録の保管先', 'Where runs are kept')}</div>
+              <div className="grid grid-cols-1 gap-1">
+                <button onClick={() => { void chooseStorage('local'); }} className={`text-left px-3 py-2 rounded-lg ${storage.kind === 'local' ? 'bg-red-600' : 'bg-white/5'}`}>
+                  {t('この iPhone', 'This iPhone')}
+                </button>
+                <button onClick={() => { void chooseStorage('folder'); }} className={`text-left px-3 py-2 rounded-lg flex items-center gap-2 ${storage.kind === 'folder' ? 'bg-red-600' : 'bg-white/5'}`}>
+                  <FolderOpen size={14} className="shrink-0" />
+                  <span className="truncate">
+                    {storage.kind === 'folder' && storage.folderName
+                      ? t(`フォルダ: ${storage.folderName} (選び直す)`, `Folder: ${storage.folderName} (change)`)
+                      : t('フォルダを選ぶ (iCloud Drive など)', 'Choose a folder (iCloud Drive etc.)')}
+                  </span>
+                </button>
+              </div>
+              {syncNote && (
+                <div className={`text-[11px] mt-1 ${syncNote.ok ? 'text-white/50' : 'text-amber-300'}`}>
+                  {syncNote.ok ? t(`フォルダへ ${syncNote.text} 個のファイルを写しました`, `Copied ${syncNote.text} files to the folder`) : t(`フォルダへ写せませんでした: ${syncNote.text}`, `Could not copy to the folder: ${syncNote.text}`)}
+                </div>
+              )}
+              <p className="text-[10px] text-white/40 mt-1">
+                {t('走っている間は、いつもこの iPhone に書きます (電波がなくても消えないように)。フォルダを選ぶと、アプリを閉じたとき・裏に回したとき・周を数え直したとき (走っている間は 3 分に 1 回まで) に、フォルダ → サーキット名 へ写します。',
+                  'While driving, runs are always written to this iPhone (so nothing is lost without signal). With a folder chosen, they are copied to folder → circuit name when the app is closed or sent to the background, when laps are reset, and at most every 3 minutes while driving.')}
+              </p>
+            </div>
+          )}
           <button onClick={() => { resetRun(); setMenuOpen(false); }} className="w-full px-3 py-2 rounded-lg bg-white/5 text-white/70">
             {t('周をはじめから数える (新しい走行として記録する)', 'Reset laps (start a new run)')}
           </button>

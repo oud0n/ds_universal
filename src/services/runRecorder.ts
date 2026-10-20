@@ -3,25 +3,64 @@
  *
  * - 受け取った測位をためておき、2 秒ごと (と、周を終えたとき・アプリが裏に回ったとき) に保存する
  * - 保存先 1: ブラウザの中のデータベース (liveRunStore.ts)。どの環境でも使え、ラップタイマーの「走行の記録」に並ぶ
- * - 保存先 2 (iPhone のアプリ): 書類のフォルダの LapTimer/<走り始めの時刻>.nmea と .bon4 に、同じ測位を後ろへ足していく
- *   (「ファイル」アプリから取り出せる。前のアプリで書けないときは、保存先 1 だけ)
+ * - 保存先 2 (iPhone のアプリ): 書類のフォルダの LapTimer/<サーキット名>/<走り始めの時刻>.nmea と .bon4 に、同じ測位を後ろへ足していく
+ *   (「ファイル」アプリから取り出せる。前のアプリで書けないときは、保存先 1 だけ)。
+ *   サーキット名のフォルダに入れるため、ファイルはコースが決まってから作る (決まらなければ COURSE_WAIT_MS で Unsorted)。フォルダの名前は英字 (courseFolder)。
+ *   保管先に選んだフォルダ (iCloud Drive など) へは、LapTimerScreen がときどき写す (system.syncLapFiles)
  */
 
 import { appendFixes, startRun, type RunMeta } from './liveRunStore';
 import { bon4Header, bon4Records, fixesToNmea, runFileBase } from './runFiles';
 import type { LiveFix } from './liveLapTimer';
 import { callNative, hasNative, toBase64 } from '../native/bridge';
+import { circuitLabel } from '../utils/i18n';
 
 const encoder = new TextEncoder();
 /** 始めるのに失敗したとき (データベースが使えないなど)、もう一度試すまで (ミリ秒) */
 const RETRY_MS = 5000;
 /** 保存できずにためておく測位の上限 (20 Hz で 1 時間ほど)。超えたら古いものから捨てる */
 const MAX_BUFFER = 72000;
+/** コースが決まるのを待つ長さ (ミリ秒。測位の時刻で数える)。過ぎたら Unsorted のフォルダに書く */
+const COURSE_WAIT_MS = 15000;
+/** コースの分からない走行のフォルダ */
+export const UNSORTED_FOLDER = 'Unsorted';
+
+/** 英字・数字と _ - . だけにする (アクセントは外す)。空白などは _ にまとめる */
+function asciiName(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9._-]+/g, '_').replace(/_+/g, '_').replace(/\.{2,}/g, '_')
+    .replace(/^[._-]+|[._-]+$/g, '').slice(0, 60).replace(/[._-]+$/, '');
+}
+
+/** 英字の名前として使えるか (日本語などが混じっていないか) */
+const isLatin = (s: string) => /[A-Za-z]/.test(s) && !/[^\u0020-\u024f]/.test(s);
+
+/**
+ * サーキット名から、記録のフォルダの名前を作る。どの端末・クラウドでも困らないよう、英字 (ローマ字) だけにする:
+ * 英語表示の名前 → 名前の終わりのかっこの中の英字 (「袖ヶ浦フォレストレースウェイ (Sodegaura)」の Sodegaura) → 名前の英字の部分 の順。
+ * どれも無ければ Course_ と名前から求めた記号 (同じ名前なら同じフォルダ)
+ */
+export function courseFolder(name: string): string {
+  const n = name.trim();
+  if (!n) return UNSORTED_FOLDER;
+  const paren = /\(([^()]+)\)\s*$/.exec(n)?.[1] ?? '';
+  const before = n.replace(/\s*\([^()]*\)\s*$/, '');
+  for (const c of [circuitLabel(n, 'en'), paren, n, before]) {
+    if (isLatin(c)) {
+      const a = asciiName(c);
+      if (a) return a;
+    }
+  }
+  let h = 0;
+  for (const ch of n) h = (Math.imul(h, 31) + (ch.codePointAt(0) ?? 0)) >>> 0;
+  return `Course_${h.toString(36)}`;
+}
+
 /** このページで使ったファイルの名前 (同じ秒に新しい走行を始めても、前の走行のファイルに上書きしないように) */
 const usedBases = new Set<string>();
 
-function uniqueBase(startedMs: number): string {
-  const base = runFileBase(startedMs);
+function uniqueBase(startedMs: number, folder: string): string {
+  const base = `${folder}/${runFileBase(startedMs)}`;
   let name = base;
   for (let i = 2; usedBases.has(name); i++) name = `${base}_${i}`;
   usedBases.add(name);
@@ -48,7 +87,9 @@ export class LiveRunRecorder {
   add(fix: LiveFix): void {
     this.buffer.push(fix);
     if (this.buffer.length > MAX_BUFFER) this.buffer.splice(0, this.buffer.length - MAX_BUFFER);
-    if (!this.run && !this.starting && Date.now() >= this.retryAt) {
+    // ファイルをサーキット名のフォルダに入れるため、アプリではコースが決まるまで (長くて COURSE_WAIT_MS) 始めない
+    const waitCourse = hasNative() && !this.courseName() && fix.tMs - this.buffer[0].tMs < COURSE_WAIT_MS;
+    if (!this.run && !this.starting && !waitCourse && Date.now() >= this.retryAt) {
       // 始めるのに失敗したら、少しおいてもう一度 (失敗したままにしない)
       this.starting = this.begin(this.buffer[0]).catch(e => {
         this.onError(e instanceof Error ? e.message : String(e));
@@ -70,7 +111,7 @@ export class LiveRunRecorder {
 
   private async begin(first: LiveFix): Promise<void> {
     const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `run-${first.tMs}-${Math.random().toString(36).slice(2)}`;
-    const fileBase = hasNative() ? uniqueBase(first.tMs) : null;
+    const fileBase = hasNative() ? uniqueBase(first.tMs, courseFolder(this.courseName())) : null;
     this.run = await startRun({ id, startedMs: first.tMs, courseName: this.courseName(), source: this.source, fileBase });
     if (!fileBase) return;
     try {
