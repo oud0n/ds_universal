@@ -79,6 +79,17 @@ describe('画面の切り替え', () => {
     expect(navStore.getSnapshot()).toMatchObject({ screen: 'video', from: null });
   });
 
+  it('⚙ → データ管理 → 戻る → 戻る で、はじめの画面へ', () => {
+    navStore.init(phone);
+    navStore.go('video');
+    navStore.go('settings');
+    navStore.go('data');
+    navStore.back();
+    expect(navStore.getSnapshot().screen).toBe('settings');
+    navStore.back();
+    expect(navStore.getSnapshot().screen).toBe('video');
+  });
+
   it('測っている間はほかの画面へ行けない。ない画面へは行かない', () => {
     navStore.init(phone);
     navStore.go('timer');

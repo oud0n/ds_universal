@@ -140,7 +140,8 @@ export const App: React.FC = () => {
   useState(() => { navStore.init(plan); return 0; });
   useEffect(() => { navStore.init(plan); }, [plan]);
   const nav = useNav();
-  const currentTab = nav.screen;
+  // 幅が変わって組み方が変わり、今の画面がなくなったときは、入れ直す (上の effect) までの間も最初の画面を出す
+  const currentTab = plan.available.has(nav.screen) ? nav.screen : plan.home;
   // 変換画面で書き出すログ (データ管理の「変換画面で開く」で選ぶ。空なら基準車のログ)
   const [convertSessionId, setConvertSessionId] = useState('');
 
@@ -1546,7 +1547,7 @@ export const App: React.FC = () => {
           badges={{ data: sessions.length }}
         />
       )}
-      <div className="flex-1 min-w-0 flex flex-col">
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col">
       {/* ヘッダー (iPhone のアプリのタイマーのタブでは出さない。タイマーが上の段を持つ) */}
       {!(currentTab === 'timer' && profile.kind === 'app-phone') && <Header
         plan={plan}
@@ -2021,11 +2022,12 @@ export const App: React.FC = () => {
             onMeasuringChange={on => navStore.setLocked(on)}
             onClose={() => navStore.back()}
             replayLogs={sessions.map((s): ReplayLog => ({ id: s.id, name: s.sessionName || s.fileName, points: s.points, startDate: s.points[0]?.timestamp ? new Date(s.points[0].timestamp) : undefined }))}
+            // ラップタイムの記録から解析で開く (測っている途中でも、これまでどおりタイマーを閉じて開く)
             onOpenLog={(fileName, text) => {
-              void loadFileData(fileName, null, parseNmea(text)).then(() => navStore.go('analysis'));
+              void loadFileData(fileName, null, parseNmea(text)).then(() => { navStore.setLocked(false); navStore.go('analysis'); });
             }}
             onOpenFile={file => {
-              void loadFiles([file]).then(() => navStore.go('analysis'));
+              void loadFiles([file]).then(() => { navStore.setLocked(false); navStore.go('analysis'); });
             }}
           />
         )}
