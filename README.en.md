@@ -188,9 +188,7 @@ Then double-click the app as usual, or **Control-click (right-click) it and choo
 
 ## 📝 Release notes
 
-### v0.12.0 (unreleased)
-
-<!-- Draft. Add PLAN-16 (FIT / TCX) and PLAN-12 (automatic timing line) here once merged -->
+### v0.12.0
 
 **App renamed**
 
@@ -201,45 +199,34 @@ Then double-click the app as usual, or **Control-click (right-click) it and choo
 
 - **Onboard video rework**: videos and logs are now handled together as "runs".
   - **Multi-camera**: watch one car's run from up to 4 cameras at the same time (side by side, 2×2, picture-in-picture; click a view to enlarge it).
-  - **Run comparison**: shows the videos of the Car 1-4 laps at the moment each car was at the same point as Car 1. Slower laps play faster, and each view shows its own gauges and the time gap to Car 1. Works with a single video too (another lap of the same video).
+  - **Run comparison**: shows the videos of the Car 1-4 laps at the moment each car was at the same point as Car 1. Slower laps play faster, and each view shows its own gauges and the time gap to Car 1. Align by place or by time; works with a single video too (another lap of the same video).
   - **Per-log clock correction**: fixes each logger's GPS delay. "Auto" estimates it by comparing positions with another log of the same run and only applies confident results.
   - **Same-run check**: videos are no longer attached to another car's log that merely covers the same time (a teammate in the same session).
   - **Run inspector**: one screen with each run's logs and videos, how each video is timed (GPS / synced / file time) and a map.
   - **GoPro .LRV**: load the low-res copies too and the small views play lighter.
-  - **Export the layout of views** (with gauges and car labels).
-- **Video on phones**: the phone layout now has the video tab (run comparison stacks 2 views, multi-camera switches by swiping).
-- **Narrow windows**: desktop windows narrower than 600px also use the phone layout.
-- **Trim in log conversion**: for logs that keep recording while parked, the graph first shows only the driving part, and "Export only the driving part" sets the range.
-
-**Fixed**
-
-- A sub video recorded at a different time was pulled to the main video's time.
-- The gauges were misplaced over the main video in split / PiP view.
-- Videos stayed black or stuttered in Safari on iPhone.
-- Saving and loading a sync project could lose the video positions and log clock corrections (sync projects are now format 2.0; 1.0 still loads).
-
-### v0.12.0
-
-**Added**
-
-- **Rebuilt video export**: videos are now encoded frame by frame instead of being recorded while playing, which is faster and drops no frames (environments without support still use the previous method).
+  - **Videos with GPS** (GoPro and others): when a log of the same run is already loaded, you are asked whether to import the video GPS as another log.
+- **Rebuilt video export**: videos are now encoded frame by frame instead of being recorded while playing, which is faster and drops no frames (environments without support still use the previous method). The current layout of views (with gauges and car labels) can be exported too.
 - **Meters-only transparent video**: export just the gauges, without the onboard video, as a transparent PNG sequence (ZIP) or WebM to overlay in Premiere, DaVinci Resolve, After Effects and the like. Works from a log alone, without a video. This is now the default export.
 - **More overlay parts**: a lap panel (best, per-sector gaps, delta) and a course map. When you export a lap, 10 seconds are added before and after it.
-- **Lap timer (early version)**: connect to a DigSpice IV over Bluetooth and see lap and sector times while driving. Runs are saved as .bon4 and NMEA in a folder per circuit.
-- **Lap history** (desktop app): lists past laps from the runs in your storage folder. Best in purple, 2nd in green, 3rd in amber; any lap can be hidden.
+- **X/Y graph**: plot any two values (speed and G, for example) as points per lap to compare them.
+- **Separate start and finish** (gymkhana, hill climbs): place a finish line in the course editor and each run from start to finish counts as one.
 - **Unknown courses**: timing and sector lines are placed automatically from the log.
+- **Lap history** (desktop app): lists past laps from the runs in your storage folder. Best in purple, 2nd in green, 3rd in amber; any lap can be hidden.
 - **More formats**: FIT and TCX (Garmin and others) and CSV with a date-time column.
-- **Log conversion**: export to .bon4. NMEA now keeps speed to 0.001 knots and writes back GGA fields (altitude, satellites and so on), so .bon4 → NMEA → .bon4 round-trips. NMEA without a date uses the date in the file name.
-- **Run comparison**: choose whether to align by place or by time; laps within a single video can be compared too.
-- **Videos with GPS** (GoPro and others): when a log of the same run is already loaded, you are asked whether to import the video GPS as another log.
+- **Log conversion**: export to .bon4. NMEA now keeps speed to 0.001 knots and writes back GGA fields (altitude, satellites and so on), so .bon4 → NMEA → .bon4 round-trips. NMEA without a date uses the date in the file name. For logs that keep recording while parked, you can export only the driving part.
 - **Course editor**: fields for an English name and a storage folder name.
 - **Interface language** follows your device (PC or phone). The manual switch moved to the globe icon next to the themes.
-- Playback and seeking in the graph view now use the same bottom bar as the video view.
+- **Playback bar**: playback and seeking in the graph view use the same bottom bar as the video view. The back / forward buttons move 5 seconds.
+- **Phones**: the video tab is available (run comparison stacks 2 views, multi-camera switches by swiping). Desktop windows narrower than 600px also use the phone layout.
 - The browser version on a PC shows where to download the desktop app.
 
 **Fixed**
 
 - **Safari on Mac**: videos with sound dropped frames or kept drifting while playing.
+- Videos stayed black or stuttered in Safari on iPhone.
+- A sub video recorded at a different time was pulled to the main video's time.
+- The gauges were misplaced over the main video in split / PiP view.
+- Saving and loading a sync project could lose the video positions and log clock corrections (sync projects are now format 2.0; 1.0 still loads).
 - Pausing a video in the middle of a seek let the video keep playing.
 - A brief sound played the first time the video tab was opened.
 - Encode-based export stalled early in Safari.
