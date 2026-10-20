@@ -261,7 +261,8 @@ export function downloadBlob(blob: Blob, fileName: string): void {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  // 大きなファイル (ディスクに置いた書き出し) は、ダウンロードが読み終わるまで URL を残す (1 秒に 10 MB と見て、最短 10 秒)
+  setTimeout(() => URL.revokeObjectURL(url), Math.max(10_000, blob.size / 10_000));
 }
 
 /**

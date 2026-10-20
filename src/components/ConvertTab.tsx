@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Download, FolderOpen, Repeat } from 'lucide-react';
+import { EmptyLoadPrompt } from './EmptyLoadPrompt';
+import { useCompactLayout } from '../hooks/useCompactLayout';
 import { Session } from '../types/telemetry';
 import {
   ConvertRange, selectConvertPoints, toTelemetryPoints, hasRecordedClock, convertToNmea, convertToGpx, convertToCsv, convertToHtmlMap, convertToKml, convertToTxt, convertToVbo, convertToBon4
@@ -39,6 +41,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
   const [offsetHours, setOffsetHours] = useState<number>(0);
   const [talkerId, setTalkerId] = useState<'GP' | 'GN'>('GP');
   const [includeGga, setIncludeGga] = useState(true);
+  const compact = useCompactLayout();
   const [dragOver, setDragOver] = useState(false);
 
   // 選ばれたログが無ければ (最初や、削除されたとき) 基準車のログ、それも無ければ最後に読み込んだもの
@@ -163,6 +166,31 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
 
   return (
     <div className="h-full w-full overflow-y-auto">
+      {/* ログがないときは、グラフ・動画の画面と同じ形の案内を真ん中に出す (目の動きと見た目をそろえる) */}
+      {!session ? (
+        <div
+          className={`h-full rounded-xl border ${dragOver ? 'border-red-500' : 'border-transparent'}`}
+          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={e => {
+            e.preventDefault();
+            setDragOver(false);
+            if (e.dataTransfer.files.length > 0) onDropFiles(e.dataTransfer.files);
+          }}
+        >
+          <EmptyLoadPrompt
+            title={t('ログを変換する', 'Convert a log')}
+            text={compact
+              ? t('走行ログ (.bnx4 / .bon4 / .dtb・NMEA・CSV・VBO・GPX・AiM・iRacing・GoPro の動画) を、ボタンから選んでください。NMEA・GPX・CSV・.bon4 などに書き出せます。処理はすべてこの端末の中で行います。',
+                'Choose a driving log (.bnx4 / .bon4 / .dtb, NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video) with the button. You can export it to NMEA, GPX, CSV, .bon4 and more. Everything is processed on this device.')
+              : t('走行ログ (.bnx4 / .bon4 / .dtb・NMEA・CSV・VBO・GPX・AiM・iRacing・GoPro の動画) を、ここにドロップするか、ボタンから選んでください。NMEA・GPX・CSV・.bon4 などに書き出せます。処理はすべてこの端末の中で行います。',
+                'Drop a driving log (.bnx4 / .bon4 / .dtb, NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video) here, or choose one with the button. You can export it to NMEA, GPX, CSV, .bon4 and more. Everything is processed on this device.')}
+            buttonLabel={t('ファイルを選ぶ', 'Choose files')}
+            onClick={onOpenFile}
+            testId="convert-open"
+          />
+        </div>
+      ) : (
       <div className="max-w-4xl mx-auto space-y-3 pb-6">
         {/* 読み込み */}
         <div
@@ -173,27 +201,24 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
             setDragOver(false);
             if (e.dataTransfer.files.length > 0) onDropFiles(e.dataTransfer.files);
           }}
-          className={`bg-surface-2 border rounded-xl p-5 flex flex-col sm:flex-row items-center gap-4 ${dragOver ? 'border-red-500' : 'border-line-2'}`}
+          // 読み込んだあとは、スマートフォンでも横長の小さい帯にする (設定と書き出しを上に寄せるため)
+          className={`bg-surface-2 border rounded-xl flex items-center flex-row gap-3 p-3 sm:p-5 sm:gap-4 ${dragOver ? 'border-red-500' : 'border-line-2'}`}
         >
-          <div className="p-2.5 rounded-lg bg-red-500/10 text-red-400"><Repeat size={20} /></div>
-          <div className="flex-1 text-center sm:text-left">
+          <div className="p-2.5 rounded-lg bg-red-500/10 text-red-400 hidden sm:block"><Repeat size={20} /></div>
+          <div className="flex-1 min-w-0 text-left">
             <h2 className="text-sm font-bold text-slate-100">{t('ログ変換', 'Log conversion')}</h2>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-400 mt-0.5 hidden sm:block">
               {t('走行ログ (.bnx4 / .bon4 / .dtb / NMEA / CSV / VBO / GPX / AiM / iRacing / GoPro の動画) を読み込み、NMEA・GPX・CSV などに書き出します。 ファイルをここにドロップしても読み込めます。処理はすべてこの端末内で行われます。',
                 'Load a driving log (.bnx4 / .bon4 / .dtb / NMEA / CSV / VBO / GPX / AiM / iRacing / GoPro video) and export it to NMEA, GPX, CSV and more. You can also drop files here. Everything is processed on this device.')}
             </p>
           </div>
           <button onClick={onOpenFile} data-testid="convert-open" className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-xs text-white font-bold">
             <FolderOpen size={14} />
-            {t('ファイル読込', 'Open file')}
+            {t('ファイルを選ぶ', 'Choose files')}
           </button>
         </div>
 
-        {!session ? (
-          <div className="bg-surface-2 border border-line-2 rounded-xl p-8 text-center text-xs text-slate-500">
-            {t('まだログが読み込まれていません。', 'No log loaded yet.')}
-          </div>
-        ) : (
+        {!session ? null : (
           <>
             {/* 設定 */}
             <div className="bg-surface-2 border border-line-2 rounded-xl p-4 space-y-3">
@@ -378,6 +403,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
           </>
         )}
       </div>
+      )}
     </div>
   );
 };

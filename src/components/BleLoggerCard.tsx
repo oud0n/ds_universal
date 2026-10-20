@@ -1,5 +1,5 @@
 import React, { useEffect, useSyncExternalStore } from 'react';
-import { Bluetooth, BluetoothSearching, Unlink, RefreshCw, Settings, Signal } from 'lucide-react';
+import { Bluetooth, BluetoothSearching, Unlink, RefreshCw, Settings, Signal, Timer } from 'lucide-react';
 import { bleLoggerLink, loggerSerial, type LoggerLinkStatus } from '../services/bleLoggerLink';
 import { useT } from '../utils/i18n';
 import { BleCapturePanel } from './BleCapturePanel';
@@ -54,12 +54,13 @@ export const BleStatusPill: React.FC<{ onClick?: () => void }> = ({ onClick }) =
 const btn = 'flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer disabled:opacity-50';
 
 /** ロガー設定のタブの、Bluetooth でのデジスパイスとのつなぎ (探す・登録・状態・届いた測位) */
-export const BleLoggerCard: React.FC = () => {
+export const BleLoggerCard: React.FC<{ active?: boolean; onOpenLapTimer?: () => void }> = ({ active = true, onOpenLapTimer }) => {
   const t = useT();
   const snap = useLoggerLink();
   const label = useStatusLabel();
 
-  useEffect(() => { void bleLoggerLink.start(); }, []);
+  // この画面を開いたときに、登録してある機器へつなぐ (アプリを開いただけではつながない)
+  useEffect(() => { if (active) void bleLoggerLink.startAndConnect(); }, [active]);
 
   if (snap.status === 'unsupported') return null;
   const { registered, lastFix } = snap;
@@ -77,6 +78,16 @@ export const BleLoggerCard: React.FC = () => {
         </span>
       </div>
 
+      {onOpenLapTimer && (
+        <button
+          onClick={onOpenLapTimer}
+          data-testid="open-lap-timer"
+          className={`${btn} w-full bg-red-600 hover:bg-red-500 text-white text-sm py-3`}
+        >
+          <Timer size={16} />{t('ラップタイマーを開く', 'Open lap timer')}
+        </button>
+      )}
+
       {registered && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -92,7 +103,7 @@ export const BleLoggerCard: React.FC = () => {
             </div>
             <div className="flex gap-2">
               {linked ? (
-                <button onClick={() => bleLoggerLink.disconnect()} className={`${btn} bg-slate-700 hover:bg-slate-600 text-slate-200`}>
+                <button onClick={() => bleLoggerLink.disconnectByUser()} className={`${btn} bg-slate-700 hover:bg-slate-600 text-slate-200`}>
                   <Unlink size={14} />{t('切る', 'Disconnect')}
                 </button>
               ) : (
@@ -138,7 +149,7 @@ export const BleLoggerCard: React.FC = () => {
         <p className="text-xs text-slate-400">
           {registered
             ? t('別の機器にするときは、探して選び直してください。', 'To use another device, search and choose it.')
-            : t('本体のスライドスイッチを BLE にして、探してください。次からは、アプリを開くと自動でつなぎます。', 'Set the slide switch on the logger to BLE, then search. Next time the app connects automatically.')}
+            : t('本体のスライドスイッチを BLE にして、探してください。次からは、この画面かラップタイマーを開くと自動でつなぎます。', 'Set the slide switch on the logger to BLE, then search. Next time it connects automatically when you open this screen or the lap timer.')}
           {snap.centralKind === 'web' && ' ' + t('ブラウザの選択画面で DS4B… を選んでください。', 'Choose DS4B… in the browser\'s device chooser.')}
         </p>
         <button

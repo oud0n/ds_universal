@@ -10,6 +10,8 @@ import { LoggerSettingsCard } from './LoggerSettingsCard';
 import { BleLoggerCard } from './BleLoggerCard';
 import { canUseLoggerBle, canUseLoggerUsb } from '../utils/device';
 import { tr, useT } from '../utils/i18n';
+import { desktopDownloadUrl, isBrowserVersionOnPc } from '../utils/desktopApp';
+import { openExternalUrl } from '../utils/url';
 
 // 開発サーバーで `?sim=1` を付けると、実機の代わりにシミュレーターへ接続する
 function isSimulatorRequested(): boolean {
@@ -19,9 +21,12 @@ function isSimulatorRequested(): boolean {
 interface LoggerTabProps {
   onLoadSession?: (fileName: string, buffer: ArrayBuffer) => void;
   onNavigateToGraph?: () => void;
+  /** このタブを開いているか (開いたときに、登録してあるデジスパイスへ Bluetooth でつなぐ) */
+  active?: boolean;
+  onOpenLapTimer?: () => void;
 }
 
-export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateToGraph }) => {
+export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateToGraph, active = true, onOpenLapTimer }) => {
   const t = useT();
   const [device] = useState<DigSpiceDevice>(() => new DigSpiceDevice());
   const [isConnected, setIsConnected] = useState<boolean>(false);
@@ -243,7 +248,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
   return (
     <div className="flex flex-col h-full bg-surface-0 text-slate-200 overflow-y-auto p-4 sm:p-6 space-y-6 max-w-5xl mx-auto select-none">
       {/* Bluetooth でのつなぎ (iPhone のアプリ・Android の Chrome など)。USB でもつなげる環境では、USB の操作の下に出す */}
-      {canUseLoggerBle && !canUseLoggerUsb && <BleLoggerCard />}
+      {canUseLoggerBle && !canUseLoggerUsb && <BleLoggerCard active={active} onOpenLapTimer={onOpenLapTimer} />}
 
       {/* ここから USB (Web Serial) でのつなぎ */}
       {canUseLoggerUsb && (<>
@@ -270,6 +275,16 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
             {!('serial' in navigator) && !(import.meta.env.DEV && isSimulatorRequested()) && (
               <p className="text-xs text-amber-400 mt-1" data-testid="logger-unsupported">
                 {t('このブラウザはロガーとの USB 通信に対応していません。パソコンの Chrome または Edge で開いてください。', 'This browser cannot talk to the logger over USB. Open this page in Chrome or Edge on a PC.')}
+                {/* Safari・Firefox などのパソコンでは、デスクトップ版でもつなげる */}
+                {isBrowserVersionOnPc() && (
+                  <>
+                    {t(' または、', ' Or use the ')}
+                    <button onClick={() => openExternalUrl(desktopDownloadUrl())} className="underline hover:text-amber-300 cursor-pointer">
+                      {t('デスクトップ版（Mac・Windows）', 'desktop app (Mac / Windows)')}
+                    </button>
+                    {t(' を使ってください。', '.')}
+                  </>
+                )}
               </p>
             )}
           </div>
@@ -556,7 +571,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
         )}
       </div>
       </>)}
-      {canUseLoggerBle && canUseLoggerUsb && <BleLoggerCard />}
+      {canUseLoggerBle && canUseLoggerUsb && <BleLoggerCard active={active} onOpenLapTimer={onOpenLapTimer} />}
       {/* G のならし方の設定は、ロガーを使わなくても選べるようデータ管理タブに置く */}
 
       {/* ログを消している間: 画面全体を覆って、ほかの操作をできなくする */}

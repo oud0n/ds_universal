@@ -3,7 +3,9 @@ import { ControlLine, Sector } from '../types/telemetry';
 import { X, Plus, Trash2, Check, MapPin, Upload, Download } from 'lucide-react';
 import { parseCln, exportCln } from '../services/pthParser';
 import { parseSci, exportSci, userCircuitStorage, UserCircuitItem } from '../services/userCircuitStorage';
-import { tr, useT } from '../utils/i18n';
+import { tr, useT, getLang } from '../utils/i18n';
+import { CIRCUIT_PRESETS } from '../services/circuitDatabase';
+import { checkEnglishName, checkFolderName, courseFolder, guessEnglishName, toFolderName } from '../utils/courseNames';
 import { fileAccept } from '../utils/device';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 
@@ -18,7 +20,8 @@ interface CircuitEditorModalProps {
   // 保存したコースを消したとき (データ管理の件数の表示を直す)
   onSavedCircuitsChange?: () => void;
   // remember: アプリに保存して、次から同じ場所のログに使う
-  onSaveCircuit: (name: string, controlLine: ControlLine, sectors: Sector[], remember: boolean) => void;
+  // names: 英語名と、ラップタイマーの記録を入れるフォルダの名前 (半角の英字など。確かめてから渡す)
+  onSaveCircuit: (name: string, controlLine: ControlLine, sectors: Sector[], remember: boolean, names: { nameEn: string; folder: string }) => void;
 }
 
 // 自動で判定したユーザーコースの名前に付く印。保存するときは外す
@@ -61,6 +64,17 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
 }) => {
   const t = useT();
   const [name, setName] = useState((currentCircuitName || tr('カスタムコース', 'Custom course')).replace(USER_SUFFIX, ''));
+  // 英語名とフォルダ名: 保存したコースならそれ、なければコースの名前から作った候補
+  const initialSaved = userCircuitStorage.getEditedCircuits().find(c => c.name === (currentCircuitName || '').replace(USER_SUFFIX, ''));
+  const [nameEn, setNameEn] = useState(() => initialSaved?.nameEn ?? guessEnglishName(currentCircuitName.replace(USER_SUFFIX, '')));
+  // 入っているコースなら、その ID (コースのファイルの名前) を候補にする
+  const presetId = CIRCUIT_PRESETS.find(p => p.name === currentCircuitName.replace(USER_SUFFIX, ''))?.id;
+  const [folder, setFolder] = useState(() => initialSaved?.folder ?? (presetId || guessEnglishName(currentCircuitName.replace(USER_SUFFIX, '')) ? courseFolder(currentCircuitName.replace(USER_SUFFIX, ''), undefined, presetId) : ''));
+  // フォルダ名を手で直したか (直していなければ、英語名に合わせて作り直す)
+  const [folderEdited, setFolderEdited] = useState(() => !!initialSaved?.folder);
+  const nameEnError = nameEn.trim() ? checkEnglishName(nameEn) : null;
+  const folderError = folder ? checkFolderName(folder) : null;
+  const msg = (e: { ja: string; en: string }) => (getLang() === 'en' ? e.en : e.ja);
   const [remember, setRemember] = useState(true);
   // 計測線がないときに .sci を読み込んだか (保存・書き出しのときに、計測線までのフィニッシュを足す)
   const [needsFinish, setNeedsFinish] = useState(false);
@@ -79,6 +93,11 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
 
   const handleLoadSaved = (c: UserCircuitItem) => {
     setName(c.name);
+    setNameEn(c.nameEn ?? guessEnglishName(c.name));
+    // 内蔵のコースから作ったコースなら、その ID (コースのファイルの名前) を候補にする
+    const savedPresetId = CIRCUIT_PRESETS.find(p => p.name === c.name)?.id;
+    setFolder(c.folder ?? (savedPresetId || guessEnglishName(c.name) ? courseFolder(c.name, undefined, savedPresetId) : ''));
+    setFolderEdited(!!c.folder);
     setClLatA(String(c.controlLine.latA));
     setClLonA(String(c.controlLine.lonA));
     setClLatB(String(c.controlLine.latB));
@@ -222,7 +241,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
     }
     setSaveError('');
     // ファイル名に使えない文字と、末尾の点・空白 (Windows で使えない) を置き換える
-    const base = (name.trim() || 'course').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/[. ]+$/, '').replace(/^cl_/i, '') || 'course';
+    const base = (name.trim() || nameEn.trim() || 'course').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/[. ]+$/, '').replace(/^cl_/i, '') || 'course';
     const sci = exportSci(finished, cl);
     // 1 つずつ保存する (.cln をキャンセルしても .sci は保存できるように、続けて聞く)
     const files: [string, string][] = [[`cl_${base}.cln`, exportCln(cl)], ...(sci ? [[`${base}.sci`, sci] as [string, string]] : [])];
@@ -264,14 +283,20 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
       setSaveError(tr(`セクター「${badSector.name}」の 2 点の緯度・経度を正しく入力してください`, `Enter valid latitude and longitude for both points of sector "${badSector.name}"`));
       return;
     }
-    const saveName = name.trim() || tr('カスタムコース', 'Custom course');
+    // 英語名とフォルダ名 (ラップタイマーの記録のフォルダに使う) は、半角の英字などだけ
+    const enProblem = checkEnglishName(nameEn);
+    if (enProblem) { setSaveError(msg(enProblem)); return; }
+    const folderProblem = checkFolderName(folder);
+    if (folderProblem) { setSaveError(msg(folderProblem)); return; }
+    // 日本語の名前は任意 (無ければ英語名を名前にする)
+    const saveName = name.trim() || nameEn.trim();
     // 同じ名前で別の場所のコースを保存していたら、上書きしてよいか聞く (名前を付けずに別のコースで保存したときなど)
     if (remember && userCircuitStorage.isEditedNameUsedElsewhere(saveName, newControlLine) &&
         !confirm(tr(`「${saveName}」という名前で、別の場所のコースを保存しています。上書きしますか？ (残すときは、キャンセルしてコース名を変えてください)`, `A course at a different place is already saved as "${saveName}". Overwrite it? (To keep it, cancel and change the course name.)`))) {
       return;
     }
 
-    onSaveCircuit(saveName, newControlLine, withFinish(sectors, newControlLine), remember);
+    onSaveCircuit(saveName, newControlLine, withFinish(sectors, newControlLine), remember, { nameEn: nameEn.trim(), folder });
     onClose();
   };
 
@@ -294,16 +319,51 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
 
         {/* モーダルコンテンツ */}
         <div className="flex-1 overflow-y-auto p-5 space-y-5 text-xs text-slate-200">
-          {/* コース名 */}
-          <div>
-            <label className="block font-bold text-slate-300 mb-1">{t('コース名 / サーキット名', 'Course / circuit name')}</label>
-            <input
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              className="w-full bg-surface-0 border border-line-3 rounded-lg p-2 text-slate-100 focus:border-red-500 outline-none"
-            />
+          {/* コース名 (日本語・任意) / 英語名 / 保存フォルダ名 */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block font-bold text-slate-300 mb-1">{t('コース名（日本語・任意）', 'Course name (Japanese, optional)')}</label>
+              <input
+                type="text"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                className="w-full bg-surface-0 border border-line-3 rounded-lg p-2 text-slate-100 focus:border-red-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-300 mb-1">{t('英語名', 'English name')}</label>
+              <input
+                type="text"
+                value={nameEn}
+                data-testid="course-name-en"
+                placeholder={t('例: Sodegaura Forest Raceway', 'e.g. Sodegaura Forest Raceway')}
+                onChange={e => {
+                  setNameEn(e.target.value);
+                  if (!folderEdited) setFolder(toFolderName(e.target.value));
+                }}
+                className={`w-full bg-surface-0 border rounded-lg p-2 text-slate-100 outline-none ${nameEnError ? 'border-red-500' : 'border-line-3 focus:border-red-500'}`}
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-300 mb-1">{t('保存フォルダ名', 'Folder name')}</label>
+              <input
+                type="text"
+                value={folder}
+                data-testid="course-folder"
+                placeholder={t('例: sodegaura_forest_raceway', 'e.g. sodegaura_forest_raceway')}
+                // 大文字は小文字にする (それ以外の使えない文字は、エラーで知らせる)
+                onChange={e => { setFolder(e.target.value.replace(/[A-Z]/g, c => c.toLowerCase())); setFolderEdited(true); }}
+                className={`w-full bg-surface-0 border rounded-lg p-2 text-slate-100 font-mono outline-none ${folderError ? 'border-red-500' : 'border-line-3 focus:border-red-500'}`}
+              />
+            </div>
           </div>
+          {(nameEnError || folderError) && (
+            <p className="text-[11px] text-red-400" data-testid="course-name-error">{msg((nameEnError ?? folderError)!)}</p>
+          )}
+          <p className="text-[11px] text-slate-500 -mt-3">
+            {t('英語名は半角の英字・数字・空白など、保存フォルダ名は半角の英小文字・数字と _ だけです（空白は使えません）。保存フォルダ名は、ラップタイマーの記録を入れるフォルダの名前です（英語名から自動で作ります。直すこともできます）。',
+              'The English name uses half-width letters, digits, spaces and a few symbols; the folder name uses lowercase half-width letters, digits and _ only (no spaces). The folder name is where lap timer runs for this course are kept (made from the English name; you can change it).')}
+          </p>
 
           {/* ファイルの読み込み・書き出し (公式アプリと同じ .cln / .sci) */}
           <div className="flex flex-wrap items-center gap-2">

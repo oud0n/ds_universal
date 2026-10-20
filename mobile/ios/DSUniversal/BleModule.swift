@@ -294,14 +294,24 @@ final class BleModule: NSObject {
 
     /// 起動時: 記録中のまま止められていたら、続きを書き足し、機器につなぎ直す
     func resumeRecordingIfNeeded() {
-        guard let active = recorder.resume(), let id = UUID(uuidString: active.deviceId) else { return }
+        guard let active = recorder.resume(), let id = UUID(uuidString: active.deviceId) else {
+            DebugLog.write("resumeRecording: no active recording to resume")
+            return
+        }
+        DebugLog.write("resumeRecording: file=\(active.fileName) notifications=\(active.notifications)")
         ensureCentral()
         let notify = Self.notifyRefs(active.notify)
         onPoweredOn({ [self] in
-            guard links[id] == nil,
-                  let peripheral = discovered[id] ?? central.retrievePeripherals(withIdentifiers: [id]).first else { return }
+            guard links[id] == nil else { DebugLog.write("resumeRecording: link already exists"); return }
+            guard let peripheral = discovered[id] ?? central.retrievePeripherals(withIdentifiers: [id]).first else {
+                DebugLog.write("resumeRecording: peripheral not found")
+                return
+            }
+            DebugLog.write("resumeRecording: open peripheral state=\(peripheral.state.rawValue)")
             open(peripheral, notify: notify, autoReconnect: true)
-        }, done: { _ in })
+        }, done: { result in
+            if case .failure(let e) = result { DebugLog.write("resumeRecording: bluetooth not usable \(e.code.rawValue) \(e.message)") }
+        })
     }
 
     // MARK: - 通知をまとめて送る
@@ -342,6 +352,7 @@ final class BleModule: NSObject {
 
 extension BleModule: @preconcurrency CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        DebugLog.write("central state=\(central.state.rawValue) auth=\(Self.permissionState())")
         let state = Self.permissionState()
         if state != "unknown" || central.state == .poweredOn {
             permissionWaiters.forEach { $0(state) }
@@ -353,6 +364,7 @@ extension BleModule: @preconcurrency CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
         // OS が戻したつなぎ。記録を戻すとき (resumeRecordingIfNeeded) に使えるよう覚えておく
         let restored = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []
+        DebugLog.write("willRestoreState peripherals=\(restored.map { "\($0.identifier.uuidString.prefix(8)):\($0.state.rawValue)" }.joined(separator: ","))")
         for peripheral in restored {
             peripheral.delegate = self
             discovered[peripheral.identifier] = peripheral
@@ -368,6 +380,7 @@ extension BleModule: @preconcurrency CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        DebugLog.write("didConnect \(peripheral.identifier.uuidString.prefix(8))")
         guard let link = links[peripheral.identifier] else { return }
         peripheral.discoverServices(Array(Set(link.notify.map(\.service))))
     }
@@ -382,6 +395,7 @@ extension BleModule: @preconcurrency CBCentralManagerDelegate {
 
     private func lost(_ peripheral: CBPeripheral, error: Error?) {
         let id = peripheral.identifier
+        DebugLog.write("lost \(id.uuidString.prefix(8)) error=\(error?.localizedDescription ?? "-") link=\(links[id] == nil ? "none" : (links[id]!.userClosed ? "userClosed" : "auto"))")
         // 読み出しの答え待ちは、つながっていないで返す
         for key in readWaiters.keys where key.hasPrefix(id.uuidString) {
             readWaiters.removeValue(forKey: key)?.forEach { $0(.failure(NativeError(.notConnected))) }
