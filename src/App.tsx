@@ -645,13 +645,15 @@ export const App: React.FC = () => {
       if (toAdd.length > 0) await videoSyncManager.addVideoFiles(toAdd, latestRef.current.sessions);
       return;
     }
-    // 「動画の GPS も走行ログとして加える」を切っていて、同じ時間に、より記録の細かいログがあれば、GPS のログは加えず、
-    // GPS の時刻で動画をそのログに合わせるだけにする (LATER-12)
-    if (!getAddVideoGpsLog()) {
+    // 同じ走行のログがすでにあるときは、動画の GPS を走行ログとして加えず、GPS の時刻で動画をそのログに合わせるだけにする (LATER-12)。
+    // 「動画の GPS も走行ログとして加える」を切っていれば、より記録の細かいログに聞かずに合わせる。
+    // 入れていれば (既定)、同じ走行のログがあるときだけ、加えるか聞く (同じ走行が 2 重になるため。2026-10-20)
+    const addGps = getAddVideoGpsLog();
+    {
       const first = log.points[0]?.timestamp, last = log.points[log.points.length - 1]?.timestamp;
       const a = first ? Date.parse(first) : NaN, b = last ? Date.parse(last) : NaN;
       const overlapping = latestRef.current.sessions
-        .filter(s => (s.samplingRate || 0) > (log.samplingRate || 0))
+        .filter(s => addGps || (s.samplingRate || 0) > (log.samplingRate || 0))
         .filter(s => {
           const st = sessionStartUtcMs(s), lp = s.points[s.points.length - 1];
           return st !== null && lp && st < b && a < st + lp.time * 1000;
@@ -662,6 +664,15 @@ export const App: React.FC = () => {
       let better: Session | undefined;
       for (const s of overlapping) if (await isSameRun(s, gpsAsLog)) { better = s; break; }
       const betterStart = sessionStartUtcMs(better);
+      // 加える設定のときは、同じ走行のログがあれば聞く (OK なら今までどおり加える)
+      if (better && addGps) {
+        const name = better.sessionName || better.fileName;
+        const keep = window.confirm(tr(
+          `この動画には GPS の記録があります。同じ走行のログ「${name}」がもう読み込まれています。\n\n動画の GPS も走行ログとして加えますか？ (加えると、同じ走行が 2 つ並びます。キャンセルすると、動画を「${name}」に合わせるだけにします)`,
+          `This video has GPS data, and a log of the same run ("${name}") is already loaded.\n\nAdd the video GPS as another log too? (The same run would appear twice. Cancel to just sync the video to "${name}".)`
+        ));
+        if (keep) better = undefined;
+      }
       if (better && betterStart !== null) {
         const existing = videoSyncManager.getTracks();
         const toAdd = files.filter(f => !existing.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size));
