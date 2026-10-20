@@ -81,6 +81,7 @@ export function exportOverlayOnly(options: OverlayExportOptions): VideoExportCon
         if (i % 15 === 0) progress(i);
       }
       await output.finalize();
+      if (cancelled) throw new Error('エクスポートがユーザーによりキャンセルされました');
       const blob = new Blob([target.buffer!], { type: 'video/webm' });
       downloadBlob(blob, `${baseName}.webm`);
       return blob;
@@ -107,6 +108,7 @@ export function exportOverlayOnly(options: OverlayExportOptions): VideoExportCon
     }
     zip.end();
     if (zipError) throw zipError;
+    if (cancelled) throw new Error('エクスポートがユーザーによりキャンセルされました');
     const blob = new Blob(chunks as BlobPart[], { type: 'application/zip' });
     downloadBlob(blob, `${baseName}_${fps}fps_png.zip`);
     return blob;
