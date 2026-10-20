@@ -117,14 +117,15 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        {plan.available.has('logger') && <BleStatusPill onClick={() => go('logger')} />}
-
-        {screen !== 'settings' && (
-          <button onClick={() => go('settings')} aria-label={t('設定', 'Settings')} className="p-1.5 rounded text-slate-300 border border-line-3" data-testid="nav-settings">
-            <SlidersHorizontal size={18} />
-          </button>
-        )}
-        {screen === 'settings' && <span className="w-8" />}
+        {/* 右: つなぎの状態と ⚙ (状態を真ん中に置くと、名前の長さで位置がずれて見えるため右に寄せる) */}
+        <div className="flex items-center gap-2 min-w-0">
+          {plan.available.has('logger') && <BleStatusPill onClick={() => go('logger')} />}
+          {screen !== 'settings' && (
+            <button onClick={() => go('settings')} aria-label={t('設定', 'Settings')} className="p-1.5 rounded text-slate-300 border border-line-3 shrink-0" data-testid="nav-settings">
+              <SlidersHorizontal size={18} />
+            </button>
+          )}
+        </div>
       </header>
     );
   }

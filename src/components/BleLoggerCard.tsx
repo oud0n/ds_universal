@@ -33,7 +33,15 @@ export function useStatusLabel(): (status: LoggerLinkStatus, rateHz: number) => 
   };
 }
 
-/** 画面の上にいつも出す、デジスパイスとのつなぎの状態 (登録していないときは出さない) */
+/** 登録した機器の名前から、短い機種名 (DS4B… → デジスパイスIV)。何につないでいるか分かるように出す */
+export function loggerModel(name: string | undefined): string {
+  if (!name) return 'DigSpice';
+  if (/^DS4/.test(name)) return 'DigSpice IV';
+  if (/^DS3/.test(name)) return 'DigSpice III';
+  return name;
+}
+
+/** 画面の上にいつも出す、デジスパイスとのつなぎの状態 (登録していないときは出さない)。機種名と、測位が届いていれば何 Hz か */
 export const BleStatusPill: React.FC<{ onClick?: () => void }> = ({ onClick }) => {
   const snap = useLoggerLink();
   const label = useStatusLabel();
@@ -46,7 +54,8 @@ export const BleStatusPill: React.FC<{ onClick?: () => void }> = ({ onClick }) =
       className={`flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-full border whitespace-nowrap ${STATUS_CLASS[snap.status]}`}
     >
       <Bluetooth size={12} />
-      {label(snap.status, snap.rateHz)}
+      <span className="font-sans font-bold">{loggerModel(snap.registered?.name)}</span>
+      <span>{snap.status === 'fixing' ? `${snap.rateHz} Hz` : label(snap.status, snap.rateHz)}</span>
     </button>
   );
 };

@@ -2052,7 +2052,7 @@ export const App: React.FC = () => {
       </div>
       </div>
       {plan.chrome === 'bottom' && !nav.locked && (
-        <BottomTabBar items={plan.primary} current={currentTab} onSelect={s => navStore.go(s)} badges={{ data: sessions.length }} dark={currentTab === 'timer'} />
+        <BottomTabBar items={plan.primary} current={currentTab} onSelect={s => navStore.go(s)} badges={{ data: sessions.length }} />
       )}
 
       {/* コース編集モーダル */}
