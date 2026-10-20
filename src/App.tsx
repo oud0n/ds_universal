@@ -42,7 +42,7 @@ import { DonateModal } from './components/DonateModal';
 import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
 import { useResizableSplit } from './hooks/useResizableSplit';
-import { canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
+import { canUseLapTimer, canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
 import { bleLoggerLink } from './services/bleLoggerLink';
 import { useWheelScrollX } from './hooks/useWheelScrollX';
 import { isDialogOpen } from './hooks/useEscapeKey';
@@ -131,7 +131,7 @@ export const App: React.FC = () => {
     return h === 'convert' || h === 'data' || h === 'logger' || h === 'video' ? h : 'graph';
   });
   // ラップタイマー (走りながら使う、画面いっぱいの表示)。URL の末尾 #laptimer で開いた状態から始める
-  const [lapTimerOpen, setLapTimerOpen] = useState(() => typeof window !== 'undefined' && window.location.hash === '#laptimer');
+  const [lapTimerOpen, setLapTimerOpen] = useState(() => canUseLapTimer && typeof window !== 'undefined' && window.location.hash === '#laptimer');
   const currentTabRef = useRef(currentTab);
   currentTabRef.current = currentTab;
   // 変換画面で書き出すログ (データ管理の「変換画面で開く」で選ぶ。空なら基準車のログ)
@@ -1868,7 +1868,7 @@ export const App: React.FC = () => {
         )}
       </main>
 
-      {lapTimerOpen && (
+      {lapTimerOpen && canUseLapTimer && (
         <LapTimerScreen
           onClose={() => {
             setLapTimerOpen(false);
