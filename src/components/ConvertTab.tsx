@@ -174,12 +174,13 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
             setDragOver(false);
             if (e.dataTransfer.files.length > 0) onDropFiles(e.dataTransfer.files);
           }}
-          className={`bg-surface-2 border rounded-xl p-5 flex flex-col items-center gap-4 ${session ? 'sm:flex-row' : 'w-full max-w-xl mx-auto shadow-lg'} ${dragOver ? 'border-red-500' : 'border-line-2'}`}
+          // 読み込んだあとは、スマートフォンでも横長の小さい帯にする (設定と書き出しを上に寄せるため)
+          className={`bg-surface-2 border rounded-xl flex items-center ${session ? 'flex-row gap-3 p-3 sm:p-5 sm:gap-4' : 'flex-col gap-4 p-5 w-full max-w-xl mx-auto shadow-lg'} ${dragOver ? 'border-red-500' : 'border-line-2'}`}
         >
-          <div className="p-2.5 rounded-lg bg-red-500/10 text-red-400"><Repeat size={20} /></div>
-          <div className={`flex-1 text-center ${session ? 'sm:text-left' : ''}`}>
+          <div className={`p-2.5 rounded-lg bg-red-500/10 text-red-400 ${session ? 'hidden sm:block' : ''}`}><Repeat size={20} /></div>
+          <div className={`flex-1 min-w-0 ${session ? 'text-left' : 'text-center'}`}>
             <h2 className="text-sm font-bold text-slate-100">{t('ログ変換', 'Log conversion')}</h2>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className={`text-xs text-slate-400 mt-0.5 ${session ? 'hidden sm:block' : ''}`}>
               {t('走行ログ (.bnx4 / .bon4 / .dtb / NMEA / CSV / VBO / GPX / AiM / iRacing / GoPro の動画) を読み込み、NMEA・GPX・CSV などに書き出します。 ファイルをここにドロップしても読み込めます。処理はすべてこの端末内で行われます。',
                 'Load a driving log (.bnx4 / .bon4 / .dtb / NMEA / CSV / VBO / GPX / AiM / iRacing / GoPro video) and export it to NMEA, GPX, CSV and more. You can also drop files here. Everything is processed on this device.')}
             </p>
