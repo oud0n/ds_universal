@@ -41,6 +41,9 @@ import { CircuitEditorModal } from './components/CircuitEditorModal';
 import { DonateModal } from './components/DonateModal';
 import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
+import { RecentRunsList, RunsSheet } from './components/RecentRuns';
+import { canUseRunStore, getRunStore } from './services/runStore';
+import { attachRunVideos, closeOpenRun, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLapTimer, canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
 import { bleLoggerLink } from './services/bleLoggerLink';
@@ -236,6 +239,29 @@ export const App: React.FC = () => {
   // モーダル
   const [isCircuitEditorOpen, setIsCircuitEditorOpen] = useState(false);
   const [isDonateModalOpen, setIsDonateModalOpen] = useState(false);
+  // 過去の走行 (保管場所。iPhone のアプリ・デスクトップ版): 全部の一覧を出しているか・開いている途中か
+  const [runsSheetOpen, setRunsSheetOpen] = useState(false);
+  const [runBusy, setRunBusy] = useState(false);
+  const runOpeningRef = useRef(false);
+  /** 保管場所から開いた走行の道と、そのログ (同じ名前のほかのフォルダの走行と取り違えないため) */
+  const runSessionsRef = useRef(new Map<string, string[]>());
+  // 開発サーバーで試すとき: #openrun=<フォルダ>/<ファイル> で、その走行を開く (画面を押せないシミュレーターで確かめるため)
+  useEffect(() => {
+    if (import.meta.env.DEV && window.location.hash === '#runsheet') setRunsSheetOpen(true);
+    if (!import.meta.env.DEV || !window.location.hash.startsWith('#openrun=')) return;
+    const want = decodeURIComponent(window.location.hash.slice('#openrun='.length));
+    void (async () => {
+      const store = await getRunStore();
+      if (!store) return;
+      const { listRuns } = await import('./services/runOpener');
+      const item = (await listRuns(store)).find(r => `${r.folder}/${r.file}` === want);
+      if (item) await openRun(item);
+      setCurrentTab('video');
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // ログを全部消したら、開いていた走行の動画と同期を覚えるのをやめる
+  useEffect(() => { if (sessions.length === 0) closeOpenRun(); }, [sessions.length]);
 
   // コース図の問い合わせの通し番号 (最後に出した問い合わせの応答だけを反映するため)
 
@@ -723,6 +749,58 @@ export const App: React.FC = () => {
     // (そのログの時計の補正を変えると、同じ時計の動画も一緒に動く)
     const first = added.find(a => Number.isFinite(a.startMs));
     if (first) videoSyncManager.setGpsClock(first.track.id, { session, offsetSec: (first.startMs - t0) / 1000 });
+  };
+
+  // 過去の走行を開く: ログを読み込み、同じフォルダの動画と同期をそろえる (runOpener.ts)
+  const openRun = async (item: RunItem) => {
+    // 続けて押しても 1 回だけ開く
+    if (runOpeningRef.current) return;
+    runOpeningRef.current = true;
+    setRunBusy(true);
+    try {
+      const store = await getRunStore();
+      if (!store) return;
+      const bytes = await store.read(`${item.folder}/${item.file}`);
+      const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+      const runPath = `${item.folder}/${item.file}`;
+      const openedIds = runSessionsRef.current.get(runPath) ?? [];
+      const already = latestRef.current.sessions.filter(x => openedIds.includes(x.id));
+      const added = already.length ? already : await loadFileData(item.file, buffer);
+      runSessionsRef.current.set(runPath, added.map(x => x.id));
+      setRunsSheetOpen(false);
+      setCurrentTab('graph');
+      if (added.length === 0) return;
+      const sessionsNow = () => {
+        const cur = latestRef.current.sessions;
+        return [...cur, ...added.filter(a => !cur.some(c => c.id === a.id))];
+      };
+      const cand = await videoCandidates(store, item);
+      if (cand.missing.length) {
+        const gb = (totalBytes(cand.missing) / 1e9).toFixed(1);
+        const download = await askChoice(
+          tr('動画を iCloud から取り込みますか？', 'Download the videos from iCloud?'),
+          tr(`この走行の動画 ${cand.missing.length} 本 (${gb} GB) が、まだこの端末にありません。\n\n取り込む: 取り込みを始めます。終わったら、もう一度この走行を開いてください\n取り込まない: 端末にある動画とログだけで開きます`,
+            `${cand.missing.length} video(s) of this run (${gb} GB) are not on this device yet.\n\nDownload: start downloading; open this run again when it finishes\nDon't download: open with the log and the videos on this device`),
+          [
+            { label: tr('取り込む', 'Download'), value: true },
+            { label: tr('取り込まない', "Don't download"), value: false, primary: true }
+          ],
+          false
+        );
+        if (download) for (const m of cand.missing) await store.startDownload(m.path);
+      }
+      await attachRunVideos({
+        store, item, runSessions: added, videos: cand.local, fromRuns: cand.fromRuns,
+        sessions: sessionsNow,
+        circuitName: () => added[0]?.circuitName ?? '',
+        setClockOffset: setSessionClockOffset
+      });
+    } catch (e) {
+      alert(tr('走行を開けませんでした: ', 'Could not open the run: ') + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      runOpeningRef.current = false;
+      setRunBusy(false);
+    }
   };
 
   // データファイル読み込みロジック。読み込んだログはセッションとして加え、加えたセッションを返す
@@ -1419,7 +1497,7 @@ export const App: React.FC = () => {
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
         sessions={sessions}
-        onOpenFile={() => fileInputRef.current?.click()}
+        onOpenFile={() => (canUseRunStore() ? setRunsSheetOpen(true) : fileInputRef.current?.click())}
         onOpenDonate={() => setIsDonateModalOpen(true)}
         compact={isCompact}
       />
@@ -1440,7 +1518,9 @@ export const App: React.FC = () => {
                   'Drop a logger file (.bnx4 / .bon4 / .dtb), NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video here, or choose one with the button.')}
               buttonLabel={T('ファイルを選ぶ', 'Choose files')}
               onClick={() => fileInputRef.current?.click()}
-            />
+            >
+              {canUseRunStore() && <RecentRunsList limit={5} onOpen={r => void openRun(r)} onShowAll={() => setRunsSheetOpen(true)} busy={runBusy} />}
+            </EmptyLoadPrompt>
           </div>
         )}
         {/* 計測線はあるのに周回を区切れず、ログ全体を 1 周として表示しているときの注意 (違うコースを当てはめた・計測線がコースの外にあるなど。issue #17) */}
@@ -1946,6 +2026,14 @@ export const App: React.FC = () => {
 
       {/* 開発支援 (Buy Me a Coffee) モーダル */}
       <ChoiceDialogHost />
+      {runsSheetOpen && (
+        <RunsSheet
+          onClose={() => setRunsSheetOpen(false)}
+          onOpen={r => void openRun(r)}
+          onPickFiles={() => { setRunsSheetOpen(false); fileInputRef.current?.click(); }}
+          busy={runBusy}
+        />
+      )}
       <DonateModal
         isOpen={isDonateModalOpen}
         onClose={() => setIsDonateModalOpen(false)}
