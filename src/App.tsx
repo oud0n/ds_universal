@@ -54,6 +54,12 @@ import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
 import { Freeze } from './components/Freeze';
 import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
 import { BottomTabBar } from './components/MobileNav';
+import { Sidebar } from './components/shell/Sidebar';
+import { LibraryScreen } from './screens/LibraryScreen';
+import { SettingsScreen } from './screens/SettingsScreen';
+import { useAppProfile } from './app/appProfile';
+import { navPlan } from './app/navPlan';
+import { navStore, useNav } from './app/navStore';
 import { PlayBar } from './components/PlayBar';
 import { SplitResizer } from './components/SplitResizer';
 import { interpolatePoint } from './utils/telemetrySearch';
@@ -127,16 +133,14 @@ export const App: React.FC = () => {
   const T = useT();
   // タブ
   // 公開ページでは URL の末尾 (#convert など) で最初に開くタブを指定できる
-  const [currentTab, setCurrentTab] = useState<'graph' | 'data' | 'logger' | 'video' | 'convert'>(() => {
-    const h = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : '';
-    // ロガーと USB でつなげない環境 (スマートフォン・タブレット・Safari など) ではロガー設定を出さないので、#logger でもグラフ解析を開く
-    if (h === 'logger' && !canUseLogger) return 'graph';
-    return h === 'convert' || h === 'data' || h === 'logger' || h === 'video' ? h : 'graph';
-  });
-  // ラップタイマー (走りながら使う、画面いっぱいの表示)。URL の末尾 #laptimer で開いた状態から始める
-  const [lapTimerOpen, setLapTimerOpen] = useState(() => canUseLapTimer && typeof window !== 'undefined' && window.location.hash === '#laptimer');
-  const currentTabRef = useRef(currentTab);
-  currentTabRef.current = currentTab;
+  // 画面の組み方 (アプリ・デスクトップ版・ブラウザ、スマートフォンの幅か) と、出している画面 (app/navStore.ts。2026-10-21)
+  const profile = useAppProfile();
+  const plan = useMemo(() => navPlan(profile), [profile]);
+  // はじめの描画の前に入れる (URL の末尾 #convert・#laptimer などで最初の画面を決める)。幅が変わって組み方が変わったら入れ直す
+  useState(() => { navStore.init(plan); return 0; });
+  useEffect(() => { navStore.init(plan); }, [plan]);
+  const nav = useNav();
+  const currentTab = nav.screen;
   // 変換画面で書き出すログ (データ管理の「変換画面で開く」で選ぶ。空なら基準車のログ)
   const [convertSessionId, setConvertSessionId] = useState('');
 
@@ -248,9 +252,15 @@ export const App: React.FC = () => {
   const runDownloadTokenRef = useRef(0);
   /** 保管場所から開いた走行の道と、そのログ (同じ名前のほかのフォルダの走行と取り違えないため) */
   const runSessionsRef = useRef(new Map<string, string[]>());
+  /** 走行の一覧を出す: 走行の画面がある組み方ならそこへ、なければ重ねて出す */
+  const showAllRuns = () => (plan.available.has('library') ? navStore.go('library') : setRunsSheetOpen(true));
+  /** 読み込みのボタン: 保管場所があれば走行の一覧、なければファイルを選ぶ */
+  const openRunsOrFiles = () => (canUseRunStore() ? showAllRuns() : fileInputRef.current?.click());
   // 開発サーバーで試すとき: #openrun=<フォルダ>/<ファイル> で、その走行を開く (画面を押せないシミュレーターで確かめるため)
   useEffect(() => {
-    if (import.meta.env.DEV && window.location.hash === '#runsheet') setRunsSheetOpen(true);
+    if (import.meta.env.DEV && window.location.hash === '#runsheet') {
+      if (navPlan(profile).available.has('library')) navStore.go('library'); else setRunsSheetOpen(true);
+    }
     if (!import.meta.env.DEV || !window.location.hash.startsWith('#openrun=')) return;
     const want = decodeURIComponent(window.location.hash.slice('#openrun='.length));
     void (async () => {
@@ -259,7 +269,7 @@ export const App: React.FC = () => {
       const { listRuns } = await import('./services/runOpener');
       const item = (await listRuns(store)).find(r => `${r.folder}/${r.file}` === want);
       if (item) await openRun(item);
-      setCurrentTab('video');
+      navStore.go('video');
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -414,7 +424,7 @@ export const App: React.FC = () => {
     .map(videoEndSessionSec);
   const sessionEndTime = Math.max(logEndTime, ...shownVideoEnds);
   const [clockBase, setClockBase] = useState<'lap' | 'session'>(() => (isVideoTab ? 'session' : 'lap'));
-  const wantClockBase: 'lap' | 'session' = isVideoTab ? 'session' : currentTab === 'graph' ? 'lap' : clockBase;
+  const wantClockBase: 'lap' | 'session' = isVideoTab ? 'session' : currentTab === 'analysis' ? 'lap' : clockBase;
   if (wantClockBase !== clockBase) {
     // 基準が変わったら、時刻と距離を読み替える。描画の途中で直し、ウインドウが古い基準の時刻を受け取らないようにする
     setClockBase(wantClockBase);
@@ -774,7 +784,7 @@ export const App: React.FC = () => {
       const added = already.length ? already : await loadFileData(item.file.slice(item.file.lastIndexOf('/') + 1), buffer);
       runSessionsRef.current.set(runPath, added.map(x => x.id));
       setRunsSheetOpen(false);
-      setCurrentTab('graph');
+      navStore.go('analysis');
       if (added.length === 0) return;
       const sessionsNow = () => {
         const cur = latestRef.current.sessions;
@@ -1066,7 +1076,7 @@ export const App: React.FC = () => {
     }
 
     // 変換ページ・動画同期から読み込んだときは、そのページに留まる (動画同期では、読み込んだ動画をそのまま見るため)
-    if (currentTabRef.current !== 'convert' && currentTabRef.current !== 'video') setCurrentTab('graph');
+    if (navStore.getSnapshot().screen !== 'convert' && navStore.getSnapshot().screen !== 'video') navStore.go('analysis');
     return added;
   };
 
@@ -1525,20 +1535,32 @@ export const App: React.FC = () => {
         className="hidden"
       />
 
-      {/* ヘッダー */}
-      <Header
-        currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
-        sessions={sessions}
-        onOpenFile={() => (canUseRunStore() ? setRunsSheetOpen(true) : fileInputRef.current?.click())}
+      {/* 外枠: デスクトップ版・iPad は左のサイドバー、ヘッダーと中身と再生の段はその右 */}
+      <div className="flex-1 min-h-0 flex flex-row">
+      {plan.chrome === 'sidebar' && !nav.locked && (
+        <Sidebar
+          items={plan.primary}
+          bottom={plan.more}
+          current={currentTab}
+          onSelect={s => navStore.go(s)}
+          badges={{ data: sessions.length }}
+        />
+      )}
+      <div className="flex-1 min-w-0 flex flex-col">
+      {/* ヘッダー (iPhone のアプリのタイマーのタブでは出さない。タイマーが上の段を持つ) */}
+      {!(currentTab === 'timer' && profile.kind === 'app-phone') && <Header
+        plan={plan}
+        screen={currentTab}
+        badges={{ data: sessions.length }}
+        onOpenFile={openRunsOrFiles}
         onOpenDonate={() => setIsDonateModalOpen(true)}
         compact={isCompact}
-      />
+      />}
 
       {/* メインコンテンツ */}
       <main className={`relative flex-1 overflow-hidden ${isCompact ? 'p-2' : 'p-3'}`}>
         {/* ログを読み込む前のグラフ解析: 読み込み方を案内する (何もない画面で、どうすればよいか分からないため) */}
-        {currentTab === 'graph' && sessions.length === 0 && (
+        {currentTab === 'analysis' && sessions.length === 0 && (
           // 後ろの空のグラフ・コース図は隠す (動画・変換の画面と同じ見た目にする)
           <div className="absolute inset-0 z-40 bg-surface-0">
             <EmptyLoadPrompt
@@ -1552,12 +1574,12 @@ export const App: React.FC = () => {
               buttonLabel={T('ファイルを選ぶ', 'Choose files')}
               onClick={() => fileInputRef.current?.click()}
             >
-              {canUseRunStore() && <RecentRunsList limit={5} onOpen={r => void openRun(r)} onShowAll={() => setRunsSheetOpen(true)} busy={runBusy} />}
+              {canUseRunStore() && <RecentRunsList limit={5} onOpen={r => void openRun(r)} onShowAll={showAllRuns} busy={runBusy} />}
             </EmptyLoadPrompt>
           </div>
         )}
         {/* 計測線はあるのに周回を区切れず、ログ全体を 1 周として表示しているときの注意 (違うコースを当てはめた・計測線がコースの外にあるなど。issue #17) */}
-        {currentTab === 'graph' && baseLap?.isWholeSession && baseSession?.controlLine && wholeLapNoticeClosed !== baseSession.id && (
+        {currentTab === 'analysis' && baseLap?.isWholeSession && baseSession?.controlLine && wholeLapNoticeClosed !== baseSession.id && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 w-max max-w-[calc(100%-2rem)] flex items-start gap-2 px-3 py-2 rounded-lg text-xs text-amber-200 bg-surface-2/95 border border-amber-500/50 shadow-lg">
             <span>
               {T('計測線を 2 回以上通過していないため、周回を区切れず、ログ全体を 1 周として表示しています。データ管理で、コースと計測線の位置を確認してください。',
@@ -1569,8 +1591,8 @@ export const App: React.FC = () => {
         {/* グラフ解析タブ */}
         {isCompact ? (
           // スマートフォン: 速度ウインドウを上 (横向きでは左) に固定し、もう片方は切り替えて 1 つずつ表示する
-          <div className={`h-full w-full gap-2 overflow-hidden ${currentTab === 'graph' ? 'flex' : 'hidden'} ${isLandscape ? 'flex-row' : 'flex-col'}`}>
-            <Freeze active={currentTab === 'graph'}>
+          <div className={`h-full w-full gap-2 overflow-hidden ${currentTab === 'analysis' ? 'flex' : 'hidden'} ${isLandscape ? 'flex-row' : 'flex-col'}`}>
+            <Freeze active={currentTab === 'analysis'}>
             <div className={isLandscape ? 'w-1/2 h-full min-w-0' : 'h-[42%] min-h-[180px] shrink-0'}>
               {speedGraphEl}
             </div>
@@ -1604,9 +1626,9 @@ export const App: React.FC = () => {
         ) : (
           <div
             ref={horizSplit.containerRef}
-            className={`flex-row h-full w-full overflow-hidden select-none ${currentTab === 'graph' ? 'flex' : 'hidden'}`}
+            className={`flex-row h-full w-full overflow-hidden select-none ${currentTab === 'analysis' ? 'flex' : 'hidden'}`}
           >
-            <Freeze active={currentTab === 'graph'}>
+            <Freeze active={currentTab === 'analysis'}>
             {/* 左側 / メイン: 速度ウインドウ & アニメーション/動画 (上下分割) */}
             <div
               ref={leftVertSplit.containerRef}
@@ -1679,7 +1701,7 @@ export const App: React.FC = () => {
                       targetSessionId={baseSession?.id}
                       targetLap={baseLap}
                       isGraphEmbedded={true}
-                      isVisible={currentTab === 'graph'}
+                      isVisible={currentTab === 'analysis'}
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
                       onChooseLog={setBaseSession}
@@ -1863,7 +1885,7 @@ export const App: React.FC = () => {
                       targetSessionId={baseSession?.id}
                       targetLap={baseLap}
                       isGraphEmbedded={true}
-                      isVisible={currentTab === 'graph'}
+                      isVisible={currentTab === 'analysis'}
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
                       onChooseLog={setBaseSession}
@@ -1917,7 +1939,7 @@ export const App: React.FC = () => {
           <Freeze active={currentTab === 'data'}>
           <DataTab
             sessions={sessions}
-            onOpenLapRun={file => { void loadFiles([file]).then(() => setCurrentTab('graph')); }}
+            onOpenLapRun={file => { void loadFiles([file]).then(() => navStore.go('analysis')); }}
             selectedCars={selectedCars}
             onSelectCarSlot={handleSelectCarSlot}
             onClearCarSlot={slotIndex => setSelectedCars(prev => prev.filter(c => c.slot !== slotIndex))}
@@ -1928,7 +1950,7 @@ export const App: React.FC = () => {
             userCircuitCount={userCircuitCount}
             onOpenInConvert={id => {
               setConvertSessionId(id);
-              setCurrentTab('convert');
+              navStore.go('convert');
             }}
             onRemoveSession={id => {
               polylineRequestRef.current.delete(id);
@@ -1972,38 +1994,45 @@ export const App: React.FC = () => {
             <Freeze active={currentTab === 'logger'}>
             <LoggerTab
               onLoadSession={(fileName, buffer) => loadFileData(fileName, buffer)}
-              onNavigateToGraph={() => setCurrentTab('graph')}
-              active={currentTab === 'logger' && !lapTimerOpen}
-              onOpenLapTimer={() => setLapTimerOpen(true)}
+              onNavigateToGraph={() => navStore.go('analysis')}
+              active={currentTab === 'logger'}
+              onOpenLapTimer={() => navStore.go('timer')}
             />
             </Freeze>
           </div>
         )}
+
+        {/* 走行 (保管場所の一覧)・設定。開いたときだけ作る */}
+        {plan.available.has('library') && (
+          <LibraryScreen
+            active={currentTab === 'library'}
+            onOpen={r => void openRun(r)}
+            onPickFiles={() => fileInputRef.current?.click()}
+            busy={runBusy}
+          />
+        )}
+        {currentTab === 'settings' && <SettingsScreen plan={plan} onOpenDonate={() => setIsDonateModalOpen(true)} />}
+
+        {/* ラップタイマー。iPhone のアプリではタブの 1 つ (測っていない間はタブバーの上に収める)、ほかでは画面いっぱいに重ねる。
+            ほかの画面へ行くと閉じる (Bluetooth・画面のロック止め・向きの固定も外れる。作る順番の 4 で、測るのを画面の外へ出す) */}
+        {currentTab === 'timer' && canUseLapTimer && (
+          <LapTimerScreen
+            embedded={profile.kind === 'app-phone'}
+            onMeasuringChange={on => navStore.setLocked(on)}
+            onClose={() => navStore.back()}
+            replayLogs={sessions.map((s): ReplayLog => ({ id: s.id, name: s.sessionName || s.fileName, points: s.points, startDate: s.points[0]?.timestamp ? new Date(s.points[0].timestamp) : undefined }))}
+            onOpenLog={(fileName, text) => {
+              void loadFileData(fileName, null, parseNmea(text)).then(() => navStore.go('analysis'));
+            }}
+            onOpenFile={file => {
+              void loadFiles([file]).then(() => navStore.go('analysis'));
+            }}
+          />
+        )}
       </main>
 
-      {lapTimerOpen && canUseLapTimer && (
-        <LapTimerScreen
-          onClose={() => {
-            setLapTimerOpen(false);
-            // #laptimer で開いたときは、閉じたら外す (読み込み直したときに、また開かないように)
-            if (window.location.hash === '#laptimer') history.replaceState(null, '', window.location.pathname + window.location.search);
-          }}
-          replayLogs={sessions.map((s): ReplayLog => ({ id: s.id, name: s.sessionName || s.fileName, points: s.points, startDate: s.points[0]?.timestamp ? new Date(s.points[0].timestamp) : undefined }))}
-          onOpenLog={(fileName, text) => {
-            setLapTimerOpen(false);
-            if (window.location.hash === '#laptimer') history.replaceState(null, '', window.location.pathname + window.location.search);
-            void loadFileData(fileName, null, parseNmea(text)).then(() => setCurrentTab('graph'));
-          }}
-          onOpenFile={file => {
-            setLapTimerOpen(false);
-            if (window.location.hash === '#laptimer') history.replaceState(null, '', window.location.pathname + window.location.search);
-            void loadFiles([file]).then(() => setCurrentTab('graph'));
-          }}
-        />
-      )}
-
       {/* グラフ解析の再生の段 (シークバーと再生のボタン。動画同期の画面の下の段と同じ並び)。スマートフォンでは、この下にタブバー */}
-      {currentTab === 'graph' && baseLap && (
+      {currentTab === 'analysis' && baseLap && (
         <PlayBar
           label={baseLap.isWholeSession ? tr('全体', 'All') : `L${baseLap.lapNumber}`}
           currentTime={currentTimeSec}
@@ -2018,7 +2047,11 @@ export const App: React.FC = () => {
           compact={isCompact}
         />
       )}
-      {isCompact && <BottomTabBar currentTab={currentTab} setCurrentTab={setCurrentTab} sessionCount={sessions.length} />}
+      </div>
+      </div>
+      {plan.chrome === 'bottom' && !nav.locked && (
+        <BottomTabBar items={plan.primary} current={currentTab} onSelect={s => navStore.go(s)} badges={{ data: sessions.length }} />
+      )}
 
       {/* コース編集モーダル */}
       {isCircuitEditorOpen && (

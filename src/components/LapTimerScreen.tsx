@@ -48,6 +48,13 @@ interface Props {
   onOpenLog: (fileName: string, nmeaText: string) => void;
   /** ラップタイムの記録から、走行のファイル (.bon4) を解析で開く */
   onOpenFile?: (file: File) => void;
+  /**
+   * タブの 1 つとして出す (iPhone のアプリ)。閉じるボタンを出さず、測っていない間は画面の中 (タブバーの上) に収める。
+   * 測っている間は、これまでどおり画面いっぱい (タブバーも隠す)
+   */
+  embedded?: boolean;
+  /** 測り始めた・終えた (外枠が、測っている間はほかの画面へ行けないようにする) */
+  onMeasuringChange?: (on: boolean) => void;
 }
 
 /** 周を終えたあと、そのタイムを大きく出しておく長さ (ミリ秒) */
@@ -102,7 +109,7 @@ function lapSpeech(e: LiveLapEvent): { text: string; lang: string } {
   return { text: time + diff, lang: 'en-US' };
 }
 
-export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog, onOpenFile }) => {
+export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog, onOpenFile, embedded = false, onMeasuringChange }) => {
   const t = useT();
   const link = useLoggerLink();
   const statusLabel = useStatusLabel();
@@ -427,6 +434,11 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     return () => clearInterval(iv);
   }, []);
 
+  // 外枠に知らせる (閉じたときも、測っていないことにする)
+  const onMeasuringChangeRef = useRef(onMeasuringChange);
+  onMeasuringChangeRef.current = onMeasuringChange;
+  useEffect(() => { onMeasuringChangeRef.current?.(measuring); }, [measuring]);
+  useEffect(() => () => onMeasuringChangeRef.current?.(false), []);
   // 測っていないときは、終了の確認を出さない (出どころを替えたときなど)
   useEffect(() => { if (!measuring) setConfirmStop(false); }, [measuring]);
   const cancelStop = useCallback(() => setConfirmStop(false), []);
@@ -602,8 +614,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
 
   return (
     <div
-      className="fixed inset-0 z-[90] bg-black text-white flex flex-col select-none"
-      style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)', paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' }}
+      className={`${embedded && !measuring ? 'absolute inset-0 z-[30]' : 'fixed inset-0 z-[90]'} bg-black text-white flex flex-col select-none`}
+      style={embedded && !measuring ? { paddingTop: 'env(safe-area-inset-top)' } : { paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)', paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' }}
       data-testid="lap-timer"
     >
       {/* 上の段: 出どころの状態・コース・声・メニュー・閉じる */}
@@ -635,9 +647,11 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
         <button onClick={() => setMenuOpen(o => !o)} className="p-2 rounded-full border border-white/20 shrink-0" aria-label={t('メニュー', 'Menu')} title={t('メニュー', 'Menu')}>
           <Menu size={18} />
         </button>
-        <button onClick={onClose} className="p-2 rounded-full border border-white/20 shrink-0" aria-label={t('閉じる', 'Close')} title={t('閉じる', 'Close')} data-testid="lap-timer-close">
-          <X size={18} />
-        </button>
+        {!embedded && (
+          <button onClick={onClose} className="p-2 rounded-full border border-white/20 shrink-0" aria-label={t('閉じる', 'Close')} title={t('閉じる', 'Close')} data-testid="lap-timer-close">
+            <X size={18} />
+          </button>
+        )}
       </header>
 
       {/* 真ん中: 大きな数字 */}
