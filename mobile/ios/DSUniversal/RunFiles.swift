@@ -39,9 +39,10 @@ enum RunFiles {
         while !FileManager.default.fileExists(atPath: existing.path) && existing.path.count > root.path.count {
             existing = existing.deletingLastPathComponent()
         }
+        // まだ無い部分は別名になりえないので、あるところまでを確かめれば足りる
+        // (無い道をたどると /var が /private/var に直らず、置き場の外と見誤って書けなかった。実機だけで起きる)
         let real = existing.resolvingSymlinksInPath().path
         guard real == base || real.hasPrefix(base + "/") else { return nil }
-        if existing.path != url.path, !url.resolvingSymlinksInPath().path.hasPrefix(base + "/") { return nil }
         return url
     }
 
