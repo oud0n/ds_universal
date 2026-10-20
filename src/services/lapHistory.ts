@@ -50,7 +50,9 @@ export async function loadLapHistory(store: LapFileStore, onProgress?: (folder: 
     }
     onProgress?.(folder);
     const prev = parseLapIndex(await store.readText(`${folder}/${LAP_INDEX_FILE}`));
-    const { index, changed } = await reconcileFolder(folder, files, course, prev, p => store.read(p));
+    const indexPath = `${folder}/${LAP_INDEX_FILE}`;
+    const { index, changed } = await reconcileFolder(folder, files, course, prev, p => store.read(p), undefined,
+      partial => store.writeText(indexPath, JSON.stringify(partial)));
     // 控えを書けなくても、一覧は出す (次に開いたときにもう一度計算する)
     if (changed) await store.writeText(`${folder}/${LAP_INDEX_FILE}`, JSON.stringify(index)).catch(() => {});
     out.push({ folder, courseName: course.name, fileCount: files.length, rows: lapRows(folder, index), index });

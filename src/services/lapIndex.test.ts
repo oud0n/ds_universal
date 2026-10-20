@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
-import { courseHash, lapKey, groupBon4ByFolder, lapRows, lapsFromBon4, reconcileFolder, setHidden, setRunVideos, videosInFolder, type LapCourse, type LapRecord } from './lapIndex';
+import { LAP_INDEX_CHECKPOINT, courseHash, lapKey, groupBon4ByFolder, lapRows, lapsFromBon4, reconcileFolder, setHidden, setRunVideos, videosInFolder, type LapCourse, type LapRecord } from './lapIndex';
 import { CIRCUIT_PRESETS } from './circuitDatabase';
 
 const line = (lat: number) => ({ name: 'x', latA: lat, lonA: 140, latB: lat + 0.0001, lonB: 140.0001 });
@@ -41,6 +41,26 @@ describe('控えの作り直し (変わったところだけ計算する)', () =
     const again = await reconcileFolder('sodegaura', files, course, first.index, read, f.compute);
     expect(f.calls.length).toBe(2);
     expect(again.changed).toBe(false);
+  });
+
+  it('iCloud にだけあるファイルは読まない。前の控えがあれば残し、なければ控えに入れない', async () => {
+    const f = fakeCompute(table);
+    const first = await reconcileFolder('sodegaura', files.slice(0, 1), course, null, read, f.compute);
+    // a はあとで iCloud にだけ (大きさ・時刻が変わって見える)、b ははじめから iCloud にだけ
+    const remote = [{ ...files[0], size: 0, mtimeMs: 9, local: false }, { ...files[1], local: false }];
+    const next = await reconcileFolder('sodegaura', remote, course, first.index, read, f.compute);
+    expect(f.calls).toEqual(['a.bon4']);
+    expect(next.index.files['a.bon4']).toEqual(first.index.files['a.bon4']);
+    expect(next.index.files['b.bon4']).toBeUndefined();
+  });
+
+  it('読む途中で、何本かごとに途中までの控えを書く', async () => {
+    const many = Array.from({ length: LAP_INDEX_CHECKPOINT * 2 + 3 }, (_, i) => ({ path: `sodegaura/r${i}.bon4`, size: 10, mtimeMs: 1 }));
+    const f = fakeCompute({});
+    const parts: number[] = [];
+    const { index } = await reconcileFolder('sodegaura', many, course, null, read, f.compute, async p => { parts.push(Object.keys(p.files).length); });
+    expect(parts).toEqual([LAP_INDEX_CHECKPOINT, LAP_INDEX_CHECKPOINT * 2]);
+    expect(Object.keys(index.files)).toHaveLength(many.length);
   });
 
   it('大きさ・更新日時の変わったファイルだけ計算し直し、消えたファイルの周は消す', async () => {

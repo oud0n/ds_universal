@@ -70,9 +70,8 @@ export function nativeRunStore(): RunStore | null {
         return files.map(f => ({ ...f, local: true }));
       }
     },
-    async list() {
-      return (await store.listAll()).filter(f => f.local);
-    },
+    // iCloud にだけあるファイルも local: false で渡す (周の控えは、それを落とさずに前の控えを残す。lapIndex.ts の reconcileFolder)
+    list: () => store.listAll(),
     read: readBytes,
     async readText(path) {
       try {

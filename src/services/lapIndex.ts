@@ -18,7 +18,12 @@ export interface LapFileInfo {
   path: string;
   size: number;
   mtimeMs: number;
+  /** false = iCloud にだけあって、この端末にまだない (読むと落としてくる)。分からなければ省く */
+  local?: boolean;
 }
+
+/** 控えを作る途中で、何本読むごとに途中までの控えを書くか (数千本を読む途中でアプリが閉じても、やり直しを減らす) */
+export const LAP_INDEX_CHECKPOINT = 20;
 
 /** ファイルの読み書き (iPhone のアプリ・デスクトップ版で別々に用意する) */
 export interface LapFileStore {
@@ -184,7 +189,9 @@ export async function reconcileFolder(
   course: LapCourse,
   prev: LapIndex | null,
   read: (path: string) => Promise<Uint8Array>,
-  compute: (name: string, bytes: Uint8Array, course: LapCourse) => { startMs: number | null; laps: LapRecord[] } = lapsFromBon4
+  compute: (name: string, bytes: Uint8Array, course: LapCourse) => { startMs: number | null; laps: LapRecord[] } = lapsFromBon4,
+  /** 途中までの控え (LAP_INDEX_CHECKPOINT 本読むごと)。書いておけば、途中で閉じても次はその続きから読む */
+  onCheckpoint?: (partial: LapIndex) => Promise<void>
 ): Promise<{ index: LapIndex; changed: boolean; computed: number }> {
   const hash = courseHash(course);
   const sameCourse = prev?.courseHash === hash;
@@ -197,6 +204,13 @@ export async function reconcileFolder(
     const old = sameCourse ? prev?.files[name] ?? prev?.files[name.slice(name.lastIndexOf('/') + 1)] : undefined;
     if (old && old.size === f.size && old.mtimeMs === f.mtimeMs) {
       next[name] = old;
+      continue;
+    }
+    // iCloud にだけあるファイルは、周を数えるために落としてこない (数千本あると、携帯の回線で何 GB にもなる)。
+    // 前の控えがあればそのまま使い、なければ「まだ数えていない」として控えに入れない (開いたときに落ちてきて、次に数える)
+    if (f.local === false) {
+      const before = sameCourse ? prev?.files[name] : undefined;
+      if (before) next[name] = before;
       continue;
     }
     // 動画は計算では作れないので、前の控えから引き継ぐ (コースを直したときも)
@@ -213,6 +227,11 @@ export async function reconcileFolder(
     }
     computed++;
     changed = true;
+    if (onCheckpoint && computed % LAP_INDEX_CHECKPOINT === 0) {
+      // 途中まで: 読み終えた分と、前の控え (同じコースのもの) を合わせる。隠した周の印は前のまま (まだ読んでいない走行の印を消さない)
+      const files = { ...(sameCourse ? prev?.files : undefined), ...next };
+      await onCheckpoint({ version: 1, courseHash: hash, courseName: course.name, files, hidden: prev?.hidden ?? [] }).catch(() => {});
+    }
   }
   if (prev && Object.keys(prev.files).some(k => !(k in next))) changed = true;
   const hidden = carryHidden(prev?.hidden ?? [], next);
@@ -270,7 +289,8 @@ export function groupBon4ByFolder(files: LapFileInfo[]): Map<string, LapFileInfo
   for (const f of files) {
     const m = /^([^/]+)\/((?:\d{8}\/)?[^/]+\.bon4)$/i.exec(f.path);
     if (!m) continue;
-    out.set(m[1], [...(out.get(m[1]) ?? []), f]);
+    const list = out.get(m[1]);
+    if (list) list.push(f); else out.set(m[1], [f]);
   }
   return out;
 }
