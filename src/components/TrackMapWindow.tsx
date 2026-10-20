@@ -48,6 +48,8 @@ interface TrackMapWindowProps {
     lap: Lap;
   }[];
   controlLine?: ControlLine;
+  /** ゴールの線 (スタートとゴールが別のコース)。スタートの線と同じ太さで、色を変えて描く */
+  finishLine?: ControlLine;
   sectors: Sector[];
   pathPolylines?: Array<Array<[number, number]>>;
   currentDistance: number;
@@ -59,6 +61,7 @@ interface TrackMapWindowProps {
 export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   cars,
   controlLine,
+  finishLine,
   sectors,
   pathPolylines,
   currentDistance,
@@ -483,6 +486,20 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       ctx.lineTo(pB.x, pB.y);
       ctx.stroke();
     }
+    // ゴールの線 (スタートとゴールが別のコース): 市松模様のように白と黒を交互に
+    if (finishLine) {
+      const pA = toScreen(finishLine.latA, finishLine.lonA);
+      const pB = toScreen(finishLine.latB, finishLine.lonB);
+      ctx.lineWidth = 6;
+      ctx.lineCap = 'butt';
+      ctx.strokeStyle = '#000000';
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(pA.x, pA.y); ctx.lineTo(pB.x, pB.y); ctx.stroke();
+      ctx.strokeStyle = '#ffffff';
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(pA.x, pA.y); ctx.lineTo(pB.x, pB.y); ctx.stroke();
+      ctx.setLineDash([]);
+    }
 
     // 3. セクターゲート (S1, S2, S3...)
     sectors.forEach((sec, idx) => {
@@ -617,7 +634,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 
     layoutRef.current = { width, height, latMid, lonMid, cosLat, baseScale, pan };
     drawCars();
-  }, [cars, controlLine, sectors, pathPolylines, followPosition, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick, dpr, theme, lang]);
+  }, [cars, controlLine, finishLine, sectors, pathPolylines, followPosition, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick, dpr, theme, lang]);
 
   // パン操作 (ドラッグ)
   // ドラッグの状態は、同じイベントの中で続けて読めるよう ref で持つ (タッチは動かしたときに押下と移動が続けて届くため)
