@@ -42,6 +42,7 @@ import { canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawInter
 import { bleLoggerLink } from './services/bleLoggerLink';
 import { useWheelScrollX } from './hooks/useWheelScrollX';
 import { isDialogOpen } from './hooks/useEscapeKey';
+import { readClockMaster } from './services/clockMaster';
 import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
 import { Freeze } from './components/Freeze';
 import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
@@ -422,6 +423,10 @@ export const App: React.FC = () => {
 
       setCurrentTimeSec(prevTime => {
         let nextTime = prevTime + dtSec;
+        // 音を出している動画が再生しているときは、その動画の位置を時刻にする (clockMaster.ts)。動画が動き出すまでは待つ (戻しはしない)。
+        // 1 秒より離れているとき (見ている位置を動かした・周の始めに戻した) は、これまでどおり進め、動画のほうが付いてくる
+        const master = readClockMaster();
+        if (master !== null && Math.abs(master - nextTime) < 1) nextTime = Math.max(prevTime, master);
         if (nextTime > endTime) {
           if (isSessionClock) {
             // セッション全体の時刻では、終わりで止める
