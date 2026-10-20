@@ -200,11 +200,12 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
               return (
                 <div key={file} className="space-y-1">
                   <div className="flex items-baseline gap-2 text-xs">
-                    <span className="font-bold text-slate-200">{fmtDate(rows[0].runStartMs)}</span>
+                    <span className="font-bold text-slate-200 whitespace-nowrap">{fmtDate(rows[0].runStartMs)}</span>
                     <span className="text-slate-500">{t(`${rows.length} 周`, `${rows.length} laps`)}{Number.isFinite(runBest) ? ` · ${t('ベスト', 'best')} ${formatLapTime(runBest, 3)}` : ''}</span>
-                    <span className="text-slate-600 text-[10px] ml-auto truncate">{file}</span>
+                    {/* ファイル名は、幅のある画面だけ (スマートフォンでは日付が折れないように) */}
+                    <span className="hidden sm:inline text-slate-600 text-[10px] ml-auto truncate">{file}</span>
                     {onOpenRun && (
-                      <button onClick={() => { void openRun(file); }} className="flex items-center gap-1 px-2 py-0.5 rounded bg-surface-4 hover:bg-surface-5 border border-line-4 text-[11px] text-slate-200 whitespace-nowrap" data-testid="lap-history-open">
+                      <button onClick={() => { void openRun(file); }} className="ml-auto sm:ml-0 flex items-center gap-1 px-2 py-0.5 rounded bg-surface-4 hover:bg-surface-5 border border-line-4 text-[11px] text-slate-200 whitespace-nowrap" data-testid="lap-history-open">
                         <BarChart3 size={11} />{t('解析で開く', 'Analyse')}
                       </button>
                     )}

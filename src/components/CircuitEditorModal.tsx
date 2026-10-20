@@ -336,7 +336,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                 type="text"
                 value={nameEn}
                 data-testid="course-name-en"
-                placeholder="Sodegaura Forest Raceway"
+                placeholder={t('例: Sodegaura Forest Raceway', 'e.g. Sodegaura Forest Raceway')}
                 onChange={e => {
                   setNameEn(e.target.value);
                   if (!folderEdited) setFolder(toFolderName(e.target.value));
@@ -350,7 +350,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                 type="text"
                 value={folder}
                 data-testid="course-folder"
-                placeholder="sodegaura_forest_raceway"
+                placeholder={t('例: sodegaura_forest_raceway', 'e.g. sodegaura_forest_raceway')}
                 // 大文字は小文字にする (それ以外の使えない文字は、エラーで知らせる)
                 onChange={e => { setFolder(e.target.value.replace(/[A-Z]/g, c => c.toLowerCase())); setFolderEdited(true); }}
                 className={`w-full bg-surface-0 border rounded-lg p-2 text-slate-100 font-mono outline-none ${folderError ? 'border-red-500' : 'border-line-3 focus:border-red-500'}`}
