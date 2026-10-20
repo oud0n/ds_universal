@@ -9,6 +9,7 @@ import { downloadBlob } from '../services/telemetryVideoExporter';
 import { LiveRunRecorder } from '../services/runRecorder';
 import { courseFolder } from '../utils/courseNames';
 import { LapHistoryPanel } from './LapHistoryPanel';
+import { useLapDevices } from '../hooks/useLapDevices';
 import { deleteRun, listRuns, loadFixes, type RunMeta } from '../services/liveRunStore';
 import { fixesToBon4, fixesToNmea, runFileBase } from '../services/runFiles';
 import { callNative, hasNative, toBase64 } from '../native/bridge';
@@ -29,7 +30,7 @@ const SAVE_INTERVAL_MS = 2000;
  * 測位の出どころ: デジスパイス (Bluetooth、20 Hz)・この端末の GPS (1 Hz 前後)・読み込んだログの再生 (試すため)
  */
 
-type Source = 'digspice' | 'phone' | 'replay';
+type Source = 'digspice' | 'phone' | 'replay' | 'racebox';
 
 export interface ReplayLog {
   id: string;
@@ -132,6 +133,15 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const [storage, setStorage] = useState<StorageInfo | null>(null);
   const [syncNote, setSyncNote] = useState<{ ok: boolean; text: string } | null>(null);
   const lastSyncMsRef = useRef(0);
+  /** 登録した Bluetooth LE の機器 (RaceBox・センサー・カメラ)。測位は handleFix へ (後で決まるので ref を通す) */
+  const handleFixRef = useRef<(fix: LiveFix) => void>(() => {});
+  const lapDevices = useLapDevices({
+    useRacebox: source === 'racebox',
+    onFix: f => handleFixRef.current(f),
+    runBase: () => recorderRef.current?.current?.fileBase ?? null
+  });
+  const lapDevicesRef = useRef(lapDevices);
+  lapDevicesRef.current = lapDevices;
   /** ラップタイムの記録 (過去の周の一覧) を開いているか */
   const [historyOpen, setHistoryOpen] = useState(false);
   const lastFixPerfRef = useRef(0);
@@ -191,6 +201,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     const rec = recorderRef.current;
     if (!rec) return Promise.resolve();
     const st = timerRef.current?.getState();
+    // センサーの値の .csv も一緒に書く
+    lapDevicesRef.current.flush();
     return rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, force);
   }, []);
 
@@ -246,6 +258,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     for (const e of events) {
       if (e.kind === 'lap') {
         setFlash({ event: e, until: performance.now() + FLASH_MS });
+        // 周を終えたら、動画に印を付ける
+        lapDevicesRef.current.lap();
         // 周を終えたら、すぐ保存する。選んだフォルダへは 3 分に 1 回まで写す
         void flushRecording();
         if (Date.now() - lastSyncMsRef.current > SYNC_INTERVAL_MS) void syncRef.current();
@@ -258,12 +272,15 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     // 表示は 0.1 秒ごとにまとめて描き直す (測位ごと (20 Hz) に描き直すと、車の中で端末が熱くなる)。周を終えたときだけすぐ
     if (events.length > 0) setState(timer.getState());
   }, [chooseCourse, recheckCourse]);
+  handleFixRef.current = handleFix;
 
   /** 測定開始: 周をはじめから数え、次の測位から新しい走行のファイルに書く */
   const startMeasuring = useCallback(() => {
     measuringRef.current = true;
     setMeasuring(true);
     recorderRef.current = null;
+    // カメラ (GoPro) の時計を合わせて録画を始める
+    lapDevicesRef.current.startRun(new Date());
     // 押す前の測位で周を数えないよう、コースの選び直しに使う測位も捨てる
     fixesRef.current = [];
     shownElapsedRef.current = { lapStartMs: null, value: 0 };
@@ -275,6 +292,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     if (!measuringRef.current) return;
     measuringRef.current = false;
     setMeasuring(false);
+    // カメラの録画を止め、センサーの値を書き、次の走行の .csv に替える
+    lapDevicesRef.current.stopRun();
     // 今の走行の記録を先に外してから保存する (保存の途中で測定開始を押しても、新しい走行の記録を消さないように)
     const rec = recorderRef.current;
     recorderRef.current = null;
@@ -285,6 +304,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
 
   // 出どころを替えたら、測位と周をはじめからにする (コースはそのまま)。それまでの記録は保存して閉じ、次の測位から新しい走行にする
   const resetRun = useCallback(() => {
+    // 録画を止め、センサーの .csv を次の走行に替える
+    lapDevicesRef.current.stopRun();
     // それまでの記録を外して保存してから、写す (外す前に保存し終わらないと、最後の数秒が残らないため)
     const rec = recorderRef.current;
     recorderRef.current = null;
@@ -295,6 +316,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     prevPhoneRef.current = null;
     shownElapsedRef.current = { lapStartMs: null, value: 0 };
     chooseCourse(courseRef.current);
+    // 測っている途中で出どころを替えたときは、新しい走行としてカメラの録画を始め直す
+    if (measuringRef.current) lapDevicesRef.current.startRun(new Date());
   }, [chooseCourse]);
 
   // ---- 測位の出どころ ----
@@ -350,6 +373,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       );
       return () => navigator.geolocation.clearWatch(id);
     }
+    // RaceBox の測位は、機器の部品 (useLapDevices) が handleFix へ渡す
+    if (source === 'racebox') return;
     // ログの再生: 読み込んだ走行の点を、時刻のとおり (速さの倍率をかけて) 渡す
     const log = replayLogs.find(l => l.id === replayId);
     if (!log || log.points.length < 2) return;
@@ -465,6 +490,10 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     if (source === 'digspice') {
       const ok = link.status === 'fixing';
       return { ok, text: link.status === 'none' ? t('デジスパイスを登録してください (ロガー設定)', 'Register a DigSpice (Logger settings)') : statusLabel(link.status, link.rateHz) };
+    }
+    if (source === 'racebox') {
+      const st = lapDevices.statuses.find(x => x.device.kind === 'racebox');
+      return { ok: !!st?.ok, text: st ? `${st.device.displayName}: ${st.state}${st.text ? ` · ${st.text}` : ''}` : t('RaceBox を登録してください (ロガー設定)', 'Register a RaceBox (Logger settings)') };
     }
     if (source === 'phone') {
       if (phoneInfo.error) return { ok: false, text: phoneInfo.error };
@@ -591,6 +620,16 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       </header>
 
       {/* 真ん中: 大きな数字 */}
+      {/* センサー・カメラの様子 (登録した機器があるときだけ) */}
+      {lapDevices.statuses.some(x => x.device.kind !== 'racebox') && (
+        <div className="flex flex-wrap gap-1.5 px-3 pb-1 text-[11px]" data-testid="lap-timer-devices">
+          {lapDevices.statuses.filter(x => x.device.kind !== 'racebox').map(x => (
+            <span key={x.device.id} className={`px-2 py-0.5 rounded-full border ${x.ok ? 'border-emerald-500/60 text-emerald-300' : 'border-amber-500/60 text-amber-300'}`}>
+              {x.device.displayName}{x.text ? ` · ${x.text}` : ` · ${x.state}`}
+            </span>
+          ))}
+        </div>
+      )}
       <main className="flex-1 min-h-0 flex flex-col landscape:flex-row items-stretch gap-2 px-3 pb-3">
         <section className="flex-1 min-w-0 min-h-0 flex flex-col items-center justify-center" data-testid="lap-timer-main">
           {!measuring && source !== 'replay' ? (
@@ -700,6 +739,11 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               {canUseLoggerBle && (
                 <button onClick={() => { setSource('digspice'); setMenuOpen(false); }} className={`text-left px-3 py-2 rounded-lg ${source === 'digspice' ? 'bg-red-600' : 'bg-white/5'}`}>
                   {t('デジスパイス (Bluetooth・20 Hz)', 'DigSpice (Bluetooth, 20 Hz)')}
+                </button>
+              )}
+              {lapDevices.racebox && (
+                <button onClick={() => { setSource('racebox'); setMenuOpen(false); }} className={`text-left px-3 py-2 rounded-lg ${source === 'racebox' ? 'bg-red-600' : 'bg-white/5'}`}>
+                  {t(`RaceBox (${lapDevices.racebox.displayName}・25 Hz)`, `RaceBox (${lapDevices.racebox.displayName}, 25 Hz)`)}
                 </button>
               )}
               <button onClick={() => { setSource('phone'); setMenuOpen(false); }} className={`text-left px-3 py-2 rounded-lg ${source === 'phone' ? 'bg-red-600' : 'bg-white/5'}`}>

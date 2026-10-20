@@ -22,7 +22,7 @@ export interface RunMeta {
   /** 最後に足した測位の時刻 */
   updatedMs: number;
   courseName: string;
-  source: 'digspice' | 'phone';
+  source: 'digspice' | 'phone' | 'racebox';
   fixCount: number;
   lapCount: number;
   bestLapSec: number | null;

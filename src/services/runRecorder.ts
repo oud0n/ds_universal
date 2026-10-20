@@ -53,7 +53,7 @@ export class LiveRunRecorder {
   private firstAddMs = 0;
 
   constructor(
-    private readonly source: 'digspice' | 'phone',
+    private readonly source: 'digspice' | 'phone' | 'racebox',
     private readonly courseName: () => string,
     private readonly onError: (message: string) => void = () => {},
     /** ファイルを入れるフォルダの名前 (courseFolder。コースが決まっていなければ '') */
