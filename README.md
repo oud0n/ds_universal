@@ -141,7 +141,7 @@
 
 ### 🍎 macOS 版ご利用時の注意事項（「壊れているため開けません」と表示される場合）
 
-macOS で DMG を展開してアプリを起動しようとした際、**「“DS Universal”は壊れているため開けません。ゴミ箱に入れる必要があります。」** という警告ダイアログが表示される場合があります。
+macOS で DMG を展開してアプリを起動しようとした際、**「“LapLoupe”は壊れているため開けません。ゴミ箱に入れる必要があります。」** という警告ダイアログが表示される場合があります。
 
 #### 💡 原因
 本アプリは有志による個人開発であり、有償の Apple Developer Program による公証（Notarization）および正規の開発者署名を付与していません。  
@@ -149,11 +149,11 @@ macOS のセキュリティ機能（Gatekeeper）は、Web ブラウザ等から
 
 #### 🚀 解決方法（ターミナルでの解除コマンド）
 
-1. DMG 内の `DS Universal.app` を「**アプリケーション（/Applications）**」フォルダにコピーします。
+1. DMG 内の `LapLoupe.app` を「**アプリケーション（/Applications）**」フォルダにコピーします。
 2. **ターミナル.app** を開き、以下のコマンドを実行します：
 
 ```bash
-xattr -cr "/Applications/DS Universal.app"
+xattr -cr "/Applications/LapLoupe.app"
 ```
 
 ##### 📖 コマンドの解説
@@ -167,7 +167,7 @@ xattr -cr "/Applications/DS Universal.app"
 macOS のセキュリティポリシー（macOS Sequoia / Sonoma 等）によっては、未署名コードの実行が厳格に遮断される場合があります。その場合はターミナルで以下の自己署名コマンドを実行してください：
 
 ```bash
-codesign --force --deep --sign - "/Applications/DS Universal.app"
+codesign --force --deep --sign - "/Applications/LapLoupe.app"
 ```
 
 ##### 📖 コマンドの解説
@@ -185,6 +185,11 @@ codesign --force --deep --sign - "/Applications/DS Universal.app"
 ### v0.12.0（未リリース）
 
 <!-- 下書き。PLAN-16（FIT・TCX）・PLAN-12（計測線の自動設定）は、マージしたらここに足す -->
+
+**アプリ名の変更**
+
+- アプリ名を「DS Universal」から **LapLoupe（ラップルーペ）** に変えました。保存したユーザーコースや設定は、そのまま引き継がれます。リポジトリとブラウザ版の URL は変わりません。
+- macOS では、前の版の `DS Universal.app` が「アプリケーション」フォルダに残ります。新しい `LapLoupe.app` を入れたら、前の版はゴミ箱に入れてください。
 
 **追加**
 
@@ -405,7 +410,7 @@ npm run dist:mac   # macOS用 (.dmg, .zip / Apple Silicon arm64)
 
 ## ☕ 開発者を支援（Buy Me a Coffee）
 
-**DS Universal (`ds_universal`)** は有志による個人開発のプロジェクトです（無料・ソースコード公開）。  
+**LapLoupe（旧名 DS Universal、`ds_universal`）** は有志による個人開発のプロジェクトです（無料・ソースコード公開）。  
 サーキット走行費・ガソリン代・高速代、Mac 環境への対応・維持、GoPro車載動画とのミリ秒精度同期やテレメトリオーバーレイ機能の開発を継続するため、コーヒー1杯（$3〜）からの温かいご支援をいただけると大変励みになります！☕🏎️
 
 👉 **[Buy Me a Coffee で oud0n を支援する](https://buymeacoffee.com/oud0n)**

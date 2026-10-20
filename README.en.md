@@ -137,7 +137,7 @@ Download the latest installer / ZIP for your OS from [GitHub Releases](https://g
 
 ### 🍎 macOS: if you see "is damaged and can't be opened"
 
-When you open the app from the DMG, macOS may show the warning **"“DS Universal” is damaged and can't be opened. You should move it to the Trash."**
+When you open the app from the DMG, macOS may show the warning **"“LapLoupe” is damaged and can't be opened. You should move it to the Trash."**
 
 #### 💡 Cause
 This app is developed by an individual and is not notarized or signed through the paid Apple Developer Program.  
@@ -145,11 +145,11 @@ macOS Gatekeeper adds a quarantine flag (`com.apple.quarantine`) to unsigned, un
 
 #### 🚀 Fix (run in Terminal)
 
-1. Copy `DS Universal.app` from the DMG to your **Applications (/Applications)** folder.
+1. Copy `LapLoupe.app` from the DMG to your **Applications (/Applications)** folder.
 2. Open **Terminal.app** and run:
 
 ```bash
-xattr -cr "/Applications/DS Universal.app"
+xattr -cr "/Applications/LapLoupe.app"
 ```
 
 ##### 📖 What the command does
@@ -163,7 +163,7 @@ xattr -cr "/Applications/DS Universal.app"
 Depending on the macOS security policy (macOS Sequoia / Sonoma, etc.), unsigned code may be blocked strictly. In that case, run this ad-hoc signing command in Terminal:
 
 ```bash
-codesign --force --deep --sign - "/Applications/DS Universal.app"
+codesign --force --deep --sign - "/Applications/LapLoupe.app"
 ```
 
 ##### 📖 What the command does
@@ -181,6 +181,11 @@ Then double-click the app as usual, or **Control-click (right-click) it and choo
 ### v0.12.0 (unreleased)
 
 <!-- Draft. Add PLAN-16 (FIT / TCX) and PLAN-12 (automatic timing line) here once merged -->
+
+**App renamed**
+
+- The app is renamed from "DS Universal" to **LapLoupe**. Saved user courses and settings carry over. The repository and the browser version URL stay the same.
+- On macOS, the previous `DS Universal.app` stays in the Applications folder. After installing the new `LapLoupe.app`, move the old one to the Trash.
 
 **Added**
 
@@ -294,7 +299,7 @@ npm run dist:mac   # macOS (.dmg, .zip / Apple Silicon arm64)
 
 ## ☕ Support the developer (Buy Me a Coffee)
 
-**DS Universal (`ds_universal`)** is a personal project (free and source-available).  
+**LapLoupe (formerly DS Universal, `ds_universal`)** is a personal project (free and source-available).  
 Your support, from the price of a coffee ($3 and up), helps cover track days, fuel and highway tolls, keeping up the Mac version, and further work on millisecond-accurate GoPro sync and telemetry overlays. ☕🏎️
 
 👉 **[Support oud0n on Buy Me a Coffee](https://buymeacoffee.com/oud0n)**

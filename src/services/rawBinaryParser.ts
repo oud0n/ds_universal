@@ -83,6 +83,12 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
         const minute = view.getUint8(offset + 23);
         const second = view.getUint8(offset + 24);
         const subSec = view.getUint8(offset + 25);
+        // .bon4 の 1/100 秒が 99 の点は読まない。実際のログでは、位置は前後の点のあいだ (x.00 秒前後) なのに x.99 秒と書かれていて、
+        // 時刻の順に並べると約 1 秒前の位置が挟まり、距離・速度・G・計測線の通過にとげが出る
+        if (ext === 'bon4' && subSec === 99) {
+          offset += 26;
+          continue;
+        }
         if (subSec > 0 && subSec * msMultiplier < 1000) hasMilliseconds = true;
         // +12 の int32 は標高 (0.1 m 単位)。.bon4 の実ログで確認。.bon は未確認のため読まない
         const rawAlt = ext === 'bon4' ? view.getInt32(offset + 12, true) / 10 : NaN;
