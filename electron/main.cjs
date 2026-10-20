@@ -472,7 +472,10 @@ ipcMain.handle('laps-list', async () => {
         if (f.name.startsWith('.')) continue;
         // 日付のフォルダ (YYYYMMDD。2026-10-20 から、1 日の走行と動画をまとめる) の中も 1 段だけ見る
         if (f.isDirectory() && /^\d{8}$/.test(f.name)) {
-          for (const g of await fs.promises.readdir(path.join(root, dir.name, f.name), { withFileTypes: true })) {
+          // 読めない日付のフォルダがあっても、ほかの走行は出す
+          let inner = [];
+          try { inner = await fs.promises.readdir(path.join(root, dir.name, f.name), { withFileTypes: true }); } catch { continue; }
+          for (const g of inner) {
             if (!g.isFile() || g.name.startsWith('.')) continue;
             const st = await fs.promises.stat(path.join(root, dir.name, f.name, g.name));
             files.push({ path: `${dir.name}/${f.name}/${g.name}`, size: st.size, mtimeMs: Math.round(st.mtimeMs) });

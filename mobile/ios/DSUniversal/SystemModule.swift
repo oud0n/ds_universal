@@ -251,6 +251,12 @@ final class SystemModule {
             MainActor.assumeIsolated { self?.endSyncBackgroundTask() }
         }
         Task { @MainActor in
+            // 選んだフォルダにも前の版がじかに置いた走行があれば、日付のフォルダへ移す (同じ走行が 2 か所に並ばないように)
+            await Task.detached(priority: .utility) {
+                let access = dest.startAccessingSecurityScopedResource()
+                defer { if access { dest.stopAccessingSecurityScopedResource() } }
+                RunFiles.moveFlatRunsIntoDateFolders(in: dest, coordinated: true)
+            }.value
             var total = SyncResult()
             repeat {
                 syncAgain = false

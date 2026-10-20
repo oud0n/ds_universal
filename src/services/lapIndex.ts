@@ -160,7 +160,10 @@ export function parseLapIndex(text: string | null): LapIndex | null {
 /** 非表示の印を、計算し直した周へ引き継ぐ (同じファイルで、始まりの時刻がいちばん近い周。SAME_LAP_MS より離れていれば捨てる) */
 function carryHidden(hidden: HiddenLap[], files: Record<string, LapFileRecord>): HiddenLap[] {
   const out: HiddenLap[] = [];
-  for (const h of hidden) {
+  for (const h0 of hidden) {
+    // 日付のフォルダへ移したファイル (前はファイルの名前だけ) にも引き継ぐ
+    const moved = files[h0.file] ? h0.file : Object.keys(files).find(k => k.endsWith(`/${h0.file}`));
+    const h = moved && moved !== h0.file ? { ...h0, file: moved } : h0;
     const laps = files[h.file]?.laps ?? [];
     let best: LapRecord | null = null;
     for (const l of laps) if (!best || Math.abs(l.startMs - h.startMs) < Math.abs(best.startMs - h.startMs)) best = l;
@@ -190,7 +193,8 @@ export async function reconcileFolder(
   let computed = 0;
   for (const f of files) {
     const name = f.path.slice(folder.length + 1);
-    const old = sameCourse ? prev?.files[name] : undefined;
+    // 日付のフォルダへ移したファイルは、前の名前 (ファイルの名前だけ) の控えを使う
+    const old = sameCourse ? prev?.files[name] ?? prev?.files[name.slice(name.lastIndexOf('/') + 1)] : undefined;
     if (old && old.size === f.size && old.mtimeMs === f.mtimeMs) {
       next[name] = old;
       continue;

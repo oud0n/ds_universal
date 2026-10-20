@@ -59,10 +59,12 @@ export async function listRuns(store: RunStore, onProgress?: (folder: string) =>
     for (const file of names) {
       if (!/^(\d{8}\/)?[^/]+$/.test(file)) continue;
       const runDir = dirName(`${f.folder}/${file}`);
-      const folderVideos = all.filter(x => dirName(x.path) === runDir && isRunVideoName(baseName(x.path)));
+      // 走行と同じフォルダの動画。日付のフォルダの走行には、サーキットのフォルダにじかに置いた動画 (前の置き方) も候補にする
+      const folderVideos = all.filter(x => (dirName(x.path) === runDir || dirName(x.path) === f.folder) && isRunVideoName(baseName(x.path)));
       const rec = f.index?.files[file];
       const laps = (rec?.laps ?? []).filter(l => !hidden.has(lapKey(file, l.part, l.n)));
-      const entry = runs.runs[file] ?? null;
+      // 日付のフォルダへ移す前に書いた行は、ファイルの名前だけで引く
+      const entry = runs.runs[file] ?? runs.runs[baseName(file)] ?? null;
       const videos = entry?.videos ?? rec?.videos ?? [];
       out.push({
         folder: f.folder,
