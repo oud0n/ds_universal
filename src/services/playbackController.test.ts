@@ -137,7 +137,13 @@ class Sim {
   /** 進めた時刻ごとの、App の位置と動画の位置のずれ (秒。正なら動画が遅れている) */
   log: Array<{ t: number; diff: number }> = [];
 
-  constructor(model: Model, opts: { adjustAudibleRate: boolean; muted?: boolean; duration?: number }) {
+  /** App の時計を、音を出している動画に付いていかせる (App.tsx のループと同じ。clockMaster.ts) */
+  masterClock = false;
+  /** App のループが最後に入れた時刻 (外で動かしたかを見分ける。App.tsx と同じ) */
+  private loopTime: number | null = null;
+
+  constructor(model: Model, opts: { adjustAudibleRate: boolean; muted?: boolean; duration?: number; masterClock?: boolean }) {
+    this.masterClock = opts.masterClock ?? false;
     vi.spyOn(performance, 'now').mockImplementation(() => this.clock.now);
     this.video = new FakeVideo(this.clock, model, { muted: opts.muted, duration: opts.duration });
     this.controller = new PlaybackController(opts.adjustAudibleRate);
@@ -149,10 +155,16 @@ class Sim {
 
   private tick(dt: number): void {
     this.clock.now += dt;
-    if (this.playing) this.appTime += (dt / 1000) * (this.rate ?? 1);
     this.video.step(dt);
+    if (this.playing) {
+      const next = this.appTime + (dt / 1000) * (this.rate ?? 1);
+      const m = this.masterClock ? this.controller.masterAppTime() : null;
+      const movedOutside = this.loopTime !== null && Math.abs(this.appTime - this.loopTime) > 1e-6;
+      this.appTime = m !== null && !movedOutside && Math.abs(m - next) < 1 ? Math.max(this.appTime, m) : next;
+      this.loopTime = this.appTime;
+    }
     const t: PlaybackTarget = { localTime: this.appTime, durationSec: this.durationSec, outOfRange: false, ...(this.rate !== undefined ? { rate: this.rate } : {}) };
-    this.controller.sync(new Map([['main', t]]), this.playing, 1);
+    this.controller.sync(new Map([['main', t]]), this.playing, 1, this.masterClock ? this.appTime : undefined);
     this.log.push({ t: this.clock.now, diff: this.appTime - this.video.mediaTime });
   }
 
@@ -177,6 +189,62 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe('PlaybackController (音を出している動画を時計の元にする)', () => {
+  it('Safari の音のある動画: 速さも位置も変えず、始めから終わりまで揃う (App が動画を待つ)', () => {
+    const sim = new Sim(SAFARI_AUDIBLE, { adjustAudibleRate: false, masterClock: true });
+    const seeksBefore = sim.video.seeks;
+    sim.play();
+    sim.run(12000);
+    expect(sim.video.rateChanges).toBe(0);
+    expect(sim.video.seeks).toBe(seeksBefore);
+    // App は動画に付いていくので、ずれは 1 コマ分ほど
+    expect(sim.maxDiffOverLast(12000)).toBeLessThan(0.05);
+    // 動画が動き出すまで (0.46 秒) は待つので、App の時刻はその分遅れて進む
+    expect(sim.appTime).toBeGreaterThan(100 + 11.4);
+    expect(sim.appTime).toBeLessThan(100 + 11.6);
+  });
+
+  it('見ている位置を動かしたら、動画が飛び、動き出すまで App が待つ', () => {
+    const sim = new Sim(SAFARI_AUDIBLE, { adjustAudibleRate: false, masterClock: true });
+    sim.play();
+    sim.run(3000);
+    const seeksBefore = sim.video.seeks;
+    sim.appTime += 20;
+    sim.run(3000);
+    expect(sim.video.seeks - seeksBefore).toBe(1);
+    expect(sim.maxDiffOverLast(1500)).toBeLessThan(0.05);
+  });
+
+  it('再生中に少しだけ戻しても (0.3 秒)、動画の位置に引き戻されず、動画がその位置へ飛ぶ', () => {
+    const sim = new Sim(SAFARI_AUDIBLE, { adjustAudibleRate: false, masterClock: true });
+    sim.play();
+    sim.run(3000);
+    const seeksBefore = sim.video.seeks;
+    const target = sim.appTime - 0.3;
+    sim.appTime = target;
+    sim.run(2000);
+    expect(sim.video.seeks - seeksBefore).toBe(1);
+    // 戻した位置から進んでいる (引き戻されていれば、target + 2 秒より 0.3 秒先にいる)
+    expect(sim.appTime).toBeLessThan(target + 2.05);
+    expect(sim.maxDiffOverLast(1000)).toBeLessThan(0.05);
+  });
+
+  it('動画が動かないとき (再生できない) は、2 秒で時計の元をやめ、App の時計で進む', () => {
+    const sim = new Sim({ ...SAFARI_AUDIBLE, startLagMs: 60000 }, { adjustAudibleRate: false, masterClock: true });
+    sim.play();
+    sim.run(5000);
+    expect(sim.appTime).toBeGreaterThan(100 + 2.5);
+  });
+
+  it('音を消した動画は時計の元にしない (これまでどおり App の時計に合わせる)', () => {
+    const sim = new Sim(SAFARI_MUTED, { adjustAudibleRate: false, muted: true, masterClock: true });
+    sim.play();
+    sim.run(6000);
+    expect(sim.appTime).toBeCloseTo(106, 1);
+    expect(sim.maxDiffOverLast(2000)).toBeLessThan(0.05);
+  });
 });
 
 describe('PlaybackController', () => {
