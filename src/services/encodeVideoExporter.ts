@@ -39,6 +39,31 @@ export function canUseEncodeExport(): boolean {
   return typeof VideoEncoder !== 'undefined' && typeof VideoDecoder !== 'undefined';
 }
 
+/** Safari・iPhone (WebKit) か (Chrome・Edge は AppleWebKit とも名乗るので除く) */
+const isWebKit = () => typeof navigator !== 'undefined' && /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|CriOS|Edg/.test(navigator.userAgent);
+
+/**
+ * WebKit の H.264 のエンコーダーは、Main・High のプロファイル (B フレームを使う) を画質優先で使うと、
+ * 1 コマも出さずに止まる (2026-10-20、Mac の Safari で確認。Baseline・遅延を短くする設定なら動く)。
+ * mediabunny の変換には指定の口がないので、書き出している間だけ、エンコーダーの設定を Baseline に書き換える。
+ * 遅延を短くする設定は、重いとコマを捨てることがあるので使わない。返す関数で元に戻す
+ */
+export function forceBaselineH264(): () => void {
+  if (!isWebKit() || typeof VideoEncoder === 'undefined') return () => {};
+  const proto = VideoEncoder.prototype;
+  const original = proto.configure;
+  const toBaseline = (codec: string) => (/^avc[13]\.(64|4d)/i.test(codec) ? `avc1.4200${codec.slice(-2)}` : codec);
+  proto.configure = function (config: VideoEncoderConfig) {
+    return original.call(this, { ...config, codec: toBaseline(config.codec) });
+  };
+  const origSupported = VideoEncoder.isConfigSupported;
+  VideoEncoder.isConfigSupported = (config: VideoEncoderConfig) => origSupported.call(VideoEncoder, { ...config, codec: toBaseline(config.codec) });
+  return () => {
+    proto.configure = original;
+    VideoEncoder.isConfigSupported = origSupported;
+  };
+}
+
 export function exportEncodedVideo(options: EncodeExportOptions): VideoExportController {
   const { file, startVideoSec, endVideoSec, toSessionSec, drawOverlay, width, height, fps, bitrate = 8_000_000, outputFileName, onProgress, onWarning } = options;
   let conversion: Conversion | null = null;
@@ -46,6 +71,14 @@ export function exportEncodedVideo(options: EncodeExportOptions): VideoExportCon
   let sink: VideoSink | null = null;
 
   const run = async () => {
+    const restoreEncoder = forceBaselineH264();
+    try {
+      return await runInner();
+    } finally {
+      restoreEncoder();
+    }
+  };
+  const runInner = async () => {
     if (!(await canEncodeVideo('avc', { width, height, bitrate }))) {
       throw new Error('このブラウザでは H.264 で書き出せません');
     }
