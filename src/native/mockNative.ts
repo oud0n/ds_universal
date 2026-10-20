@@ -260,6 +260,8 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         return {};
       case 'system.openSettings':
         return {};
+      case 'system.keepAwake':
+        return {};
       default:
         throw { code: 'not-supported', message: `unknown method ${String(req.method)}` };
     }

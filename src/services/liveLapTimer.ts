@@ -78,8 +78,6 @@ export interface LiveLapState {
 const MIN_LAP_SEC = 15;
 /** これより遅い通過は、周の区切りとして数えない (ピットで線の上に止まっているときの揺れ) */
 const SLOW_CROSSING_KMH = 5;
-/** 通過の向きを決める、最初の通過の最低の速さ */
-const DIRECTION_KMH = 20;
 /** これより長く測位が途切れたら、その周に印を付ける (ミリ秒) */
 const GAP_MARK_MS = 2000;
 /** これより長く測位が途切れたら、途切れの前後で線を横切ったとは見ない (ミリ秒) */
@@ -106,7 +104,10 @@ function gateMid(g: Gate): { latitude: number; longitude: number } {
 export class LiveLapTimer {
   private readonly gate: Gate;
   private readonly sectorGates: Gate[];
-  private direction = 0;
+  /** 通過の向きの票 (向き × 通過の速さの和)。多い方の向きをコースの向きとする */
+  private sideScore = 0;
+  /** 今の周を始めたときの向き (向きが替わったら、その周は数えない) */
+  private lapDirection = 0;
   private prev: LiveFix | null = null;
   private lapNumber: number | null = null;
   private lapStartMs: number | null = null;
@@ -157,16 +158,21 @@ export class LiveLapTimer {
     if (cross) {
       const tMs = prev.tMs + cross.t * dt;
       const speed = prev.speedKmh + cross.t * (fix.speedKmh - prev.speedKmh);
-      // 向きは、初めて速く横切ったときに決める (コースのデータの線には向きがない)
-      if (this.direction === 0 && speed >= DIRECTION_KMH) this.direction = cross.side;
-      const counted = this.direction !== 0 && cross.side === this.direction && speed >= SLOW_CROSSING_KMH && (tMs - this.lastCrossMs) / 1000 >= MIN_LAP_SEC;
+      // コースのデータの線には向きがないので、横切った向きに速さの分だけ票を入れ、多い方をコースの向きとする
+      // (初めに逆向きにゆっくり横切っても (ピットなど)、周回で速く横切れば、すぐそちらの向きになる)
+      if (speed >= SLOW_CROSSING_KMH) this.sideScore += cross.side * speed;
+      const direction = Math.sign(this.sideScore);
+      // 最短の間隔は、同じ向きの通過どうしで見る (逆向きの通過のすぐあとの周回の通過は数える)
+      const counted = direction !== 0 && cross.side === direction && speed >= SLOW_CROSSING_KMH
+        && ((tMs - this.lastCrossMs) / 1000 >= MIN_LAP_SEC || this.lapDirection !== direction);
       if (counted) {
         lapCrossed = true;
         this.lastCrossMs = tMs;
-        // 横切るまでの分を足して周を終える
+        // 横切るまでの分を足して周を終える。向きが替わったあとの初めての通過は、前の (逆向きの) 通過からを周と数えない
         this.lapDistanceM += seg * cross.t;
-        if (this.lapStartMs !== null) events.push(this.finishLap(tMs));
+        if (this.lapStartMs !== null && this.lapDirection === direction) events.push(this.finishLap(tMs));
         this.startLap(tMs, seg * (1 - cross.t), fix);
+        this.lapDirection = direction;
       }
     }
     if (!lapCrossed) {
@@ -211,7 +217,7 @@ export class LiveLapTimer {
 
   private finishLap(tMs: number): LiveLapEvent {
     const timeSec = (tMs - this.lapStartMs!) / 1000;
-    const complete = this.sectorGates.length > 0 && this.splitsSec.length === this.sectorGates.length;
+    const complete = this.sectorGates.length > 0 && this.splitsSec.length === this.sectorGates.length && this.splitsSec.every(Number.isFinite);
     const sectorsSec = complete
       ? [...this.splitsSec.map((s, i) => s - (i > 0 ? this.splitsSec[i - 1] : 0)), timeSec - this.splitsSec[this.splitsSec.length - 1]]
       : [];
@@ -227,23 +233,33 @@ export class LiveLapTimer {
     return { kind: 'lap', lap, diffToBestSec: prevBest ? timeSec - prevBest.timeSec : null, isBest };
   }
 
+  /**
+   * 次のセクター線から順に見て、横切った線のセクターを終える。
+   * 線を取りこぼしても (測位の途切れ・線の外を通ったとき)、その先の線で続ける (取りこぼした所のタイムは NaN)
+   */
   private checkSector(prev: LiveFix, fix: LiveFix, dt: number): LiveSectorEvent | null {
-    const gate = this.sectorGates[this.nextSector];
-    if (!gate) return null;
-    const c = crossGate(prev, fix, gate);
-    if (!c) return null;
-    const tMs = prev.tMs + c.t * dt;
-    if ((tMs - this.lastSplitMs) / 1000 < MIN_SECTOR_SEC) return null;
-    const split = (tMs - this.lapStartMs!) / 1000;
-    const timeSec = split - (this.splitsSec.length > 0 ? this.splitsSec[this.splitsSec.length - 1] : 0);
-    const index = this.nextSector;
-    const bestSector = this.best?.sectorsSec[index];
-    const diffSec = bestSector !== undefined ? timeSec - bestSector : null;
-    this.splitsSec.push(split);
-    this.currentSectors = [...this.currentSectors, { timeSec, diffSec }];
-    this.nextSector++;
-    this.lastSplitMs = tMs;
-    return { kind: 'sector', index, timeSec, diffSec };
+    for (let j = this.nextSector; j < this.sectorGates.length; j++) {
+      const c = crossGate(prev, fix, this.sectorGates[j]);
+      if (!c) continue;
+      const tMs = prev.tMs + c.t * dt;
+      if ((tMs - this.lastSplitMs) / 1000 < MIN_SECTOR_SEC) return null;
+      // 取りこぼした線
+      for (let k = this.nextSector; k < j; k++) {
+        this.splitsSec.push(NaN);
+        this.currentSectors = [...this.currentSectors, { timeSec: NaN, diffSec: null }];
+      }
+      const split = (tMs - this.lapStartMs!) / 1000;
+      const prevSplit = j > 0 ? this.splitsSec[j - 1] : 0;
+      const timeSec = split - prevSplit;
+      const bestSector = this.best?.sectorsSec[j];
+      const diffSec = bestSector !== undefined && Number.isFinite(timeSec) ? timeSec - bestSector : null;
+      this.splitsSec.push(split);
+      this.currentSectors = [...this.currentSectors, { timeSec, diffSec }];
+      this.nextSector = j + 1;
+      this.lastSplitMs = tMs;
+      return { kind: 'sector', index: j, timeSec, diffSec };
+    }
+    return null;
   }
 
   /** ベストの周で、同じ距離を走ったときの経過との差 */
@@ -251,7 +267,8 @@ export class LiveLapTimer {
     const t = this.bestTrace;
     if (!t || t.length < 4) return null;
     const n = t.length / 2;
-    if (distM > t[(n - 1) * 2]) return null;
+    // ベストの周より長く走っている (外を回った・GPS の揺れ) ときは、ベストの周の終わりと比べる (計測線の手前で差が消えないように)
+    if (distM >= t[(n - 1) * 2]) return elapsed - t[(n - 1) * 2 + 1];
     // 距離で二分探索
     let lo = 0;
     let hi = n - 1;

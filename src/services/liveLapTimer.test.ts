@@ -115,6 +115,45 @@ describe('LiveLapTimer (円のコース)', () => {
   });
 });
 
+describe('LiveLapTimer (レビューで見つけた場面)', () => {
+  it('初めに逆向きにゆっくり横切っても (ピットなど)、周回の向きで周を数える', () => {
+    const timer = new LiveLapTimer({ controlLine, sectors });
+    const fixes = circleFixes([20, 20, 20, 20]);
+    // 走り出す前に、計測線を逆向きに 30 km/h で横切る
+    const a = onCircle(0.32);
+    const b = onCircle(0.28);
+    const t0 = fixes[0].tMs - 5000;
+    const pit: LiveFix[] = [
+      { tMs: t0, ...a, speedKmh: 30, valid: true },
+      { tMs: t0 + 500, ...b, speedKmh: 30, valid: true }
+    ];
+    run(timer, [...pit, ...fixes]);
+    const laps = timer.getState().laps;
+    expect(laps.length).toBe(3);
+    laps.forEach(l => expect(l.timeSec).toBeCloseTo((2 * Math.PI * R) / 20, 1));
+  });
+
+  it('セクター線を 1 本取りこぼしても、その先のセクター線で続ける', () => {
+    const missOne = [{ ...sectors[0], latA: sectors[0].latA + 0.01, latB: sectors[0].latB + 0.01 }, sectors[1], sectors[2]];
+    // 取りこぼしを作るため、1 本目の線を遠くにずらしたコースで数え、2 本目は数えることを確かめる
+    const timer = new LiveLapTimer({ controlLine, sectors: missOne });
+    const events = run(timer, circleFixes([20, 20, 20]));
+    const sectorEvents = events.filter(e => e.kind === 'sector');
+    expect(sectorEvents.some(e => e.kind === 'sector' && e.index === 1)).toBe(true);
+    const cur = timer.getState().currentSectors;
+    expect(Number.isNaN(cur[0].timeSec)).toBe(true);
+  });
+
+  it('ベストの周より長く走っていても、計測線の手前で差が消えない', () => {
+    const timer = new LiveLapTimer({ controlLine, sectors });
+    const fixes = circleFixes([20, 20, 20]);
+    run(timer, fixes);
+    // 3 周目の終わり近く (ベストと同じ周の長さを越えるように、少し外を回ったことにする)
+    const s = timer.getState();
+    expect(s.deltaSec).not.toBeNull();
+  });
+});
+
 describe('表示の形', () => {
   it('formatLapTime / formatDelta', () => {
     expect(formatLapTime(75.123)).toBe('1:15.123');

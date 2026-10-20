@@ -130,6 +130,11 @@ export interface NativeMethods {
   'recorder.share': { params: { fileName: string }; result: Record<string, never> };
   /** Web で作った文 (変換した CSV など) を、ファイルにして共有の画面で渡す */
   'system.shareText': { params: { fileName: string; text: string }; result: Record<string, never> };
+  /**
+   * 画面の自動ロックを止める・戻す (ラップタイマーを開いている間。iPhone は isIdleTimerDisabled)。
+   * 2026-10-20 に足した。版は 1 のまま (足しただけ。前のアプリは not-supported を返し、Web は Wake Lock にする)
+   */
+  'system.keepAwake': { params: { on: boolean }; result: Record<string, never> };
   /** OS の設定の画面 (このアプリの許可) を開く。一度断られた許可は、OS がもう聞いてくれないため */
   'system.openSettings': { params: Record<string, never>; result: Record<string, never> };
 }
