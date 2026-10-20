@@ -19,6 +19,8 @@ export interface UserCircuitItem {
   sectors: Sector[];
   polylines?: Array<Array<[number, number]>>;
   sources: { cln: string; pth?: string; sci?: string };
+  /** ゴールの線 (スタートとゴールが別のコース。コース編集で付けたもの) */
+  finishLine?: ControlLine;
 }
 
 // コントロールラインと組み合わせられなかったコース図。内蔵のコースのコース図として使う
@@ -488,7 +490,8 @@ class UserCircuitStorage {
     name: string,
     controlLine: ControlLine,
     sectors: Sector[],
-    polylines?: Array<Array<[number, number]>>
+    polylines?: Array<Array<[number, number]>>,
+    extra: { finishLine?: ControlLine } = {}
   ): Promise<{ saved: boolean; saveError?: string }> {
     await this.ready.catch(() => undefined);
     // コース図が今はないとき (取得中など) は、同じ名前で前に保存したコース図を (同じ場所なら) 引き継ぐ
@@ -503,7 +506,8 @@ class UserCircuitStorage {
       controlLine: { ...controlLine, name },
       sectors,
       ...(keptPolylines ? { polylines: keptPolylines } : {}),
-      sources: { cln: 'edited' }
+      sources: { cln: 'edited' },
+      ...(extra.finishLine ? { finishLine: { ...extra.finishLine, name: 'Finish Line' } } : {})
     };
     // 新しく保存したものを最後に置く (同じ場所に複数あるときは、後に保存したものを使う)
     this.edited = [...this.edited.filter(c => c.name !== name), item];

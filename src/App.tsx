@@ -203,7 +203,7 @@ export const App: React.FC = () => {
   // ログを読み込むかコースを選ぶまでは未設定
   // 直前に決まったコースの設定 (計測線・セクター・コース名)。次に読み込むログのコース判定の手がかりにする。
   // コースの設定はセッションごとに持ち、画面には基準車のセッションのものを表示する (アプリ全体で 1 つにはしない)
-  type CourseHint = { cl?: ControlLine; sec: Sector[]; name: string; polylines?: Array<Array<[number, number]>>; polylinesSource?: PolylineSource };
+  type CourseHint = { cl?: ControlLine; sec: Sector[]; name: string; fin?: ControlLine; polylines?: Array<Array<[number, number]>>; polylinesSource?: PolylineSource };
   const courseRef = useRef<CourseHint>({ sec: [], name: '' });
   // ログを 1 本も読み込んでいないときに画面に出すコース (先にコース編集・プリセット・コース図を設定したとき)
   const [idleCourse, setIdleCourse] = useState<CourseHint>({ sec: [], name: '' });
@@ -248,6 +248,7 @@ export const App: React.FC = () => {
   // 画面に出すコース (計測線・セクター・コース名・コース図) は、基準車のセッション (なければ最初のセッション) のもの
   const courseSession = baseSession ?? sessions[0];
   const currentControlLine = courseSession ? courseSession.controlLine : idleCourse.cl;
+  const currentFinishLine = courseSession ? courseSession.finishLine : idleCourse.fin;
   const currentSectors = courseSession ? courseSession.sectors : idleCourse.sec;
   const currentCircuitName = courseSession ? courseSession.circuitName : idleCourse.name;
   const currentPthPolylines = (courseSession ? courseSession.pathPolylines : idleCourse.polylines) ?? NO_POLYLINES;
@@ -296,7 +297,7 @@ export const App: React.FC = () => {
     setGFilterLevelState(level);
     const updated = new Map(latestRef.current.sessions.map(s => {
       const points = applyGFilter(s.points.map(p => ({ ...p })), level);
-      const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(points, s.controlLine, s.sectors);
+      const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(points, s.controlLine, s.sectors, s.finishLine);
       return [s.id, { points, laps, bestLapIndex, theoreticalBestTime }] as const;
     }));
     setSessions(prev => prev.map(s => (updated.has(s.id) ? { ...s, ...updated.get(s.id)! } : s)));
@@ -812,6 +813,7 @@ export const App: React.FC = () => {
       let cl = hint.cl;
       let sec = hint.sec;
       let circName = hint.name;
+      let fin = hint.fin;
 
       // 手がかりが判定したコースと同じコース (コース編集で計測線・セクターを直したものなど) なら、その設定を引き継ぐ
       const sameCourse = !!matchedCircuit && hint.name === matchedCircuit.name && !!hint.cl && passesNearControlLine(rawPoints, hint.cl);
@@ -820,6 +822,7 @@ export const App: React.FC = () => {
         cl = matchedCircuit.controlLine ?? (hint.cl && passesNearControlLine(rawPoints, hint.cl) ? hint.cl : undefined);
         sec = matchedCircuit.sectors;
         circName = matchedCircuit.name;
+        fin = matchedCircuit.finishLine;
       }
 
       // コースを判定できず、手がかりの計測線がこのログの近くにない (または計測線がない) ときは、その計測線・セクター・コース名は使わない
@@ -827,7 +830,10 @@ export const App: React.FC = () => {
         cl = undefined;
         sec = [];
         circName = '';
+        fin = undefined;
       }
+      // ゴールの線がこのログの近くになければ使わない (計測線から計測線までを 1 周にする)
+      if (fin && !passesNearControlLine(rawPoints, fin)) fin = undefined;
 
       // 手がかりのコース図 (先に読み込んだ .pth など) がこのログの近くにあれば、このセッションに付ける
       // 別のコースと判定した手がかり (同じ施設の隣のコースなど) のコース図は使わない (コース名のない、先に読み込んだ .pth は使う)
@@ -847,10 +853,10 @@ export const App: React.FC = () => {
       }
       // 出どころの分からない手がかりのコース図は、手で読み込んだものとして扱う (一括設置で置き換えないように)
       const hintSource: PolylineSource | undefined = hintPolylines ? (hint.polylinesSource ?? 'manual') : undefined;
-      courseRef.current = { cl, sec, name: circName, polylines: hintPolylines, polylinesSource: hintSource };
+      courseRef.current = { cl, sec, name: circName, fin, polylines: hintPolylines, polylinesSource: hintSource };
 
-      // ラップ分割とセクタータイム計算
-      const { laps, bestLapIndex, theoreticalBestTime, sectors: lapSectors } = extractLaps(rawPoints, cl, sec);
+      // ラップ分割とセクタータイム計算 (ゴールの線があれば、スタートからゴールまでを 1 本にする)
+      const { laps, bestLapIndex, theoreticalBestTime, sectors: lapSectors } = extractLaps(rawPoints, cl, sec, fin);
 
       const newSession: Session = {
         id: `sess_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -868,6 +874,7 @@ export const App: React.FC = () => {
         bestLapIndex,
         theoreticalBestTime,
         controlLine: cl,
+        ...(fin ? { finishLine: fin } : {}),
         // 走る向きに並べ直したセクター (並びが逆だったとき)
         sectors: lapSectors,
         ...(hintPolylines ? { pathPolylines: hintPolylines, pathPolylinesSource: hintSource } : {})
@@ -922,15 +929,19 @@ export const App: React.FC = () => {
   // 周回数が変わって選択中の周が無くなった車両は、そのセッションのベストラップへ移す (画面から消えないように)
   // resolve が null を返したセッションは変えない (同じ場所のログだけにコースの変更を反映するため)
   const recalcSessions = (
-    resolve: (s: Session) => { cl?: ControlLine; sec: Sector[]; name?: string } | null
+    // fin: ゴールの線。渡さなければ今のゴールの線のまま、undefined を渡すと外す (計測線から計測線までにする)
+    resolve: (s: Session) => { cl?: ControlLine; sec: Sector[]; name?: string; fin?: ControlLine } | null
   ) => {
     const updated = latestRef.current.sessions.map(s => {
       const r = resolve(s);
       if (!r) return s;
       const { cl, sec, name } = r;
-      const { laps, bestLapIndex, theoreticalBestTime, sectors: lapSectors } = extractLaps(s.points, cl, sec);
+      const fin = 'fin' in r ? r.fin : s.finishLine;
+      const { laps, bestLapIndex, theoreticalBestTime, sectors: lapSectors } = extractLaps(s.points, cl, sec, fin);
+      const { finishLine: _old, ...rest } = s;
       return {
-        ...s, laps, bestLapIndex, theoreticalBestTime, controlLine: cl, sectors: lapSectors,
+        ...rest, laps, bestLapIndex, theoreticalBestTime, controlLine: cl, sectors: lapSectors,
+        ...(fin ? { finishLine: fin } : {}),
         ...(name !== undefined ? { circuitName: name } : {})
       };
     });
@@ -1059,8 +1070,8 @@ export const App: React.FC = () => {
     // 計測線を持たないプリセット (名阪) では、各セッションの計測線 (仮の計測線・コース編集で置いた線) を残す
     const keepLine = (s?: Session) => p.controlLine ?? s?.controlLine;
     const first = latestRef.current.sessions.find(s => s.id === ids[0]);
-    setCourseHint({ cl: keepLine(first), sec: p.sectors, name: p.name });
-    recalcSessions(s => (ids.includes(s.id) ? { cl: keepLine(s), sec: p.sectors, name: p.name } : null));
+    setCourseHint({ cl: keepLine(first), sec: p.sectors, name: p.name, fin: p.finishLine });
+    recalcSessions(s => (ids.includes(s.id) ? { cl: keepLine(s), sec: p.sectors, name: p.name, fin: p.finishLine } : null));
     // 前のコースのコース図を消し、選んだコースのコース図を読み込む
     setSessionPolylines(ids, undefined);
     requestPolylines(ids, p);
@@ -1180,6 +1191,7 @@ export const App: React.FC = () => {
     <TrackMapWindow
       cars={activeCars}
       controlLine={currentControlLine}
+      finishLine={currentFinishLine}
       sectors={currentSectors}
       pathPolylines={currentPthPolylines}
       currentDistance={currentDistanceKm}
@@ -1291,7 +1303,7 @@ export const App: React.FC = () => {
             const ids = latestRef.current.sessions.filter(s => passesNearControlLine(s.points, cl)).map(s => s.id);
             // 次に読むログの手がかりも、計測線を反映したセッションのコースにそろえる (別のコースのセクター・コース名と混ぜない)
             const target = latestRef.current.sessions.find(s => s.id === ids[0]);
-            setCourseHint({ cl, sec: target?.sectors ?? [], name: target?.circuitName ?? '', polylines: target ? target.pathPolylines : courseRef.current.polylines, polylinesSource: target ? target.pathPolylinesSource : courseRef.current.polylinesSource });
+            setCourseHint({ cl, sec: target?.sectors ?? [], name: target?.circuitName ?? '', fin: target?.finishLine, polylines: target ? target.pathPolylines : courseRef.current.polylines, polylinesSource: target ? target.pathPolylinesSource : courseRef.current.polylinesSource });
             recalcSessions(s => (ids.includes(s.id) ? { cl, sec: s.sectors || [] } : null));
           }
         }}
@@ -1327,7 +1339,7 @@ export const App: React.FC = () => {
             const isUser = (m?: CircuitPreset) => !!m && m.id.startsWith('user:');
             recalcSessions(s => {
               const m = matches.get(s.id);
-              return isUser(m) ? { cl: m!.controlLine ?? s.controlLine, sec: m!.sectors, name: m!.name } : null;
+              return isUser(m) ? { cl: m!.controlLine ?? s.controlLine, sec: m!.sectors, name: m!.name, fin: m!.finishLine } : null;
             });
             for (const [id, m] of matches) {
               if (!m) continue;
@@ -1842,11 +1854,12 @@ export const App: React.FC = () => {
             : undefined
         }
         sectors={currentSectors}
+        finishLine={currentFinishLine}
         onSavedCircuitsChange={() => setUserCircuitCount(userCircuitStorage.getCircuitCount())}
-        onSaveCircuit={(name, cl, sec, remember) => {
+        onSaveCircuit={(name, cl, sec, remember, extra) => {
           // アプリに保存して、次から同じ場所のログに使う (閉じても消えない)
           if (remember) {
-            userCircuitStorage.saveEditedCircuit(name, cl, sec, baseSession && passesNearControlLine(baseSession.points, cl) ? baseSession.pathPolylines : undefined).then(r => {
+            userCircuitStorage.saveEditedCircuit(name, cl, sec, baseSession && passesNearControlLine(baseSession.points, cl) ? baseSession.pathPolylines : undefined, extra).then(r => {
               if (!r.saved) alert(`${tr('コースを保存できませんでした (この画面には反映しています)', 'Could not save the course (it is applied on this screen)')}: ${r.saveError ?? ''}`);
               setUserCircuitCount(userCircuitStorage.getCircuitCount());
             });
@@ -1856,8 +1869,8 @@ export const App: React.FC = () => {
           const ids = targetSessionIds(s => !!cl && countGateCrossings(s.points, cl) > 0);
           // ログを読み込む前に保存したときも、画面と次に読み込むログに使う (コース図は反映したセッションのものを引き継ぐ)
           const target = latestRef.current.sessions.find(s => s.id === ids[0]);
-          setCourseHint({ cl, sec, name, polylines: target ? target.pathPolylines : courseRef.current.polylines, polylinesSource: target ? target.pathPolylinesSource : courseRef.current.polylinesSource });
-          recalcSessions(s => (ids.includes(s.id) ? { cl, sec, name } : null));
+          setCourseHint({ cl, sec, name, fin: extra.finishLine, polylines: target ? target.pathPolylines : courseRef.current.polylines, polylinesSource: target ? target.pathPolylinesSource : courseRef.current.polylinesSource });
+          recalcSessions(s => (ids.includes(s.id) ? { cl, sec, name, fin: extra.finishLine } : null));
         }}
       />
       )}
