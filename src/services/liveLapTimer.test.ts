@@ -133,6 +133,30 @@ describe('LiveLapTimer (レビューで見つけた場面)', () => {
     laps.forEach(l => expect(l.timeSec).toBeCloseTo((2 * Math.PI * R) / 20, 1));
   });
 
+  it('走り出す前に逆向きに 2 回横切って「周」になっても、周回の向きになったら捨てて数え直す', () => {
+    const timer = new LiveLapTimer({ controlLine, sectors });
+    const fixes = circleFixes([20, 20, 20]);
+    const a = onCircle(0.32);
+    const b = onCircle(0.28);
+    const t0 = fixes[0].tMs - 60000;
+    // 25 km/h で逆向きに 2 回 (20 秒おき)
+    const back: LiveFix[] = [
+      { tMs: t0, ...a, speedKmh: 25, valid: true }, { tMs: t0 + 500, ...b, speedKmh: 25, valid: true },
+      { tMs: t0 + 20000, ...a, speedKmh: 25, valid: true }, { tMs: t0 + 20500, ...b, speedKmh: 25, valid: true }
+    ];
+    run(timer, [...back, ...fixes]);
+    const laps = timer.getState().laps;
+    expect(laps.map(l => l.number)).toEqual([1, 2]);
+    laps.forEach(l => expect(l.timeSec).toBeCloseTo((2 * Math.PI * R) / 20, 1));
+  });
+
+  it('ピットの出口を遅く (10 km/h で) 通っても、そこから周を始める', () => {
+    const timer = new LiveLapTimer({ controlLine, sectors });
+    const fixes = circleFixes([20, 20]).map((f, i) => (i < 200 ? { ...f, speedKmh: 10 } : f));
+    run(timer, fixes);
+    expect(timer.getState().lapNumber).not.toBeNull();
+  });
+
   it('パドックで逆向きにゆっくり横切っても、周の番号はずれない', () => {
     const timer = new LiveLapTimer({ controlLine, sectors });
     const fixes = circleFixes([20, 20, 20]);
