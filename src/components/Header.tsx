@@ -4,7 +4,7 @@ import { Session } from '../types/telemetry';
 import { ThemeSetting, setThemeSetting, useThemeSetting } from '../utils/theme';
 import { canUseLogger } from '../utils/device';
 import { BleStatusPill } from './BleLoggerCard';
-import { Lang, setLang, useLang, useT } from '../utils/i18n';
+import { Lang, setLang, useLang, useT, isLangAuto } from '../utils/i18n';
 
 // テーマの切り替え (ライト / ダーク / システムに合わせる)
 const THEME_OPTIONS: { value: ThemeSetting; label: [string, string]; short: [string, string]; Icon: typeof Sun }[] = [
@@ -226,7 +226,7 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={() => setLang(value)}
               role="radio"
               aria-checked={lang === value}
-              title={label}
+              title={lang === value && isLangAuto() ? `${label} ${t('(端末の言語に合わせています)', '(following the device language)')}` : label}
               className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
                 lang === value ? 'bg-surface-5 text-fg' : 'text-slate-400 hover:text-slate-200'
               }`}

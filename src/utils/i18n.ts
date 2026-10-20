@@ -4,22 +4,33 @@ import { useSyncExternalStore } from 'react';
 // (キーの一覧を別に持たないので、日本語を直すときに英語の書き忘れに気づける)
 export type Lang = 'ja' | 'en';
 
-// 選んだ言語はこの端末のブラウザに保存する
+// 言語は、ふだんは端末 (PC・スマホ) の言語に合わせる (日本語なら日本語、ほかは英語)。
+// 画面のボタンで端末と違う言語を選んだときだけ、それをこの端末のブラウザに保存する (端末と同じ言語を選ぶと、自動に戻す)
 const STORAGE_KEY = 'ds_lang';
 
-function loadLang(): Lang {
-  try {
-    const v = localStorage.getItem(STORAGE_KEY);
-    if (v === 'ja' || v === 'en') return v;
-  } catch {
-    // 保存先が使えない (プライベートウインドウなど) ときはブラウザの言語に合わせる
-  }
-  // 最初はブラウザの言語に合わせる (日本語以外なら英語)
+/** 端末の言語 (日本語でなければ英語) */
+function deviceLang(): Lang {
   const nav = typeof navigator !== 'undefined' ? navigator.languages?.[0] || navigator.language || '' : '';
   return /^ja\b/i.test(nav) || nav === '' ? 'ja' : 'en';
 }
 
-let lang: Lang = loadLang();
+/** 保存した言語 (端末と違う言語を選んだときだけ)。端末と同じものが残っていたら (前の版で保存したもの)、自動に戻す */
+function savedLang(): Lang | null {
+  try {
+    const v = localStorage.getItem(STORAGE_KEY);
+    if (v !== 'ja' && v !== 'en') return null;
+    if (v === deviceLang()) {
+      localStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+    return v;
+  } catch {
+    // 保存先が使えない (プライベートウインドウなど) ときは端末の言語に合わせる
+    return null;
+  }
+}
+
+let lang: Lang = savedLang() ?? deviceLang();
 const listeners = new Set<() => void>();
 
 function apply() {
@@ -30,14 +41,33 @@ function apply() {
 }
 apply();
 
+// 端末の言語を変えたら、自動のときはすぐ合わせる
+if (typeof window !== 'undefined') {
+  window.addEventListener('languagechange', () => {
+    if (savedLang() !== null) return;
+    const next = deviceLang();
+    if (next !== lang) {
+      lang = next;
+      apply();
+    }
+  });
+}
+
 export function getLang(): Lang {
   return lang;
+}
+
+/** 端末の言語に合わせているか (画面のボタンで端末と違う言語を選んでいなければ true) */
+export function isLangAuto(): boolean {
+  return savedLang() === null;
 }
 
 export function setLang(l: Lang) {
   lang = l;
   try {
-    localStorage.setItem(STORAGE_KEY, l);
+    // 端末と同じ言語を選んだら、保存を消して自動に戻す (端末の言語を変えたら、それに合わせる)
+    if (l === deviceLang()) localStorage.removeItem(STORAGE_KEY);
+    else localStorage.setItem(STORAGE_KEY, l);
   } catch {
     // 保存できなくても、この画面では切り替える
   }
