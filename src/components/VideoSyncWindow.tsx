@@ -554,7 +554,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     if (!isVisible || (isAnyExporting && !recordingStage)) { playback.pauseAll(); return; }
     const targets = new Map<string, PlaybackTarget>();
     tiles.slice(0, shownCount).forEach((x, i) => { if (x.position) targets.set(`tile-${i}`, { ...x.position, rate: x.rate }); });
-    playback.sync(targets, isPlaying, playbackSpeed, currentTimeSec);
+    // 走行比較では、時計の元にしない (比べる車の動画は周の終わりで止まるので、App の時計を止めてしまう)
+    playback.sync(targets, isPlaying, playbackSpeed, isCompare ? undefined : currentTimeSec);
   });
 
   // 見えている間は、音を出している動画を App の時計の元にする (clockMaster.ts)
