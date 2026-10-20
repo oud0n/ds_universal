@@ -22,6 +22,8 @@ export interface UserCircuitItem {
   /** 英語名と、ラップタイマーの記録を入れるフォルダの名前 (コース編集で付けたもの。2026-10-20) */
   nameEn?: string;
   folder?: string;
+  /** ゴールの線 (スタートとゴールが別のコース。コース編集で付けたもの) */
+  finishLine?: ControlLine;
 }
 
 // コントロールラインと組み合わせられなかったコース図。内蔵のコースのコース図として使う
@@ -492,7 +494,7 @@ class UserCircuitStorage {
     controlLine: ControlLine,
     sectors: Sector[],
     polylines?: Array<Array<[number, number]>>,
-    names?: { nameEn: string; folder: string }
+    extra: { nameEn?: string; folder?: string; finishLine?: ControlLine } = {}
   ): Promise<{ saved: boolean; saveError?: string }> {
     await this.ready.catch(() => undefined);
     // コース図が今はないとき (取得中など) は、同じ名前で前に保存したコース図を (同じ場所なら) 引き継ぐ
@@ -509,7 +511,8 @@ class UserCircuitStorage {
       ...(keptPolylines ? { polylines: keptPolylines } : {}),
       sources: { cln: 'edited' },
       // 英語名・フォルダ名は、渡されなければ前に保存したものを引き継ぐ
-      ...((names ?? (prev?.nameEn && prev.folder ? { nameEn: prev.nameEn, folder: prev.folder } : undefined)) ?? {})
+      ...(extra.nameEn && extra.folder ? { nameEn: extra.nameEn, folder: extra.folder } : prev?.nameEn && prev.folder ? { nameEn: prev.nameEn, folder: prev.folder } : {}),
+      ...(extra.finishLine ? { finishLine: { ...extra.finishLine, name: 'Finish Line' } } : {})
     };
     // 新しく保存したものを最後に置く (同じ場所に複数あるときは、後に保存したものを使う)
     this.edited = [...this.edited.filter(c => c.name !== name), item];

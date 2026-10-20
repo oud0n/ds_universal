@@ -66,7 +66,8 @@ export function findMatchingCircuit(lat: number, lon: number, points?: Telemetry
       sectors: userMatch.sectors,
       pathPolylines: userMatch.polylines,
       ...(userMatch.nameEn ? { nameEn: userMatch.nameEn } : {}),
-      ...(userMatch.folder ? { folder: userMatch.folder } : {})
+      ...(userMatch.folder ? { folder: userMatch.folder } : {}),
+      ...(userMatch.finishLine ? { finishLine: userMatch.finishLine } : {})
     };
   }
 
