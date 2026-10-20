@@ -35,7 +35,7 @@ export const nativeBleCentral: BleCentral = {
     const offStopped = onNative('ble.scanStopped', () => { endScan(); onEnd(); });
     scanStop = () => { offDevice(); offStopped(); };
     try {
-      await callNative('ble.scan', { namePrefixes: options.namePrefixes });
+      await callNative('ble.scan', { namePrefixes: options.namePrefixes, ...(options.advertisedServices?.length ? { services: options.advertisedServices } : {}) });
     } catch (e) {
       endScan();
       throw e;
