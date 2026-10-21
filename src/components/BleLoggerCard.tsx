@@ -54,8 +54,9 @@ export const BleStatusPill: React.FC<{ onClick?: () => void }> = ({ onClick }) =
   // RaceBox と端末の GPS は、ラップタイマーを開いている間だけ使うので、ほかの画面では名前だけ
   const source = usePositionSource();
   if (source === 'racebox' || source === 'drogger' || source === 'phone') {
+    // 上のバーは狭いので短く (スマートフォンの解析の画面で、ほかのボタンと並んでも切れないように)
     const name = source === 'phone'
-      ? (hasNative() ? t('iPhone の GPS', 'Phone GPS') : t('この端末の GPS', 'This device GPS'))
+      ? (hasNative() ? t('iPhone GPS', 'Phone GPS') : t('端末の GPS', 'Device GPS'))
       : (loadDevices().find(d => d.kind === source)?.displayName ?? (source === 'racebox' ? 'RaceBox' : 'Drogger'));
     return (
       <button
@@ -63,6 +64,7 @@ export const BleStatusPill: React.FC<{ onClick?: () => void }> = ({ onClick }) =
         onClick={onClick}
         data-testid="ble-status-pill"
         className="flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-full border whitespace-nowrap min-w-0 border-line-3 text-slate-300"
+        title={name}
       >
         {source === 'phone' ? <Smartphone size={12} /> : <Bluetooth size={12} />}
         <span className="font-sans font-bold truncate">{name}</span>

@@ -3,7 +3,7 @@
 //
 // 確かめること (崩れなら失敗):
 //   - 上のバーの高さが、画面ごとにそろっている (2px まで)
-//   - 上のバー・下のタブ・横の並びで、文字が折り返していない
+//   - 上のバー・下のタブ・横の並びで、文字が折り返していない・…で切れていない
 //   - 画面の右の端からはみ出しているものがない (横に流せる入れ物の中は除く)
 // 気になること (失敗にはしない。p.notes に残す):
 //   - 押せる所が小さい (28px 未満)
@@ -26,6 +26,14 @@ const MEASURE = `(() => {
       const r = document.createRange(); r.selectNodeContents(n);
       const tops = new Set([...r.getClientRects()].filter(x => x.width > 0).map(x => Math.round(x.top / 4)));
       if (tops.size > 1) out.wraps.push(n.textContent.trim().slice(0, 24));
+    }
+  }
+  // バーの中で、…で切れている文字 (幅が足りない)
+  out.cut = [];
+  for (const bar of document.querySelectorAll('[data-testid="app-header"],[data-testid="bottom-tabs"],[data-testid="sidebar"]')) {
+    for (const el of bar.querySelectorAll('*')) {
+      if (!vis(el) || getComputedStyle(el).textOverflow !== 'ellipsis') continue;
+      if (el.scrollWidth > el.clientWidth + 1) out.cut.push(el.innerText.trim().slice(0, 24));
     }
   }
   // 右の端からのはみ出し (切り取る・流せる入れ物の中なら除く)
@@ -66,6 +74,7 @@ export async function sweepLayout(p, label) {
     await p.shot(`layout_${label}_${s}`);
     if (m.header !== null) heights.set(s, m.header);
     if (m.wraps.length) problems.push(`${s}: バーの文字が折り返している「${m.wraps.join('」「')}」`);
+    if (m.cut.length) problems.push(`${s}: バーの文字が切れている「${m.cut.join('」「')}」`);
     if (m.clipped.length) problems.push(`${s}: 右の端からはみ出している ${m.clipped.join(', ')}`);
     if (m.small.length) p.notes.push(`${label} ${s}: 小さい押す所 ${m.small.length} 個 (${m.small.slice(0, 4).join(', ')}${m.small.length > 4 ? ' …' : ''})`);
   }
