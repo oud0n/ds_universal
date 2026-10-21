@@ -413,12 +413,14 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     const geoWidth = (bounds.maxLon - bounds.minLon) * cosLat;
     const geoHeight = bounds.maxLat - bounds.minLat;
 
-    const scaleX = (width * 0.85) / geoWidth;
+    // コーナーの編集中は、右の一覧に隠れない左の部分にコースを収める (一覧の幅 + 余白)
+    const editPanelW = cornerDraft ? Math.min(224, width * 0.48) + 8 : 0;
+    const scaleX = ((width - editPanelW) * 0.85) / geoWidth;
     const scaleY = (height * 0.85) / geoHeight;
     const baseScale = Math.min(scaleX, scaleY) * zoom;
 
     // 追従中は、基準車の現在位置が画面の中央に来るように平行移動量を決める
-    let pan = panOffset;
+    let pan = editPanelW ? { x: panOffset.x - editPanelW / 2, y: panOffset.y } : panOffset;
     const basePts = cars[0]?.lap.points;
     if (isFollowing && basePts && basePts.length > 0) {
       const p = findCarPoint(basePts, compareAxis, currentDistance, currentTime) || basePts[0];
@@ -721,6 +723,12 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         ctx.beginPath();
         ctx.roundRect(pos.x - w / 2, pos.y - 23, w, 18, 9);
         ctx.fill();
+        // 縁取り (暗いテーマ・暗い航空写真の上でも札が見えるように)
+        if (!picked) {
+          ctx.strokeStyle = '#fbbf2499';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
         ctx.fillStyle = picked ? '#0f1117' : '#fbbf24';
         ctx.fillText(label, pos.x, pos.y - 14);
       }
