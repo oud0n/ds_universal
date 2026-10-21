@@ -50,8 +50,9 @@ export function navPlan(p: AppProfile): NavPlan {
       break;
     case 'browser-phone':
       chrome = 'bottom';
-      primary = only(['analysis', 'video', 'data', 'convert', p.hasLogger && 'logger']);
-      more = only([p.hasLibrary && 'library', p.hasLapTimer && 'timer', 'settings']);
+      // 下のタブは 3 つに絞り、データ・ロガーは ⚙ から (アプリのスマートフォンと同じ。導線のレビューの P2)
+      primary = only(['analysis', 'video', 'convert']);
+      more = only(['data', p.hasLogger && 'logger', p.hasLibrary && 'library', p.hasLapTimer && 'timer', 'settings']);
       home = 'analysis';
       break;
     default:
