@@ -17,6 +17,10 @@ interface WbCharacteristic extends EventTarget {
   value?: DataView;
   startNotifications(): Promise<WbCharacteristic>;
   readValue(): Promise<DataView>;
+  writeValue?(value: BufferSource): Promise<void>;
+  writeValueWithResponse?(value: BufferSource): Promise<void>;
+  writeValueWithoutResponse?(value: BufferSource): Promise<void>;
+  properties?: { write?: boolean; writeWithoutResponse?: boolean };
 }
 interface WbService {
   getCharacteristic(uuid: number | string): Promise<WbCharacteristic>;
@@ -33,7 +37,7 @@ interface WbDevice extends EventTarget {
   gatt?: WbServer;
 }
 interface WbBluetooth {
-  requestDevice(options: { filters: Array<{ namePrefix: string }>; optionalServices: Array<number | string> }): Promise<WbDevice>;
+  requestDevice(options: { filters: Array<{ namePrefix: string } | { services: Array<number | string> }>; optionalServices: Array<number | string> }): Promise<WbDevice>;
   getDevices?: () => Promise<WbDevice[]>;
 }
 
@@ -69,7 +73,10 @@ export const webBluetoothCentral: BleCentral = {
   async scan(options, onDevice, onEnd) {
     try {
       const device = await bluetooth().requestDevice({
-        filters: options.namePrefixes.map(namePrefix => ({ namePrefix })),
+        filters: [
+          ...options.namePrefixes.map(namePrefix => ({ namePrefix })),
+          ...(options.advertisedServices ?? []).map(s => ({ services: [uuidForWeb(s)] }))
+        ],
         optionalServices: options.services.map(uuidForWeb)
       });
       known.set(device.id, device);
@@ -86,7 +93,8 @@ export const webBluetoothCentral: BleCentral = {
     // 選択画面はブラウザのものなので、こちらからは閉じられない
   },
 
-  async connect(deviceId: string, notify: GattCharacteristicRef, handlers: BleLinkHandlers) {
+  async connect(deviceId: string, notifyRefs: GattCharacteristicRef | GattCharacteristicRef[], handlers: BleLinkHandlers) {
+    const notifyList = Array.isArray(notifyRefs) ? notifyRefs : [notifyRefs];
     links.get(deviceId)?.cleanup();
     const device = await findDevice(deviceId);
     // 探している間に、もう一度 connect が呼ばれていたら、そちらのつなぎを片づけてから始める (つなぎを 2 つ持たない)
@@ -101,12 +109,17 @@ export const webBluetoothCentral: BleCentral = {
     const link: Link = { closed: false, timer: null, cleanup: () => {} };
     links.set(deviceId, link);
 
-    const onValue = (ev: Event) => {
+    // 通知はどの特性からかも付けて渡す (通知を複数受け取るとき)
+    const listeners = new Map<WbCharacteristic, (ev: Event) => void>();
+    const onValueOf = (uuid: string) => (ev: Event) => {
       const v = (ev.target as WbCharacteristic).value;
       if (!v) return;
-      handlers.onNotify([{ tMs: performance.now(), bytes: new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength)) }]);
+      handlers.onNotify([{ tMs: performance.now(), bytes: new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength)), characteristic: uuid }]);
     };
-    let characteristic: WbCharacteristic | null = null;
+    const unsubscribe = () => {
+      listeners.forEach((fn, c) => c.removeEventListener('characteristicvaluechanged', fn));
+      listeners.clear();
+    };
     let attempt = 0;
 
     const tryConnect = async (state: 'connecting' | 'reconnecting') => {
@@ -114,11 +127,15 @@ export const webBluetoothCentral: BleCentral = {
       handlers.onState(state);
       try {
         const server = await gatt.connect();
-        const service = await server.getPrimaryService(uuidForWeb(notify.service));
-        characteristic?.removeEventListener('characteristicvaluechanged', onValue);
-        characteristic = await service.getCharacteristic(uuidForWeb(notify.characteristic));
-        characteristic.addEventListener('characteristicvaluechanged', onValue);
-        await characteristic.startNotifications();
+        unsubscribe();
+        for (const ref of notifyList) {
+          const service = await server.getPrimaryService(uuidForWeb(ref.service));
+          const c = await service.getCharacteristic(uuidForWeb(ref.characteristic));
+          const fn = onValueOf(ref.characteristic);
+          c.addEventListener('characteristicvaluechanged', fn);
+          listeners.set(c, fn);
+          await c.startNotifications();
+        }
         if (link.closed) { gatt.disconnect(); return; }
         attempt = 0;
         handlers.onState('connected');
@@ -138,7 +155,7 @@ export const webBluetoothCentral: BleCentral = {
       link.closed = true;
       if (link.timer) clearTimeout(link.timer);
       device.removeEventListener('gattserverdisconnected', onLost);
-      characteristic?.removeEventListener('characteristicvaluechanged', onValue);
+      unsubscribe();
       if (gatt.connected) gatt.disconnect();
     };
     void tryConnect('connecting');
@@ -155,5 +172,18 @@ export const webBluetoothCentral: BleCentral = {
     const service = await gatt.getPrimaryService(uuidForWeb(ref.service));
     const v = await (await service.getCharacteristic(uuidForWeb(ref.characteristic))).readValue();
     return new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength));
+  },
+
+  async write(deviceId, ref, bytes) {
+    const gatt = known.get(deviceId)?.gatt;
+    if (!gatt?.connected) throw new NativeError('not-connected', tr('つながっていません。', 'Not connected.'));
+    const service = await gatt.getPrimaryService(uuidForWeb(ref.service));
+    const c = await service.getCharacteristic(uuidForWeb(ref.characteristic));
+    const data = bytes.slice();
+    // 答えのある書き込みができればそれで、できなければ答えなしで書く
+    if (c.properties?.write === false && c.writeValueWithoutResponse) await c.writeValueWithoutResponse(data);
+    else if (c.writeValueWithResponse) await c.writeValueWithResponse(data);
+    else if (c.writeValue) await c.writeValue(data);
+    else throw new NativeError('not-supported', tr('この機器には書けません。', 'This device cannot be written to.'));
   }
 };

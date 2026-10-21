@@ -1,3 +1,4 @@
+import { DevicesCard } from './DevicesCard';
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { 
@@ -19,7 +20,8 @@ function isSimulatorRequested(): boolean {
 }
 
 interface LoggerTabProps {
-  onLoadSession?: (fileName: string, buffer: ArrayBuffer) => void;
+  /** 落としたログを開く。false なら、解析へは移らない (取り込みの確認の中で決まった) */
+  onLoadSession?: (fileName: string, buffer: ArrayBuffer) => Promise<boolean | void> | boolean | void;
   onNavigateToGraph?: () => void;
   /** このタブを開いているか (開いたときに、登録してあるデジスパイスへ Bluetooth でつなぐ) */
   active?: boolean;
@@ -234,8 +236,8 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
     if (!downloadedData || !onLoadSession || isOpeningAnalyser) return;
     try {
       setIsOpeningAnalyser(true);
-      await onLoadSession(downloadedData.fileName, downloadedData.buffer.buffer as ArrayBuffer);
-      if (onNavigateToGraph) {
+      const opened = await onLoadSession(downloadedData.fileName, downloadedData.buffer.buffer as ArrayBuffer);
+      if (opened !== false && onNavigateToGraph) {
         onNavigateToGraph();
       }
     } catch (err: any) {
@@ -249,6 +251,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
     <div className="flex flex-col h-full bg-surface-0 text-slate-200 overflow-y-auto p-4 sm:p-6 space-y-6 max-w-5xl mx-auto select-none">
       {/* Bluetooth でのつなぎ (iPhone のアプリ・Android の Chrome など)。USB でもつなげる環境では、USB の操作の下に出す */}
       {canUseLoggerBle && !canUseLoggerUsb && <BleLoggerCard active={active} onOpenLapTimer={onOpenLapTimer} />}
+      {canUseLoggerBle && !canUseLoggerUsb && <DevicesCard />}
 
       {/* ここから USB (Web Serial) でのつなぎ */}
       {canUseLoggerUsb && (<>
@@ -572,6 +575,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
       </div>
       </>)}
       {canUseLoggerBle && canUseLoggerUsb && <BleLoggerCard active={active} onOpenLapTimer={onOpenLapTimer} />}
+      {canUseLoggerBle && canUseLoggerUsb && <DevicesCard />}
       {/* G のならし方の設定は、ロガーを使わなくても選べるようデータ管理タブに置く */}
 
       {/* ログを消している間: 画面全体を覆って、ほかの操作をできなくする */}

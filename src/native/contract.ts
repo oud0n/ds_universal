@@ -65,8 +65,10 @@ export interface GattCharacteristicRef {
 }
 
 export interface BleScanParams {
-  /** 名前がこれで始まる機器だけを知らせる */
+  /** 名前がこれで始まる機器を知らせる */
   namePrefixes: string[];
+  /** 広告にこのサービスを載せている機器も知らせる (名前がまちまちな心拍計・GoPro など。2026-10-20 に足した。前のアプリは見ない) */
+  services?: string[];
 }
 
 export interface BleConnectParams {
@@ -125,6 +127,11 @@ export interface NativeMethods {
   /** つないでいる機器の特性を 1 回読む (Device Information など)。b はバイト列 (base64) */
   'ble.read': { params: { deviceId: string } & GattCharacteristicRef; result: { b: string } };
   /**
+   * 特性に書く (b は base64)。答えのある書き込みができる特性は、書き終わってから返す (2026-10-20 に足した。版は 1 のまま。前のアプリは not-supported)。
+   * OBD-II の命令・GoPro の操作に使う。暗号化が要る機器でペアリングしていなければ permission-denied
+   */
+  'ble.write': { params: { deviceId: string; b: string } & GattCharacteristicRef; result: Record<string, never> };
+  /**
    * つないでいる機器の通知を、そのままファイルに書き足し始める (画面が消えていても続く。OS がアプリを止めても、起こし直したときに続ける)。
    * header は見出しの行 (機器の名前など)。ファイルの形は RecordingFile の説明
    */
@@ -144,6 +151,18 @@ export interface NativeMethods {
    * 2026-10-20 に足した。版は 1 のまま (足しただけ。前のアプリは not-supported を返し、Web は Wake Lock にする)
    */
   'system.keepAwake': { params: { on: boolean }; result: Record<string, never> };
+  /**
+   * 画面の向き (ラップタイマー)。2026-10-21 に足した。版は 1 のまま (前のアプリは not-supported を返し、Web は何もしない)。
+   * system = ふつう (端末の回転と画面の向きのロックに従う)、auto = 傾き (重力の向き) で縦横を決める (画面の向きのロックが入っていても)、
+   * portrait / landscape = その向きに固める (横は傾きで左右を選ぶ)、hold = 今の向きのまま固める (測っている間)
+   */
+  /**
+   * iPhone の G センサーを読み始める・やめる (ラップタイマーで測っている間)。値は知らせ system.motion で 0.5 秒ごとにまとめて来る。
+   * 2026-10-21 に足した。版は 1 のまま (前のアプリは not-supported を返し、Web は記録しない)
+   */
+  'system.motionStart': { params: { hz: number }; result: Record<string, never> };
+  'system.motionStop': { params: Record<string, never>; result: Record<string, never> };
+  'system.setOrientation': { params: { mode: 'system' | 'auto' | 'portrait' | 'landscape' | 'hold' }; result: { orientation: 'portrait' | 'landscape' } };
   /**
    * アプリの書類のフォルダの LapTimer/ の下のファイルに、バイト列 (base64) を足す (ラップタイマーの走行の記録を、走っている間に書くため)。
    * truncate なら、はじめから書き直す。ファイルは「ファイル」アプリの「このiPhone内 → このアプリ → LapTimer」に出る。
@@ -169,6 +188,20 @@ export interface NativeMethods {
   'system.listLapFiles': { params: Record<string, never>; result: { files: Array<{ path: string; size: number; mtimeMs: number }> } };
   /** LapTimer/ の下のファイルを読む (base64) */
   'system.readLapFile': { params: { path: string }; result: { b64: string } };
+  /** 走行の置き場 (選んだフォルダ、なければ LapTimer/) と、動画を読む URL の頭 (lapfile://run/。2026-10-20) */
+  'system.runRoot': { params: Record<string, never>; result: { urlBase: string; kind: 'folder' | 'local'; name: string } };
+  /** 走行の置き場のファイルの一覧。local: false は iCloud にだけあるファイル */
+  'system.listRunFiles': { params: Record<string, never>; result: { files: Array<{ path: string; size: number; mtimeMs: number; local: boolean }> } };
+  /** 走行の置き場のログ・控え (.bon4・.nmea・.json・.csv) を読む (base64) */
+  'system.readRunFile': { params: { path: string }; result: { b64: string } };
+  /** 走行の置き場の runs.json・laptimes.json を書く */
+  'system.writeRunFile': { params: { path: string; b64: string }; result: Record<string, never> };
+  /** 動画の一部を読む (base64。8 MB まで) */
+  'system.readRunRange': { params: { path: string; offset: number; length: number }; result: { b64: string } };
+  /** ファイルが端末にあるか・iCloud から取り込み中か */
+  'system.runFileStatus': { params: { path: string }; result: { local: boolean; downloading: boolean } };
+  /** iCloud からの取り込みを始める */
+  'system.downloadRunFile': { params: { path: string }; result: Record<string, never> };
   /** OS の設定の画面 (このアプリの許可) を開く。一度断られた許可は、OS がもう聞いてくれないため */
   'system.openSettings': { params: Record<string, never>; result: Record<string, never> };
 }
@@ -203,4 +236,13 @@ export interface NativeEvents {
   'ble.state': BleStateEvent;
   'ble.notify': BleNotifyEvent;
   'system.appState': { state: 'active' | 'background' };
+  /** G センサーの値 (列ごとの配列。t: UTC ミリ秒、g*: 重力の向き、u*: 重力を除いた加速度 (G)、r*: 回転の速さ (rad/s)。端末の向きのまま) */
+  'system.motion': MotionBatch;
+}
+
+export interface MotionBatch {
+  t: number[];
+  gx: number[]; gy: number[]; gz: number[];
+  ux: number[]; uy: number[]; uz: number[];
+  rx: number[]; ry: number[]; rz: number[];
 }

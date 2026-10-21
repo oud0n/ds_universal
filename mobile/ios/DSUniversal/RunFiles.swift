@@ -1,0 +1,390 @@
+import Foundation
+@preconcurrency import WebKit
+
+/// 走行のフォルダ (2026-10-20、docs/session_storage_design.md)。
+/// 保管場所に選んだフォルダ (iCloud Drive など) があればそこ、なければ書類の LapTimer/ を「走行の置き場」とし、
+/// その下のサーキットのフォルダの .bon4・.nmea・動画・runs.json・laptimes.json を Web から読み書きする。
+/// 動画は lapfile://run/<道> で Web に見せる (大きな動画を丸ごと読まず、頼まれた範囲だけ読む。LapFileSchemeHandler)
+enum RunFiles {
+    static let storageKindKey = "lapTimer.storage.kind"
+    static let storageBookmarkKey = "lapTimer.storage.bookmark"
+    static let scheme = "lapfile"
+    static let urlBase = "lapfile://run/"
+
+    /// 書類の LapTimer/ (走っている間は、いつもここに書く)
+    static var lapTimerRoot: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("LapTimer", isDirectory: true)
+    }
+
+    /// 走行の置き場と、選んだフォルダか
+    static func root() -> (url: URL, scoped: Bool) {
+        if UserDefaults.standard.string(forKey: storageKindKey) == "folder",
+           let data = UserDefaults.standard.data(forKey: storageBookmarkKey) {
+            var stale = false
+            if let url = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) {
+                return (url, true)
+            }
+        }
+        return (lapTimerRoot, false)
+    }
+
+    /// 置き場の下の場所 (上のフォルダへ出る名前・絶対の道は断る)
+    static func resolve(_ rel: String, in root: URL) -> URL? {
+        guard !rel.isEmpty, !rel.hasPrefix("/"), !rel.split(separator: "/").contains(where: { $0 == ".." || $0 == "." }) else { return nil }
+        let url = root.appendingPathComponent(rel)
+        // 別名 (シンボリックリンク) をたどった先も、置き場の中か確かめる。まだ無いファイル (これから書く) は、
+        // いちばん近くにある上のフォルダをたどって確かめる (無い部分があると、途中の別名がたどられないため)
+        let base = root.resolvingSymlinksInPath().path
+        var existing = url
+        while !FileManager.default.fileExists(atPath: existing.path) && existing.path.count > root.path.count {
+            existing = existing.deletingLastPathComponent()
+        }
+        // まだ無い部分は別名になりえないので、あるところまでを確かめれば足りる
+        // (無い道をたどると /var が /private/var に直らず、置き場の外と見誤って書けなかった。実機だけで起きる)
+        let real = existing.resolvingSymlinksInPath().path
+        guard real == base || real.hasPrefix(base + "/") else { return nil }
+        return url
+    }
+
+    /// 置き場を使う許可をもらって f を呼ぶ
+    static func withRoot<T>(_ f: (URL) throws -> T) rethrows -> T {
+        let (url, scoped) = root()
+        let access = scoped && url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        return try f(url)
+    }
+
+    static let videoExt: Set<String> = ["mp4", "mov", "m4v", "lrv", "insv", "mkv", "webm"]
+
+    /// 前の版がサーキットのフォルダにじかに置いた走行のファイル (YYYYMMDDhhmmss.bon4 など) を、日付のフォルダ (YYYYMMDD/) へ移す (2026-10-20)。
+    /// 同じ走行のファイル (.bon4・.nmea・.csv) はまとめて動かす。どれかが 10 分以内に書き換えられた (書いている途中かもしれない) とき、
+    /// 移す先に同じ名前があるときは、その走行は動かさない (.bon4 と .nmea が別のフォルダに分かれないように)。
+    /// coordinated: 選んだフォルダ (iCloud Drive など) では、ほかのアプリと取り合わないよう NSFileCoordinator で動かす
+    static func moveFlatRunsIntoDateFolders(in root: URL, coordinated: Bool = false) {
+        let fm = FileManager.default
+        guard let folders = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return }
+        let pattern = try! NSRegularExpression(pattern: "^((\\d{8})\\d{6}(?:_\\d+)?)(?:\\.[A-Za-z0-9_]+)?\\.(bon4|nmea|csv)$", options: [.caseInsensitive])
+        // 共有のための exports/ と、取り込んだ元のログ (取り込み元/) は走行のフォルダではないので動かさない
+        for folder in folders where (try? folder.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true && folder.lastPathComponent != "exports" && folder.lastPathComponent != "取り込み元" {
+            guard let files = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey], options: [.skipsHiddenFiles]) else { continue }
+            // 走行ごと (名前の頭 YYYYMMDDhhmmss) にまとめる
+            var runs: [String: (date: String, files: [URL])] = [:]
+            for file in files {
+                let name = file.lastPathComponent
+                guard let m = pattern.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)),
+                      let stem = Range(m.range(at: 1), in: name), let day = Range(m.range(at: 2), in: name),
+                      (try? file.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+                runs[String(name[stem]), default: (String(name[day]), [])].files.append(file)
+            }
+            for (_, run) in runs {
+                let recent = run.files.contains { f in
+                    guard let d = (try? f.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { return false }
+                    return Date().timeIntervalSince(d) < 600
+                }
+                let dir = folder.appendingPathComponent(run.date, isDirectory: true)
+                // 移す先に同じ名前があれば動かさない (iCloud にだけあるファイル .名前.icloud も、あるものとみなす)
+                let clash = run.files.contains {
+                    fm.fileExists(atPath: dir.appendingPathComponent($0.lastPathComponent).path)
+                        || fm.fileExists(atPath: dir.appendingPathComponent(".\($0.lastPathComponent).icloud").path)
+                }
+                if recent || clash { continue }
+                do {
+                    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+                    for file in run.files {
+                        let target = dir.appendingPathComponent(file.lastPathComponent)
+                        if coordinated {
+                            var coordError: NSError?
+                            var moveError: Error?
+                            NSFileCoordinator().coordinate(writingItemAt: file, options: .forMoving, writingItemAt: target, options: .forReplacing, error: &coordError) { from, to in
+                                do { try FileManager.default.moveItem(at: from, to: to) } catch { moveError = error }
+                            }
+                            if let e = moveError ?? coordError { throw e }
+                        } else {
+                            try fm.moveItem(at: file, to: target)
+                        }
+                    }
+                } catch {
+                    DebugLog.write("move flat run failed \(run.files.first?.lastPathComponent ?? "-") \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    /// 置き場の下のファイル。iCloud からまだ落ちてきていないファイル (.名前.icloud) も、元の名前で local: false として出す
+    struct FileInfo: Sendable {
+        let path: String
+        let size: Int
+        let mtimeMs: Double
+        let local: Bool
+        var dict: [String: Any] { ["path": path, "size": size, "mtimeMs": mtimeMs, "local": local] }
+    }
+
+    static func list() -> [FileInfo] {
+        withRoot { root in
+            let base = root.resolvingSymlinksInPath().path
+            var out: [FileInfo] = []
+            let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey, .ubiquitousItemDownloadingStatusKey, .isUbiquitousItemKey]
+            guard let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys, options: []) else { return out }
+            for case let file as URL in e {
+                let path = file.resolvingSymlinksInPath().path
+                guard path.hasPrefix(base + "/") else { continue }
+                var rel = String(path.dropFirst(base.count + 1))
+                let name = (rel as NSString).lastPathComponent
+                if rel == "exports" || rel.hasPrefix("exports/") || rel == "Downloads" {
+                    e.skipDescendants()
+                    continue
+                }
+                let values = try? file.resourceValues(forKeys: Set(keys))
+                if name.hasPrefix(".") {
+                    // iCloud の置き場所だけのファイル (.名前.icloud)。それ以外の隠しファイルは出さない
+                    guard name.hasSuffix(".icloud"), name.count > 8 else { continue }
+                    let real = String(name.dropFirst().dropLast(7))
+                    rel = ((rel as NSString).deletingLastPathComponent as NSString).appendingPathComponent(real)
+                    var size = 0
+                    if let data = try? Data(contentsOf: file),
+                       let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] {
+                        size = (plist["NSURLFileSizeKey"] as? Int) ?? 0
+                    }
+                    let mtime = (values?.contentModificationDate?.timeIntervalSince1970 ?? 0) * 1000
+                    out.append(FileInfo(path: rel, size: size, mtimeMs: mtime.rounded(), local: false))
+                    continue
+                }
+                guard values?.isRegularFile == true else { continue }
+                let size = values?.fileSize ?? 0
+                let mtime = (values?.contentModificationDate?.timeIntervalSince1970 ?? 0) * 1000
+                var local = true
+                if values?.isUbiquitousItem == true, let status = values?.ubiquitousItemDownloadingStatus, status == .notDownloaded {
+                    local = false
+                }
+                out.append(FileInfo(path: rel, size: size, mtimeMs: mtime.rounded(), local: local))
+            }
+            return out
+        }
+    }
+
+    /// ログ・控えを読む (動画などの大きなファイルは読まない)。iCloud から落ちてきていなければ、落ちてくるのを待つ
+    static func read(_ rel: String) throws -> Data {
+        let allowed = ["bon4", "nmea", "json", "csv"]
+        return try withRoot { root in
+            guard let url = resolve(rel, in: root), allowed.contains(url.pathExtension.lowercased()) else {
+                throw NativeError(.notFound, "no file")
+            }
+            // 無いファイル (iCloud にだけあるもの .名前.icloud も無いとき) は not-found。読めないときの io と分ける
+            // (runs.json が読めないのに「無い」とみなして書くと、ほかの走行の行を消すため)
+            let placeholder = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).icloud")
+            if !FileManager.default.fileExists(atPath: url.path) && !FileManager.default.fileExists(atPath: placeholder.path) {
+                throw NativeError(.notFound, "no file")
+            }
+            var coordError: NSError?
+            var result: Result<Data, Error> = .failure(NativeError(.io, "could not read"))
+            NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { u in
+                let size = ((try? FileManager.default.attributesOfItem(atPath: u.path))?[.size] as? Int) ?? 0
+                if size > 64 * 1024 * 1024 {
+                    result = .failure(NativeError(.io, "file too large"))
+                    return
+                }
+                do { result = .success(try Data(contentsOf: u)) } catch { result = .failure(error) }
+            }
+            if let coordError { throw coordError }
+            return try result.get()
+        }
+    }
+
+    /// 動画の一部を読む (撮影日時・GoPro の GPS を読むため。https のページからは lapfile:// を fetch で読めないので、窓口で渡す)
+    static func readRange(_ rel: String, offset: UInt64, length: Int) throws -> Data {
+        guard length > 0, length <= 8 * 1024 * 1024 else { throw NativeError(.io, "bad length") }
+        return try withRoot { root in
+            guard let url = resolve(rel, in: root), videoExt.contains(url.pathExtension.lowercased()) else { throw NativeError(.notFound, "no file") }
+            guard FileManager.default.fileExists(atPath: url.path) else { throw NativeError(.notFound, "not downloaded") }
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            try handle.seek(toOffset: offset)
+            return try handle.read(upToCount: length) ?? Data()
+        }
+    }
+
+    /// ファイルが端末にあるか・iCloud から取り込み中か
+    static func status(_ rel: String) -> [String: Any] {
+        withRoot { root in
+            guard let url = resolve(rel, in: root) else { return ["local": false, "downloading": false] }
+            let placeholder = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).icloud")
+            let values = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey, .ubiquitousItemIsDownloadingKey, .isUbiquitousItemKey])
+            let exists = FileManager.default.fileExists(atPath: url.path)
+            var local = exists
+            if values?.isUbiquitousItem == true, values?.ubiquitousItemDownloadingStatus == .notDownloaded { local = false }
+            if !exists && FileManager.default.fileExists(atPath: placeholder.path) { local = false }
+            return ["local": local, "downloading": values?.ubiquitousItemIsDownloading ?? false]
+        }
+    }
+
+    /// runs.json・laptimes.json・corners.json (コーナーの名前。前の中身の控え .bak も) だけを書く (一時ファイルに書いてから入れ替える)
+    static func write(_ rel: String, _ data: Data) throws {
+        let allowed = ["runs.json", "laptimes.json", "corners.json", "corners.json.bak"]
+        try withRoot { root in
+            guard let url = resolve(rel, in: root), allowed.contains(url.lastPathComponent) else {
+                throw NativeError(.notFound, "not writable")
+            }
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            var coordError: NSError?
+            var writeError: Error?
+            NSFileCoordinator().coordinate(writingItemAt: url, options: .forReplacing, error: &coordError) { u in
+                do { try data.write(to: u, options: .atomic) } catch { writeError = error }
+            }
+            if let err = writeError ?? coordError { throw err }
+        }
+    }
+
+    /// iCloud からの取り込みを始める (動画を開く前に。終わるのは待たない)
+    static func startDownload(_ rel: String) throws {
+        try withRoot { root in
+            guard let url = resolve(rel, in: root) else { throw NativeError(.notFound, "no file") }
+            try FileManager.default.startDownloadingUbiquitousItem(at: url)
+        }
+    }
+
+    static func mimeType(_ ext: String) -> String {
+        switch ext.lowercased() {
+        case "mp4", "m4v", "lrv", "insv": return "video/mp4"
+        case "mov": return "video/quicktime"
+        case "webm": return "video/webm"
+        case "mkv": return "video/x-matroska"
+        case "json": return "application/json"
+        default: return "application/octet-stream"
+        }
+    }
+}
+
+/// lapfile://run/<道> を、走行の置き場のファイルから返す。Range (bytes=a-b) に答える (動画の再生・範囲の読み出し)
+/// WKURLSchemeTask を別のスレッドへ渡すための箱 (渡した先では、main の上でだけ触る)
+private struct TaskBox: @unchecked Sendable {
+    let task: WKURLSchemeTask
+}
+
+final class LapFileSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked Sendable {
+    nonisolated private let lock = NSLock()
+    nonisolated(unsafe) private var running = Set<ObjectIdentifier>()
+    nonisolated private let queue = DispatchQueue(label: "lapfile", qos: .userInitiated, attributes: .concurrent)
+    /// 1 回に渡す大きさ
+    nonisolated private static let chunk = 1 << 20
+
+    nonisolated private func isRunning(_ task: WKURLSchemeTask) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return running.contains(ObjectIdentifier(task))
+    }
+
+    func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
+        lock.lock(); running.insert(ObjectIdentifier(task)); lock.unlock()
+        let request = task.request
+        let box = TaskBox(task: task)
+        queue.async { [weak self] in self?.serve(box, request) }
+    }
+
+    func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {
+        lock.lock(); running.remove(ObjectIdentifier(task)); lock.unlock()
+    }
+
+    /// 頼みに答える (答えは main で渡す。止められた頼みには渡さない)
+    nonisolated private func send(_ box: TaskBox, _ f: @escaping @Sendable (WKURLSchemeTask) -> Void) {
+        DispatchQueue.main.sync {
+            guard self.isRunning(box.task) else { return }
+            f(box.task)
+        }
+    }
+
+    nonisolated private func finish(_ box: TaskBox) {
+        DispatchQueue.main.sync {
+            guard self.isRunning(box.task) else { return }
+            box.task.didFinish()
+            self.lock.lock(); self.running.remove(ObjectIdentifier(box.task)); self.lock.unlock()
+        }
+    }
+
+    nonisolated private func fail(_ task: TaskBox, _ status: Int, _ url: URL) {
+        let headers = ["Access-Control-Allow-Origin": "*", "Content-Length": "0"]
+        let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!
+        send(task) { $0.didReceive(response) }
+        finish(task)
+    }
+
+    nonisolated private func serve(_ task: TaskBox, _ request: URLRequest) {
+        guard let url = request.url else { return }
+        // lapfile://run/<道 (% で書いたもの)>
+        let rel = (url.path.hasPrefix("/") ? String(url.path.dropFirst()) : url.path)
+        guard url.host == "run", !rel.isEmpty else { return fail(task, 404, url) }
+        let (root, scoped) = RunFiles.root()
+        let access = scoped && root.startAccessingSecurityScopedResource()
+        defer { if access { root.stopAccessingSecurityScopedResource() } }
+        // 読めるのは動画だけ (ログ・控えは system.readRunFile で読む)
+        guard let file = RunFiles.resolve(rel, in: root), RunFiles.videoExt.contains(file.pathExtension.lowercased()) else { return fail(task, 404, url) }
+
+        // iCloud から落ちてきていなければ、落ちてくるまで待つ (Web は開く前に、大きさを知らせて聞いておく)
+        var coordError: NSError?
+        var handle: FileHandle?
+        var size: UInt64 = 0
+        NSFileCoordinator().coordinate(readingItemAt: file, options: [], error: &coordError) { u in
+            size = ((try? FileManager.default.attributesOfItem(atPath: u.path))?[.size] as? NSNumber)?.uint64Value ?? 0
+            handle = try? FileHandle(forReadingFrom: u)
+        }
+        guard let handle, coordError == nil else { return fail(task, 404, url) }
+        defer { try? handle.close() }
+
+        var start: UInt64 = 0
+        var end: UInt64 = size > 0 ? size - 1 : 0
+        var partial = false
+        if let range = request.value(forHTTPHeaderField: "Range"), range.hasPrefix("bytes=") {
+            let spec = range.dropFirst(6).split(separator: ",").first ?? ""
+            let parts = spec.split(separator: "-", omittingEmptySubsequences: false).map(String.init)
+            if parts.count == 2 {
+                if parts[0].isEmpty, let n = UInt64(parts[1]) {
+                    start = size > n ? size - n : 0
+                    partial = true
+                } else if let a = UInt64(parts[0]) {
+                    start = a
+                    if let b = UInt64(parts[1]) { end = min(b, end) }
+                    partial = true
+                }
+                // 読めない Range (bytes=- など) は付いていないものとして、全部を返す
+            }
+        }
+        if size == 0 && !partial {
+            let headers = ["Content-Type": RunFiles.mimeType(file.pathExtension), "Content-Length": "0", "Access-Control-Allow-Origin": "*"]
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)!
+            send(task) { $0.didReceive(response) }
+            return finish(task)
+        }
+        if size == 0 || start > end || start >= size {
+            let headers = ["Content-Range": "bytes */\(size)", "Access-Control-Allow-Origin": "*", "Content-Length": "0"]
+            let response = HTTPURLResponse(url: url, statusCode: 416, httpVersion: "HTTP/1.1", headerFields: headers)!
+            send(task) { $0.didReceive(response) }
+            return finish(task)
+        }
+        let length = end - start + 1
+        var headers: [String: String] = [
+            "Content-Type": RunFiles.mimeType(file.pathExtension),
+            "Content-Length": String(length),
+            "Accept-Ranges": "bytes",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+            "Cache-Control": "no-store"
+        ]
+        if partial { headers["Content-Range"] = "bytes \(start)-\(end)/\(size)" }
+        let response = HTTPURLResponse(url: url, statusCode: partial ? 206 : 200, httpVersion: "HTTP/1.1", headerFields: headers)!
+        send(task) { $0.didReceive(response) }
+
+        do {
+            try handle.seek(toOffset: start)
+            var left = length
+            while left > 0 {
+                guard isRunning(task.task) else { return }
+                let n = Int(min(UInt64(Self.chunk), left))
+                guard let data = try handle.read(upToCount: n), !data.isEmpty else { break }
+                left -= UInt64(data.count)
+                send(task) { $0.didReceive(data) }
+            }
+            finish(task)
+        } catch {
+            send(task) { $0.didFailWithError(error) }
+            lock.lock(); running.remove(ObjectIdentifier(task.task)); lock.unlock()
+        }
+    }
+}

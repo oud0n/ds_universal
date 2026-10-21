@@ -20,6 +20,8 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
     private let core = NativeCore.shared
     /// Web のダウンロード (書き出したファイル) を受け取って共有の画面を出す (WebDownloads.swift)。webView は受け手を弱く持つので、ここで持つ
     private var downloads: WebDownloads?
+    /// lapfile://run/ の受け手 (WKWebViewConfiguration は受け手を強く持たないことがあるので、ここで持つ)
+    let lapFiles = LapFileSchemeHandler()
 
     func attach(to webView: WKWebView) {
         self.webView = webView
