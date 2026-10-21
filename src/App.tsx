@@ -837,8 +837,8 @@ export const App: React.FC = () => {
         const gb = (totalBytes(cand.missing) / 1e9).toFixed(1);
         const download = await askChoice(
           tr('動画を iCloud から取り込みますか？', 'Download the videos from iCloud?'),
-          tr(`この走行の動画 ${cand.missing.length} 本 (${gb} GB) が、まだこの端末にありません。\n\n取り込む: 取り込みを始めます。終わったら、もう一度この走行を開いてください\n取り込まない: 端末にある動画とログだけで開きます`,
-            `${cand.missing.length} video(s) of this run (${gb} GB) are not on this device yet.\n\nDownload: start downloading; open this run again when it finishes\nDon't download: open with the log and the videos on this device`),
+          tr(`この走行の動画 ${cand.missing.length} 本 (${gb} GB) が、まだこの端末にありません。\n\n取り込む: 取り込みを始めます。終わったら、この走行に自動で動画を付けます (この走行を開いている間)\n取り込まない: 端末にある動画とログだけで開きます`,
+            `${cand.missing.length} video(s) of this run (${gb} GB) are not on this device yet.\n\nDownload: start downloading; the videos are attached automatically when done (while this run stays open)\nDon't download: open with the log and the videos on this device`),
           [
             { label: tr('取り込む', 'Download'), value: true },
             { label: tr('取り込まない', "Don't download"), value: false, primary: true }
@@ -2057,6 +2057,7 @@ export const App: React.FC = () => {
             onAddAsCar2={sessions.length > 0 ? (r => void addRunAsCar2(r)) : undefined}
             onPickFiles={() => fileInputRef.current?.click()}
             onOpenFile={file => { void loadFiles([file]).then(() => navStore.go('analysis')); }}
+            canTime={plan.available.has('timer') && profile.host === 'native'}
             busy={runBusy}
           />
         )}

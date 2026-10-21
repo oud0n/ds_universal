@@ -132,6 +132,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const measuringRef = useRef(false);
   /** デジスパイスの接続を、このタイマーがつないだか (離れるときに、自分でつないだものだけ切る) */
   const bleConnectedHereRef = useRef(false);
+  /** 測り終えて保存した走行 (周の数)。次に測り始めるまで、測る前の画面に知らせを出す */
+  const [savedRun, setSavedRun] = useState<{ laps: number; best: number | null } | null>(null);
   // 測定終了の確認 (全画面) を出しているか
   const [confirmStop, setConfirmStop] = useState(false);
   // 画面の向き (アプリだけ。測る前に選び、測っている間は固める)
@@ -312,6 +314,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     }
     measuringRef.current = true;
     setMeasuring(true);
+    setSavedRun(null);
     recorderRef.current = null;
     // カメラ (GoPro) の時計を合わせて録画を始める
     lapDevicesRef.current.startRun(new Date());
@@ -336,6 +339,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     recorderRef.current = null;
     const st = timerRef.current?.getState();
     await rec?.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true);
+    if (rec) setSavedRun({ laps: st?.laps.length ?? 0, best: st?.best?.timeSec ?? null });
     await syncRef.current();
   }, []);
 
@@ -709,6 +713,20 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
                 {lastFix ? `${Math.round(lastFix.speedKmh)} km/h` : '--- km/h'}
               </div>
               <div className="text-slate-400 text-sm">{t('下の「測定開始」を押すと、周を数えて記録します', 'Tap Start below to time laps and record')}</div>
+              {/* 測り終えたあと: 保存したことと、走行を見る入口 */}
+              {savedRun && (
+                <div className="mt-3 inline-flex items-center gap-3 px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/40 text-sm" data-testid="lap-timer-saved">
+                  <span className="text-emerald-500 font-bold">
+                    {t(`${savedRun.laps} 周の走行を保存しました`, `Saved a run with ${savedRun.laps} laps`)}
+                    {savedRun.best !== null ? ` (${t('ベスト', 'best')} ${formatLapTime(savedRun.best, 2)})` : ''}
+                  </span>
+                  {hasNative() && (
+                    <button onClick={() => navStore.go('library')} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-bold text-xs" data-testid="lap-timer-saved-open">
+                      {t('走行で見る', 'View run')}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           ) : !course ? (
             <div className="text-center space-y-3">

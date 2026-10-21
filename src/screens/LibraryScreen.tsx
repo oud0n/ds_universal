@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { BarChart2, ChevronRight, Cloud, EyeOff, FolderOpen, GitCompare, Loader2, Trophy, Video, X } from 'lucide-react';
+import { BarChart2, Bluetooth, ChevronRight, Cloud, EyeOff, FolderOpen, GitCompare, Loader2, Timer, Trophy, Video, X } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { formatLapTime } from '../services/liveLapTimer';
@@ -24,7 +24,12 @@ interface Props {
   /** ラップタイムの記録から、走行のファイルを解析で開く */
   onOpenFile: (file: File) => void;
   busy: boolean;
+  /** ラップタイマーを使える (アプリ)。初めて開いたときの案内に出す */
+  canTime?: boolean;
 }
+
+/** 周も動画もない走行 (測定開始のボタンを足す前の、開いただけの記録など。LATER-18) */
+const isEmptyRun = (r: RunItem) => !r.pending && r.laps.length === 0 && r.videos.length === 0 && r.folderVideos.length === 0 && r.courseName === null;
 
 /** 日付の見出し (端末の時刻で) */
 function dayKey(ms: number | null): string {
@@ -38,7 +43,7 @@ function dayKey(ms: number | null): string {
  * 保管場所の 1 行 / サーキットで絞る / 日付ごとの走行 / 下に「ファイルを選ぶ」「ラップタイムの記録」。
  * 行を押すと走行の詳細 (周の一覧・動画・解析で開く・動画を見る)
  */
-export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVideo, onAddAsCar2, onPickFiles, onOpenFile, busy }) => {
+export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVideo, onAddAsCar2, onPickFiles, onOpenFile, busy, canTime = false }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const { store, runs, error, noFolder, reload } = useRuns(active);
@@ -47,6 +52,8 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
   const [shown, setShown] = useState(PAGE);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  /** 中身のない走行 (周も動画もない) を開いて見せている日 */
+  const [showEmpty, setShowEmpty] = useState<Set<string>>(() => new Set());
 
   const folders = useMemo(() => {
     const m = new Map<string, { label: string; count: number }>();
@@ -118,15 +125,41 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
         )}
         {error && <p className="text-xs text-red-400 py-2">{error}</p>}
         {runs && runs.length === 0 && !noFolder && !error && (
-          <p className="text-xs text-slate-400 py-6 text-center">{t('保管場所に走行がありません。', 'No runs in the storage folder.')}</p>
+          // 初めて開いたとき: 次にすることを並べる
+          <div className="py-6 space-y-3 max-w-sm mx-auto" data-testid="library-first-steps">
+            <p className="text-xs text-slate-400 text-center">{t('まだ走行がありません。はじめに:', 'No runs yet. To get started:')}</p>
+            {canTime && (
+              <button onClick={() => navStore.go('timer')} className="w-full flex items-center gap-2 px-4 py-3 rounded-xl bg-surface-1 border border-line-2 text-sm text-slate-200 cursor-pointer hover:bg-surface-3">
+                <Timer size={16} className="text-red-500" />{t('ラップタイマーで測る', 'Time laps with the lap timer')}
+              </button>
+            )}
+            {canTime && (
+              <button onClick={() => navStore.go('logger')} className="w-full flex items-center gap-2 px-4 py-3 rounded-xl bg-surface-1 border border-line-2 text-sm text-slate-200 cursor-pointer hover:bg-surface-3">
+                <Bluetooth size={16} className="text-sky-500" />{t('機器を登録する (デジスパイス・RaceBox・Drogger など)', 'Register a device (DigSpice, RaceBox, Drogger…)')}
+              </button>
+            )}
+            <button onClick={onPickFiles} className="w-full flex items-center gap-2 px-4 py-3 rounded-xl bg-surface-1 border border-line-2 text-sm text-slate-200 cursor-pointer hover:bg-surface-3">
+              <FolderOpen size={16} className="text-slate-400" />{t('ログや動画のファイルを開く', 'Open log or video files')}
+            </button>
+          </div>
         )}
         {groups.map(g => (
           <div key={g.day || 'none'}>
             <div className="text-[11px] font-bold text-slate-400 px-1 pb-1.5 sticky top-0 bg-surface-0/95 z-[1]">{dayLabel(g.day)}</div>
             <div className="space-y-1.5">
-              {g.items.map(r => (
+              {g.items.filter(r => !isEmptyRun(r) || showEmpty.has(g.day)).map(r => (
                 <RunRow key={`${r.folder}/${r.file}`} run={r} onOpen={select} busy={busy} selected={wide && `${r.folder}/${r.file}` === selectedKey} />
               ))}
+              {/* 中身のない走行 (測定開始の前の記録など) はまとめて 1 行に */}
+              {!showEmpty.has(g.day) && g.items.some(isEmptyRun) && (
+                <button
+                  onClick={() => setShowEmpty(s => new Set(s).add(g.day))}
+                  className="w-full text-left px-3 py-2 rounded-lg border border-dashed border-line-2 text-xs text-slate-500 cursor-pointer hover:bg-surface-2"
+                  data-testid="library-empty-runs"
+                >
+                  {t(`周も動画もない走行 ${g.items.filter(isEmptyRun).length} 件 (表示する)`, `${g.items.filter(isEmptyRun).length} runs without laps or videos (show)`)}
+                </button>
+              )}
             </div>
           </div>
         ))}
