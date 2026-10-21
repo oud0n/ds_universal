@@ -1,5 +1,6 @@
 import Foundation
 import CoreMotion
+import UIKit
 
 /// iPhone の G センサー (約束の system.motionStart / system.motionStop、知らせ system.motion)。2026-10-21。
 /// ラップタイマーで測っている間、CoreMotion の値を決まった間隔で読み、0.5 秒ごとにまとめて Web へ渡す。
@@ -17,6 +18,8 @@ final class MotionRecorder {
     private var rotation: [[Double]] = [[], [], []]
     /// CMDeviceMotion の時刻 (起動からの秒) を UTC に直すための差
     private var uptimeToEpoch: Double = 0
+    /// 渡せないとき (画面が裏にいる間) にためておく上限 (50 Hz で 2 分)。超えたら古いものから捨てる
+    private static let maxPending = 6000
     /// 値を渡す先 (Web への知らせ)
     private var emitter: (@MainActor ([String: Any]) -> Void)?
 
@@ -39,6 +42,7 @@ final class MotionRecorder {
                 self.gravity[0].append(g.x); self.gravity[1].append(g.y); self.gravity[2].append(g.z)
                 self.user[0].append(u.x); self.user[1].append(u.y); self.user[2].append(u.z)
                 self.rotation[0].append(r.x); self.rotation[1].append(r.y); self.rotation[2].append(r.z)
+                self.trim()
             }
         }
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
@@ -52,11 +56,23 @@ final class MotionRecorder {
         manager.stopDeviceMotionUpdates()
         timer?.invalidate()
         timer = nil
-        drain()
+        drain(force: true)
     }
 
-    private func drain() {
+    /// ためすぎない (画面が裏にいて Web が受け取れない間に、メモリを使い続けないように)
+    private func trim() {
+        let over = t.count - Self.maxPending
+        guard over > 0 else { return }
+        t.removeFirst(over)
+        for i in 0..<3 {
+            gravity[i].removeFirst(over); user[i].removeFirst(over); rotation[i].removeFirst(over)
+        }
+    }
+
+    /// Web へ渡す。画面が裏にいる間は渡さずにためておく (WKWebView が止まっていて、知らせがたまる一方になるため)。止めるときは必ず渡す
+    private func drain(force: Bool = false) {
         guard !t.isEmpty, let emit = emitter else { return }
+        if !force && UIApplication.shared.applicationState == .background { return }
         emit([
             "t": t,
             "gx": gravity[0], "gy": gravity[1], "gz": gravity[2],

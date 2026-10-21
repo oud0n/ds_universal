@@ -15,12 +15,13 @@ export const StorageSettings: React.FC = () => {
   const desktop = !!window.electronAPI?.laps;
   const [info, setInfo] = useState<StorageInfo | null>(null);
   const [folderPath, setFolderPath] = useState<string | null>(null);
+  /** 結果の 1 行 (ok: うまくいった・text: そのまま出す文) */
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (native) callNative('system.storageInfo', {}).then(setInfo, () => setInfo(null));
-    else if (desktop) void window.electronAPI!.laps!.getFolder().then(setFolderPath);
+    else if (desktop) void window.electronAPI!.laps!.getFolder().then(setFolderPath, () => setFolderPath(null));
   }, [native, desktop]);
 
   const choose = async (kind: 'local' | 'folder') => {
@@ -31,20 +32,26 @@ export const StorageSettings: React.FC = () => {
       setInfo(next);
       if (next.kind === 'folder') {
         const r = await callNative('system.syncLapFiles', {});
-        setNote(r.error ? { ok: false, text: r.error } : { ok: true, text: t(`フォルダへ ${r.copied} 個のファイルを写しました`, `Copied ${r.copied} files to the folder`) });
+        setNote(r.error
+          ? { ok: false, text: t(`フォルダへ写せませんでした: ${r.error}`, `Could not copy to the folder: ${r.error}`) }
+          : { ok: true, text: t(`フォルダへ ${r.copied} 個のファイルを写しました`, `Copied ${r.copied} files to the folder`) });
       }
     } catch (e) {
       // フォルダを選ぶのをやめたときは何も出さない
       const msg = e instanceof Error ? e.message : (e as { message?: string })?.message ?? String(e);
-      if (msg !== 'cancelled') setNote({ ok: false, text: msg });
+      if (msg !== 'cancelled') setNote({ ok: false, text: t(`保管場所を変えられませんでした: ${msg}`, `Could not change the storage: ${msg}`) });
     } finally {
       setBusy(false);
     }
   };
 
   const pickDesktop = async () => {
-    const p = await window.electronAPI?.laps?.pickFolder();
-    if (p) setFolderPath(p);
+    try {
+      const p = await window.electronAPI?.laps?.pickFolder();
+      if (p) setFolderPath(p);
+    } catch (e) {
+      setNote({ ok: false, text: t(`フォルダを選べませんでした: ${e instanceof Error ? e.message : String(e)}`, `Could not choose the folder: ${e instanceof Error ? e.message : String(e)}`) });
+    }
   };
 
   if (!native && !desktop) return null;
@@ -75,7 +82,7 @@ export const StorageSettings: React.FC = () => {
           </button>
         )}
       </div>
-      {note && <p className={`text-[11px] px-1 ${note.ok ? 'text-slate-400' : 'text-amber-500'}`}>{note.ok ? note.text : t(`フォルダへ写せませんでした: ${note.text}`, `Could not copy to the folder: ${note.text}`)}</p>}
+      {note && <p className={`text-[11px] px-1 ${note.ok ? 'text-slate-400' : 'text-amber-500'}`}>{note.text}</p>}
       <p className="text-[11px] text-slate-500 px-1">
         {native
           ? t('サーキットごとのフォルダが並ぶ場所を選びます。走っている間は、いつもこの iPhone に書き (電波がなくても消えないように)、アプリを閉じたとき・裏に回したときなどに、選んだフォルダへ写します。',

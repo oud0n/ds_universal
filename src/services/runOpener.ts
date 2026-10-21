@@ -294,10 +294,18 @@ export function getOpenRun(): { store: RunStore; item: RunItem } | null {
   return current ? { store: current.store, item: current.item } : null;
 }
 
+/** 控えの書き換えを 1 つずつにする (続けて押したとき、前の書き換えを古い控えで上書きしないように) */
+let lapIndexWrites: Promise<void> = Promise.resolve();
+
 /** 走行の周を隠す・出す (控え laptimes.json に書く。ファイルは消さない) */
-export async function setRunLapHidden(store: RunStore, item: RunItem, lap: LapRecord, hide: boolean): Promise<void> {
-  const path = `${item.folder}/${LAP_INDEX_FILE}`;
-  const index = parseLapIndex(await store.readText(path));
-  if (!index) return;
-  await store.writeText(path, JSON.stringify(setHidden(index, item.file, lap.part, lap.n, hide)));
+export function setRunLapHidden(store: RunStore, item: RunItem, lap: LapRecord, hide: boolean): Promise<void> {
+  const run = async () => {
+    const path = `${item.folder}/${LAP_INDEX_FILE}`;
+    const index = parseLapIndex(await store.readText(path));
+    if (!index) return;
+    await store.writeText(path, JSON.stringify(setHidden(index, item.file, lap.part, lap.n, hide)));
+  };
+  const next = lapIndexWrites.then(run, run);
+  lapIndexWrites = next.catch(() => {});
+  return next;
 }
