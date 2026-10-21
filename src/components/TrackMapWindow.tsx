@@ -10,7 +10,13 @@ import { passesNearPoint } from '../services/lapCalculator';
 import { ZoomIn, ZoomOut, RotateCcw, Eye, Palette, Move, LocateFixed } from 'lucide-react';
 import { getTileImage, MapBackground, TILE_ATTRIBUTION, tilesForView } from '../services/mapTiles';
 import { useLapGeometries } from '../hooks/useLapGeometries';
-import { computeCorrectedLineDelta, computeLineDelta, detectCorners } from '../services/drivingAnalysis';
+import { computeCorrectedLineDelta, computeLineDelta } from '../services/drivingAnalysis';
+import { cornerLabel, useNamedCorners, type NamedCornerOnLap } from '../hooks/useNamedCorners';
+import { carryNames, cornerAt, cornersFromDetection, insertCorner, mergeCorners, newCornerFile, placeCorners, splitCorner, type NamedCorner } from '../services/cornerNames';
+import { saveCourseCorners } from '../services/courseCorners';
+import { canUseRunStore } from '../services/runStore';
+import { CornerEditPanel } from './CornerEditPanel';
+import { PenLine } from 'lucide-react';
 
 const BACKGROUND_STORAGE_KEY = 'ds_map_background';
 const METERS_PER_DEG_LAT = 111320;
@@ -56,6 +62,8 @@ interface TrackMapWindowProps {
   currentTime: number;
   compareAxis: CompareAxis;
   onSeekDistance: (distKm: number) => void;
+  /** Car 1 のコースの名前 (コーナーの名前を出すため) */
+  circuitName?: string;
 }
 
 export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
@@ -67,7 +75,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   currentDistance,
   currentTime,
   compareAxis,
-  onSeekDistance
+  onSeekDistance,
+  circuitName
 }) => {
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
@@ -86,6 +95,13 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 
   const [colorMode, setColorMode] = useState<'car' | 'speed' | 'accel' | 'line'>('car');
   const [showCorners, setShowCorners] = useState(true);
+  // コーナーの編集 (PLAN-27): 直している途中の一覧 (編集していなければ null)・選んでいるコーナー
+  const [cornerDraft, setCornerDraft] = useState<NamedCorner[] | null>(null);
+  const [selectedCorner, setSelectedCorner] = useState<number | null>(null);
+  const [cornerSaving, setCornerSaving] = useState(false);
+  const [cornerError, setCornerError] = useState('');
+  // 押した位置 (ドラッグでなく押しただけかを見る)
+  const downAtRef = useRef<{ x: number; y: number } | null>(null);
   // ラップ間の GPS の位置ずれ (平行移動) を推定して差し引く
   const [correctGpsShift, setCorrectGpsShift] = useState(true);
   const [zoom, setZoom] = useState(1.0);
@@ -124,7 +140,69 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 
   // コーナー番号と、基準車のラインに対する各車両の左右のズレ
   const analysed = useLapGeometries(cars);
-  const corners = useMemo(() => (analysed[0] ? detectCorners(analysed[0].geo) : []), [analysed]);
+  const course = useNamedCorners(analysed[0]?.geo, circuitName);
+  const baseGeo = analysed[0]?.geo;
+  // 地図に出すコーナー (編集中は直している途中のもの)。k は一覧の中の番号
+  const { corners, missingCorners } = useMemo(() => {
+    if (!cornerDraft || !baseGeo) return { corners: course.corners.map((c, k): NamedCornerOnLap & { k: number } => ({ ...c, k })), missingCorners: new Set<number>() };
+    const placed = placeCorners(baseGeo, cornerDraft);
+    const missing = new Set<number>();
+    const list: Array<NamedCornerOnLap & { k: number }> = [];
+    placed.forEach((c, k) => (c ? list.push({ ...c, k }) : missing.add(k)));
+    return { corners: list, missingCorners: missing };
+  }, [cornerDraft, baseGeo, course.corners]);
+  // 直して保存できるのは、保管場所があって、コースのフォルダが分かるときだけ
+  const canEditCorners = !!course.folder && !!baseGeo && canUseRunStore();
+  const startCornerEdit = () => {
+    if (!baseGeo) return;
+    setCornerDraft(course.file?.corners.length ? course.file.corners : cornersFromDetection(baseGeo, course.found));
+    setSelectedCorner(null);
+    setCornerError('');
+    setShowCorners(true);
+  };
+  const saveCornerEdit = async () => {
+    if (!cornerDraft || !course.folder) return;
+    setCornerSaving(true);
+    setCornerError('');
+    try {
+      await saveCourseCorners(course.folder, newCornerFile(course.folder, cornerDraft.map(c => ({ ...c, name: c.name.trim() || '?' })), false));
+      setCornerDraft(null);
+      setSelectedCorner(null);
+    } catch (e) {
+      setCornerError(t(`保存できませんでした: ${e instanceof Error ? e.message : e}`, `Could not save: ${e instanceof Error ? e.message : e}`));
+    } finally {
+      setCornerSaving(false);
+    }
+  };
+  /** 編集中に地図を押したとき: 札の近くならそのコーナーを選び、走行の線の近くならコーナーを足す */
+  const handleMapTap = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const down = downAtRef.current;
+    if (!cornerDraft || !baseGeo || !baseCar || !down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return;
+    const layout = layoutRef.current;
+    if (!layout) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const { width, height, latMid, lonMid, cosLat, baseScale, pan } = layout;
+    const toScreen = (lat: number, lon: number) => ({ x: width / 2 + (lon - lonMid) * cosLat * baseScale + pan.x, y: height / 2 - (lat - latMid) * baseScale + pan.y });
+    for (const c of corners) {
+      const p = baseCar.lap.points[c.apexIndex];
+      if (!p) continue;
+      const q = toScreen(p.latitude, p.longitude);
+      // 名札は頂点の 14px 上に描く (描くところと同じ位置で当たりを見る)
+      if (Math.hypot(q.x - x, q.y - 14 - y) < 16) { setSelectedCorner(c.k); return; }
+    }
+    let best = -1, bestD = 24;
+    baseCar.lap.points.forEach((p, i) => {
+      const q = toScreen(p.latitude, p.longitude);
+      const d = Math.hypot(q.x - x, q.y - y);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    if (best < 0) { setSelectedCorner(null); return; }
+    const added = cornerAt(baseGeo, best, `C${cornerDraft.length + 1}`);
+    const next = insertCorner(cornerDraft, added, baseGeo);
+    setCornerDraft(next);
+    setSelectedCorner(next.indexOf(added));
+  };
   const lineDeltas = useMemo(() => {
     if (colorMode !== 'line' || analysed.length < 2) return [];
     return analysed.slice(1).map(car => ({
@@ -336,12 +414,14 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     const geoWidth = (bounds.maxLon - bounds.minLon) * cosLat;
     const geoHeight = bounds.maxLat - bounds.minLat;
 
-    const scaleX = (width * 0.85) / geoWidth;
+    // コーナーの編集中は、右の一覧に隠れない左の部分にコースを収める (一覧の幅 + 余白)
+    const editPanelW = cornerDraft ? Math.min(224, width * 0.48) + 8 : 0;
+    const scaleX = ((width - editPanelW) * 0.85) / geoWidth;
     const scaleY = (height * 0.85) / geoHeight;
     const baseScale = Math.min(scaleX, scaleY) * zoom;
 
     // 追従中は、基準車の現在位置が画面の中央に来るように平行移動量を決める
-    let pan = panOffset;
+    let pan = editPanelW ? { x: panOffset.x - editPanelW / 2, y: panOffset.y } : panOffset;
     const basePts = cars[0]?.lap.points;
     if (isFollowing && basePts && basePts.length > 0) {
       const p = findCarPoint(basePts, compareAxis, currentDistance, currentTime) || basePts[0];
@@ -623,18 +703,41 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         const p = baseCar.lap.points[c.apexIndex];
         if (!p) continue;
         const pos = toScreen(p.latitude, p.longitude);
-        ctx.fillStyle = '#0f1117d0';
+        // 名前の長さに合わせた札 (「ダンロップ」などの名前も入るように)
+        const label = cornerLabel(c);
+        const w = Math.max(18, ctx.measureText(label).width + 8);
+        const picked = cornerDraft !== null && c.k === selectedCorner;
+        if (picked) {
+          // 選んだコーナーの範囲 (入口から出口まで) を太く
+          ctx.strokeStyle = '#f59e0b';
+          ctx.lineWidth = 6;
+          ctx.beginPath();
+          for (let i = c.startIndex; i <= c.endIndex; i++) {
+            const q = baseCar.lap.points[i];
+            if (!q) continue;
+            const s = toScreen(q.latitude, q.longitude);
+            if (i === c.startIndex) ctx.moveTo(s.x, s.y); else ctx.lineTo(s.x, s.y);
+          }
+          ctx.stroke();
+        }
+        ctx.fillStyle = picked ? '#f59e0b' : '#0f1117d0';
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y - 14, 9, 0, Math.PI * 2);
+        ctx.roundRect(pos.x - w / 2, pos.y - 23, w, 18, 9);
         ctx.fill();
-        ctx.fillStyle = '#fbbf24';
-        ctx.fillText(`C${c.number}`, pos.x, pos.y - 14);
+        // 縁取り (暗いテーマ・暗い航空写真の上でも札が見えるように)
+        if (!picked) {
+          ctx.strokeStyle = '#fbbf2499';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+        ctx.fillStyle = picked ? '#0f1117' : '#fbbf24';
+        ctx.fillText(label, pos.x, pos.y - 14);
       }
     }
 
     layoutRef.current = { width, height, latMid, lonMid, cosLat, baseScale, pan };
     drawCars();
-  }, [cars, controlLine, finishLine, sectors, pathPolylines, followPosition, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick, dpr, theme, lang]);
+  }, [cars, controlLine, finishLine, sectors, pathPolylines, followPosition, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, selectedCorner, cornerDraft, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick, dpr, theme, lang]);
 
   // パン操作 (ドラッグ)
   // ドラッグの状態は、同じイベントの中で続けて読めるよう ref で持つ (タッチは動かしたときに押下と移動が続けて届くため)
@@ -714,7 +817,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
       {/* 狭いときはボタン単位で折り返す (文字の途中で折れないよう nowrap)。見出しは出さない (切り替えのないウインドウなので) */}
-      <div className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-1 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0 ${compact ? 'px-2 py-1' : 'px-3 py-1.5'}`}>
+      <div className={`touch-toolbar flex flex-wrap items-center justify-between gap-x-2 gap-y-1 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0 ${compact ? 'px-2 py-1' : 'px-3 py-1.5'}`}>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
 
           {/* カラーモード切替 */}
@@ -762,6 +865,17 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
           >
             {compact ? t('コーナー', 'Corners') : t('コーナー番号', 'Corner numbers')}
           </button>
+          {canEditCorners && !cornerDraft && (
+            <button
+              onClick={startCornerEdit}
+              title={t('コーナーの名前を付ける・まとめる・分ける (コースのフォルダの corners.json に保存)', 'Name, merge or split corners (saved to corners.json in the course folder)')}
+              className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border border-line-3 text-slate-400 hover:text-slate-200"
+              data-testid="corner-edit"
+            >
+              <PenLine size={11} />
+              {compact ? t('編集', 'Edit') : t('コーナーの編集', 'Edit corners')}
+            </button>
+          )}
           <select
             value={background}
             onChange={e => handleSelectBackground(e.target.value as MapBackground)}
@@ -834,11 +948,31 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         <canvas
           ref={canvasRef}
           {...pointerHandlers}
+          onPointerDownCapture={e => { downAtRef.current = { x: e.clientX, y: e.clientY }; }}
+          onClick={handleMapTap}
           onWheel={handleWheel}
           className={`w-full h-full block touch-none ${isAdjustingMap ? 'cursor-move' : 'cursor-grab active:cursor-grabbing'}`}
         />
         {/* 車両の現在位置 (操作は下の canvas が受ける) */}
         <canvas ref={carCanvasRef} className="absolute inset-0 pointer-events-none block" />
+
+        {cornerDraft && baseGeo && (
+          <CornerEditPanel
+            draft={cornerDraft}
+            missing={missingCorners}
+            selected={selectedCorner}
+            onSelect={setSelectedCorner}
+            onRename={(k, name) => setCornerDraft(d => d && d.map((c, i) => (i === k ? { ...c, name } : c)))}
+            onMerge={k => { setCornerDraft(d => d && mergeCorners(d, k, d[k].name)); setSelectedCorner(k); }}
+            onSplit={k => setCornerDraft(d => d && splitCorner(d, k, baseGeo))}
+            onDelete={k => { setCornerDraft(d => d && d.filter((_, i) => i !== k)); setSelectedCorner(null); }}
+            onRedetect={() => { setCornerDraft(d => carryNames(cornersFromDetection(baseGeo, course.found), d ?? [])); setSelectedCorner(null); }}
+            onSave={() => void saveCornerEdit()}
+            onCancel={() => { setCornerDraft(null); setSelectedCorner(null); }}
+            saving={cornerSaving}
+            error={cornerError}
+          />
+        )}
 
         {/* 地図の位置調整中の案内 */}
         {isAdjustingMap && (

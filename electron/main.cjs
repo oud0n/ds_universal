@@ -12,7 +12,8 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist');
 // アプリ名を「DS Universal Suite」から「DS Universal」、さらに「LapLoupe」に変えたので、データ (保存したユーザーコース・設定など) の
 // 保存先は前の名前のフォルダを使い続ける (名前に合わせて変わると、更新した人のデータが引き継がれないため)。
 // 開発中 (npm run electron:dev など、パッケージしていないとき) は従来どおり
-if (app.isPackaged) {
+// 起動のときに --user-data-dir で置き場所を指定したとき (試験など) は、その置き場所を使う
+if (app.isPackaged && !app.commandLine.hasSwitch('user-data-dir')) {
   app.setPath('userData', path.join(app.getPath('appData'), 'DS Universal Suite'));
 }
 
@@ -415,7 +416,7 @@ function loadLapFolder() {
   return lapFolder || null;
 }
 /** 控えとして読み書きしてよいファイルの名前と、読む大きさの上限 */
-const LAP_TEXT_NAMES = new Set(['laptimes.json', 'runs.json']);
+const LAP_TEXT_NAMES = new Set(['laptimes.json', 'runs.json', 'corners.json', 'corners.json.bak']);
 const MAX_LAP_TEXT_BYTES = 20 * 1024 * 1024;
 /**
  * 保管場所からの道を、保管場所の中の実際の場所にする (外へ出る道は断る)。
@@ -527,6 +528,59 @@ ipcMain.handle('laps-write-text', async (_event, rel, text) => {
     await fs.promises.rename(tmp, full);
     return { success: true };
   } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// 取り込み (2026-10-21): 走行のファイルを新しく書く。上書きはしない (もうあれば exists)。
+// 書けるのは走行の形式 (.nmea・.bon4・.csv) と、取り込み元/ の下の元のログだけ
+const IMPORT_EXTS = new Set(['.nmea', '.bon4', '.csv']);
+const IMPORT_SOURCE_EXTS = new Set(['.nmea', '.bon4', '.bnx4', '.bon', '.binx', '.dtb', '.csv', '.txt', '.vbo', '.gpx', '.tcx', '.fit', '.log', '.xrk', '.xrz', '.ibt']);
+const MAX_IMPORT_BYTES = 512 * 1024 * 1024;
+/**
+ * 書く先の道 (まだないフォルダの中でもよい)。いちばん近い、もうあるフォルダの本当の場所で、保管場所の中かを確かめる
+ * (つないだ先 (シンボリックリンク) で保管場所の外へ出ないように)
+ */
+async function lapPathForWrite(rel) {
+  const root = loadLapFolder();
+  if (!root || typeof rel !== 'string' || !rel || path.isAbsolute(rel)) return null;
+  let realRoot;
+  try {
+    realRoot = await fs.promises.realpath(root);
+  } catch {
+    return null;
+  }
+  const prefix = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep;
+  const full = path.resolve(realRoot, rel);
+  if (!full.startsWith(prefix)) return null;
+  const rest = [];
+  let dir = path.dirname(full);
+  for (;;) {
+    try {
+      const realDir = await fs.promises.realpath(dir);
+      const real = path.join(realDir, ...rest, path.basename(full));
+      return (realDir === realRoot || realDir.startsWith(prefix)) && real.startsWith(prefix) ? real : null;
+    } catch {
+      if (dir.length <= realRoot.length) return null;
+      rest.unshift(path.basename(dir));
+      dir = path.dirname(dir);
+    }
+  }
+}
+ipcMain.handle('laps-write-file', async (_event, rel, data) => {
+  const full = await lapPathForWrite(rel);
+  const ext = full ? path.extname(full).toLowerCase() : '';
+  // 取り込み元/ は、その直下のファイルだけ (「取り込み元/../」で外へ出ないように)
+  const isSource = typeof rel === 'string' && /^取り込み元\/[^/\\]+$/.test(rel) && !rel.includes('..');
+  if (!full || !(isSource ? IMPORT_SOURCE_EXTS.has(ext) : IMPORT_EXTS.has(ext))) return { success: false, error: 'not allowed' };
+  if (!(data instanceof Uint8Array) || data.byteLength > MAX_IMPORT_BYTES) return { success: false, error: 'not allowed' };
+  try {
+    await fs.promises.mkdir(path.dirname(full), { recursive: true });
+    // wx: もうあれば失敗する (上書きしない)
+    await fs.promises.writeFile(full, data, { flag: 'wx' });
+    return { success: true };
+  } catch (err) {
+    if (err && err.code === 'EEXIST') return { success: false, error: 'exists' };
     return { success: false, error: err.message };
   }
 });

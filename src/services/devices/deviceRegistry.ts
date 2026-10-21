@@ -5,12 +5,13 @@
  * デジスパイスは今までどおり bleLoggerLink が受け持つので、ここには入れない
  */
 
-export type DeviceKind = 'racebox' | 'hr' | 'obd' | 'gopro';
+export type DeviceKind = 'racebox' | 'drogger' | 'hr' | 'obd' | 'gopro';
 /** 機器の登録の画面のタブ */
 export type DeviceGenre = 'position' | 'sensor' | 'camera';
 
 export const DEVICE_KINDS: Record<DeviceKind, { genre: DeviceGenre; ja: string; en: string; defaultFile: string }> = {
   racebox: { genre: 'position', ja: 'RaceBox', en: 'RaceBox', defaultFile: 'racebox' },
+  drogger: { genre: 'position', ja: 'Drogger', en: 'Drogger', defaultFile: 'drogger' },
   hr: { genre: 'sensor', ja: '心拍計', en: 'Heart rate monitor', defaultFile: 'hr' },
   obd: { genre: 'sensor', ja: 'OBD-II', en: 'OBD-II', defaultFile: 'obd' },
   gopro: { genre: 'camera', ja: 'GoPro', en: 'GoPro', defaultFile: 'gopro' }

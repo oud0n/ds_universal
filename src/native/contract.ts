@@ -152,6 +152,18 @@ export interface NativeMethods {
    */
   'system.keepAwake': { params: { on: boolean }; result: Record<string, never> };
   /**
+   * 画面の向き (ラップタイマー)。2026-10-21 に足した。版は 1 のまま (前のアプリは not-supported を返し、Web は何もしない)。
+   * system = ふつう (端末の回転と画面の向きのロックに従う)、auto = 傾き (重力の向き) で縦横を決める (画面の向きのロックが入っていても)、
+   * portrait / landscape = その向きに固める (横は傾きで左右を選ぶ)、hold = 今の向きのまま固める (測っている間)
+   */
+  /**
+   * iPhone の G センサーを読み始める・やめる (ラップタイマーで測っている間)。値は知らせ system.motion で 0.5 秒ごとにまとめて来る。
+   * 2026-10-21 に足した。版は 1 のまま (前のアプリは not-supported を返し、Web は記録しない)
+   */
+  'system.motionStart': { params: { hz: number }; result: Record<string, never> };
+  'system.motionStop': { params: Record<string, never>; result: Record<string, never> };
+  'system.setOrientation': { params: { mode: 'system' | 'auto' | 'portrait' | 'landscape' | 'hold' }; result: { orientation: 'portrait' | 'landscape' } };
+  /**
    * アプリの書類のフォルダの LapTimer/ の下のファイルに、バイト列 (base64) を足す (ラップタイマーの走行の記録を、走っている間に書くため)。
    * truncate なら、はじめから書き直す。ファイルは「ファイル」アプリの「このiPhone内 → このアプリ → LapTimer」に出る。
    * 2026-10-20 に足した。版は 1 のまま (前のアプリは not-supported を返し、Web はブラウザの中のデータベースにだけ保存する)
@@ -224,4 +236,13 @@ export interface NativeEvents {
   'ble.state': BleStateEvent;
   'ble.notify': BleNotifyEvent;
   'system.appState': { state: 'active' | 'background' };
+  /** G センサーの値 (列ごとの配列。t: UTC ミリ秒、g*: 重力の向き、u*: 重力を除いた加速度 (G)、r*: 回転の速さ (rad/s)。端末の向きのまま) */
+  'system.motion': MotionBatch;
+}
+
+export interface MotionBatch {
+  t: number[];
+  gx: number[]; gy: number[]; gz: number[];
+  ux: number[]; uy: number[]; uz: number[];
+  rx: number[]; ry: number[]; rz: number[];
 }

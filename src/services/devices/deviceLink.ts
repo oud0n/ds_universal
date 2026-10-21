@@ -12,6 +12,7 @@ import type { BleCentral, BleLinkState, BleNotification, GattCharacteristicRef }
 import type { LiveFix } from '../liveLapTimer';
 import type { RegisteredDevice } from './deviceRegistry';
 import { RACEBOX_TX_CHARACTERISTIC, RACEBOX_UART_SERVICE, RaceboxStream } from './raceboxProtocol';
+import { DROGGER_DATA_CHARACTERISTIC, DROGGER_SERVICE, DroggerStream } from './droggerProtocol';
 import { HEART_RATE_MEASUREMENT, HEART_RATE_SERVICE, parseHeartRate } from './heartRateProtocol';
 import { Elm327Client, OBD_BLE_PROFILES } from './obdElm327';
 import {
@@ -38,6 +39,7 @@ export class DeviceLink {
   private obd: Elm327Client | null = null;
   private obdProfile = 0;
   private raceboxStream = new RaceboxStream();
+  private droggerStream = new DroggerStream();
   private goproAsm = new Map<string, GoProAssembler>();
   private closed = false;
 
@@ -71,6 +73,7 @@ export class DeviceLink {
   private notifyRefs(): GattCharacteristicRef[] {
     switch (this.device.kind) {
       case 'racebox': return [{ service: RACEBOX_UART_SERVICE, characteristic: RACEBOX_TX_CHARACTERISTIC }];
+      case 'drogger': return [{ service: DROGGER_SERVICE, characteristic: DROGGER_DATA_CHARACTERISTIC }];
       case 'hr': return [{ service: HEART_RATE_SERVICE, characteristic: HEART_RATE_MEASUREMENT }];
       case 'obd': {
         const p = OBD_BLE_PROFILES[this.obdProfile];
@@ -92,7 +95,8 @@ export class DeviceLink {
       setTimeout(() => {
         if (this.closed || this.state === 'connected' || this.obdProfile !== tried || tried + 1 >= OBD_BLE_PROFILES.length) return;
         this.obdProfile = tried + 1;
-        void this.central.disconnect(this.device.id).then(() => this.connect());
+        // 切っている間に利用者が切った (閉じた) ときは、つなぎ直さない
+        void this.central.disconnect(this.device.id).then(() => { if (!this.closed) void this.connect(); });
       }, OBD_PROFILE_WAIT_MS);
     }
   }
@@ -127,7 +131,8 @@ export class DeviceLink {
         sample => this.emit({ type: 'values', tMs: sample.tMs, values: { [sample.key]: sample.value } }),
         this.now
       );
-      void this.obd.start();
+      // 書けない (つながりが切れた) ときは、次につながったときにまた始める
+      void this.obd.start().catch(() => {});
     }
     if (this.device.kind === 'gopro') {
       this.stopTimers();
@@ -148,6 +153,15 @@ export class DeviceLink {
               type: 'fix',
               fix: { tMs: s.tMs, latitude: s.latitude, longitude: s.longitude, speedKmh: s.speedKmh, altitude: s.altitude, valid: s.valid },
               values: { g_x: s.gX, g_y: s.gY, g_z: s.gZ, roll_dps: s.rollRate, pitch_dps: s.pitchRate, yaw_dps: s.yawRate, satellites: s.satellites, ...(s.battery ? { battery_pct: s.battery.percent } : {}) }
+            });
+          }
+          break;
+        case 'drogger':
+          for (const f of this.droggerStream.push(it.bytes)) {
+            this.emit({
+              type: 'fix',
+              fix: { tMs: f.tMs, latitude: f.latitude, longitude: f.longitude, speedKmh: f.speedKmh, altitude: f.altitude, valid: f.valid },
+              values: { ...(f.satellites !== undefined ? { satellites: f.satellites } : {}), ...(f.quality !== undefined ? { fix_quality: f.quality } : {}) }
             });
           }
           break;

@@ -13,6 +13,7 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     # 開発中に読み込む Web (Mac の開発サーバー)。作るときの環境変数で渡す (例: DS_WEB_URL=http://192.168.1.13:5192/ xcodegen)。
     # 空なら公開版のページを読む。IP アドレスは人ごとに違うので、ここには書かない
+    # (Mac の開発サーバーを LAN で読むには、Info.plist に NSLocalNetworkUsageDescription が要る。配る版の審査のため外したので、使うときだけ足す)
     DS_WEB_URL: "${DS_WEB_URL}"
     # 署名のチーム (Xcode の Accounts に入れた Apple ID のチーム ID)。作るときの環境変数で渡す (例: DS_TEAM_ID=ABCDE12345 xcodegen)。
     # 人ごとに違うので、ここには書かない
