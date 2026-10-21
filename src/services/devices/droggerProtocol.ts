@@ -46,10 +46,15 @@ function toDeg(v: string, hemi: string): number | null {
   return hemi === 'S' || hemi === 'W' ? -d : d;
 }
 
+/** hhmmss.ss を、その日の秒に */
+function todSec(tod: string): number {
+  return Number(tod.slice(0, 2)) * 3600 + Number(tod.slice(2, 4)) * 60 + parseFloat(tod.slice(4));
+}
+
 /** 届いたバイトを文に組み立て、測位にする */
 export class DroggerStream {
   private buf = '';
-  private gga: { tod: string; altitude?: number; satellites?: number; quality?: number } | null = null;
+  private gga: { sec: number; altitude?: number; satellites?: number; quality?: number } | null = null;
   private decoder = new TextDecoder('ascii');
 
   push(bytes: Uint8Array): DroggerFix[] {
@@ -82,7 +87,7 @@ export class DroggerStream {
       const sats = parseInt(parts[7], 10);
       const q = parseInt(parts[6], 10);
       this.gga = {
-        tod: parts[1],
+        sec: todSec(parts[1]),
         ...(Number.isFinite(alt) ? { altitude: alt } : {}),
         ...(Number.isFinite(sats) ? { satellites: sats } : {}),
         ...(Number.isFinite(q) ? { quality: q } : {})
@@ -103,8 +108,8 @@ export class DroggerStream {
     if (!Number.isFinite(tMs)) return null;
     const kn = parseFloat(knots);
     const crs = parseFloat(course);
-    // 同じ時刻の GGA があれば、高さ・衛星の数・測位の質を添える
-    const g = this.gga && this.gga.tod === tod ? this.gga : null;
+    // 近い時刻 (1.5 秒以内。RMC と GGA の順や、GGA の方が少ない出し方でも) の GGA の、高さ・衛星の数・測位の質を添える
+    const g = this.gga && Math.abs(((todSec(tod) - this.gga.sec + 43200 + 86400) % 86400) - 43200) <= 1.5 ? this.gga : null;
     return {
       tMs,
       latitude,
