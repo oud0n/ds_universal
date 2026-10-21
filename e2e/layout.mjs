@@ -28,6 +28,21 @@ const MEASURE = `(() => {
       if (tops.size > 1) out.wraps.push(n.textContent.trim().slice(0, 24));
     }
   }
+  // 短いボタンの文字の折り返し (ボタンの名前が 2 行に分かれる)
+  out.btnWraps = [];
+  for (const el of document.querySelectorAll('button')) {
+    if (!vis(el)) continue;
+    const text = el.innerText.trim();
+    if (!text || text.length > 14 || text.includes(String.fromCharCode(10))) continue;
+    // 文字の 1 かたまりが 2 行に分かれているか (アイコンと文字を縦に並べたボタンは数えない)
+    const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = tw.nextNode(); n; n = tw.nextNode()) {
+      if (!n.textContent.trim()) continue;
+      const r = document.createRange(); r.selectNodeContents(n);
+      const tops = new Set([...r.getClientRects()].filter(x => x.width > 0 && x.height > 0).map(x => Math.round(x.top / 4)));
+      if (tops.size > 1) { out.btnWraps.push(text); break; }
+    }
+  }
   // バーの中で、…で切れている文字 (幅が足りない)
   out.cut = [];
   for (const bar of document.querySelectorAll('[data-testid="app-header"],[data-testid="bottom-tabs"],[data-testid="sidebar"]')) {
@@ -74,6 +89,7 @@ export async function sweepLayout(p, label) {
     await p.shot(`layout_${label}_${s}`);
     if (m.header !== null) heights.set(s, m.header);
     if (m.wraps.length) problems.push(`${s}: バーの文字が折り返している「${m.wraps.join('」「')}」`);
+    if (m.btnWraps.length) problems.push(`${s}: ボタンの名前が折り返している「${[...new Set(m.btnWraps)].join('」「')}」`);
     if (m.cut.length) problems.push(`${s}: バーの文字が切れている「${m.cut.join('」「')}」`);
     if (m.clipped.length) problems.push(`${s}: 右の端からはみ出している ${m.clipped.join(', ')}`);
     if (m.small.length) p.notes.push(`${label} ${s}: 小さい押す所 ${m.small.length} 個 (${m.small.slice(0, 4).join(', ')}${m.small.length > 4 ? ' …' : ''})`);

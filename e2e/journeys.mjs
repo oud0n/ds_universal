@@ -427,6 +427,10 @@ export const journeys = [
       await p.click('lap-timer-src-phone');
       await sleep(300);
       await sweepLayout(p, '390x844_app_loaded');
+      // 横にしたとき
+      await p.viewport(844, 390, true);
+      await sleep(800);
+      await sweepLayout(p, '844x390_app_loaded');
     }
   },
   {

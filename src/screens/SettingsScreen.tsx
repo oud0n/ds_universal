@@ -59,7 +59,7 @@ export const SettingsScreen: React.FC<{ plan: NavPlan; onOpenDonate?: () => void
                 role="radio"
                 aria-checked={theme === value}
                 title={t(...label)}
-                className={`flex flex-col items-center gap-1 py-2.5 rounded-lg text-[11px] border cursor-pointer ${
+                className={`flex flex-col items-center gap-1 py-2.5 px-0.5 rounded-lg text-[10px] min-[400px]:text-[11px] whitespace-nowrap border cursor-pointer ${
                   theme === value ? 'bg-surface-5 text-fg border-line-3' : 'text-slate-400 border-line-2 hover:bg-surface-3'
                 }`}
               >
