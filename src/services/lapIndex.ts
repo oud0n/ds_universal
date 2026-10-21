@@ -1,7 +1,9 @@
 /**
  * ラップタイムの一覧 (2026-10-20、PLAN-19)。
  *
- * 記録のフォルダ (保管場所/<サーキットのフォルダ>/) の .bon4 から周を数え、同じフォルダの laptimes.json に控えておく。
+ * 記録のフォルダ (保管場所/<サーキットのフォルダ>/) の走行から周を数え、同じフォルダの laptimes.json に控えておく。
+ * 走行の基準のファイルは .nmea (2026-10-21 から。どの機器の記録も同じ形で、ほかのアプリでも読めるため)。.nmea のない走行 (前の記録・
+ * デジスパイスから吸い出しただけのもの) は .bon4 で数える。同じ名前の .nmea と .bon4 は 1 つの走行
  * 一覧を開くたびにフォルダと控えを照らし合わせ、増えた・変わったファイルだけ計算し、消えたファイルの周は控えから消す。
  * コースの計測線・セクター線を直したとき (コースのハッシュが変わったとき) は、そのフォルダの周を全部計算し直す。
  * 周の非表示は控えにだけ書く (ファイルは消さない)。計算し直しても、同じファイルの同じ時刻の周に引き継ぐ。
@@ -10,7 +12,8 @@
  */
 
 import type { ControlLine, Sector, TelemetryPoint } from '../types/telemetry';
-import { parseDigispiceRawBinary } from './rawBinaryParser';
+import { parseDigispiceRawBinary, SESSION_GAP_SEC } from './rawBinaryParser';
+import { parseNmea } from './nmeaParser';
 import { extractLaps } from './lapCalculator';
 
 /** 記録のフォルダのファイル (path は保管場所からの道。例: sodegaura/20261024100000.bon4) */
@@ -18,7 +21,12 @@ export interface LapFileInfo {
   path: string;
   size: number;
   mtimeMs: number;
+  /** false = iCloud にだけあって、この端末にまだない (読むと落としてくる)。分からなければ省く */
+  local?: boolean;
 }
+
+/** 控えを作る途中で、何本読むごとに途中までの控えを書くか (数千本を読む途中でアプリが閉じても、やり直しを減らす) */
+export const LAP_INDEX_CHECKPOINT = 20;
 
 /** ファイルの読み書き (iPhone のアプリ・デスクトップ版で別々に用意する) */
 export interface LapFileStore {
@@ -79,6 +87,14 @@ export interface LapIndex {
 }
 
 export const LAP_INDEX_FILE = 'laptimes.json';
+
+/** 控え (laptimes.json) の書き換えを 1 つずつにする (周を隠す操作と、控えの作り直しが、互いの書き換えを古い中身で上書きしないように) */
+let lapIndexWrites: Promise<void> = Promise.resolve();
+export function queueLapIndexWrite(fn: () => Promise<void>): Promise<void> {
+  const next = lapIndexWrites.then(fn, fn);
+  lapIndexWrites = next.catch(() => {});
+  return next;
+}
 /** 走行に付けられる動画の拡張子 */
 const VIDEO_EXT = /\.(mp4|mov|m4v|lrv|insv|mkv|webm)$/i;
 
@@ -119,7 +135,36 @@ export function courseHash(course: Pick<LapCourse, 'controlLine' | 'sectors'>): 
 /** .bon4 から周を数える (計測線で区切れた周だけ。ログ全体や途中で終わった周は入れない) */
 export function lapsFromBon4(name: string, bytes: Uint8Array, course: LapCourse): { startMs: number | null; laps: LapRecord[] } {
   const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  const parts = parseDigispiceRawBinary(name, buffer);
+  return lapsFromParts(parseDigispiceRawBinary(name, buffer).map(p => p.points as TelemetryPoint[]), course);
+}
+
+/**
+ * .nmea から周を数える。.bon4 と同じく、記録の空き (SESSION_GAP_SEC 以上) で走行を分ける (分けた番号 part を .bon4 とそろえ、
+ * 隠した周の印を引き継げるように)
+ */
+export function lapsFromNmea(name: string, bytes: Uint8Array, course: LapCourse): { startMs: number | null; laps: LapRecord[] } {
+  const { points } = parseNmea(new TextDecoder().decode(bytes), name);
+  const parts: TelemetryPoint[][] = [];
+  for (const p of points) {
+    const cur = parts[parts.length - 1];
+    if (cur && p.time - cur[cur.length - 1].time < SESSION_GAP_SEC) cur.push(p);
+    else parts.push([p]);
+  }
+  return lapsFromParts(parts, course);
+}
+
+/** 走行のファイルから周を数える (.nmea か .bon4) */
+export function lapsFromFile(name: string, bytes: Uint8Array, course: LapCourse): { startMs: number | null; laps: LapRecord[] } {
+  return /\.nmea$/i.test(name) ? lapsFromNmea(name, bytes, course) : lapsFromBon4(name, bytes, course);
+}
+
+/** 走行の名前 (日付のフォルダ・拡張子を除く)。同じ名前の .nmea と .bon4 は同じ走行 */
+export function runStem(file: string): string {
+  return file.slice(file.lastIndexOf('/') + 1).replace(/\.(nmea|bon4)$/i, '');
+}
+
+function lapsFromParts(pointParts: TelemetryPoint[][], course: LapCourse): { startMs: number | null; laps: LapRecord[] } {
+  const parts = pointParts.map(points => ({ points }));
   const laps: LapRecord[] = [];
   let startMs: number | null = null;
   parts.forEach((part, pi) => {
@@ -157,12 +202,22 @@ export function parseLapIndex(text: string | null): LapIndex | null {
   }
 }
 
+/** 同じ走行 (名前が同じで、日付のフォルダ・形式が違う) の控え */
+function sameRunRecord(files: Record<string, LapFileRecord>, name: string): LapFileRecord | undefined {
+  const stem = runStem(name);
+  const dir = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
+  // 同じ日付のフォルダ (か、日付のフォルダへ移す前の、フォルダのないもの) の同じ名前だけ。ほかの日の同じ名前の走行と混ぜない
+  const key = Object.keys(files).find(k => k !== name && runStem(k) === stem && (dir(k) === dir(name) || dir(k) === ''));
+  return key ? files[key] : undefined;
+}
+
 /** 非表示の印を、計算し直した周へ引き継ぐ (同じファイルで、始まりの時刻がいちばん近い周。SAME_LAP_MS より離れていれば捨てる) */
 function carryHidden(hidden: HiddenLap[], files: Record<string, LapFileRecord>): HiddenLap[] {
   const out: HiddenLap[] = [];
   for (const h0 of hidden) {
     // 日付のフォルダへ移したファイル (前はファイルの名前だけ) にも引き継ぐ
-    const moved = files[h0.file] ? h0.file : Object.keys(files).find(k => k.endsWith(`/${h0.file}`));
+    // 日付のフォルダへ移した・.bon4 から .nmea に基準を替えた走行にも引き継ぐ (同じ走行の名前で探す)
+    const moved = files[h0.file] ? h0.file : Object.keys(files).find(k => runStem(k) === runStem(h0.file));
     const h = moved && moved !== h0.file ? { ...h0, file: moved } : h0;
     const laps = files[h.file]?.laps ?? [];
     let best: LapRecord | null = null;
@@ -184,23 +239,37 @@ export async function reconcileFolder(
   course: LapCourse,
   prev: LapIndex | null,
   read: (path: string) => Promise<Uint8Array>,
-  compute: (name: string, bytes: Uint8Array, course: LapCourse) => { startMs: number | null; laps: LapRecord[] } = lapsFromBon4
+  compute: (name: string, bytes: Uint8Array, course: LapCourse) => { startMs: number | null; laps: LapRecord[] } = lapsFromFile,
+  /** 途中までの控え (LAP_INDEX_CHECKPOINT 本読むごと)。書いておけば、途中で閉じても次はその続きから読む */
+  onCheckpoint?: (partial: LapIndex) => Promise<void>
 ): Promise<{ index: LapIndex; changed: boolean; computed: number }> {
   const hash = courseHash(course);
   const sameCourse = prev?.courseHash === hash;
   const next: Record<string, LapFileRecord> = {};
   let changed = !prev || !sameCourse || prev.courseName !== course.name;
   let computed = 0;
+  // 数えずに飛ばした走行 (iCloud にだけあって控えもないもの)。隠した周の印は、数えるまでそのまま残す
+  const skipped: string[] = [];
+  const names = new Set(files.map(f => f.path.slice(folder.length + 1)));
   for (const f of files) {
     const name = f.path.slice(folder.length + 1);
     // 日付のフォルダへ移したファイルは、前の名前 (ファイルの名前だけ) の控えを使う
-    const old = sameCourse ? prev?.files[name] ?? prev?.files[name.slice(name.lastIndexOf('/') + 1)] : undefined;
+    // 前の控えは、同じ道 → 日付のフォルダへ移す前の名前 → 同じ走行のもう一方の形式 (.bon4 で数えていた走行を .nmea で数え直すとき) の順に探す
+    const prevRec = prev?.files[name] ?? prev?.files[name.slice(name.lastIndexOf('/') + 1)] ?? (prev ? sameRunRecord(prev.files, name) : undefined);
+    const old = sameCourse ? prevRec : undefined;
     if (old && old.size === f.size && old.mtimeMs === f.mtimeMs) {
       next[name] = old;
       continue;
     }
+    // iCloud にだけあるファイルは、周を数えるために落としてこない (数千本あると、携帯の回線で何 GB にもなる)。
+    // 前の控えがあればそのまま使い、なければ「まだ数えていない」として控えに入れない (開いたときに落ちてきて、次に数える)
+    if (f.local === false) {
+      if (old) next[name] = old;
+      else skipped.push(name);
+      continue;
+    }
     // 動画は計算では作れないので、前の控えから引き継ぐ (コースを直したときも)
-    const videos = prev?.files[name]?.videos;
+    const videos = prevRec?.videos;
     const keep = videos?.length ? { videos } : {};
     try {
       const { startMs, laps } = compute(name, await read(f.path), course);
@@ -208,14 +277,25 @@ export async function reconcileFolder(
     } catch {
       // 読めなかったら、前の控えがあればそのまま残す (隠した周の印を消さない。大きさが違うままなので、次に開いたときに読み直す)。
       // 前の控えが無ければ、周なしで覚えておく (壊れたファイルを毎回読み直さないように。ファイルが変われば読み直す)
-      const before = prev?.files[name];
-      next[name] = before ?? { size: f.size, mtimeMs: f.mtimeMs, startMs: null, laps: [], ...keep };
+      next[name] = prevRec ?? { size: f.size, mtimeMs: f.mtimeMs, startMs: null, laps: [], ...keep };
     }
     computed++;
     changed = true;
+    if (onCheckpoint && computed % LAP_INDEX_CHECKPOINT === 0) {
+      // 途中まで: 読み終えた分と、前の控え (同じコースのもの) を合わせる。隠した周の印は前のまま (まだ読んでいない走行の印を消さない)
+      // 前の控えは、今あるファイルの分だけ (消したファイルを途中の控えに戻さない)
+      const partial: Record<string, LapFileRecord> = {};
+      if (sameCourse && prev) for (const [k, v] of Object.entries(prev.files)) if (names.has(k)) partial[k] = v;
+      await onCheckpoint({ version: 1, courseHash: hash, courseName: course.name, files: { ...partial, ...next }, hidden: prev?.hidden ?? [] }).catch(() => {});
+    }
   }
   if (prev && Object.keys(prev.files).some(k => !(k in next))) changed = true;
   const hidden = carryHidden(prev?.hidden ?? [], next);
+  // 数えずに飛ばした走行の印は、そのまま残す (日付のフォルダへ移した名前にして)
+  for (const h of prev?.hidden ?? []) {
+    const to = skipped.find(k => k === h.file || runStem(k) === runStem(h.file));
+    if (to && !hidden.some(o => o.file === to && o.part === h.part && o.n === h.n)) hidden.push({ ...h, file: to });
+  }
   if (prev && hidden.length !== prev.hidden.length) changed = true;
   return { index: { version: 1, courseHash: hash, courseName: course.name, files: next, hidden }, changed, computed };
 }
@@ -262,15 +342,38 @@ export function videosInFolder(files: LapFileInfo[], folder: string): string[] {
 }
 
 /**
- * フォルダ分けした .bon4。保管場所/<サーキットのフォルダ>/<日付 YYYYMMDD>/<ファイル>.bon4 (2026-10-20 から) と、
- * 日付のフォルダのない 保管場所/<サーキットのフォルダ>/<ファイル>.bon4 (それより前) の両方を数える。ほかの階層・形式は数えない
+ * フォルダ分けした走行の基準のファイル。保管場所/<サーキットのフォルダ>/<日付 YYYYMMDD>/<走行>.nmea|.bon4 (2026-10-20 から) と、
+ * 日付のフォルダのない 保管場所/<サーキットのフォルダ>/<走行>.nmea|.bon4 (それより前) の両方を数える。ほかの階層・形式は数えない。
+ * 同じフォルダに同じ名前の .nmea と .bon4 があれば .nmea を基準にする (2026-10-21)
  */
-export function groupBon4ByFolder(files: LapFileInfo[]): Map<string, LapFileInfo[]> {
+/** 走行を置かないフォルダ (保管場所の直下) */
+export const NON_RUN_FOLDERS: ReadonlySet<string> = new Set(['取り込み元', 'exports']);
+
+export function groupRunsByFolder(files: LapFileInfo[]): Map<string, LapFileInfo[]> {
   const out = new Map<string, LapFileInfo[]>();
+  const chosen = new Map<string, LapFileInfo>();
   for (const f of files) {
-    const m = /^([^/]+)\/((?:\d{8}\/)?[^/]+\.bon4)$/i.exec(f.path);
-    if (!m) continue;
-    out.set(m[1], [...(out.get(m[1]) ?? []), f]);
+    const m = /^([^/]+)\/((?:\d{8}\/)?[^/]+)\.(nmea|bon4)$/i.exec(f.path);
+    // 取り込んだ元のログ (取り込み元/)・共有のための書き出し (exports/) は走行ではない
+    if (!m || NON_RUN_FOLDERS.has(m[1])) continue;
+    const key = `${m[1]}/${m[2]}`;
+    const cur = chosen.get(key);
+    // .nmea を選ぶ。ただし .nmea が iCloud にだけあり .bon4 がこの端末にあるときは、落とさずに数えられる .bon4 を選ぶ
+    const better = (a: LapFileInfo, b: LapFileInfo) => {
+      const an = /\.nmea$/i.test(a.path), bn = /\.nmea$/i.test(b.path);
+      if (an === bn) return false;
+      if ((a.local ?? true) !== (b.local ?? true)) return a.local ?? true;
+      return an;
+    };
+    if (!cur || better(f, cur)) chosen.set(key, f);
+  }
+  for (const f of chosen.values()) {
+    const folder = f.path.slice(0, f.path.indexOf('/'));
+    const list = out.get(folder);
+    if (list) list.push(f); else out.set(folder, [f]);
   }
   return out;
 }
+
+/** 前の名前 (.bon4 だけを数えていたころ)。今は .nmea も数える */
+export const groupBon4ByFolder = groupRunsByFolder;

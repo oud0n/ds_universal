@@ -10,7 +10,7 @@
 
 import type { Session } from '../types/telemetry';
 import { loadLapHistory } from './lapHistory';
-import { isRunVideoName, lapKey } from './lapIndex';
+import { LAP_INDEX_FILE, groupRunsByFolder, queueLapIndexWrite, isRunVideoName, lapKey, parseLapIndex, runStem, setHidden, type LapRecord } from './lapIndex';
 import { readRunsFile, updateRun, type RunEntry } from './runsFile';
 import type { RunFileInfo, RunStore } from './runStore';
 import { parseVideoMetadata } from './videoMetadataParser';
@@ -36,6 +36,10 @@ export interface RunItem {
   synced: boolean;
   /** 同じフォルダの動画 */
   folderVideos: RunFileInfo[];
+  /** 周の一覧 (走った順。hidden: 隠した周。一覧のベスト・周の数には数えない) */
+  laps: Array<LapRecord & { hidden: boolean }>;
+  /** 周をまだ数えていない (iCloud にだけあって、まだ落としていない)。コースの分からないフォルダ (unsorted) の走行は含めない */
+  pending: boolean;
   entry: RunEntry | null;
 }
 
@@ -44,38 +48,73 @@ export const baseName = (p: string) => p.slice(p.lastIndexOf('/') + 1);
 /** 道のフォルダ */
 const dirName = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
 
+/** ファイルの名前の時刻 (YYYYMMDDhhmmss、端末の時刻) から走り始めを出す。数えていない走行を並べるため */
+export function startFromName(file: string): number | null {
+  const m = /(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})[^/]*$/.exec(file);
+  if (!m) return null;
+  const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+  return Number.isNaN(d.getTime()) ? null : d.getTime();
+}
+
 /** 保管場所の全部の走行 (新しい順)。走行は <サーキットのフォルダ>/<日付>/ か <サーキットのフォルダ>/ に置く。動画は走行と同じフォルダのものだけ */
 export async function listRuns(store: RunStore, onProgress?: (folder: string) => void): Promise<RunItem[]> {
   const all = await store.listAll();
-  const folders = await loadLapHistory(store, onProgress);
+  // 周の控えを作るときも、今引いたファイルの一覧を使う (iCloud の置き場所では、一覧を引くのに時間がかかるので 2 回引かない)
+  const listed: RunStore = { ...store, list: async () => all };
+  const folders = await loadLapHistory(listed, onProgress);
+  // フォルダごとの動画と .bon4 を先に 1 回だけ分けておく (走行ごとに全部のファイルを探すと、数千件で遅くなる)
+  const videosByDir = new Map<string, RunFileInfo[]>();
+  // 走行の基準のファイル (.nmea、無ければ .bon4。同じ名前の 2 つは 1 つの走行)
+  const runsByFolder = groupRunsByFolder(all);
+  const remoteOnly = new Set(all.filter(x => x.local === false).map(x => x.path));
+  for (const x of all) {
+    const dir = dirName(x.path);
+    if (isRunVideoName(baseName(x.path))) {
+      const list = videosByDir.get(dir);
+      if (list) list.push(x); else videosByDir.set(dir, [x]);
+    }
+  }
   const out: RunItem[] = [];
   for (const f of folders) {
     const runs = await readRunsFile(store, f.folder);
     const hidden = new Set((f.index?.hidden ?? []).map(h => lapKey(h.file, h.part, h.n)));
-    const names = new Set([
-      ...Object.keys(f.index?.files ?? {}),
-      ...all.filter(x => x.path.startsWith(`${f.folder}/`) && /\.bon4$/i.test(x.path)).map(x => x.path.slice(f.folder.length + 1))
-    ]);
+    // 控えにある走行と、フォルダにある走行 (同じ走行は 1 つに。控えの古い .bon4 の名前より、今の基準のファイルを使う)
+    const byStem = new Map<string, string>();
+    for (const k of Object.keys(f.index?.files ?? {})) byStem.set(`${dirName(k)}|${runStem(k)}`, k);
+    for (const x of runsByFolder.get(f.folder) ?? []) {
+      const rel = x.path.slice(f.folder.length + 1);
+      byStem.set(`${dirName(rel)}|${runStem(rel)}`, rel);
+    }
+    const names = new Set(byStem.values());
     for (const file of names) {
       if (!/^(\d{8}\/)?[^/]+$/.test(file)) continue;
       const runDir = dirName(`${f.folder}/${file}`);
       // 走行と同じフォルダの動画。日付のフォルダの走行には、サーキットのフォルダにじかに置いた動画 (前の置き方) も候補にする
-      const folderVideos = all.filter(x => (dirName(x.path) === runDir || dirName(x.path) === f.folder) && isRunVideoName(baseName(x.path)));
+      // 同じ名前の動画がサーキットのフォルダにもあるときは、走行と同じフォルダのものを使う (名前で引くので、後ろが勝つ)
+      const folderVideos = runDir === f.folder
+        ? [...(videosByDir.get(runDir) ?? [])]
+        : [...(videosByDir.get(f.folder) ?? []), ...(videosByDir.get(runDir) ?? [])];
       const rec = f.index?.files[file];
-      const laps = (rec?.laps ?? []).filter(l => !hidden.has(lapKey(file, l.part, l.n)));
+      const allLaps = (rec?.laps ?? []).map(l => ({ ...l, hidden: hidden.has(lapKey(file, l.part, l.n)) }));
+      const laps = allLaps.filter(l => !l.hidden);
       // 日付のフォルダへ移す前に書いた行は、ファイルの名前だけで引く
-      const entry = runs.runs[file] ?? runs.runs[baseName(file)] ?? null;
+      // .bon4 を基準にしていたころの行も引く (同じ走行の名前で)
+      const entry = runs.runs[file] ?? runs.runs[baseName(file)]
+        ?? Object.entries(runs.runs).find(([k]) => runStem(k) === runStem(file) && dirName(k) === dirName(file))?.[1]
+        ?? Object.entries(runs.runs).find(([k]) => runStem(k) === runStem(file) && !k.includes('/'))?.[1] ?? null;
       const videos = entry?.videos ?? rec?.videos ?? [];
       out.push({
         folder: f.folder,
         file,
         courseName: f.courseName,
-        startMs: rec?.startMs ?? null,
+        startMs: rec?.startMs ?? startFromName(file),
         lapCount: laps.length,
+        laps: allLaps,
         best: laps.length ? Math.min(...laps.map(l => l.time)) : null,
         videos,
         synced: !!entry?.sync,
         folderVideos,
+        pending: !rec && remoteOnly.has(`${f.folder}/${file}`),
         entry
       });
     }
@@ -125,6 +164,8 @@ interface OpenRun {
   /** runs.json にあるが、今回は開かなかった動画 (iCloud にだけある・見つからない)。消さずに残す */
   kept: SyncProjectData['videos'];
   keptNames: string[];
+  /** runs.json に動画を書いてある (外したときに、外したことを書くため。開いたあとに足して書いたときも true) */
+  hasSaved: boolean;
 }
 
 let current: OpenRun | null = null;
@@ -136,14 +177,18 @@ async function saveCurrent(): Promise<void> {
   const run = current;
   if (!run) return;
   const tracks = videoSyncManager.getTracks().filter(t => t.remote && run.names.has(t.remote.path));
-  if (tracks.length === 0 && run.keptNames.length === 0) return;
+  // 走行のログがもう無い (全部閉じた) ときは書かない (ログの無い同期を書くと、時刻合わせの元が消えるため)
+  if (!run.sessions().some(s => run.sessionIds.has(s.id))) return;
+  // 動画が無いときも、前は動画があった走行なら書く (外したことを覚える)
+  if (tracks.length === 0 && run.keptNames.length === 0 && !run.hasSaved) return;
   const key = run.circuitName() || 'default';
   const pins = videoViewStore.getPins(key).filter(p => tracks.some(t => t.id === p.trackId));
   const sync = JSON.parse(videoSyncManager.exportProjectJson(run.sessions().filter(s => run.sessionIds.has(s.id)), run.circuitName(), pins)) as SyncProjectData;
   const opened = new Set(tracks.map(t => t.fileName));
   sync.videos = [...sync.videos.filter(v => opened.has(v.fileName)), ...run.kept.filter(v => !opened.has(v.fileName))];
   const videos = [...new Set([...opened, ...run.keptNames])];
-  await updateRun(run.store, run.item.folder, run.item.file, { videos, sync }).catch(() => undefined);
+  const ok = await updateRun(run.store, run.item.folder, run.item.file, { videos, sync }).then(() => true, () => false);
+  if (ok) run.hasSaved = videos.length > 0;
 }
 
 function scheduleSave(): void {
@@ -182,7 +227,19 @@ export function restoreSync(sync: SyncProjectData, sessions: Session[], setClock
  * 走行の動画を開いて、同期を戻し、これからの変化を runs.json に書くようにする。
  * ログはもう読み込んであること (session)。videos は videoCandidates の local
  */
-export async function attachRunVideos(opts: {
+/** 動画を付ける処理は 1 つずつ行う (続けて走行を開いたとき・相手の走行の動画を読んでいる間に、同じ動画を 2 回足さないように) */
+let attachQueue: Promise<unknown> = Promise.resolve();
+function queued<T>(fn: () => Promise<T>): Promise<T> {
+  const next = attachQueue.then(fn, fn);
+  attachQueue = next.catch(() => undefined);
+  return next;
+}
+
+export function attachRunVideos(opts: Parameters<typeof attachRunVideosNow>[0]): Promise<number> {
+  return queued(() => attachRunVideosNow(opts));
+}
+
+async function attachRunVideosNow(opts: {
   store: RunStore;
   item: RunItem;
   /** 開いた走行のログ (走行が途中で長く止まって分かれたときは複数) */
@@ -196,10 +253,27 @@ export async function attachRunVideos(opts: {
   closeOpenRun();
   const { store, item, videos } = opts;
   const ids = new Set(opts.runSessions.map(s => s.id));
+  // この走行が比べる相手の走行だったら、その動画はこの走行のものとして扱う
+  companions.delete(`${item.folder}/${item.file}`);
   // 前に開いたほかの走行の動画 (保管場所のもの) は外す。GoPro の動画は、ほかのフォルダでも同じ名前のことがあり、
-  // 残すと、戻す同期が名前でそちらに当たってしまうため。この走行の動画で、もう開いているものは残す
+  // 残すと、戻す同期が名前でそちらに当たってしまうため。この走行の動画で、もう開いているものは残す。
+  // 比べる相手 (Car 2〜4) の走行の動画も残す (走行比較で、その車の枠に出すため)
   const paths = new Set(videos.map(v => v.path));
-  for (const t of videoSyncManager.getTracks()) if (t.remote && !paths.has(t.remote.path)) videoSyncManager.removeTrack(t.id);
+  // 比べる相手の走行の動画に、この走行の動画と同じ名前のものがあれば外す (GoPro の名前は別の日にも重なる)。
+  // 同期は名前で戻すので、残すとこの走行の同期がそちらに当たり、runs.json にも相手の行が混ざるため
+  const ownNames = new Set([...videos.map(v => v.name), ...(item.entry?.sync?.videos ?? []).map(v => v.fileName)]);
+  for (const ps of companions.values()) {
+    for (const t of videoSyncManager.getTracks()) {
+      if (t.remote && ps.has(t.remote.path) && !paths.has(t.remote.path) && ownNames.has(t.fileName)) {
+        videoSyncManager.removeTrack(t.id);
+        ps.delete(t.remote.path);
+      }
+    }
+  }
+  // 動画が残らなかった相手の走行は覚えない (名前が重ならなくなったら、次に Car が変わったときに読み直す)
+  for (const [runPath, ps] of [...companions]) if (ps.size === 0) companions.delete(runPath);
+  const keep = companionPaths();
+  for (const t of videoSyncManager.getTracks()) if (t.remote && !paths.has(t.remote.path) && !keep.has(t.remote.path)) videoSyncManager.removeTrack(t.id);
   // 先に同期を戻す (動画はまだないので、名前だけの枠ができる。そこに動画をつなぐと、戻した同期のまま使える)
   if (opts.fromRuns && item.entry?.sync) {
     try { restoreSync(item.entry.sync, opts.sessions(), opts.setClockOffset); } catch { /* 壊れた同期は使わない */ }
@@ -222,12 +296,91 @@ export async function attachRunVideos(opts: {
   for (const t of videoSyncManager.getTracks()) if (!t.objectUrl && saved.some(v => v.fileName === t.fileName)) videoSyncManager.removeTrack(t.id);
   const keptNames = opts.fromRuns ? item.videos.filter(n => !openedNames.has(n)) : [];
   const kept = saved.filter(v => keptNames.includes(v.fileName));
-  current = { store, item, sessionIds: ids, circuitName: opts.circuitName, sessions: opts.sessions, names, kept, keptNames };
+  current = { store, item, sessionIds: ids, circuitName: opts.circuitName, sessions: opts.sessions, names, kept, keptNames, hasSaved: !!item.entry?.videos?.length };
   const offA = videoSyncManager.subscribe(scheduleSave);
   const offB = videoViewStore.subscribe(scheduleSave);
   unsubscribe = () => { offA(); offB(); };
   if (names.size && !opts.fromRuns) scheduleSave();
   return names.size;
+}
+
+/**
+ * 比べる相手 (Car 2〜4) の走行の動画 (走行の道 → 動画の道)。走行比較で、その車の枠に出す。
+ * 同期は runs.json から戻すが、変えても書かない (書くのは開いている走行 = Car 1 だけ)
+ */
+const companions = new Map<string, Set<string>>();
+
+/** 比べる相手の走行の動画の道 (全部) */
+export function companionPaths(): Set<string> {
+  const out = new Set<string>();
+  for (const ps of companions.values()) for (const p of ps) out.add(p);
+  return out;
+}
+
+/** 動画を読んである、比べる相手の走行 */
+export function companionRuns(): string[] {
+  return [...companions.keys()];
+}
+
+/**
+ * 比べる相手の走行の動画を足す (Car 2〜4 に、開いている走行のほかの走行の周を入れたとき)。端末にある動画だけ。
+ * 開いている動画と同じ名前の動画は足さない (同期を名前で戻すので、そちらの同期を書き換えてしまうため)
+ */
+export function attachCompanionVideos(opts: Parameters<typeof attachCompanionVideosNow>[0]): Promise<number> {
+  return queued(() => attachCompanionVideosNow(opts));
+}
+
+async function attachCompanionVideosNow(opts: {
+  item: RunItem;
+  runSessions: Session[];
+  videos: RemoteVideo[];
+  fromRuns: boolean;
+  sessions: () => Session[];
+  setClockOffset?: (id: string, sec: number) => void;
+}): Promise<number> {
+  const { item, videos } = opts;
+  const runPath = `${item.folder}/${item.file}`;
+  const ids = new Set(opts.runSessions.map(s => s.id));
+  const before = videoSyncManager.getTracks();
+  const openPaths = new Set(before.filter(t => t.remote).map(t => t.remote!.path));
+  const openNames = new Set(before.map(t => t.fileName));
+  const mine = new Set(videos.filter(v => openPaths.has(v.path)).map(v => v.path));
+  const add = videos.filter(v => !openPaths.has(v.path) && !openNames.has(v.name));
+  if (add.length) {
+    const names = new Set(add.map(v => v.name));
+    const sync = item.entry?.sync;
+    if (opts.fromRuns && sync) {
+      try {
+        restoreSync({
+          ...sync,
+          videos: sync.videos.filter(v => names.has(v.fileName)),
+          pins: (sync.pins ?? []).filter(p => p.trackFileName !== null && names.has(p.trackFileName))
+        }, opts.sessions(), opts.setClockOffset);
+      } catch { /* 壊れた同期は使わない */ }
+    }
+    await videoSyncManager.addVideoFiles(add, opts.sessions());
+    const addPaths = new Set(add.map(v => v.path));
+    for (const t of videoSyncManager.getTracks()) {
+      if (!t.objectUrl && names.has(t.fileName)) { videoSyncManager.removeTrack(t.id); continue; }
+      if (!t.remote || !addPaths.has(t.remote.path)) continue;
+      // runs.json にない候補は、照合してこの走行に合ったものだけ残す
+      if (!opts.fromRuns && (!t.matchedSessionId || !ids.has(t.matchedSessionId))) { videoSyncManager.removeTrack(t.id); continue; }
+      mine.add(t.remote.path);
+    }
+  }
+  companions.set(runPath, mine);
+  return mine.size;
+}
+
+/** 比べる相手の走行の動画を外す (その走行がどの Car にもいなくなったとき)。開いている走行・ほかの相手の動画は残す */
+export function dropCompanion(runPath: string): void {
+  const ps = companions.get(runPath);
+  companions.delete(runPath);
+  if (!ps) return;
+  const keep = companionPaths();
+  for (const t of videoSyncManager.getTracks()) {
+    if (t.remote && ps.has(t.remote.path) && !keep.has(t.remote.path) && !current?.names.has(t.remote.path)) videoSyncManager.removeTrack(t.id);
+  }
 }
 
 /** 開いている走行に、同じフォルダの動画を足す (動画の画面から) */
@@ -253,4 +406,15 @@ export async function addVideoToOpenRun(video: RemoteVideo): Promise<boolean> {
 /** 開いている走行 (動画の画面で、同じフォルダの動画を出すため) */
 export function getOpenRun(): { store: RunStore; item: RunItem } | null {
   return current ? { store: current.store, item: current.item } : null;
+}
+
+/** 走行の周を隠す・出す (控え laptimes.json に書く。ファイルは消さない) */
+export function setRunLapHidden(store: RunStore, item: RunItem, lap: LapRecord, hide: boolean): Promise<void> {
+  const run = async () => {
+    const path = `${item.folder}/${LAP_INDEX_FILE}`;
+    const index = parseLapIndex(await store.readText(path));
+    if (!index) return;
+    await store.writeText(path, JSON.stringify(setHidden(index, item.file, lap.part, lap.n, hide)));
+  };
+  return queueLapIndexWrite(run);
 }

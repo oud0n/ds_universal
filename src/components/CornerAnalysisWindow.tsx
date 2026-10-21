@@ -3,12 +3,15 @@ import { CornerDownRight } from 'lucide-react';
 import { Lap, SelectedCarSlot } from '../types/telemetry';
 import { useLapGeometries } from '../hooks/useLapGeometries';
 import { useT } from '../utils/i18n';
-import { computeCorrectedLineDelta, detectCorners, indexAtDistance, insideOutside, matchIndex, measureCorners } from '../services/drivingAnalysis';
+import { cornerLabel, useNamedCorners } from '../hooks/useNamedCorners';
+import { computeCorrectedLineDelta, indexAtDistance, insideOutside, matchIndex, measureCorners } from '../services/drivingAnalysis';
 
 interface CornerAnalysisWindowProps {
   cars: { slot: SelectedCarSlot; lap: Lap }[];
   currentDistance: number;
   onSeekDistance: (distKm: number) => void;
+  /** Car 1 のコースの名前 (コーナーの名前を、コースのフォルダの corners.json から出す) */
+  circuitName?: string;
 }
 
 // 基準車との車速差の表示 (速いほうが緑)
@@ -21,14 +24,14 @@ const Diff: React.FC<{ value: number }> = ({ value }) => {
   );
 };
 
-export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars, currentDistance, onSeekDistance }) => {
+export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars, currentDistance, onSeekDistance, circuitName }) => {
   const t = useT();
   const analysed = useLapGeometries(cars);
   const base = analysed[0];
+  const { corners } = useNamedCorners(base?.geo, circuitName);
 
   const result = useMemo(() => {
     if (!base) return null;
-    const corners = detectCorners(base.geo);
     const perCar = analysed.map(car => {
       const metrics = measureCorners(base.geo, corners, car.geo);
       // 基準車のアペックス位置での走行ラインのズレ (ラップ間の GPS の位置ずれは補正する)
@@ -42,7 +45,7 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
       return { car, metrics, apexOffsets };
     });
     return { corners, perCar };
-  }, [analysed, base]);
+  }, [analysed, base, corners]);
 
   if (!base || !result) {
     return <div className="h-full flex items-center justify-center text-xs text-slate-500 bg-surface-1">{t('走行データを読み込むとコーナー別の速度を表示します', 'Load driving data to see speeds for each corner')}</div>;
@@ -99,7 +102,7 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
                   className={`cursor-pointer border-t border-line-1 hover:bg-surface-4 ${active ? 'bg-surface-4' : ''}`}
                 >
                   <td className="px-2 py-1 whitespace-nowrap">
-                    <span className="font-bold text-slate-100">C{c.number}</span>
+                    <span className="font-bold text-slate-100">{cornerLabel(c)}</span>
                     <span className={`ml-1.5 ${c.direction === 'R' ? 'text-sky-400' : 'text-amber-400'}`}>{c.direction === 'R' ? t('右', 'R') : t('左', 'L')}</span>
                     <span className="ml-1.5 text-slate-500">{c.headingChangeDeg.toFixed(0)}°</span>
                   </td>

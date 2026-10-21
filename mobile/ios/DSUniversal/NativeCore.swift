@@ -39,6 +39,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
+    /// 許す画面の向き (ラップタイマーが固めているときは、その向きだけ。Orientation.swift)
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        MainActor.assumeIsolated { OrientationControl.shared.mask }
+    }
+
     func applicationWillTerminate(_ application: UIApplication) {
         DebugLog.write("willTerminate")
     }

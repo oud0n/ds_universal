@@ -273,6 +273,13 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         return {};
       case 'system.keepAwake':
         return {};
+      case 'system.motionStart':
+      case 'system.motionStop':
+        return {};
+      case 'system.setOrientation': {
+        const { mode } = req.params as { mode: string };
+        return { orientation: mode === 'landscape' ? 'landscape' : 'portrait' };
+      }
       case 'system.appendFile': {
         const { path, b64, truncate, createNew } = req.params as { path: string; b64: string; truncate?: boolean; createNew?: boolean };
         if (createNew && lapTimerFiles.has(path)) throw { code: 'busy', message: 'file exists' };

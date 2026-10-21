@@ -13,6 +13,7 @@ import {
 } from '../services/devices/deviceRegistry';
 import { DeviceLink, type DeviceSample } from '../services/devices/deviceLink';
 import { RACEBOX_NAME_PREFIXES, RACEBOX_UART_SERVICE } from '../services/devices/raceboxProtocol';
+import { DROGGER_NAME_PREFIXES, DROGGER_SERVICE } from '../services/devices/droggerProtocol';
 import { HEART_RATE_SERVICE } from '../services/devices/heartRateProtocol';
 import { GOPRO_NAME_PREFIXES, GOPRO_SERVICE } from '../services/devices/goproBle';
 import { DIGSPICE_NAME_PREFIXES } from '../services/bleLoggerLink';
@@ -21,6 +22,8 @@ import { getLang, useT } from '../utils/i18n';
 /** 探し方 (名前の頭・広告のサービス・つないだあとに使うサービス) */
 const SCAN: Record<DeviceKind, { names: string[]; advertised: string[]; services: string[] }> = {
   racebox: { names: RACEBOX_NAME_PREFIXES, advertised: [], services: [RACEBOX_UART_SERVICE] },
+  // Drogger は BLE のファームウェアを書き込んだもの (RWS. / RZS. / DG-PRO1RWS)
+  drogger: { names: DROGGER_NAME_PREFIXES, advertised: [], services: [DROGGER_SERVICE] },
   // デジスパイスも広告に 180D を載せているので、探した結果から除く
   hr: { names: [], advertised: [HEART_RATE_SERVICE], services: [HEART_RATE_SERVICE] },
   obd: { names: ['OBD', 'IOS-Vlink', 'V-LINK', 'Vlink', 'vLinker', 'Veepeak', 'OBDLink'], advertised: ['fff0', 'ffe0'], services: ['fff0', 'ffe0'] },

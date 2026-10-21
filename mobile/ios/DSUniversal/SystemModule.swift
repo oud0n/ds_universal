@@ -33,6 +33,18 @@ final class SystemModule {
             // ラップタイマーを開いている間、画面の自動ロックを止める
             UIApplication.shared.isIdleTimerDisabled = (params["on"] as? Bool) ?? false
             done(.success([:]))
+        case "system.motionStart":
+            // iPhone の G センサーを読み始める (MotionRecorder.swift)。値は知らせ system.motion で 0.5 秒ごとに渡す
+            let hz = (params["hz"] as? Double) ?? 50
+            let ok = MotionRecorder.shared.start(hz: hz) { [weak self] data in self?.core.emit("system.motion", data) }
+            if ok { done(.success([:])) } else { done(.failure(NativeError(.notSupported, "no motion sensor"))) }
+        case "system.motionStop":
+            MotionRecorder.shared.stop()
+            done(.success([:]))
+        case "system.setOrientation":
+            // ラップタイマーの画面の向き (Orientation.swift)
+            let mode = (params["mode"] as? String) ?? "system"
+            done(.success(["orientation": OrientationControl.shared.set(mode: mode)]))
         case "system.appendFile":
             // ラップタイマーの走行の記録を、走っている間に書類のフォルダの LapTimer/ に足していく
             guard let rel = params["path"] as? String, let url = lapTimerURL(rel),
@@ -320,8 +332,18 @@ final class SystemModule {
         let fm = FileManager.default
         for (file, rel) in Self.lapTimerFiles() {
             // ラップタイムの一覧の控えは端末ごとに作るので写さない (2 台で同じ控えを書いてぶつからないように)
-            if (rel as NSString).lastPathComponent == "laptimes.json" { continue }
+            let name = (rel as NSString).lastPathComponent
+            if name == "laptimes.json" { continue }
             let target = dest.appendingPathComponent(rel)
+            // 走行の動画の控え (runs.json)・コーナーの名前 (corners.json と .bak) は、選んだフォルダにまだ無いときだけ写す。
+            // 大きさで比べて写すと、選んだフォルダで直した名前・同期を、アプリの中に残った古い中身で毎回戻してしまうため
+            if name == "runs.json" || name == "corners.json" || name == "corners.json.bak" {
+                let placeholder = target.deletingLastPathComponent().appendingPathComponent(".\(name).icloud")
+                if fm.fileExists(atPath: target.path) || fm.fileExists(atPath: placeholder.path) {
+                    r.skipped += 1
+                    continue
+                }
+            }
             let srcSize = (try? fm.attributesOfItem(atPath: file.path)[.size] as? Int) ?? -1
             let dstSize = (try? fm.attributesOfItem(atPath: target.path)[.size] as? Int) ?? -2
             if srcSize == dstSize {

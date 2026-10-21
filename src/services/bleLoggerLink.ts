@@ -206,6 +206,11 @@ export class BleLoggerLink {
     if (this.central && this.snap.registered && this.linkState === 'idle') await this.connect(true);
   }
 
+  /** つないでいない (つなぎに行ってもいない) か。ラップタイマーが、自分でつないだ接続だけを閉じるときに切るため */
+  isLinkIdle(): boolean {
+    return this.linkState === 'idle';
+  }
+
   /** 利用者が切断ボタンで切る (起動し直しても、自分でつなぐまでつなぎに行かない) */
   async disconnectByUser(): Promise<void> {
     saveUserOff(true);

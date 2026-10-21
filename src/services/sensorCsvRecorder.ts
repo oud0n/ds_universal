@@ -51,7 +51,12 @@ export class SensorCsvRecorder {
     this.rows = [];
     try {
       if (!this.started) {
-        await callNative('system.appendFile', { path: this.path, b64: toBase64(encoder.encode(`time_utc_ms,${this.columns.join(',')}\n`)), truncate: true, createNew: true });
+        try {
+          await callNative('system.appendFile', { path: this.path, b64: toBase64(encoder.encode(`time_utc_ms,${this.columns.join(',')}\n`)), truncate: true, createNew: true });
+        } catch (e) {
+          // 同じ名前のファイルがもうある (前に起動したときの残り) ときは、消さずにその後ろへ書き足す (この走行の値をなくさないように)
+          if ((e as { code?: string })?.code !== 'busy') throw e;
+        }
         this.started = true;
       }
       await callNative('system.appendFile', { path: this.path, b64: toBase64(encoder.encode(batch.join('\n') + '\n')) });

@@ -622,3 +622,11 @@ body {
   --color-orange-400: oklch(47% 0.17 40);
   --color-purple-400: oklch(42% 0.2 300);
 }
+
+/* 指で触る画面 (スマートフォン・タブレット) では、道具の段のボタンを押しやすい高さにする (2026-10-21、寸法の試験で 19〜23px だったもの) */
+@media (pointer: coarse) {
+  .touch-toolbar button,
+  .touch-toolbar select {
+    min-height: 30px;
+  }
+}

@@ -30,7 +30,7 @@ export const PlayBar: React.FC<{
   const end = Math.max(endTime, 0.1);
 
   const seek = (
-    <div className="flex items-center gap-2.5 flex-1 min-w-0">
+    <div className="touch-toolbar flex items-center gap-2.5 flex-1 min-w-0">
       {label && (
         <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-600 text-white shrink-0">{label}</span>
       )}
@@ -52,7 +52,7 @@ export const PlayBar: React.FC<{
   );
 
   const buttons = (
-    <div className="flex items-center gap-1.5 shrink-0">
+    <div className="touch-toolbar flex items-center gap-1.5 shrink-0">
       <button
         onClick={() => onSeekTime(Math.max(0, currentTime - SKIP_SEC))}
         className="p-1 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"

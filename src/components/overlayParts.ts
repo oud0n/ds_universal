@@ -170,7 +170,8 @@ export function drawLapPanel(
     ctx.textAlign = 'left';
     ctx.fillText(text, x + 12, row(i));
   };
-  const value = (i: number, text: string, color = COLOR_VALUE, xOff = 52) => {
+  // 値は、見出し (Lap 11・Best など) と重ならない所から書く (2 桁の周で「Lap 110'15.971」と読めていた)
+  const value = (i: number, text: string, color = COLOR_VALUE, xOff = 66) => {
     ctx.fillStyle = color;
     ctx.font = 'bold 15px monospace';
     ctx.textAlign = 'left';
