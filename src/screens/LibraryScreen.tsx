@@ -185,17 +185,18 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
       <div className="shrink-0 flex gap-2 px-3 pb-3">
         <button
           onClick={onPickFiles}
-          className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-red-600 hover:bg-red-500 text-sm text-white font-bold cursor-pointer"
+          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg bg-red-600 hover:bg-red-500 text-sm text-white font-bold cursor-pointer whitespace-nowrap"
           data-testid="runs-pick-files"
         >
           <FolderOpen size={16} />{t('ファイルを選ぶ', 'Choose files')}
         </button>
         <button
           onClick={() => setHistoryOpen(true)}
-          className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-surface-2 border border-line-2 text-sm text-slate-200 font-bold cursor-pointer"
+          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg bg-surface-2 border border-line-2 text-sm text-slate-200 font-bold cursor-pointer whitespace-nowrap"
           data-testid="library-lap-history"
         >
-          <Trophy size={16} />{t('ラップタイムの記録', 'Lap records')}
+          {/* スマートフォンの幅でも 1 行に収まる長さ */}
+          <Trophy size={16} />{t('ラップタイム', 'Lap records')}
         </button>
       </div>
     </div>
