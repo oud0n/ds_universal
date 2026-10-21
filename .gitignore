@@ -43,3 +43,6 @@ tools/courses/center_*.json
 tools/courses/gates_*.json
 tools/courses/crop_*
 tools/courses/view_*
+
+# 画面の通しの試験の結果 (スクリーンショット)
+e2e/out/

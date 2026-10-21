@@ -1448,6 +1448,20 @@ export const App: React.FC = () => {
   );
   const xyEl = <XYGraphWindow cars={activeCars} currentDistance={currentDistanceKm} />;
 
+  // 開発サーバーだけ: 画面の通しの試験 (e2e/) と、画面を触って調べる道具が、今の様子を読むための窓口 (公開版には入らない)
+  if (import.meta.env.DEV && typeof window !== 'undefined') {
+    (window as unknown as { __laploupe?: unknown }).__laploupe = {
+      screen: currentTab,
+      clockBase,
+      currentTimeSec,
+      isPlaying,
+      sessions: sessions.map(x => ({ id: x.id, fileName: x.fileName, sessionName: x.sessionName, circuitName: x.circuitName, laps: x.laps.length })),
+      cars: selectedCars.map(c => ({ slot: c.slot, sessionId: c.sessionId, lapNumber: c.lapNumber })),
+      baseLap: baseLap ? { lapNumber: baseLap.lapNumber, startTime: baseLap.startTime, lapTime: baseLap.lapTime, isWholeSession: !!baseLap.isWholeSession } : null,
+      videos: placedVideos.map(v => ({ fileName: v.fileName, syncOffsetSec: v.syncOffsetSec, isPlaced: v.isPlaced, matchedSessionId: v.matchedSessionId }))
+    };
+  }
+
   return (
     <div
       className="relative flex flex-col h-dvh w-screen overflow-hidden bg-surface-0 text-slate-100"
