@@ -1721,7 +1721,11 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             {baseLap && !isGraphEmbedded && (
               <div className="flex items-center rounded border border-line-2 bg-surface-2 text-[10px] overflow-hidden shrink-0">
                 <button
-                  onClick={() => setSeekbarScope('lap')}
+                  onClick={() => {
+                    setSeekbarScope('lap');
+                    // 今の位置がその周の外 (全体で別の所へ動かしたあと) なら、周の始めへ動かす (表示は周の時刻なのに、動画が周の外のままにならないように)
+                    if (effectiveSessionTime < baseLap.startTime || effectiveSessionTime > baseLap.startTime + baseLap.lapTime) seekTo(baseLap.startTime);
+                  }}
                   className={`px-2 py-0.5 font-bold transition-colors cursor-pointer ${
                     isLapMode ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'
                   }`}
