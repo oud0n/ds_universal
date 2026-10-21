@@ -28,6 +28,8 @@ export interface ImportPart {
   startMs: number;
   endMs: number;
   points: TelemetryPoint[];
+  /** 走行の始まり (点に時刻の文字がない形式で、点の時刻を出すため) */
+  startDate?: Date;
   /** 速さの折れ線 (画面に出す。80 点ほど) */
   sparkline: number[];
   kind: ImportKind;
@@ -171,7 +173,9 @@ export function planImport(parsed: ParsedLog, sourceName: string, existing: Read
       let autoLine: ControlLine | undefined;
       if (place) {
         // 同じ敷地に計測線の違うコースがあるときは、計測線を通ったコースにする
-        course = find(seg[0].latitude, seg[0].longitude, seg) ?? null;
+        // 場所は真ん中の点で見る (始めの短い移動を混ぜたとき、始めの点がサーキットから遠いことがある)
+        const mid = seg[seg.length >> 1];
+        course = find(mid.latitude, mid.longitude, seg) ?? null;
         const r = course?.controlLine ? extractLaps(seg, course.controlLine, course.sectors ?? [], course.finishLine) : null;
         laps = r ? r.laps.filter(l => !l.isWholeSession && !l.isPartialLap).length : 0;
         kind = course?.finishLine ? 'stage' : 'laps';
@@ -188,7 +192,7 @@ export function planImport(parsed: ParsedLog, sourceName: string, existing: Read
       const already = existing.has(base) || sameRunExists(existing, base, startMs);
       parts.push({
         id: `${pi}-${si}`,
-        startMs, endMs, points: seg, sparkline: sparkline(seg),
+        startMs, endMs, points: seg, ...(part.startDate ? { startDate: part.startDate } : {}), sparkline: sparkline(seg),
         kind, laps, course, ...(autoLine ? { autoLine } : {}), dest, base,
         checked: !already && kind !== 'transit',
         already

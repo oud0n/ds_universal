@@ -82,6 +82,20 @@ describe.skipIf(!existsSync(NIKKO) || !existsSync(TC))('取り込み: 書く (�
     const again = await applyPlan(plan, { name: 'both.nmea', bytes }, writer, { writeBon4: true });
     expect(again.results.every(r => r.written.length === 0)).toBe(true);
     expect(again.sourceWritten).toBe(false);
+    // 前に走行だけ書けて元のファイルを残せなかったとき: やり直すと元のファイルを残す
+    writer.files.delete('取り込み元/both.nmea');
+    const retry = await applyPlan(plan, { name: 'both.nmea', bytes }, writer, { writeBon4: true });
+    expect(retry.sourceWritten).toBe(true);
+    // 名前の道の区切りは外す (取り込み元/ の外へ出ない)
+    const w2 = memoryWriter();
+    await applyPlan(plan, { name: '../evil.nmea', bytes }, w2, { writeBon4: false });
+    expect([...w2.files.keys()].filter(k => k.startsWith('取り込み元/'))).toEqual(['取り込み元/.._evil.nmea'.replace('..', '_')]);
+  });
+
+  it('NMEA の切り出し: GP 以外の印 (BD・QZ) の RMC でも時刻を見る', () => {
+    const line = (talker: string) => `$${talker}RMC,000010.00,A,3600.0000,N,14000.0000,E,0.0,0.0,010120,,,A*00`;
+    const t0 = Date.UTC(2020, 0, 1, 0, 0, 10);
+    expect(nmeaSlice([line('BD'), line('QZ')].join('\n'), t0, t0)).toContain('$QZRMC');
   });
 
   it('NMEA の時間の切り出し: 範囲の外の文は入れない', () => {

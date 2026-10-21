@@ -569,7 +569,8 @@ async function lapPathForWrite(rel) {
 ipcMain.handle('laps-write-file', async (_event, rel, data) => {
   const full = await lapPathForWrite(rel);
   const ext = full ? path.extname(full).toLowerCase() : '';
-  const isSource = typeof rel === 'string' && rel.startsWith('取り込み元/');
+  // 取り込み元/ は、その直下のファイルだけ (「取り込み元/../」で外へ出ないように)
+  const isSource = typeof rel === 'string' && /^取り込み元\/[^/\\]+$/.test(rel) && !rel.includes('..');
   if (!full || !(isSource ? IMPORT_SOURCE_EXTS.has(ext) : IMPORT_EXTS.has(ext))) return { success: false, error: 'not allowed' };
   if (!(data instanceof Uint8Array) || data.byteLength > MAX_IMPORT_BYTES) return { success: false, error: 'not allowed' };
   try {
