@@ -34,6 +34,20 @@ describe('走っている間の記録 (アプリ)', () => {
   beforeEach(() => { files.clear(); calls.length = 0; vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(T0); });
   afterEach(() => { vi.useRealTimers(); });
 
+  it('測位のできた点が来るまではファイルを作らず、それより前のつかめていない点は書かない (LATER-18)', async () => {
+    const rec = new LiveRunRecorder('digspice', () => '袖ヶ浦', () => {}, () => 'sodegaura');
+    // ほかの試験とファイルの名前 (秒まで) が重ならないよう、1 時間あとにする
+    const later = (i: number) => ({ ...fix(i), tMs: fix(i).tMs + 3600_000 });
+    rec.add({ ...later(0), valid: false });
+    rec.add({ ...later(1), valid: false });
+    await rec.flush(undefined, true);
+    expect(bon4Paths()).toEqual([]);
+    rec.add(later(2));
+    await rec.flush(undefined, true);
+    const name = runFileBase(T0 + 3600_000 + 100);
+    expect(bon4Paths()).toEqual([`sodegaura/${name.slice(0, 8)}/${name}.bon4`]);
+  });
+
   it('コースが決まったら、そのフォルダにファイルを作る', async () => {
     let course = '';
     const rec = new LiveRunRecorder('digspice', () => course, () => {}, () => (course ? 'sodegaura' : ''));

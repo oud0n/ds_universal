@@ -74,6 +74,14 @@ export class LiveRunRecorder {
    */
   private tryBegin(force: boolean): void {
     if (this.run || this.starting || this.buffer.length === 0 || Date.now() < this.retryAt) return;
+    // 測位のできた点が来るまでは始めない (衛星をつかむ前に止めた走行の、中身のないファイルを残さないように。LATER-18)。
+    // それより前のつかめていない点は捨てる
+    const firstValid = this.buffer.findIndex(f => f.valid);
+    if (firstValid < 0) {
+      if (this.buffer.length > 200) this.buffer.splice(0, this.buffer.length - 200);
+      return;
+    }
+    if (firstValid > 0) this.buffer.splice(0, firstValid);
     const last = this.buffer[this.buffer.length - 1];
     const waitCourse = hasNative() && !force && !this.courseName()
       && last.tMs - this.buffer[0].tMs < COURSE_WAIT_MS && Date.now() - this.firstAddMs < COURSE_WAIT_MS;
