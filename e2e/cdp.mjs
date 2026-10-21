@@ -12,6 +12,8 @@ export class Page {
     this.id = 0;
     this.pending = new Map();
     this.errors = [];
+    /** 失敗ではないが気になること (寸法の試験の小さい押す所など) */
+    this.notes = [];
     this.outDir = outDir;
     this.label = label;
     ws.addEventListener('message', e => {

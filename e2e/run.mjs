@@ -38,6 +38,7 @@ for (const [i, j] of list.entries()) {
     const errs = p.errors.filter(e => !/Electron Security Warning|Download the React DevTools/.test(e));
     if (errs.length) throw new Error(`画面でエラー: ${errs[0]}`);
     console.log(`✓ ${label} ${j.name} (${((Date.now() - t0) / 1000).toFixed(0)} 秒)`);
+    for (const n of p.notes) console.log(`    ・${n}`);
   } catch (e) {
     failed++;
     let shot = '';

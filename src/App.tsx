@@ -1414,6 +1414,9 @@ export const App: React.FC = () => {
   if (import.meta.env.DEV && typeof window !== 'undefined') {
     (window as unknown as { __laploupe?: unknown }).__laploupe = {
       screen: currentTab,
+      // 寸法の試験で、全部の画面を順に開くため
+      available: [...plan.available],
+      go: (s: Parameters<typeof navStore.go>[0]) => navStore.go(s),
       clockBase,
       currentTimeSec,
       isPlaying,
