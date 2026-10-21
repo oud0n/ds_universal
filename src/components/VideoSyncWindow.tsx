@@ -1255,8 +1255,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             </button>
           )}
 
-          {/* テレメトリ動画書き出し (MP4 Burn-in) ボタン。動画がなくても、ログがあればメーターだけを書き出せる */}
-          {(activeTrack || baseSession) && (
+          {/* テレメトリ動画書き出し (MP4 Burn-in) ボタン。動画がなくても、ログがあればメーターだけを書き出せる。
+              スマートフォンでは出さない (書き出しはパソコン向け。スマートフォンの動画は「見る」と「合わせる」だけ。PLAN-24 の D5) */}
+          {(activeTrack || baseSession) && !phoneToolbar && (
             <button
               onClick={() => setShowExportModal(true)}
               className={`flex items-center gap-1 px-2 py-1 rounded bg-red-700 hover:bg-red-600 text-xs font-bold text-white transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
@@ -1267,21 +1268,21 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             </button>
           )}
 
-          {/* 同期プロジェクト保存 / 読込 */}
-          <button
+          {/* 同期プロジェクト保存 / 読込 (スマートフォンでは出さない。アプリは走行ごとに runs.json へ自動で保存する) */}
+          {!phoneToolbar && <button
             onClick={handleExportProject}
             className={`flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-4 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
             title={t('同期プロジェクト保存 (.dssync.json)', 'Save sync project (.dssync.json)')}
           >
             <Save size={12} />
-          </button>
-          <button
+          </button>}
+          {!phoneToolbar && <button
             onClick={() => jsonInputRef.current?.click()}
             className={`flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-4 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
             title={t('プロジェクト読込 (.dssync.json)', 'Load sync project (.dssync.json)')}
           >
             <FolderOpen size={12} />
-          </button>
+          </button>}
 
           {/* オーバーレイON/OFF */}
           <button

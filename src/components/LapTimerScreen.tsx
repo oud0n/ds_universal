@@ -18,6 +18,8 @@ import { useEscapeKey } from '../hooks/useEscapeKey';
 import { getPositionSource, setPositionSource } from '../services/positionSource';
 import { navStore } from '../app/navStore';
 import { PhoneImuRecorder } from '../services/phoneImu';
+import { getRunStore } from '../services/runStore';
+import { LAP_INDEX_FILE, lapKey, parseLapIndex } from '../services/lapIndex';
 import { OrientationToggle, StopConfirm, loadTimerOrientation, saveTimerOrientation, type TimerOrientation } from './LapTimerControls';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
 import type { CircuitPreset, TelemetryPoint } from '../types/telemetry';
@@ -132,6 +134,27 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const measuringRef = useRef(false);
   /** デジスパイスの接続を、このタイマーがつないだか (離れるときに、自分でつないだものだけ切る) */
   const bleConnectedHereRef = useRef(false);
+  /** このコースの、保管場所の記録のベスト (測る前の画面に出す) */
+  const [pastBest, setPastBest] = useState<{ time: number; startMs: number } | null>(null);
+  useEffect(() => {
+    setPastBest(null);
+    if (!course || !hasNative()) return;
+    let cancelled = false;
+    void (async () => {
+      const store = await getRunStore();
+      if (!store || cancelled) return;
+      const folder = courseFolder(course.name, course.folder, course.id);
+      const index = parseLapIndex(await store.readText(`${folder}/${LAP_INDEX_FILE}`).catch(() => null));
+      if (!index || cancelled) return;
+      const hidden = new Set(index.hidden.map(h => lapKey(h.file, h.part, h.n)));
+      let best: { time: number; startMs: number } | null = null;
+      for (const [file, rec] of Object.entries(index.files)) {
+        for (const l of rec.laps) if (!hidden.has(lapKey(file, l.part, l.n)) && (!best || l.time < best.time)) best = { time: l.time, startMs: l.startMs };
+      }
+      if (!cancelled) setPastBest(best);
+    })();
+    return () => { cancelled = true; };
+  }, [course]);
   /** 測り終えて保存した走行 (周の数)。次に測り始めるまで、測る前の画面に知らせを出す */
   const [savedRun, setSavedRun] = useState<{ laps: number; best: number | null } | null>(null);
   // 測定終了の確認 (全画面) を出しているか
@@ -712,6 +735,12 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               <div className="font-mono text-slate-300 tabular-nums" style={{ fontSize: 'min(9vw, 12vh)' }}>
                 {lastFix ? `${Math.round(lastFix.speedKmh)} km/h` : '--- km/h'}
               </div>
+              {pastBest && !needsRegister && (
+                <div className="text-slate-300 text-base" data-testid="lap-timer-past-best">
+                  {t('これまでのベスト', 'Best so far')} <span className="font-mono font-bold text-amber-500">{formatLapTime(pastBest.time, 2)}</span>
+                  <span className="text-slate-500 text-sm"> ({new Date(pastBest.startMs).getMonth() + 1}/{new Date(pastBest.startMs).getDate()})</span>
+                </div>
+              )}
               <div className="text-slate-400 text-sm">{t('下の「測定開始」を押すと、周を数えて記録します', 'Tap Start below to time laps and record')}</div>
               {/* 測り終えたあと: 保存したことと、走行を見る入口 */}
               {savedRun && (
