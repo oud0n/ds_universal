@@ -536,8 +536,38 @@ ipcMain.handle('laps-write-text', async (_event, rel, text) => {
 const IMPORT_EXTS = new Set(['.nmea', '.bon4', '.csv']);
 const IMPORT_SOURCE_EXTS = new Set(['.nmea', '.bon4', '.bnx4', '.bon', '.binx', '.dtb', '.csv', '.txt', '.vbo', '.gpx', '.tcx', '.fit', '.log', '.xrk', '.xrz', '.ibt']);
 const MAX_IMPORT_BYTES = 512 * 1024 * 1024;
+/**
+ * 書く先の道 (まだないフォルダの中でもよい)。いちばん近い、もうあるフォルダの本当の場所で、保管場所の中かを確かめる
+ * (つないだ先 (シンボリックリンク) で保管場所の外へ出ないように)
+ */
+async function lapPathForWrite(rel) {
+  const root = loadLapFolder();
+  if (!root || typeof rel !== 'string' || !rel || path.isAbsolute(rel)) return null;
+  let realRoot;
+  try {
+    realRoot = await fs.promises.realpath(root);
+  } catch {
+    return null;
+  }
+  const prefix = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep;
+  const full = path.resolve(realRoot, rel);
+  if (!full.startsWith(prefix)) return null;
+  const rest = [];
+  let dir = path.dirname(full);
+  for (;;) {
+    try {
+      const realDir = await fs.promises.realpath(dir);
+      const real = path.join(realDir, ...rest, path.basename(full));
+      return (realDir === realRoot || realDir.startsWith(prefix)) && real.startsWith(prefix) ? real : null;
+    } catch {
+      if (dir.length <= realRoot.length) return null;
+      rest.unshift(path.basename(dir));
+      dir = path.dirname(dir);
+    }
+  }
+}
 ipcMain.handle('laps-write-file', async (_event, rel, data) => {
-  const full = await lapPath(rel);
+  const full = await lapPathForWrite(rel);
   const ext = full ? path.extname(full).toLowerCase() : '';
   const isSource = typeof rel === 'string' && rel.startsWith('取り込み元/');
   if (!full || !(isSource ? IMPORT_SOURCE_EXTS.has(ext) : IMPORT_EXTS.has(ext))) return { success: false, error: 'not allowed' };

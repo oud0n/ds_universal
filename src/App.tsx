@@ -57,6 +57,12 @@ import { navStore, useNav } from './app/navStore';
 import { PlayBar } from './components/PlayBar';
 import { SplitResizer } from './components/SplitResizer';
 import { interpolatePoint } from './utils/telemetrySearch';
+import { ImportSheet } from './components/import/ImportSheet';
+import { planImport, type ImportPlan } from './services/import/importPlan';
+import { applyPlan, type PartResult } from './services/import/importApply';
+import { electronWriter, nativeWriter } from './services/import/importWriters';
+import { LOG_EXTENSIONS } from './services/logLoader';
+import { getWriteBon4 } from './services/runFormatSettings';
 
 /**
  * 距離を補正した周で、補正後の距離が 0 になる時刻 (秒)。
@@ -247,6 +253,17 @@ export const App: React.FC = () => {
   // 過去の走行 (保管場所。iPhone のアプリ・デスクトップ版): 全部の一覧を出しているか・開いている途中か
   const [runsSheetOpen, setRunsSheetOpen] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
+  /** 取り込みの確認 (ログを開いたとき、走行の保管場所があれば。2026-10-21、PLAN-24) */
+  const [importing, setImporting] = useState<{
+    plan: ImportPlan;
+    name: string;
+    bytes: Uint8Array;
+    phase: 'confirm' | 'writing' | 'done';
+    progress?: { done: number; total: number };
+    results?: PartResult[];
+  } | null>(null);
+  /** 確認を閉じたら、次のファイルへ進む */
+  const importDoneRef = useRef<(() => void) | null>(null);
   const runOpeningRef = useRef(false);
   // iCloud から取り込み中の動画 (取り込み終わったら、走行に付けて開く)。percent はふつう分からない (取り込み中とだけ出す)
   const [runDownload, setRunDownload] = useState<{ names: string[]; done: number } | null>(null);
@@ -657,6 +674,8 @@ export const App: React.FC = () => {
     for (const file of files.filter(f => !isProxyFileName(f.name))) {
       if (!isVideoFileName(file.name)) {
         try {
+          // 保管場所があれば、走行ごとに分けて取り込むかを先に聞く (取り込まずに開くこともできる)
+          if (await offerImport(file.name, await file.arrayBuffer())) continue;
           await loadFileData(file.name, await file.arrayBuffer());
         } catch (err: any) {
           alert(tr(`ファイル ${file.name} の読み込みに失敗しました: ${err.message}`, `Could not load ${file.name}: ${err.message}`));
@@ -676,6 +695,64 @@ export const App: React.FC = () => {
       }
     }
     if (proxies.length > 0) await videoSyncManager.addVideoFiles(proxies, latestRef.current.sessions, false);
+  };
+
+  /**
+   * ログを保管場所に取り込むかを聞く (確認のシートを出し、閉じるまで待つ)。保管場所がない・分けられない・全部取り込み済みなら
+   * 聞かずに false (そのまま開く)。true なら、開くかどうかはシートの中で決まった
+   */
+  const offerImport = async (name: string, buffer: ArrayBuffer): Promise<boolean> => {
+    const ext = name.split('.').pop()?.toLowerCase() ?? '';
+    if (!LOG_EXTENSIONS.includes(ext) || !canUseRunStore()) return false;
+    let plan: ImportPlan;
+    try {
+      const store = await getRunStore();
+      if (!store) return false;
+      const existing = new Set((await store.list()).filter(f => /\.(nmea|bon4)$/i.test(f.path)).map(f => f.path.replace(/\.[^./]+$/, '')));
+      plan = planImport(await parseLogBuffer(name, buffer.slice(0), tr), name, existing);
+    } catch {
+      return false;
+    }
+    if (plan.parts.length === 0 || plan.parts.every(p => p.already)) return false;
+    await new Promise<void>(resolve => {
+      importDoneRef.current = resolve;
+      setImporting({ plan, name, bytes: new Uint8Array(buffer), phase: 'confirm' });
+    });
+    return true;
+  };
+
+  const closeImport = () => {
+    setImporting(null);
+    importDoneRef.current?.();
+    importDoneRef.current = null;
+  };
+
+  /** 取り込みのシートから開く (取り込まずに・取り込んだあとに) */
+  const openImported = async () => {
+    const cur = importing;
+    closeImport();
+    if (!cur) return;
+    const b = cur.bytes;
+    await loadFileData(cur.name, b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
+    navStore.go('analysis');
+  };
+
+  const applyImport = async () => {
+    const cur = importing;
+    if (!cur || cur.phase !== 'confirm') return;
+    const native = nativeWriter();
+    const writer = electronWriter() ?? native;
+    if (!writer) return;
+    setImporting({ ...cur, phase: 'writing', progress: { done: 0, total: cur.plan.parts.filter(p => p.checked).length } });
+    try {
+      const { results } = await applyPlan(cur.plan, { name: cur.name, bytes: cur.bytes }, writer, { writeBon4: getWriteBon4() },
+        (done, total) => setImporting(s => (s ? { ...s, progress: { done, total } } : s)));
+      if (native) await native.finish();
+      setImporting(s => (s ? { ...s, phase: 'done', results } : s));
+    } catch (e) {
+      alert(tr(`取り込めませんでした: ${e instanceof Error ? e.message : e}`, `Import failed: ${e instanceof Error ? e.message : e}`));
+      setImporting(s => (s ? { ...s, phase: 'confirm' } : s));
+    }
   };
 
   // GoPro の動画 (1 回の撮影のチャプター、順に並べたもの) の GPS を走行ログとして読み込み、同じ動画を動画同期にも登録する。
@@ -2182,6 +2259,19 @@ export const App: React.FC = () => {
           onOpen={r => void openRun(r)}
           onPickFiles={() => { setRunsSheetOpen(false); fileInputRef.current?.click(); }}
           busy={runBusy}
+        />
+      )}
+      {importing && (
+        <ImportSheet
+          plan={importing.plan}
+          phase={importing.phase}
+          progress={importing.progress}
+          results={importing.results}
+          onToggle={id => setImporting(s => (s && s.phase === 'confirm' ? { ...s, plan: { ...s.plan, parts: s.plan.parts.map(p => (p.id === id ? { ...p, checked: !p.checked } : p)) } } : s))}
+          onApply={() => void applyImport()}
+          onOpenOnly={() => void openImported()}
+          onOpenAfter={() => void openImported()}
+          onClose={closeImport}
         />
       )}
       <DonateModal
