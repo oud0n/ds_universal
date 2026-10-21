@@ -143,6 +143,8 @@ export const App: React.FC = () => {
   // 解析の「走行とコース」の引き出し (今のデータの画面の中身。PLAN-24 の作る順番の 6)
   const [dataDrawer, setDataDrawer] = useState(false);
   const dataDrawerOpen = dataDrawer && nav.screen === 'analysis';
+  // 解析から離れたら引き出しは閉じる (戻ったときに、グラフの上に出たままにならないように)
+  useEffect(() => { if (nav.screen !== 'analysis') setDataDrawer(false); }, [nav.screen]);
   useEscapeKey(dataDrawerOpen, () => setDataDrawer(false));
   // 幅が変わって組み方が変わり、今の画面がなくなったときは、入れ直す (上の effect) までの間も最初の画面を出す
   const currentTab = plan.available.has(nav.screen) ? nav.screen : plan.home;
@@ -793,10 +795,20 @@ export const App: React.FC = () => {
       if (added.length === 0) return;
       const visible = item.laps.filter(l => !l.hidden);
       const best = visible.length ? visible.reduce((a, b) => (b.time < a.time ? b : a)) : null;
-      const session = (best?.part ? added[best.part - 1] : undefined) ?? added[0];
-      const fullLaps = session.laps.filter(l => !l.isWholeSession && !l.isPartialLap);
-      const match = best ? fullLaps.find(l => Math.abs(l.lapTime - best.time) < 0.05) : undefined;
-      const lapNumber = match?.lapNumber ?? session.laps[session.bestLapIndex]?.lapNumber ?? 1;
+      // 読み込んだログの周のうち、始まりの時刻がいちばん近く、タイムも同じ周 (1 つのログが 2 つ以上に分かれていても、分け方によらず探せる)
+      let pick: { session: Session; lapNumber: number; gap: number } | null = null;
+      if (best) {
+        for (const s of added) {
+          for (const l of s.laps) {
+            if (l.isWholeSession || l.isPartialLap || Math.abs(l.lapTime - best.time) > 0.1) continue;
+            const ts = s.points[l.startIndex]?.timestamp;
+            const gap = ts ? Math.abs(Date.parse(ts) - best.startMs) : Infinity;
+            if (!pick || gap < pick.gap) pick = { session: s, lapNumber: l.lapNumber, gap };
+          }
+        }
+      }
+      const session = pick?.session ?? added[0];
+      const lapNumber = pick?.lapNumber ?? session.laps[session.bestLapIndex]?.lapNumber ?? 1;
       setSelectedCars(prev => [
         ...prev.filter(c => c.slot !== 1),
         { slot: 1, sessionId: session.id, lapNumber, colorHex: '#3b82f6', label: `${session.sessionName} (L${lapNumber})` }
@@ -2001,7 +2013,7 @@ export const App: React.FC = () => {
           <Freeze active={currentTab === 'data' || dataDrawerOpen}>
           <DataTab
             sessions={sessions}
-            onOpenLapRun={file => { void loadFiles([file]).then(() => navStore.go('analysis')); }}
+            onOpenLapRun={file => { setDataDrawer(false); void loadFiles([file]).then(() => navStore.go('analysis')); }}
             selectedCars={selectedCars}
             onSelectCarSlot={handleSelectCarSlot}
             onClearCarSlot={slotIndex => setSelectedCars(prev => prev.filter(c => c.slot !== slotIndex))}

@@ -122,16 +122,15 @@ export class LiveRunRecorder {
           const base = uniqueBase(first.tMs, folder);
           this.bon4 = getWriteBon4();
           try {
-            // 同じ名前があるかは、先に作るファイルで見る (.bon4 を書くなら .bon4、書かないなら .nmea)
+            // 同じ名前があるかは、.nmea と .bon4 の両方で見る (前の走行の片方だけが残っていても、それと混ぜない)
+            await callNative('system.appendFile', { path: `${base}.nmea`, b64: '', truncate: true, createNew: true });
             if (this.bon4) await callNative('system.appendFile', { path: `${base}.bon4`, b64: toBase64(bon4Header(first)), truncate: true, createNew: true });
-            else await callNative('system.appendFile', { path: `${base}.nmea`, b64: '', truncate: true, createNew: true });
             fileBase = base;
             break;
           } catch (e) {
             if (!isFileExists(e) || tries >= 20) throw e;
           }
         }
-        if (this.bon4) await callNative('system.appendFile', { path: `${fileBase}.nmea`, b64: '', truncate: true });
         this.toFiles = true;
       } catch {
         // 前のアプリ (ファイルに書けない) では、データベースにだけ保存する
