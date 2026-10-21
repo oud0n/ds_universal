@@ -349,6 +349,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // スマートフォンの動画の画面では、上のボタンを折り返して大きく出す (グラフに埋め込んだ狭い枠は今までどおり横にスクロール)
   const phoneToolbar = isCompactLayout && !isGraphEmbedded;
   const isLandscape = useLandscape();
+  /** スマートフォンを横にしたとき (動画の上下の段を 1 段ずつにする) */
+  const landscapePhone = phoneToolbar && isLandscape;
   const { pipPosition, showOverlay, showGForce } = win;
   // 重ねる部品 (画面の重ね表示と書き出しで同じ)
   const setShowOverlay = (v: boolean) => setWin({ showOverlay: v });
@@ -1272,7 +1274,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         {/* 右側アクション群 (ピン留め・MP4エクスポート・プロジェクト保存)。スマートフォンでは右に寄せて折り返しに並べる */}
         <div className={phoneToolbar ? 'contents' : 'flex items-center gap-1.5'}>
           {/* スマートフォンでは、ここで 2 段目にする (上の段: 同期の調整・ログ・モード・メーターの表示) */}
-          {phoneToolbar && <div className="order-2 basis-full h-0" aria-hidden />}
+          {phoneToolbar && !landscapePhone && <div className="order-2 basis-full h-0" aria-hidden />}
           {/* 手動キーフレーム同期 (ピン留め) ボタン (動画の画面では「合わせる」のときだけ) */}
           {activeTrack && (isGraphEmbedded || showSyncTools) && (
             <button
@@ -1693,6 +1695,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         );
       })()}
 
+      {/* スマートフォンを横にしたときは、シークの段と再生の段を 1 段に並べる (動画を大きく出すため) */}
+      <div className={landscapePhone ? 'flex items-center shrink-0 bg-surface-1 border-t border-line-1 [&>*]:border-t-0 [&>*:first-child]:flex-1 [&>*:first-child]:min-w-0 [&>*:last-child]:min-h-0' : 'contents'}>
       {/* 6. 速度ウィンドウ完全同期 シークバー (Lap/Session切替対応) */}
       {(() => {
         // グラフ解析に埋め込んだときは、グラフ解析の下の段 (PlayBar) でシーク・再生するので出さない (二重にしない)
@@ -1907,6 +1911,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         )}
       </div>
       )}
+      </div>
 
       {/* 7. 手動キーフレーム同期 (ピン留め) モーダル */}
       {showPinModal && (
