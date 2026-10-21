@@ -92,7 +92,7 @@ export async function sweepLayout(p, label) {
     if (m.btnWraps.length) problems.push(`${s}: ボタンの名前が折り返している「${[...new Set(m.btnWraps)].join('」「')}」`);
     if (m.cut.length) problems.push(`${s}: バーの文字が切れている「${m.cut.join('」「')}」`);
     if (m.clipped.length) problems.push(`${s}: 右の端からはみ出している ${m.clipped.join(', ')}`);
-    if (m.small.length) p.notes.push(`${label} ${s}: 小さい押す所 ${m.small.length} 個 (${m.small.slice(0, 4).join(', ')}${m.small.length > 4 ? ' …' : ''})`);
+    if (m.small.length) p.notes.push(`${label} ${s}: 小さい押す所 ${m.small.length} 個 (${(process.env.E2E_VERBOSE ? m.small : m.small.slice(0, 4)).join(', ')}${!process.env.E2E_VERBOSE && m.small.length > 4 ? ' …' : ''})`);
   }
   const hs = [...heights.values()];
   if (hs.length > 1 && Math.max(...hs) - Math.min(...hs) > 2) {

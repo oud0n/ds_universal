@@ -73,7 +73,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   if (compact) {
     return (
-      <header data-testid="app-header" className="relative bg-surface-1 border-b border-line-1 text-slate-200 px-2 py-1 pt-[max(0.25rem,env(safe-area-inset-top))] flex items-center justify-between gap-2 select-none">
+      <header data-testid="app-header" className="touch-toolbar relative bg-surface-1 border-b border-line-1 text-slate-200 px-2 py-1 pt-[max(0.25rem,env(safe-area-inset-top))] flex items-center justify-between gap-2 select-none">
         {secondary && screen !== 'settings' ? (
           <button onClick={() => navStore.back()} className="flex items-center gap-1 text-sm text-slate-200 px-1 py-1.5 rounded" data-testid="nav-back">
             <ChevronLeft size={18} />

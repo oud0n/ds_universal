@@ -570,7 +570,7 @@ export const App: React.FC = () => {
       const off = nav.electronAPI.onOpenFiles(async (filePaths: string[]) => {
         for (const fp of filePaths) {
           if (/\.(mp4|mov)$/i.test(fp)) {
-            alert(tr('GoPro の動画は、画面の「ファイル読込」から開いてください', 'Open GoPro videos with "Open file" in the app window'));
+            alert(tr('GoPro の動画は、画面の上の「ファイルを開く」(スマートフォンは「開く」) から開いてください', 'Open GoPro videos with "Open file" in the app window'));
             continue;
           }
           try {

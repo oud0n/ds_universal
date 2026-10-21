@@ -91,6 +91,8 @@ export class Page {
 
   async viewport(width, height, mobile) {
     await this.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile, screenWidth: width, screenHeight: height });
+    // スマートフォン・タブレットの大きさでは、指で触る画面にする (CSS の pointer: coarse が効くように)
+    await this.send('Emulation.setTouchEmulationEnabled', { enabled: !!mobile, maxTouchPoints: mobile ? 5 : 0 });
   }
 
   async goto(url) {
