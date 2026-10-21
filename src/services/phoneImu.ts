@@ -113,10 +113,10 @@ export class PhoneImuRecorder {
   }
 
   /** 走行が替わった (周を数え直した): 次の値から新しいファイルに書く。基準の傾きはそのまま */
-  newRun(): void {
+  newRun(): Promise<void> {
     // アプリにためてある (まだ届いていない) 値は前の走行のもの。今の時刻で分ける
     if (this.lastBase) this.split = { beforeMs: Date.now(), base: this.lastBase };
-    void this.flush();
+    return this.flush();
   }
 
   private onBatch(b: MotionBatch): void {

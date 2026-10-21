@@ -52,14 +52,18 @@ export async function loadLapHistory(store: LapFileStore, onProgress?: (folder: 
     const prev = parseLapIndex(await store.readText(`${folder}/${LAP_INDEX_FILE}`));
     const indexPath = `${folder}/${LAP_INDEX_FILE}`;
     // 書くのは 1 つずつ (lapIndex.ts)。計算している間に周を隠した・出したときは、その隠し方を残す
+    let written: LapIndex | null = null;
     const writeIndex = (ix: LapIndex) => queueLapIndexWrite(async () => {
       const cur = parseLapIndex(await store.readText(indexPath));
       const userChanged = !!cur && JSON.stringify(cur.hidden) !== JSON.stringify(prev?.hidden ?? []);
-      await store.writeText(indexPath, JSON.stringify(userChanged ? { ...ix, hidden: cur!.hidden } : ix));
+      written = userChanged ? { ...ix, hidden: cur!.hidden } : ix;
+      await store.writeText(indexPath, JSON.stringify(written));
     });
-    const { index, changed } = await reconcileFolder(folder, files, course, prev, p => store.read(p), undefined, writeIndex);
+    const result = await reconcileFolder(folder, files, course, prev, p => store.read(p), undefined, writeIndex);
     // 控えを書けなくても、一覧は出す (次に開いたときにもう一度計算する)
-    if (changed) await writeIndex(index).catch(() => {});
+    if (result.changed) await writeIndex(result.index).catch(() => {});
+    // 一覧には、書いた中身 (計算の間に隠した周を残したもの) を出す
+    const index: LapIndex = result.changed && written ? written : result.index;
     out.push({ folder, courseName: course.name, fileCount: files.length, rows: lapRows(folder, index), index });
   }
   return out;

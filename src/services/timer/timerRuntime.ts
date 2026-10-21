@@ -404,8 +404,7 @@ export class TimerRuntime {
   /** 周をはじめから数える (出どころを替えた・メニューで数え直した)。それまでの記録は保存して閉じ、次の測位から新しい走行にする */
   resetRun(): void {
     // 録画を止め、センサーの .csv を次の走行に替える (書き終えてから写す)
-    const sensors = this.devices.stopRun().catch(() => {});
-    this.imu.newRun();
+    const sensors = Promise.all([this.devices.stopRun(), this.imu.newRun()]).catch(() => {});
     // それまでの記録を外して保存してから、写す (外す前に保存し終わらないと、最後の数秒が残らないため)
     const rec = this.recorder;
     this.recorder = null;

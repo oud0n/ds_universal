@@ -164,6 +164,8 @@ interface OpenRun {
   /** runs.json にあるが、今回は開かなかった動画 (iCloud にだけある・見つからない)。消さずに残す */
   kept: SyncProjectData['videos'];
   keptNames: string[];
+  /** runs.json に動画を書いてある (外したときに、外したことを書くため。開いたあとに足して書いたときも true) */
+  hasSaved: boolean;
 }
 
 let current: OpenRun | null = null;
@@ -178,14 +180,15 @@ async function saveCurrent(): Promise<void> {
   // 走行のログがもう無い (全部閉じた) ときは書かない (ログの無い同期を書くと、時刻合わせの元が消えるため)
   if (!run.sessions().some(s => run.sessionIds.has(s.id))) return;
   // 動画が無いときも、前は動画があった走行なら書く (外したことを覚える)
-  if (tracks.length === 0 && run.keptNames.length === 0 && !(run.item.entry?.videos?.length)) return;
+  if (tracks.length === 0 && run.keptNames.length === 0 && !run.hasSaved) return;
   const key = run.circuitName() || 'default';
   const pins = videoViewStore.getPins(key).filter(p => tracks.some(t => t.id === p.trackId));
   const sync = JSON.parse(videoSyncManager.exportProjectJson(run.sessions().filter(s => run.sessionIds.has(s.id)), run.circuitName(), pins)) as SyncProjectData;
   const opened = new Set(tracks.map(t => t.fileName));
   sync.videos = [...sync.videos.filter(v => opened.has(v.fileName)), ...run.kept.filter(v => !opened.has(v.fileName))];
   const videos = [...new Set([...opened, ...run.keptNames])];
-  await updateRun(run.store, run.item.folder, run.item.file, { videos, sync }).catch(() => undefined);
+  const ok = await updateRun(run.store, run.item.folder, run.item.file, { videos, sync }).then(() => true, () => false);
+  if (ok) run.hasSaved = videos.length > 0;
 }
 
 function scheduleSave(): void {
@@ -267,6 +270,8 @@ async function attachRunVideosNow(opts: {
       }
     }
   }
+  // 動画が残らなかった相手の走行は覚えない (名前が重ならなくなったら、次に Car が変わったときに読み直す)
+  for (const [runPath, ps] of [...companions]) if (ps.size === 0) companions.delete(runPath);
   const keep = companionPaths();
   for (const t of videoSyncManager.getTracks()) if (t.remote && !paths.has(t.remote.path) && !keep.has(t.remote.path)) videoSyncManager.removeTrack(t.id);
   // 先に同期を戻す (動画はまだないので、名前だけの枠ができる。そこに動画をつなぐと、戻した同期のまま使える)
@@ -291,7 +296,7 @@ async function attachRunVideosNow(opts: {
   for (const t of videoSyncManager.getTracks()) if (!t.objectUrl && saved.some(v => v.fileName === t.fileName)) videoSyncManager.removeTrack(t.id);
   const keptNames = opts.fromRuns ? item.videos.filter(n => !openedNames.has(n)) : [];
   const kept = saved.filter(v => keptNames.includes(v.fileName));
-  current = { store, item, sessionIds: ids, circuitName: opts.circuitName, sessions: opts.sessions, names, kept, keptNames };
+  current = { store, item, sessionIds: ids, circuitName: opts.circuitName, sessions: opts.sessions, names, kept, keptNames, hasSaved: !!item.entry?.videos?.length };
   const offA = videoSyncManager.subscribe(scheduleSave);
   const offB = videoViewStore.subscribe(scheduleSave);
   unsubscribe = () => { offA(); offB(); };
