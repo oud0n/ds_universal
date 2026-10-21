@@ -7,7 +7,7 @@ import { openExternalUrl } from '../utils/url';
 import { LANG_OPTIONS, THEME_OPTIONS, showLangSwitch } from '../components/Header';
 import type { NavPlan } from '../app/navPlan';
 import { navStore } from '../app/navStore';
-import { SCREEN_META } from '../app/screenMeta';
+import { SCREEN_META, screenLabel } from '../app/screenMeta';
 import { StorageSettings } from '../components/StorageSettings';
 
 /**
@@ -18,7 +18,8 @@ export const SettingsScreen: React.FC<{ plan: NavPlan; onOpenDonate?: () => void
   const t = useT();
   const theme = useThemeSetting();
   const lang = useLangSetting();
-  const rows = plan.more.filter(s => s !== 'settings');
+  // サイドバーの組み方では、サイドバーの下に同じものがあるので並べない
+  const rows = plan.chrome === 'sidebar' ? [] : plan.more.filter(s => s !== 'settings');
   return (
     <div className="h-full overflow-y-auto" data-testid="settings-screen">
       <div className="max-w-lg mx-auto p-3 space-y-5">
@@ -26,7 +27,8 @@ export const SettingsScreen: React.FC<{ plan: NavPlan; onOpenDonate?: () => void
         {rows.length > 0 && (
           <section className="rounded-xl bg-surface-1 border border-line-2 overflow-hidden">
             {rows.map((s, i) => {
-              const { label, Icon } = SCREEN_META[s];
+              const { Icon } = SCREEN_META[s];
+              const label = screenLabel(s);
               return (
                 <button
                   key={s}

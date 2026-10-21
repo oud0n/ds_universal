@@ -554,6 +554,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const lastDiff = lastLap && prevBestForLast !== null ? lastLap.timeSec - prevBestForLast : null;
 
   // 出どころの状態
+  // 選んだ出どころの機器を登録していない (測位が来ない)
+  const needsRegister = (source === 'digspice' && link.status === 'none') || (source === 'racebox' && !lapDevices.racebox);
   const sourceStatus = (() => {
     if (source === 'digspice') {
       const ok = link.status === 'fixing';
@@ -638,9 +640,11 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       <header className="flex items-center gap-2 px-3 py-2 text-xs sm:text-sm shrink-0 min-w-0">
         <button
           type="button"
-          // デジスパイスにつないでいないときは、押すとつなぐ
+          // デジスパイスにつないでいないときは、押すとつなぐ。登録していなければ機器の画面へ。測っている間は押せない (走りながら誤って押さないように)
+          disabled={measuring}
           onClick={() => {
-            if (source === 'digspice' && link.status === 'idle') {
+            if (needsRegister) navStore.go('logger');
+            else if (source === 'digspice' && link.status === 'idle') {
               if (bleLoggerLink.isLinkIdle()) bleConnectedHereRef.current = true;
               void bleLoggerLink.startAndConnect(true);
             } else setMenuOpen(o => !o);
@@ -652,7 +656,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           {source === 'digspice' ? <Bluetooth size={14} className="shrink-0" /> : source === 'phone' ? <Smartphone size={14} className="shrink-0" /> : <PlayCircle size={14} className="shrink-0" />}
           <span className="truncate">{sourceStatus.text}{source === 'digspice' && link.status === 'idle' ? t(' (押すとつなぐ)', ' (tap to connect)') : ''}</span>
         </button>
-        <button onClick={() => setCoursePicker(true)} className="flex items-center gap-1 px-2 py-1 rounded-full border border-line-3 text-slate-200 whitespace-nowrap shrink-0 max-w-[40vw]" data-testid="lap-timer-course">
+        <button onClick={() => setCoursePicker(true)} disabled={measuring} className="flex items-center gap-1 px-2 py-1 rounded-full border border-line-3 text-slate-200 whitespace-nowrap shrink-0 max-w-[40vw] disabled:opacity-60" data-testid="lap-timer-course">
           <MapPin size={14} className="shrink-0" />
           <span className="truncate">{course ? circuitLabel(course.name) : t('コース: 自動', 'Course: auto')}</span>
         </button>
@@ -665,7 +669,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
         <button onClick={() => setVoice(v => !v)} className={`p-2 rounded-full border border-line-3 shrink-0 ${wakeLockOk === false ? '' : 'ml-auto'}`} aria-label={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')} title={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')}>
           {voice ? <Volume2 size={18} /> : <VolumeX size={18} className="text-slate-400" />}
         </button>
-        <button onClick={() => setMenuOpen(o => !o)} className="p-2 rounded-full border border-line-3 shrink-0" aria-label={t('メニュー', 'Menu')} title={t('メニュー', 'Menu')}>
+        {/* 測っている間は、押せるのは声と測定終了だけ (メニューから出どころを替えると周が消えるため) */}
+        <button onClick={() => setMenuOpen(o => !o)} disabled={measuring} className="p-2 rounded-full border border-line-3 shrink-0 disabled:opacity-40" aria-label={t('メニュー', 'Menu')} title={t('メニュー', 'Menu')}>
           <Menu size={18} />
         </button>
         {!embedded && (
@@ -690,7 +695,12 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
         <section className="flex-1 min-w-0 min-h-0 flex flex-col items-center justify-center" data-testid="lap-timer-main">
           {!measuring && source !== 'replay' ? (
             <div className="text-center space-y-2" data-testid="lap-timer-idle">
-              <div className="font-bold" style={{ fontSize: 'min(7vw, 9vh)' }}>{course ? circuitLabel(course.name) : t('コースを決めています', 'Finding the course')}</div>
+              <div className="font-bold" style={{ fontSize: needsRegister ? 'min(5.5vw, 7vh)' : 'min(7vw, 9vh)' }}>
+                {needsRegister ? t('位置の機器を登録してください', 'Register a position device') : course ? circuitLabel(course.name) : t('コースを決めています', 'Finding the course')}
+              </div>
+              {needsRegister && (
+                <div className="text-slate-400 text-sm">{t('上の印を押すと機器の画面へ。この iPhone の GPS で測るときは、メニューで選んでください。', 'Tap the badge above to register one, or choose this iPhone’s GPS in the menu.')}</div>
+              )}
               <div className="font-mono text-slate-300 tabular-nums" style={{ fontSize: 'min(9vw, 12vh)' }}>
                 {lastFix ? `${Math.round(lastFix.speedKmh)} km/h` : '--- km/h'}
               </div>
@@ -863,15 +873,10 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               <p className="text-[10px] text-slate-500 mt-1">{t('「ファイル」アプリの このiPhone内 → このアプリ → LapTimer → サーキット名 にも、走っている間に書いています (.nmea と .bon4)。', 'Also written while driving to Files → On My iPhone → this app → LapTimer → circuit name (.nmea and .bon4).')}</p>
             )}
           </div>
+          {/* ラップタイムの記録と保管場所は、走行のタブと設定へ移した (2026-10-21)。機器の登録への入口だけ置く */}
           {hasNative() && (
-            <button onClick={() => { void flushRecording(true).then(() => { setHistoryOpen(true); setMenuOpen(false); }); }} className="w-full text-left px-3 py-2 rounded-lg bg-surface-2" data-testid="lap-timer-history">
-              {t('ラップタイムの記録 (過去の周の一覧)', 'Lap time records (past laps)')}
-            </button>
-          )}
-          {hasNative() && (
-            // 保管場所は設定の画面へ移した (2026-10-21)
-            <button onClick={() => { setMenuOpen(false); navStore.go('settings'); }} disabled={measuring} className="w-full text-left px-3 py-2 rounded-lg bg-surface-2 disabled:opacity-40" data-testid="lap-timer-storage">
-              {t('記録の保管場所 (設定)', 'Where runs are kept (Settings)')}
+            <button onClick={() => { setMenuOpen(false); navStore.go('logger'); }} disabled={measuring} className="w-full text-left px-3 py-2 rounded-lg bg-surface-2 disabled:opacity-40" data-testid="lap-timer-devices-link">
+              {t('機器の登録 (デジスパイス・RaceBox・センサー・カメラ)', 'Register devices (DigSpice, RaceBox, sensors, cameras)')}
             </button>
           )}
           {syncNote && (

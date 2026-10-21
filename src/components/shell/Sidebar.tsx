@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useT } from '../../utils/i18n';
 import type { Screen } from '../../app/navPlan';
-import { SCREEN_META } from '../../app/screenMeta';
+import { SCREEN_META, screenLabel } from '../../app/screenMeta';
 
 const COLLAPSED_KEY = 'ds_sidebar_collapsed';
 
@@ -31,7 +31,8 @@ export const Sidebar: React.FC<{
     });
   };
   const item = (id: Screen) => {
-    const { label, Icon } = SCREEN_META[id];
+    const { Icon } = SCREEN_META[id];
+    const label = screenLabel(id);
     const badge = badges?.[id];
     const on = current === id;
     return (
