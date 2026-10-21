@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { BarChart2, ChevronRight, Cloud, EyeOff, FolderOpen, Loader2, Trophy, Video, X } from 'lucide-react';
+import { BarChart2, ChevronRight, Cloud, EyeOff, FolderOpen, GitCompare, Loader2, Trophy, Video, X } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { formatLapTime } from '../services/liveLapTimer';
@@ -18,6 +18,8 @@ interface Props {
   wide: boolean;
   onOpen: (r: RunItem) => void;
   onOpenVideo: (r: RunItem) => void;
+  /** 比べる相手 (Car 2) として足す (走行をもう開いているときだけ) */
+  onAddAsCar2?: (r: RunItem) => void;
   onPickFiles: () => void;
   /** ラップタイムの記録から、走行のファイルを解析で開く */
   onOpenFile: (file: File) => void;
@@ -36,7 +38,7 @@ function dayKey(ms: number | null): string {
  * 保管場所の 1 行 / サーキットで絞る / 日付ごとの走行 / 下に「ファイルを選ぶ」「ラップタイムの記録」。
  * 行を押すと走行の詳細 (周の一覧・動画・解析で開く・動画を見る)
  */
-export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVideo, onPickFiles, onOpenFile, busy }) => {
+export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVideo, onAddAsCar2, onPickFiles, onOpenFile, busy }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const { store, runs, error, noFolder, reload } = useRuns(active);
@@ -160,6 +162,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
       // 開いたら詳細は閉じる (走行のタブに戻ったとき、前の詳細が出たままにならないように)
       onOpen={() => { setSelectedKey(null); onOpen(selected); }}
       onOpenVideo={() => { setSelectedKey(null); onOpenVideo(selected); }}
+      onAddAsCar2={onAddAsCar2 ? () => { setSelectedKey(null); onAddAsCar2(selected); } : undefined}
       onToggleLap={async (lap, hide) => { await setRunLapHidden(store, selected, lap, hide); reload(); }}
       onClose={wide ? undefined : () => setSelectedKey(null)}
     />
@@ -191,10 +194,11 @@ const RunDetail: React.FC<{
   busy: boolean;
   onOpen: () => void;
   onOpenVideo: () => void;
+  onAddAsCar2?: () => void;
   onToggleLap: (lap: RunItem['laps'][number], hide: boolean) => Promise<void>;
   /** 狭い画面のシートを閉じる (広い画面では右の欄なので無い) */
   onClose?: () => void;
-}> = ({ run, busy, onOpen, onOpenVideo, onToggleLap, onClose }) => {
+}> = ({ run, busy, onOpen, onOpenVideo, onAddAsCar2, onToggleLap, onClose }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const [order, setOrder] = useState<'run' | 'time'>('run');
@@ -268,7 +272,14 @@ const RunDetail: React.FC<{
           </div>
         </section>
       </div>
-      <div className="shrink-0 flex gap-2 px-4 py-3 border-t border-line-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      {onAddAsCar2 && visible.length > 0 && (
+        <div className="shrink-0 px-4 pt-3 border-t border-line-2">
+          <button onClick={onAddAsCar2} disabled={busy} className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl border-2 border-sky-500 text-sky-500 font-bold text-sm cursor-pointer disabled:opacity-40" data-testid="run-add-car2">
+            <GitCompare size={16} />{t(`Car 2 として足す (ベスト ${best !== null ? formatLapTime(best) : '--'} と比べる)`, `Add as Car 2 (compare best ${best !== null ? formatLapTime(best) : '--'})`)}
+          </button>
+        </div>
+      )}
+      <div className={`shrink-0 flex gap-2 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] ${onAddAsCar2 && visible.length > 0 ? '' : 'border-t border-line-2'}`}>
         <button onClick={onOpen} disabled={busy} className="flex-1 inline-flex items-center justify-center gap-1.5 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm cursor-pointer disabled:opacity-50" data-testid="run-open-analysis">
           <BarChart2 size={16} />{t('解析で開く', 'Open in Analysis')}
         </button>

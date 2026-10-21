@@ -766,6 +766,46 @@ export const App: React.FC = () => {
     if (first) videoSyncManager.setGpsClock(first.track.id, { session, offsetSec: (first.startMs - t0) / 1000 });
   };
 
+  /**
+   * 走行を比べる相手 (Car 2) として足す (走行の詳細の「Car 2 として足す」)。いま開いている走行と動画はそのまま。
+   * 周は、その走行の隠していない周のうちいちばん速いもの (同じタイムの周を、読み込んだログの周から探す)
+   */
+  const addRunAsCar2 = async (item: RunItem) => {
+    if (runOpeningRef.current) return;
+    runOpeningRef.current = true;
+    setRunBusy(true);
+    try {
+      const store = await getRunStore();
+      if (!store) return;
+      const runPath = `${item.folder}/${item.file}`;
+      const openedIds = runSessionsRef.current.get(runPath) ?? [];
+      let added = latestRef.current.sessions.filter(x => openedIds.includes(x.id));
+      if (!added.length) {
+        const bytes = await store.read(runPath);
+        const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+        added = await loadFileData(item.file.slice(item.file.lastIndexOf('/') + 1), buffer);
+        runSessionsRef.current.set(runPath, added.map(x => x.id));
+      }
+      if (added.length === 0) return;
+      const visible = item.laps.filter(l => !l.hidden);
+      const best = visible.length ? visible.reduce((a, b) => (b.time < a.time ? b : a)) : null;
+      const session = (best?.part ? added[best.part - 1] : undefined) ?? added[0];
+      const fullLaps = session.laps.filter(l => !l.isWholeSession && !l.isPartialLap);
+      const match = best ? fullLaps.find(l => Math.abs(l.lapTime - best.time) < 0.05) : undefined;
+      const lapNumber = match?.lapNumber ?? session.laps[session.bestLapIndex]?.lapNumber ?? 1;
+      setSelectedCars(prev => [
+        ...prev.filter(c => c.slot !== 1),
+        { slot: 1, sessionId: session.id, lapNumber, colorHex: '#3b82f6', label: `${session.sessionName} (L${lapNumber})` }
+      ].sort((a, b) => a.slot - b.slot));
+      navStore.go('analysis');
+    } catch (e) {
+      console.warn('[run] Car 2 として足せない:', e);
+    } finally {
+      runOpeningRef.current = false;
+      setRunBusy(false);
+    }
+  };
+
   // 過去の走行を開く: ログを読み込み、同じフォルダの動画と同期をそろえる (runOpener.ts)
   const openRun = async (item: RunItem) => {
     // 続けて押しても 1 回だけ開く
@@ -2013,6 +2053,8 @@ export const App: React.FC = () => {
             onOpen={r => void openRun(r)}
             // 動画を見る: 走行を開いて (動画と同期もそろう)、動画の画面へ
             onOpenVideo={r => void openRun(r).then(() => navStore.go('video'))}
+            // 走行がもう開いているときだけ、比べる相手として足せる
+            onAddAsCar2={sessions.length > 0 ? (r => void addRunAsCar2(r)) : undefined}
             onPickFiles={() => fileInputRef.current?.click()}
             onOpenFile={file => { void loadFiles([file]).then(() => navStore.go('analysis')); }}
             busy={runBusy}
