@@ -213,7 +213,9 @@ class VideoSyncManager {
     if (sessions.some(s => s.id === savedId)) return savedId;
     const saved = this.importedSessions.find(s => s.id === savedId);
     if (!saved) return savedId;
-    const candidates = sessions.filter(s => s.fileName === saved.fileName);
+    // 名前は拡張子を除いてくらべる (.bon4 で保存した同期を、.nmea で開いた同じ走行に戻すため。2026-10-21)
+    const stem = (n: string) => n.replace(/\.(nmea|bon4|bnx4|bon|binx)$/i, '');
+    const candidates = sessions.filter(s => s.fileName === saved.fileName || stem(s.fileName) === stem(saved.fileName));
     const hit = candidates.find(s => s.date === saved.startDateJst) ?? (candidates.length === 1 ? candidates[0] : undefined);
     return hit ? hit.id : savedId;
   }
