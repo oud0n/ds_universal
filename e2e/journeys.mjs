@@ -3,6 +3,7 @@
 // どの場面も、操作のあとで「つじつま」(開いた走行が Car 1・動画の位置がログの時刻と合う など) を確かめる。
 
 import { check, sleep } from './cdp.mjs';
+import { sweepLayout } from './layout.mjs';
 
 const APP = 'http://localhost:5183/';
 
@@ -261,6 +262,31 @@ export const journeys = [
       const s = await p.state();
       check(s.screen === 'convert', `#convert で ${s.screen}`);
       check(await p.exists('nav-analysis'), '上のタブがない');
+    }
+  },
+  // 寸法: 全部の画面を開き、バーの高さ・文字の折り返し・はみ出しを確かめる (「ファイルを開く」でバーが伸びていたもの)
+  ...[
+    ['スマートフォンのアプリ・縦', 390, 844, true, '?native=mock'],
+    ['スマートフォンのアプリ・横', 844, 390, true, '?native=mock'],
+    ['スマートフォンのブラウザ', 390, 844, true, ''],
+    ['小さいスマートフォンのブラウザ', 360, 740, true, ''],
+    ['タブレットのブラウザ', 820, 1180, true, ''],
+    ['パソコンのブラウザ', 1440, 900, false, '']
+  ].map(([label, w, h, mobile, q]) => ({
+    name: `寸法: ${label} (${w}×${h})`,
+    target: 'phone',
+    async run(p) {
+      await p.viewport(w, h, mobile);
+      await p.goto(`${APP}${q}`);
+      await sweepLayout(p, `${w}x${h}${q ? '_app' : ''}`);
+    }
+  })),
+  {
+    name: '寸法: デスクトップ版 (走行を開いた状態)',
+    target: 'electron',
+    async run(p) {
+      await openRun(p, '8/30', 'run-open-analysis');
+      await sweepLayout(p, 'electron');
     }
   }
 ];
