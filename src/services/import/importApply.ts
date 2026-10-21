@@ -61,11 +61,13 @@ function rmcMs(line: string): number | null {
  * NMEA の文のうち、fromMs〜toMs の間のものをそのまま返す (時刻は RMC の文で見る。RMC の間にある GGA などの文も一緒に)。
  * 境目はゆるめにとる (前後 1 秒)
  */
-export function nmeaSlice(text: string, fromMs: number, toMs: number): string {
+export function nmeaSlice(text: string | string[], fromMs: number, toMs: number): string {
   const out: string[] = [];
   let inside = false;
-  for (const line of text.split(/\r?\n/)) {
-    if (/^\$G[PNLAB]RMC,/.test(line)) {
+  // 大きなファイルでは、行に分けるのは 1 回だけにする (applyPlan が分けたものを渡す)
+  for (const line of typeof text === 'string' ? text.split(/\r?\n/) : text) {
+    // 衛星の種類の印は GP・GN・GL・GA・GB・BD・QZ など
+    if (/^\$[A-Z]{2}RMC,/.test(line)) {
       const t = rmcMs(line);
       if (t !== null) inside = t >= fromMs - 1000 && t <= toMs + 1000;
     }
@@ -85,15 +87,19 @@ export async function applyPlan(
   const parts = plan.parts.filter(p => p.checked);
   const results: PartResult[] = [];
   const isNmea = plan.sourceKind === 'nmea';
-  const text = isNmea ? new TextDecoder().decode(source.bytes) : '';
+  const lines = isNmea ? new TextDecoder().decode(source.bytes).split(/\r?\n/) : [];
   const enc = new TextEncoder();
   for (const [k, part] of parts.entries()) {
     const r: PartResult = { id: part.id, base: part.base, written: [], skipped: [] };
     try {
-      const nmea = isNmea ? nmeaSlice(text, part.startMs, part.endMs) : fixesToNmea(toFixes(part.points, opts.startDate));
+      const startDate = part.startDate ?? opts.startDate;
+      // 元の文を写せない (日付のある RMC がない など) ときは、点から作る (空のファイルを書かない)
+      let nmea = isNmea ? nmeaSlice(lines, part.startMs, part.endMs) : '';
+      if (!nmea) nmea = fixesToNmea(toFixes(part.points, startDate));
+      if (!nmea) throw new Error('no positions');
       await put(writer, `${part.base}.nmea`, enc.encode(nmea), r);
       if (opts.writeBon4 && DIGSPICE_KINDS.has(plan.sourceKind)) {
-        await put(writer, `${part.base}.bon4`, fixesToBon4(toFixes(part.points, opts.startDate)), r);
+        await put(writer, `${part.base}.bon4`, fixesToBon4(toFixes(part.points, startDate)), r);
       }
     } catch (e) {
       r.error = e instanceof Error ? e.message : String(e);
@@ -101,10 +107,12 @@ export async function applyPlan(
     results.push(r);
     onProgress?.(k + 1, parts.length);
   }
-  // 元のファイルを、手を加えずに残す (取り込んだものが 1 つでもあれば)
+  // 元のファイルを、手を加えずに残す (取り込んだものが 1 つでもあれば。前に書いた走行が残っていて、今回は書かなかったときも
+  // (やり直したとき)、元のファイルがまだなければ残す)。名前に道の区切りがあれば外す (取り込み元/ の外へ出ないように)
   let sourceWritten = false;
-  if (results.some(r => r.written.length)) {
-    sourceWritten = (await writer.writeNew(`${IMPORT_SOURCE_FOLDER}/${source.name}`, source.bytes)) === 'ok';
+  if (results.some(r => !r.error && (r.written.length || r.skipped.length))) {
+    const safe = source.name.replace(/[\\/]/g, '_').replace(/^\.+/, '_') || 'log';
+    sourceWritten = (await writer.writeNew(`${IMPORT_SOURCE_FOLDER}/${safe}`, source.bytes)) === 'ok';
   }
   return { results, sourceWritten };
 }
