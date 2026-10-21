@@ -158,6 +158,33 @@ export const journeys = [
     }
   },
   {
+    name: '別の日の走行を Car 2 に足すと、比べるの Car 2 の枠にその走行の動画が出る (Car 1 を替えても残る)',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      await openRun(p, '8/15', 'run-open-video');
+      await openRun(p, '9/18', 'run-add-car2');
+      await p.click('nav-video');
+      await sleep(1500);
+      await p.click('video-mode-compare');
+      await sleep(5000);
+      const tiles = async () => p.ev(`(()=>({
+        sel: [...document.querySelectorAll('select')].filter(x => /^自動/.test(x.options[0]?.text ?? '')).map(x => x.options[x.selectedIndex]?.text),
+        src: [...document.querySelectorAll('video')].map(v => decodeURIComponent(v.currentSrc || v.src).split('/').pop()),
+        none: /この時刻の映像はありません|この周を映している動画がありません/.test(document.body.innerText)
+      }))()`);
+      let t = await tiles();
+      check(t.sel[1] === '自動: GX010017.MP4', `Car 2 (9/18) の枠の動画が 9/18 の GX010017 でない: ${t.sel.join(', ')}`);
+      check(t.src.includes('GX010017.MP4') && !t.none, `Car 2 の枠に動画が出ていない: ${t.src.join(', ')}`);
+      // Car 1 を別の走行に替えても、Car 2 の動画は残る
+      await openRun(p, '9/13', 'run-open-video');
+      await p.click('video-mode-compare');
+      await sleep(5000);
+      t = await tiles();
+      check(t.sel[1] === '自動: GX010017.MP4', `Car 1 を替えたら Car 2 の動画が外れた: ${t.sel.join(', ')}`);
+    }
+  },
+  {
     name: '走行の詳細: 周を隠して出すと元に戻る (laptimes.json も元どおり)',
     target: 'electron',
     async run(p) {

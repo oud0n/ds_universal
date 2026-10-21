@@ -21,7 +21,7 @@ import {
 } from '../services/videoSyncPinManager';
 import { videoViewStore, useVideoView, useVideoTracks, useSyncPins, useWindowView, PipPosition, MAX_CAMERAS, videoEndSessionSec } from '../services/videoViewStore';
 import { PlaybackController, PlaybackTarget } from '../services/playbackController';
-import { buildMedia, positionInMedia, positionAtMediaTime, mediaForLap, mediaStartIn, PlayableMedia, MediaPosition } from '../services/playableMedia';
+import { buildMedia, positionInMedia, positionAtMediaTime, lapOverlapSec, mediaForLap, mediaStartIn, PlayableMedia, MediaPosition } from '../services/playableMedia';
 import { VideoTile, TileOverlay } from './video/VideoTile';
 import { VideoStage } from './video/VideoStage';
 import { 
@@ -1173,7 +1173,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     title={t('この車の枠に出す動画。自動: この車のログの時刻で、周を映している動画', 'Video for this car. Auto: the video that covers the lap in this car\'s log time')}
                   >
                     <option value="">{t('自動', 'Auto')}{!x.chosen ? `: ${x.media?.label ?? t('なし', 'none')}` : ''}</option>
-                    {media.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                    {media.map(m => {
+                      // その車の周を映していない動画 (別の日の動画など) は、選んでも「映像はありません」になるので印を付ける
+                      const g = x.gauge;
+                      const off = !!g?.session && !!g.lap && lapOverlapSec(m, g.session, g.lap, sessions) <= 0;
+                      return <option key={m.id} value={m.id}>{m.label}{off ? t(' (この周は映っていない)', ' (does not cover this lap)') : ''}</option>;
+                    })}
                   </select>
                 </div>
               ))}
