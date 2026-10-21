@@ -1,34 +1,23 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { X, Volume2, VolumeX, Menu, MapPin, Bluetooth, Smartphone, PlayCircle, Save, BarChart3, Trash2, FolderOpen, Play, Square } from 'lucide-react';
-import { bleLoggerLink } from '../services/bleLoggerLink';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { X, Volume2, VolumeX, Menu, MapPin, Bluetooth, Smartphone, PlayCircle, Save, BarChart3, Trash2, Play, Square } from 'lucide-react';
 import { useLoggerLink, useStatusLabel } from './BleLoggerCard';
-import { LiveLapTimer, formatDelta, formatLapTime, type LiveFix, type LiveLapEvent, type LiveLapState } from '../services/liveLapTimer';
-import { CIRCUIT_PRESETS, findMatchingCircuit } from '../services/circuitDatabase';
+import { formatDelta, formatLapTime } from '../services/liveLapTimer';
+import { CIRCUIT_PRESETS } from '../services/circuitDatabase';
 import { triggerFileDownload } from '../services/nmeaExporter';
 import { downloadBlob } from '../services/telemetryVideoExporter';
-import { LiveRunRecorder } from '../services/runRecorder';
-import { courseFolder } from '../utils/courseNames';
 import { LapHistoryPanel } from './LapHistoryPanel';
-import { useLapDevices } from '../hooks/useLapDevices';
 import { deleteRun, listRuns, loadFixes, type RunMeta } from '../services/liveRunStore';
 import { fixesToBon4, fixesToNmea, runFileBase } from '../services/runFiles';
 import { callNative, hasNative, toBase64 } from '../native/bridge';
 import { canUseLoggerBle } from '../utils/device';
 import { useEscapeKey } from '../hooks/useEscapeKey';
-import { getPositionSource, setPositionSource } from '../services/positionSource';
+import { getPositionSource } from '../services/positionSource';
 import { navStore } from '../app/navStore';
-import { PhoneImuRecorder } from '../services/phoneImu';
-import { digspiceFeed, distanceKm, phoneFeed, replayFeed } from '../services/timer/positionFeeds';
-import { getRunStore } from '../services/runStore';
-import { LAP_INDEX_FILE, lapKey, parseLapIndex } from '../services/lapIndex';
+import { distanceKm } from '../services/timer/positionFeeds';
+import { TimerRuntime } from '../services/timer/timerRuntime';
 import { OrientationToggle, StopConfirm, loadTimerOrientation, saveTimerOrientation, type TimerOrientation } from './LapTimerControls';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
-import type { CircuitPreset, TelemetryPoint } from '../types/telemetry';
-
-/** 走っている間に、記録を保存する間隔 (ミリ秒) */
-/** 選んだフォルダへ写す、走っている間の最短の間隔 */
-const SYNC_INTERVAL_MS = 3 * 60 * 1000;
-const SAVE_INTERVAL_MS = 2000;
+import type { TelemetryPoint } from '../types/telemetry';
 
 /**
  * 走りながら使うラップタイマーの画面 (暫定の版。docs/iphone_app_design.md の 5)。
@@ -62,8 +51,6 @@ interface Props {
   onMeasuringChange?: (on: boolean) => void;
 }
 
-/** 周を終えたあと、そのタイムを大きく出しておく長さ (ミリ秒) */
-const FLASH_MS = 6000;
 /** 測位が来なくなってから、経過を進め続ける長さ (秒)。途切れの間に経過が止まって見えないように */
 const EXTRAPOLATE_SEC = 1;
 
@@ -77,130 +64,63 @@ function deltaClass(d: number | null | undefined): string {
   return 'text-fg';
 }
 
-/** 声で知らせる */
-function speak(text: string, lang: string): void {
-  try {
-    const synth = window.speechSynthesis;
-    if (!synth) return;
-    synth.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = lang;
-    u.rate = 1.05;
-    synth.speak(u);
-  } catch {
-    // 声を出せない環境では黙る
-  }
-}
-
-function lapSpeech(e: LiveLapEvent): { text: string; lang: string } {
-  const ja = getLang() === 'ja';
-  const t = e.lap.timeSec;
-  const m = Math.floor(t / 60);
-  const s = Math.floor(t - m * 60);
-  const tenth = Math.floor((t - Math.floor(t)) * 10);
-  const d = e.diffToBestSec;
-  if (ja) {
-    const time = `${m > 0 ? `${m}分` : ''}${s}秒${tenth}`;
-    const diff = d === null ? '' : e.isBest ? '、ベスト' : `、プラス${Math.abs(d).toFixed(1)}`;
-    return { text: time + diff, lang: 'ja-JP' };
-  }
-  const time = `${m > 0 ? `${m} ` : ''}${s} point ${tenth}`;
-  const diff = d === null ? '' : e.isBest ? ', best lap' : `, plus ${Math.abs(d).toFixed(1)}`;
-  return { text: time + diff, lang: 'en-US' };
-}
-
 export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog, onOpenFile, embedded = false, onMeasuringChange }) => {
   const t = useT();
   const link = useLoggerLink();
   const statusLabel = useStatusLabel();
-  // 位置の出どころ。前に選んだものを覚えておき、画面の上の印にも同じものを出す (services/positionSource.ts)
-  const [source, setSource] = useState<Source>(() => {
+  // ラップタイマーの中身 (services/timer/timerRuntime.ts)。今は画面を開いている間だけ作る (閉じたら片付ける。前と同じ動き)
+  const replayLogsRef = useRef(replayLogs);
+  replayLogsRef.current = replayLogs;
+  const rtRef = useRef<TimerRuntime | null>(null);
+  rtRef.current ??= new TimerRuntime({
+    replayLogs: () => replayLogsRef.current,
+    phoneMessages: () => ({
+      unavailable: getLang() === 'ja' ? 'この端末では位置を使えません' : 'Location is not available on this device',
+      denied: getLang() === 'ja'
+        ? '位置の許可がありません (アプリでは、位置を使う設定の入った版に入れ直すと使えます)'
+        : 'Location permission denied (in the app, reinstall a build that includes location access)'
+    })
+  }, (() => {
+    // 位置の出どころ。前に選んだものを覚えておき、画面の上の印にも同じものを出す (services/positionSource.ts)
     const saved = getPositionSource();
     if (saved && (saved !== 'digspice' || canUseLoggerBle)) return saved;
     return canUseLoggerBle ? 'digspice' : replayLogs.length > 0 ? 'replay' : 'phone';
-  });
-  useEffect(() => { if (source !== 'replay') setPositionSource(source); }, [source]);
-  const [course, setCourse] = useState<CircuitPreset | null>(null);
-  const [state, setState] = useState<LiveLapState | null>(null);
-  const [flash, setFlash] = useState<{ event: LiveLapEvent; until: number } | null>(null);
-  const [voice, setVoice] = useState(true);
-  const [menuOpen, setMenuOpen] = useState(false);
-  // 測っているか (測定開始のボタンを押してから、測定終了まで)。測っていない間は、位置と速度を出すだけで、周を数えず記録もしない (2026-10-20)
-  const [measuring, setMeasuring] = useState(false);
-  const measuringRef = useRef(false);
-  /** デジスパイスの接続を、このタイマーがつないだか (離れるときに、自分でつないだものだけ切る) */
-  const bleConnectedHereRef = useRef(false);
-  /** このコースの、保管場所の記録のベスト (測る前の画面に出す) */
-  const [pastBest, setPastBest] = useState<{ time: number; startMs: number } | null>(null);
+  })());
+  const rt = rtRef.current;
   useEffect(() => {
-    setPastBest(null);
-    if (!course || !hasNative()) return;
-    let cancelled = false;
-    void (async () => {
-      const store = await getRunStore();
-      if (!store || cancelled) return;
-      const folder = courseFolder(course.name, course.folder, course.id);
-      const index = parseLapIndex(await store.readText(`${folder}/${LAP_INDEX_FILE}`).catch(() => null));
-      if (!index || cancelled) return;
-      const hidden = new Set(index.hidden.map(h => lapKey(h.file, h.part, h.n)));
-      let best: { time: number; startMs: number } | null = null;
-      for (const [file, rec] of Object.entries(index.files)) {
-        for (const l of rec.laps) if (!hidden.has(lapKey(file, l.part, l.n)) && (!best || l.time < best.time)) best = { time: l.time, startMs: l.startMs };
-      }
-      if (!cancelled) setPastBest(best);
-    })();
-    return () => { cancelled = true; };
-  }, [course]);
-  /** 測り終えて保存した走行 (周の数)。次に測り始めるまで、測る前の画面に知らせを出す */
-  const [savedRun, setSavedRun] = useState<{ laps: number; best: number | null } | null>(null);
+    rt.start();
+    return () => rt.dispose();
+  }, [rt]);
+  const snap = useSyncExternalStore(rt.subscribe, rt.getSnapshot);
+  const { source, course, flash, voice, measuring, savedRun, saveError, syncNote, phoneInfo, replayId, replaySpeed, pastBest } = snap;
+  const state = snap.lap;
+  const setSource = (s: Source) => rt.setSource(s);
+  const setVoice = (v: boolean | ((cur: boolean) => boolean)) => rt.setVoice(typeof v === 'function' ? v(snap.voice) : v);
+  const setReplayId = (id: string) => rt.setReplay(id);
+  const setReplaySpeed = (s: number) => rt.setReplaySpeed(s);
+  const lapDevices = { statuses: snap.devices, racebox: rt.devices.racebox, drogger: rt.devices.drogger };
+  const flushRecording = useCallback((force = false) => rt.flush(force), [rt]);
+  const startMeasuring = () => rt.startMeasuring();
+  const stopMeasuring = useCallback(() => rt.stopMeasuring(), [rt]);
+  const resetRun = () => rt.resetRun();
+  const setSaveError = (m: string | null) => rt.setSaveError(m);
+
+  const [menuOpen, setMenuOpen] = useState(false);
   // 測定終了の確認 (全画面) を出しているか
   const [confirmStop, setConfirmStop] = useState(false);
   // 画面の向き (アプリだけ。測る前に選び、測っている間は固める)
   const [orientation, setOrientation] = useState<TimerOrientation>(loadTimerOrientation);
   const [coursePicker, setCoursePicker] = useState(false);
   const [now, setNow] = useState(() => performance.now());
-  const [phoneInfo, setPhoneInfo] = useState<{ accuracy: number | null; error: string | null }>({ accuracy: null, error: null });
-  const [replayId, setReplayId] = useState(() => replayLogs[0]?.id ?? '');
-  const [replaySpeed, setReplaySpeed] = useState(4);
   const [wakeLockOk, setWakeLockOk] = useState<boolean | null>(null);
-
-  const timerRef = useRef<LiveLapTimer | null>(null);
-  const courseRef = useRef<CircuitPreset | null>(null);
-  const fixesRef = useRef<LiveFix[]>([]);
-  /** 走っている間の記録 (runRecorder.ts)。ログの再生では作らない */
-  const recorderRef = useRef<LiveRunRecorder | null>(null);
-  const sourceRef = useRef<Source>('digspice');
   const [runs, setRuns] = useState<RunMeta[]>([]);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  /** 記録の保管先 (アプリのみ) と、選んだフォルダへ最後に写した結果 */
-  const [syncNote, setSyncNote] = useState<{ ok: boolean; text: string } | null>(null);
-  const lastSyncMsRef = useRef(0);
-  /** 登録した Bluetooth LE の機器 (RaceBox・センサー・カメラ)。測位は handleFix へ (後で決まるので ref を通す) */
-  const handleFixRef = useRef<(fix: LiveFix) => void>(() => {});
-  const lapDevices = useLapDevices({
-    position: source === 'racebox' || source === 'drogger' ? source : null,
-    onFix: f => handleFixRef.current(f),
-    runBase: () => recorderRef.current?.current?.fileBase ?? null
-  });
-  const lapDevicesRef = useRef(lapDevices);
-  // iPhone の G センサー (測っている間だけ読み、走行と同じ名前の .iphone_imu.csv に書く。測定開始のときの傾きを基準にする)
-  const imuRef = useRef<PhoneImuRecorder | null>(null);
-  imuRef.current ??= new PhoneImuRecorder(() => recorderRef.current?.current?.fileBase ?? null);
-  useEffect(() => () => { void imuRef.current?.stop(); }, []);
-  lapDevicesRef.current = lapDevices;
   /** ラップタイムの記録 (過去の周の一覧) を開いているか */
   const [historyOpen, setHistoryOpen] = useState(false);
-  const lastFixPerfRef = useRef(0);
-  const lastPosRef = useRef<LiveFix | null>(null);
-  const voiceRef = useRef(voice);
-  voiceRef.current = voice;
-  /** 利用者がコースを選んだ (自動で選び直さない) */
-  const manualCourseRef = useRef(false);
-  /** iPhone の GPS の前の測位 (速さが来ないときに、位置から求める) */
   /** 出した経過 (同じ周の間は戻さない。測位がまとめて届いたときに、表示が戻って見えないように) */
-  const shownElapsedRef = useRef<{ lapStartMs: number | null; value: number }>({ lapStartMs: null, value: 0 });
+  const shownElapsedRef = useRef<{ epoch: number; lapStartMs: number | null; value: number }>({ epoch: 0, lapStartMs: null, value: 0 });
+  const measuringRef = useRef(measuring);
+  measuringRef.current = measuring;
 
-  // Esc で、開いている選ぶ画面・メニュー・ラップタイマーの順に閉じる (開いている間は、後ろの画面の再生のキーは効かない)
   // 閉じる: 測っている間は、先に測定終了の確認を出す (誤って閉じて記録が止まらないように)
   const requestClose = () => { if (measuringRef.current) setConfirmStop(true); else onClose(); };
   // タブの 1 つとして出すときは Esc で閉じない (ほかの画面のキー操作を止めないように)
@@ -208,231 +128,14 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   useEscapeKey(menuOpen, () => setMenuOpen(false));
   useEscapeKey(coursePicker, () => setCoursePicker(false));
 
-  /** コースを決める。replay なら、それまでに届いた測位を新しいコースで数え直す (声は出さない) */
-  const chooseCourse = useCallback((c: CircuitPreset | null, replay = false) => {
-    courseRef.current = c;
-    setCourse(c);
-    const timer = c?.controlLine ? new LiveLapTimer({ controlLine: c.controlLine, sectors: c.sectors }) : null;
-    // 届いた測位で数え直すのは、測っている間とログの再生だけ (測定開始を押す前の測位では周を数えない)
-    if (timer && replay && (measuringRef.current || sourceRef.current === 'replay')) fixesRef.current.forEach(f => timer.push(f));
-    timerRef.current = timer;
-    setState(timer?.getState() ?? null);
-    setFlash(null);
-  }, []);
-
-  /**
-   * 自動で選んだコースを、周を数える前は、届いた測位で選び直す (同じ敷地に計測線の違うコースがあるとき、
-   * 測位の所に近いだけのコースではなく、計測線を横切ったコースにする。筑波 2000 / 1000 など)
-   */
-  const recheckCourse = useCallback(() => {
-    const all = fixesRef.current;
-    const last = all[all.length - 1];
-    const cur = courseRef.current;
-    if (!last || !cur || manualCourseRef.current || (timerRef.current?.getState().laps.length ?? 0) > 0) return;
-    // 近く (3 km 以内) に計測線のある別のコースがない所 (袖ヶ浦など) では、選び直さない
-    if (!presetsWithLine.some(c => c.id !== cur.id && distanceKm(cur.centerLat, cur.centerLon, c.centerLat, c.centerLon) < 3)) return;
-    // 見るのは直近の 2 分ほど (20 Hz で 2400 点) まで (重くならないように)
-    const fixes = all.slice(-2400);
-    let dist = 0;
-    const points = fixes.map((f, i) => {
-      if (i > 0) dist += distanceKm(fixes[i - 1].latitude, fixes[i - 1].longitude, f.latitude, f.longitude);
-      return { time: (f.tMs - fixes[0].tMs) / 1000, latitude: f.latitude, longitude: f.longitude, speed: f.speedKmh, distance: dist } as TelemetryPoint;
-    });
-    const found = findMatchingCircuit(last.latitude, last.longitude, points);
-    if (found?.controlLine && found.id !== courseRef.current?.id && distanceKm(last.latitude, last.longitude, found.centerLat, found.centerLon) < 5) {
-      chooseCourse(found, true);
-    }
-  }, [chooseCourse]);
-
-  /** ためた測位を保存する (周の数とベストも一緒に) */
-  const flushRecording = useCallback((force = false): Promise<void> => {
-    const rec = recorderRef.current;
-    if (!rec) return Promise.resolve();
-    const st = timerRef.current?.getState();
-    // センサーの値の .csv も一緒に書く
-    lapDevicesRef.current.flush();
-    void imuRef.current?.flush();
-    return rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, force);
-  }, []);
-
-  /**
-   * 保管先に選んだフォルダ (iCloud Drive など) へ、LapTimer/ のファイルを写す (アプリのみ。保管先が この iPhone なら何もしない)。
-   * 裏に回ったとき・閉じたとき・周を数え直したとき・周を終えたとき (3 分に 1 回まで) に呼ぶ
-   */
-  const syncStorage = useCallback(async (): Promise<void> => {
-    lastSyncMsRef.current = Date.now();
-    // 閉じる・裏に回る・数え直すときは、コースを待っている途中の測位も保存する (ブラウザ版も)
-    await flushRecording(true);
-    if (!hasNative()) return;
-    try {
-      const r = await callNative('system.syncLapFiles', {});
-      if (r.kind !== 'folder') return;
-      if (r.failed > 0) setSyncNote({ ok: false, text: r.error ?? `${r.failed}` });
-      else if (r.copied > 0) setSyncNote({ ok: true, text: `${r.copied}` });
-    } catch (e) {
-      setSyncNote({ ok: false, text: e instanceof Error ? e.message : String(e) });
-    }
-  }, [flushRecording]);
-  const syncRef = useRef(syncStorage);
-  syncRef.current = syncStorage;
-
-  /** 測位を 1 つ受け取る (出どころによらず同じ) */
-  const handleFix = useCallback((fix: LiveFix) => {
-    if (!fix.valid) return;
-    lastPosRef.current = fix;
-    lastFixPerfRef.current = performance.now();
-    fixesRef.current.push(fix);
-    // 画面で持つのは直近の 10 分ほど (コースの選び直しに使うだけ。走った測位は全部、記録の保存先にある)。
-    // 測る前は少なめにする (長く待っても、コースの選び直し (4800 点まで) が止まらないように)
-    if (fixesRef.current.length > (measuringRef.current ? 12000 : 4000)) fixesRef.current.splice(0, 2000);
-    // コースを決めていなければ、初めの測位の所で選ぶ。周を数える前は、ときどき選び直す
-    if (!courseRef.current) {
-      const found = findMatchingCircuit(fix.latitude, fix.longitude);
-      if (found?.controlLine && distanceKm(fix.latitude, fix.longitude, found.centerLat, found.centerLon) < 5) chooseCourse(found);
-    } else if (fixesRef.current.length % 200 === 0 && fixesRef.current.length <= 4800) {
-      recheckCourse();
-    }
-    // 測定開始を押すまでは、周を数えず記録もしない (ログの再生はいつも数える・記録しない)
-    const src = sourceRef.current;
-    if (src !== 'replay' && !measuringRef.current) return;
-    // 走っている間の記録 (ログの再生は記録しない)
-    if (src !== 'replay') {
-      recorderRef.current ??= new LiveRunRecorder(src, () => courseRef.current?.name ?? '', m => setSaveError(m),
-        () => (courseRef.current ? courseFolder(courseRef.current.name, courseRef.current.folder, courseRef.current.id) : ''));
-      recorderRef.current.add(fix);
-    }
-    const timer = timerRef.current;
-    if (!timer) return;
-    const events = timer.push(fix);
-    for (const e of events) {
-      if (e.kind === 'lap') {
-        setFlash({ event: e, until: performance.now() + FLASH_MS });
-        // 周を終えたら、動画に印を付ける
-        lapDevicesRef.current.lap();
-        // 周を終えたら、すぐ保存する。選んだフォルダへは 3 分に 1 回まで写す
-        void flushRecording();
-        if (Date.now() - lastSyncMsRef.current > SYNC_INTERVAL_MS) void syncRef.current();
-        if (voiceRef.current) {
-          const s = lapSpeech(e);
-          speak(s.text, s.lang);
-        }
-      }
-    }
-    // 表示は 0.1 秒ごとにまとめて描き直す (測位ごと (20 Hz) に描き直すと、車の中で端末が熱くなる)。周を終えたときだけすぐ
-    if (events.length > 0) setState(timer.getState());
-  }, [chooseCourse, recheckCourse]);
-  handleFixRef.current = handleFix;
-
-  /** 測定開始: 周をはじめから数え、次の測位から新しい走行のファイルに書く */
-  const startMeasuring = useCallback(() => {
-    // 測ると決めたので、切断ボタンで切っていてもつなぐ
-    if (sourceRef.current === 'digspice') {
-      if (bleLoggerLink.isLinkIdle()) bleConnectedHereRef.current = true;
-      void bleLoggerLink.startAndConnect(true);
-    }
-    measuringRef.current = true;
-    setMeasuring(true);
-    setSavedRun(null);
-    recorderRef.current = null;
-    // カメラ (GoPro) の時計を合わせて録画を始める
-    lapDevicesRef.current.startRun(new Date());
-    // G センサーを読み始める (今の傾きを基準にするので、止まっているうちに押すのがよい)
-    void imuRef.current?.start();
-    // 押す前の測位で周を数えないよう、コースの選び直しに使う測位も捨てる
-    fixesRef.current = [];
-    shownElapsedRef.current = { lapStartMs: null, value: 0 };
-    chooseCourse(courseRef.current);
-  }, [chooseCourse]);
-
-  /** 測定終了: 書いた走行を閉じて保存し、選んだフォルダへ写す。周の表示は次に測り始めるまで残す */
-  const stopMeasuring = useCallback(async () => {
-    if (!measuringRef.current) return;
-    measuringRef.current = false;
-    setMeasuring(false);
-    // カメラの録画を止め、センサーの値を書き、次の走行の .csv に替える
-    lapDevicesRef.current.stopRun();
-    void imuRef.current?.stop();
-    // 今の走行の記録を先に外してから保存する (保存の途中で測定開始を押しても、新しい走行の記録を消さないように)
-    const rec = recorderRef.current;
-    recorderRef.current = null;
-    const st = timerRef.current?.getState();
-    await rec?.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true);
-    if (rec) setSavedRun({ laps: st?.laps.length ?? 0, best: st?.best?.timeSec ?? null });
-    await syncRef.current();
-  }, []);
-
-  // 出どころを替えたら、測位と周をはじめからにする (コースはそのまま)。それまでの記録は保存して閉じ、次の測位から新しい走行にする
-  const resetRun = useCallback(() => {
-    // 録画を止め、センサーの .csv を次の走行に替える
-    lapDevicesRef.current.stopRun();
-    imuRef.current?.newRun();
-    // それまでの記録を外して保存してから、写す (外す前に保存し終わらないと、最後の数秒が残らないため)
-    const rec = recorderRef.current;
-    recorderRef.current = null;
-    const st = timerRef.current?.getState();
-    void (rec ? rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true) : Promise.resolve()).then(() => syncRef.current());
-    fixesRef.current = [];
-    lastPosRef.current = null;
-    shownElapsedRef.current = { lapStartMs: null, value: 0 };
-    chooseCourse(courseRef.current);
-    // 測っている途中で出どころを替えたときは、新しい走行としてカメラの録画を始め直す
-    if (measuringRef.current) lapDevicesRef.current.startRun(new Date());
-  }, [chooseCourse]);
-
-  // ---- 測位の出どころ ----
-  useEffect(() => {
-    resetRun();
-    if (source === 'digspice') {
-      // 開いただけではつながない (タイマーはタブの 1 つなので、見ただけでつなぎに行かないように。2026-10-21)。
-      // つなぐのは、上の出どころの印を押したときと、測定開始を押したとき (startMeasuring)
-      const off = digspiceFeed(handleFix);
-      return () => {
-        off();
-        // ここでつないだ接続は、測っていないまま離れたら切る (ほかの画面にいる間に探し続けて、電池を使わないように)
-        if (bleConnectedHereRef.current && !measuringRef.current) {
-          bleConnectedHereRef.current = false;
-          void bleLoggerLink.disconnect();
-        }
-      };
-    }
-    if (source === 'phone') {
-      return phoneFeed(handleFix, setPhoneInfo, {
-        unavailable: t('この端末では位置を使えません', 'Location is not available on this device'),
-        denied: t('位置の許可がありません (アプリでは、位置を使う設定の入った版に入れ直すと使えます)', 'Location permission denied (in the app, reinstall a build that includes location access)')
-      });
-    }
-    // RaceBox・Drogger の測位は、機器の部品 (useLapDevices) が handleFix へ渡す
-    if (source === 'racebox' || source === 'drogger') return;
-    // ログの再生: 読み込んだ走行の点を、時刻のとおり (速さの倍率をかけて) 渡す
-    return replayFeed(replayLogs.find(l => l.id === replayId), replaySpeed, handleFix);
-    // replayLogs は、開いている間は変わらない前提 (変わっても再生中のログは続ける)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, replayId, replaySpeed, handleFix, resetRun]);
-
-  sourceRef.current = source;
-
-  // ---- 走っている間の記録を、2 秒ごと・裏に回ったとき・閉じたときに保存する ----
-  useEffect(() => {
-    const iv = setInterval(() => { void flushRecording(); }, SAVE_INTERVAL_MS);
-    const onHide = () => { if (document.visibilityState === 'hidden') void syncRef.current(); };
-    document.addEventListener('visibilitychange', onHide);
-    window.addEventListener('pagehide', onHide);
-    return () => {
-      clearInterval(iv);
-      document.removeEventListener('visibilitychange', onHide);
-      window.removeEventListener('pagehide', onHide);
-      void syncRef.current();
-    };
-  }, [flushRecording]);
-
-  // ---- 経過を進める (測位の間も、表示の時計で滑らかに) ----
+  // ---- 経過を進める (測位の間も、表示の時計で滑らかに)。周の様子も 0.1 秒ごとに読み直す ----
   useEffect(() => {
     const iv = setInterval(() => {
       setNow(performance.now());
-      setState(timerRef.current?.getState() ?? null);
+      rt.refresh();
     }, 100);
     return () => clearInterval(iv);
-  }, []);
+  }, [rt]);
 
   // 外枠に知らせる (閉じたときも、測っていないことにする)
   const onMeasuringChangeRef = useRef(onMeasuringChange);
@@ -497,8 +200,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   }, []);
 
   // ---- 表示する値 ----
-  const sincePerf = (now - lastFixPerfRef.current) / 1000;
-  const lastFix = state?.lastFix ?? lastPosRef.current;
+  const sincePerf = (now - snap.lastFixPerf) / 1000;
+  const lastFix = state?.lastFix ?? snap.lastPos;
   const rawElapsed = state?.lapStartMs != null && state.lastFix
     ? (state.lastFix.tMs - state.lapStartMs) / 1000 + Math.min(EXTRAPOLATE_SEC, Math.max(0, sincePerf)) * (source === 'replay' ? replaySpeed : 1)
     : null;
@@ -506,8 +209,9 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   let elapsed = rawElapsed;
   if (rawElapsed !== null && state) {
     const shown = shownElapsedRef.current;
-    if (shown.lapStartMs === state.lapStartMs) elapsed = Math.max(shown.value, rawElapsed);
-    shownElapsedRef.current = { lapStartMs: state.lapStartMs, value: elapsed! };
+    // 周をはじめから数え直したら (epoch が替わったら)、出した経過の覚えを捨てる
+    if (shown.epoch === snap.epoch && shown.lapStartMs === state.lapStartMs) elapsed = Math.max(shown.value, rawElapsed);
+    shownElapsedRef.current = { epoch: snap.epoch, lapStartMs: state.lapStartMs, value: elapsed! };
   }
   const flashing = flash && now < flash.until ? flash.event : null;
   const lastLap = state?.laps[state.laps.length - 1] ?? null;
@@ -544,7 +248,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   })();
 
   const nearbyCourses = useMemo(() => {
-    const p = lastPosRef.current;
+    const p = snap.lastPos;
     const list = presetsWithLine.map(c => ({ c, d: p ? distanceKm(p.latitude, p.longitude, c.centerLat, c.centerLon) : Infinity }));
     return list.sort((a, b) => a.d - b.d || a.c.name.localeCompare(b.c.name));
     // 開いたときの位置で並べる
@@ -565,7 +269,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const runAction = async (run: RunMeta, action: 'open' | 'nmea' | 'bon4' | 'delete') => {
     if (action === 'delete') {
       if (!window.confirm(t('この走行の記録を消しますか? (「ファイル」アプリに書いたファイルは残ります)', 'Delete this run? (Files written to the Files app are kept)'))) return;
-      if (recorderRef.current?.current?.id === run.id) recorderRef.current = null;
+      rt.forgetRun(run.id);
       await deleteRun(run.id);
       await refreshRuns();
       return;
@@ -614,8 +318,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           onClick={() => {
             if (needsRegister) navStore.go('logger');
             else if (source === 'digspice' && link.status === 'idle') {
-              if (bleLoggerLink.isLinkIdle()) bleConnectedHereRef.current = true;
-              void bleLoggerLink.startAndConnect(true);
+              rt.connectSource();
             } else setMenuOpen(o => !o);
           }}
           // 幅が足りないときは、こちら (出どころの状態) を縮める (コースのボタンが「コ…」にならないように)
@@ -841,7 +544,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
                 {runs.slice(0, 20).map(r => {
                   const d = new Date(r.startedMs);
                   // 記録中 (または、たった今まで書いていた) の走行は消せない
-                  const recording = recorderRef.current?.current?.id === r.id || Date.now() - r.updatedMs < 10000;
+                  const recording = rt.currentRunId === r.id || Date.now() - r.updatedMs < 10000;
                   return (
                     <div key={r.id} className="rounded-lg bg-surface-2 px-2.5 py-2">
                       <div className="flex items-baseline gap-2 text-xs">
@@ -898,11 +601,11 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
             <button onClick={() => setCoursePicker(false)} className="p-2 rounded-full border border-line-3" aria-label={t('閉じる', 'Close')}><X size={18} /></button>
           </div>
           <div className="flex-1 overflow-y-auto space-y-1">
-            <button onClick={() => { manualCourseRef.current = false; chooseCourse(null); setCoursePicker(false); }} className="w-full text-left px-3 py-2 rounded-lg bg-surface-2">
+            <button onClick={() => { rt.chooseCourse(null, { manual: false }); setCoursePicker(false); }} className="w-full text-left px-3 py-2 rounded-lg bg-surface-2">
               {t('自動 (測位の所の近くのコース)', 'Auto (nearest to GPS)')}
             </button>
             {nearbyCourses.map(({ c, d }) => (
-              <button key={c.id} onClick={() => { manualCourseRef.current = true; chooseCourse(c, true); setCoursePicker(false); }} className={`w-full text-left px-3 py-2 rounded-lg ${course?.id === c.id ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
+              <button key={c.id} onClick={() => { rt.chooseCourse(c, { replay: true, manual: true }); setCoursePicker(false); }} className={`w-full text-left px-3 py-2 rounded-lg ${course?.id === c.id ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
                 {circuitLabel(c.name)}{Number.isFinite(d) ? <span className="text-slate-500 ml-2 text-xs">{d < 10 ? d.toFixed(1) : Math.round(d)} km</span> : null}
               </button>
             ))}
