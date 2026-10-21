@@ -6,7 +6,7 @@ import type { StorageInfo } from '../native/contract';
 
 /**
  * 保管場所 (走行のファイルを置くフォルダ)。2026-10-21 に、ラップタイマーのメニューから設定の画面へ移した (PLAN-24 の 3)。
- * - iPhone のアプリ: この iPhone / 選んだフォルダ (iCloud Drive など)。フォルダを選んだら、すぐ写す
+ * - iPhone のアプリ: この iPhone / 選んだフォルダ (iCloud Drive など)。フォルダを選んだら、すぐ移す (アプリの中に控えを残さない。2026-10-21)
  * - デスクトップ版: 選んだフォルダ
  */
 export const StorageSettings: React.FC = () => {
@@ -33,8 +33,8 @@ export const StorageSettings: React.FC = () => {
       if (next.kind === 'folder') {
         const r = await callNative('system.syncLapFiles', {});
         setNote(r.error
-          ? { ok: false, text: t(`フォルダへ写せませんでした: ${r.error}`, `Could not copy to the folder: ${r.error}`) }
-          : { ok: true, text: t(`フォルダへ ${r.copied} 個のファイルを写しました`, `Copied ${r.copied} files to the folder`) });
+          ? { ok: false, text: t(`フォルダへ移せませんでした: ${r.error}`, `Could not move to the folder: ${r.error}`) }
+          : { ok: true, text: t(`フォルダへ ${r.copied + (r.moved ?? 0)} 個のファイルを移しました`, `Moved ${r.copied + (r.moved ?? 0)} files to the folder`) });
       }
     } catch (e) {
       // フォルダを選ぶのをやめたときは何も出さない
@@ -85,8 +85,8 @@ export const StorageSettings: React.FC = () => {
       {note && <p className={`text-[11px] px-1 ${note.ok ? 'text-slate-400' : 'text-amber-500'}`}>{note.text}</p>}
       <p className="text-[11px] text-slate-500 px-1">
         {native
-          ? t('サーキットごとのフォルダが並ぶ場所を選びます。走っている間は、いつもこの iPhone に書き (電波がなくても消えないように)、アプリを閉じたとき・裏に回したときなどに、選んだフォルダへ写します。',
-            'Choose the folder that holds a folder per circuit. While driving, runs are always written to this iPhone first, then copied to the chosen folder when the app closes or goes to the background.')
+          ? t('サーキットごとのフォルダが並ぶ場所を選びます。走っている間はこの iPhone に書き、ときどき選んだフォルダへ写します。測り終えたら選んだフォルダへ移し、この iPhone には残しません (フォルダで消したものは消えたままです)。あとで「この iPhone」に戻しても、移した走行はフォルダに残ります。',
+            'Choose the folder that holds a folder per circuit. While driving, runs are written to this iPhone and copied to the chosen folder from time to time. When you stop measuring they are moved to the folder and not kept on this iPhone (what you delete in the folder stays deleted). If you switch back to This iPhone later, moved runs stay in the folder.')
           : t('サーキットごとのフォルダが並ぶ場所を選びます (iPhone のアプリと同じ iCloud Drive のフォルダにすると、両方で同じ走行を開けます)。',
             'Choose the folder that holds a folder per circuit (use the same iCloud Drive folder as the iPhone app to open the same runs on both).')}
       </p>
