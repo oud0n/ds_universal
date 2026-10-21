@@ -771,6 +771,29 @@ export const App: React.FC = () => {
   };
 
   /**
+   * 走行のいちばん速い周 (隠した周を除く) を、読み込んだログの周から探す。始まりの時刻がいちばん近く、タイムも同じ周
+   * (1 つのログが 2 つ以上に分かれていても、分け方によらず探せる)。見つからなければ、そのログのベストラップ
+   */
+  const pickRunBestLap = (added: Session[], item: RunItem): { session: Session; lapNumber: number } => {
+    const visible = item.laps.filter(l => !l.hidden);
+    const best = visible.length ? visible.reduce((a, b) => (b.time < a.time ? b : a)) : null;
+    let pick: { session: Session; lapNumber: number; gap: number } | null = null;
+    if (best) {
+      for (const s of added) {
+        for (const l of s.laps) {
+          if (l.isWholeSession || l.isPartialLap || Math.abs(l.lapTime - best.time) > 0.1) continue;
+          const ts = s.points[l.startIndex]?.timestamp;
+          const gap = ts ? Math.abs(Date.parse(ts) - best.startMs) : Infinity;
+          if (!pick || gap < pick.gap) pick = { session: s, lapNumber: l.lapNumber, gap };
+        }
+      }
+    }
+    if (pick) return pick;
+    const main = added.reduce((a, b) => ((b.laps[b.bestLapIndex]?.lapTime ?? Infinity) < (a.laps[a.bestLapIndex]?.lapTime ?? Infinity) ? b : a));
+    return { session: main, lapNumber: main.laps[main.bestLapIndex]?.lapNumber ?? main.laps[0]?.lapNumber ?? 1 };
+  };
+
+  /**
    * 走行を比べる相手 (Car 2) として足す (走行の詳細の「Car 2 として足す」)。いま開いている走行と動画はそのまま。
    * 周は、その走行の隠していない周のうちいちばん速いもの (同じタイムの周を、読み込んだログの周から探す)
    */
@@ -792,22 +815,7 @@ export const App: React.FC = () => {
       }
       runItemsRef.current.set(runPath, item);
       if (added.length === 0) return;
-      const visible = item.laps.filter(l => !l.hidden);
-      const best = visible.length ? visible.reduce((a, b) => (b.time < a.time ? b : a)) : null;
-      // 読み込んだログの周のうち、始まりの時刻がいちばん近く、タイムも同じ周 (1 つのログが 2 つ以上に分かれていても、分け方によらず探せる)
-      let pick: { session: Session; lapNumber: number; gap: number } | null = null;
-      if (best) {
-        for (const s of added) {
-          for (const l of s.laps) {
-            if (l.isWholeSession || l.isPartialLap || Math.abs(l.lapTime - best.time) > 0.1) continue;
-            const ts = s.points[l.startIndex]?.timestamp;
-            const gap = ts ? Math.abs(Date.parse(ts) - best.startMs) : Infinity;
-            if (!pick || gap < pick.gap) pick = { session: s, lapNumber: l.lapNumber, gap };
-          }
-        }
-      }
-      const session = pick?.session ?? added[0];
-      const lapNumber = pick?.lapNumber ?? session.laps[session.bestLapIndex]?.lapNumber ?? 1;
+      const { session, lapNumber } = pickRunBestLap(added, item);
       setSelectedCars(prev => [
         ...prev.filter(c => c.slot !== 1),
         { slot: 1, sessionId: session.id, lapNumber, colorHex: '#3b82f6', label: `${session.sessionName} (L${lapNumber})` }
@@ -848,13 +856,17 @@ export const App: React.FC = () => {
       // 開いた走行を Car 1 にする (いちばん速い周)。前に開いていた走行が Car 1 のままだと、解析と動画が別の走行になる。
       // Car 2〜4 は、同じコースのものだけ残す (違うコースと比べても意味がないため。比べるときは「Car 2 として足す」)
       {
-        const main = added.reduce((a, b) => ((b.laps[b.bestLapIndex]?.lapTime ?? Infinity) < (a.laps[a.bestLapIndex]?.lapTime ?? Infinity) ? b : a));
-        const lapNumber = main.laps[main.bestLapIndex]?.lapNumber ?? main.laps[0]?.lapNumber ?? 1;
+        // 隠した周を除いた、いちばん速い周
+        const { session: main, lapNumber } = pickRunBestLap(added, item);
         const byId = new Map(latestRef.current.sessions.map(x => [x.id, x]));
         setSelectedCars(prev => [
           { slot: 0, sessionId: main.id, lapNumber, colorHex: '#ef4444', label: `${main.sessionName} (L${lapNumber})` },
           ...prev.filter(c => c.slot !== 0 && c.sessionId !== main.id && byId.get(c.sessionId)?.circuitName === main.circuitName)
         ].sort((a, b) => a.slot - b.slot));
+        // 周の始めから見る (前に見ていた位置を、新しい周へ持ち込まない)
+        setIsPlaying(false);
+        setClockBase('lap');
+        setCurrentTimeSec(0);
       }
       const sessionsNow = () => {
         const cur = latestRef.current.sessions;
@@ -2064,6 +2076,7 @@ export const App: React.FC = () => {
             onAddAsCar2={sessions.length > 0 ? (r => void addRunAsCar2(r)) : undefined}
             // 比べられるのは Car 1 と同じコースの走行だけ
             car1Course={baseSession?.circuitName ?? null}
+            car1Run={baseSession ? ([...runSessionsRef.current].find(([, ids]) => ids.includes(baseSession.id))?.[0] ?? null) : null}
             onPickFiles={() => fileInputRef.current?.click()}
             onOpenFile={file => { void loadFiles([file]).then(() => navStore.go('analysis')); }}
             canTime={plan.available.has('timer') && profile.host === 'native'}
