@@ -2008,8 +2008,12 @@ export const App: React.FC = () => {
         {plan.available.has('library') && (
           <LibraryScreen
             active={currentTab === 'library'}
+            wide={profile.layout === 'wide'}
             onOpen={r => void openRun(r)}
+            // 動画を見る: 走行を開いて (動画と同期もそろう)、動画の画面へ
+            onOpenVideo={r => void openRun(r).then(() => navStore.go('video'))}
             onPickFiles={() => fileInputRef.current?.click()}
+            onOpenFile={file => { void loadFiles([file]).then(() => navStore.go('analysis')); }}
             busy={runBusy}
           />
         )}

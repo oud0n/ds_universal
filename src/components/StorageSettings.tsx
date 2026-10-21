@@ -1,0 +1,107 @@
+import React, { useEffect, useState } from 'react';
+import { FolderOpen, Smartphone } from 'lucide-react';
+import { useT } from '../utils/i18n';
+import { callNative, hasNative } from '../native/bridge';
+import type { StorageInfo } from '../native/contract';
+
+/**
+ * 保管場所 (走行のファイルを置くフォルダ)。2026-10-21 に、ラップタイマーのメニューから設定の画面へ移した (PLAN-24 の 3)。
+ * - iPhone のアプリ: この iPhone / 選んだフォルダ (iCloud Drive など)。フォルダを選んだら、すぐ写す
+ * - デスクトップ版: 選んだフォルダ
+ */
+export const StorageSettings: React.FC = () => {
+  const t = useT();
+  const native = hasNative();
+  const desktop = !!window.electronAPI?.laps;
+  const [info, setInfo] = useState<StorageInfo | null>(null);
+  const [folderPath, setFolderPath] = useState<string | null>(null);
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (native) callNative('system.storageInfo', {}).then(setInfo, () => setInfo(null));
+    else if (desktop) void window.electronAPI!.laps!.getFolder().then(setFolderPath);
+  }, [native, desktop]);
+
+  const choose = async (kind: 'local' | 'folder') => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const next = kind === 'folder' ? await callNative('system.pickStorageFolder', {}) : await callNative('system.setStorageLocal', {});
+      setInfo(next);
+      if (next.kind === 'folder') {
+        const r = await callNative('system.syncLapFiles', {});
+        setNote(r.error ? { ok: false, text: r.error } : { ok: true, text: t(`フォルダへ ${r.copied} 個のファイルを写しました`, `Copied ${r.copied} files to the folder`) });
+      }
+    } catch (e) {
+      // フォルダを選ぶのをやめたときは何も出さない
+      const msg = e instanceof Error ? e.message : (e as { message?: string })?.message ?? String(e);
+      if (msg !== 'cancelled') setNote({ ok: false, text: msg });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pickDesktop = async () => {
+    const p = await window.electronAPI?.laps?.pickFolder();
+    if (p) setFolderPath(p);
+  };
+
+  if (!native && !desktop) return null;
+  const btn = (on: boolean) => `w-full flex items-center gap-2 text-left px-4 py-3 text-sm cursor-pointer disabled:opacity-50 ${on ? 'bg-sky-600 text-white' : 'text-slate-200 hover:bg-surface-3'}`;
+  return (
+    <section className="space-y-2" data-testid="storage-settings">
+      <h3 className="text-xs text-slate-500 px-1">{t('保管場所 (走行のファイルを置くフォルダ)', 'Storage (folder for your runs)')}</h3>
+      <div className="rounded-xl bg-surface-1 border border-line-2 overflow-hidden divide-y divide-line-2">
+        {native && info && (
+          <>
+            <button onClick={() => void choose('local')} disabled={busy} className={btn(info.kind === 'local')}>
+              <Smartphone size={16} className="shrink-0" />{t('この iPhone', 'This iPhone')}
+            </button>
+            <button onClick={() => void choose('folder')} disabled={busy} className={btn(info.kind === 'folder')} data-testid="storage-pick-folder">
+              <FolderOpen size={16} className="shrink-0" />
+              <span className="truncate">
+                {info.kind === 'folder' && info.folderName
+                  ? t(`フォルダ: ${info.folderName} (選び直す)`, `Folder: ${info.folderName} (change)`)
+                  : t('フォルダを選ぶ (iCloud Drive など)', 'Choose a folder (iCloud Drive etc.)')}
+              </span>
+            </button>
+          </>
+        )}
+        {desktop && (
+          <button onClick={() => void pickDesktop()} className={btn(false)} data-testid="storage-pick-folder">
+            <FolderOpen size={16} className="shrink-0" />
+            <span className="truncate">{folderPath ? t(`${folderPath} (変える)`, `${folderPath} (change)`) : t('フォルダを選ぶ', 'Choose a folder')}</span>
+          </button>
+        )}
+      </div>
+      {note && <p className={`text-[11px] px-1 ${note.ok ? 'text-slate-400' : 'text-amber-500'}`}>{note.ok ? note.text : t(`フォルダへ写せませんでした: ${note.text}`, `Could not copy to the folder: ${note.text}`)}</p>}
+      <p className="text-[11px] text-slate-500 px-1">
+        {native
+          ? t('サーキットごとのフォルダが並ぶ場所を選びます。走っている間は、いつもこの iPhone に書き (電波がなくても消えないように)、アプリを閉じたとき・裏に回したときなどに、選んだフォルダへ写します。',
+            'Choose the folder that holds a folder per circuit. While driving, runs are always written to this iPhone first, then copied to the chosen folder when the app closes or goes to the background.')
+          : t('サーキットごとのフォルダが並ぶ場所を選びます (iPhone のアプリと同じ iCloud Drive のフォルダにすると、両方で同じ走行を開けます)。',
+            'Choose the folder that holds a folder per circuit (use the same iCloud Drive folder as the iPhone app to open the same runs on both).')}
+      </p>
+    </section>
+  );
+};
+
+/** 保管場所の 1 行の説明 (走行の画面の上に出す) */
+export function useStorageLabel(): string | null {
+  const t = useT();
+  const [label, setLabel] = useState<string | null>(null);
+  useEffect(() => {
+    if (hasNative()) {
+      callNative('system.storageInfo', {}).then(
+        i => setLabel(i.kind === 'folder' && i.folderName ? i.folderName : t('この iPhone', 'This iPhone')),
+        () => setLabel(null)
+      );
+    } else if (window.electronAPI?.laps) {
+      void window.electronAPI.laps.getFolder().then(p => setLabel(p ? p.replace(/^.*Mobile Documents\/com~apple~CloudDocs/, 'iCloud Drive') : null));
+    }
+    // 言語を替えたときに書き直すほどのものではない
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return label;
+}

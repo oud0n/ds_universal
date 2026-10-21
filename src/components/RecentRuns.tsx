@@ -12,7 +12,7 @@ import { getRunStore, type RunStore } from '../services/runStore';
 import { listRuns, type RunItem } from '../services/runOpener';
 
 const pad = (n: number) => String(n).padStart(2, '0');
-function fmtDate(ms: number | null, ja: boolean): string {
+export function fmtDate(ms: number | null, ja: boolean): string {
   if (ms === null) return '--';
   const d = new Date(ms);
   const w = (ja ? ['日', '月', '火', '水', '木', '金', '土'] : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'])[d.getDay()];
@@ -20,7 +20,7 @@ function fmtDate(ms: number | null, ja: boolean): string {
 }
 
 /** 走行の一覧を読み込む (開いている間に 1 回) */
-function useRuns(enabled: boolean) {
+export function useRuns(enabled: boolean) {
   const [state, setState] = useState<{ store: RunStore | null; runs: RunItem[] | null; error: string | null; noFolder: boolean }>({ store: null, runs: null, error: null, noFolder: false });
   const [reload, setReload] = useState(0);
   useEffect(() => {
@@ -41,7 +41,7 @@ function useRuns(enabled: boolean) {
   return { ...state, reload: () => setReload(n => n + 1) };
 }
 
-const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy: boolean }> = ({ run, onOpen, busy }) => {
+export const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy: boolean; selected?: boolean }> = ({ run, onOpen, busy, selected = false }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const videoCount = run.videos.length;
@@ -49,7 +49,7 @@ const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy: boole
     <button
       onClick={() => onOpen(run)}
       disabled={busy}
-      className="w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-lg bg-surface-2 hover:bg-surface-3 border border-line-2 disabled:opacity-50 cursor-pointer"
+      className={`w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-lg hover:bg-surface-3 border disabled:opacity-50 cursor-pointer ${selected ? 'bg-sky-600/15 border-sky-500/60' : 'bg-surface-2 border-line-2'}`}
       data-testid="run-row"
     >
       <div className="flex-1 min-w-0">
@@ -58,7 +58,9 @@ const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy: boole
           <span className="text-slate-400 truncate">{run.courseName ?? run.folder}</span>
         </div>
         <div className="flex items-center gap-3 mt-1 text-xs">
-          {run.pending ? (
+          {!run.pending && run.courseName === null ? (
+            <span className="text-slate-500">{t('コース未設定', 'No course')}</span>
+          ) : run.pending ? (
             <span className="text-slate-500" title={t('iCloud にだけあるので、開くと落としてきて周を数えます', 'Only in iCloud. Laps are counted after it downloads when you open it')}>
               {t('☁️ 未集計', '☁️ Not counted')}
             </span>

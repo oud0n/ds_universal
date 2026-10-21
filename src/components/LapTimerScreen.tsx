@@ -13,10 +13,10 @@ import { useLapDevices } from '../hooks/useLapDevices';
 import { deleteRun, listRuns, loadFixes, type RunMeta } from '../services/liveRunStore';
 import { fixesToBon4, fixesToNmea, runFileBase } from '../services/runFiles';
 import { callNative, hasNative, toBase64 } from '../native/bridge';
-import type { StorageInfo } from '../native/contract';
 import { canUseLoggerBle } from '../utils/device';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { getPositionSource, setPositionSource } from '../services/positionSource';
+import { navStore } from '../app/navStore';
 import { OrientationToggle, StopConfirm, loadTimerOrientation, saveTimerOrientation, type TimerOrientation } from './LapTimerControls';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
 import type { CircuitPreset, TelemetryPoint } from '../types/telemetry';
@@ -151,7 +151,6 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const [runs, setRuns] = useState<RunMeta[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
   /** 記録の保管先 (アプリのみ) と、選んだフォルダへ最後に写した結果 */
-  const [storage, setStorage] = useState<StorageInfo | null>(null);
   const [syncNote, setSyncNote] = useState<{ ok: boolean; text: string } | null>(null);
   const lastSyncMsRef = useRef(0);
   /** 登録した Bluetooth LE の機器 (RaceBox・センサー・カメラ)。測位は handleFix へ (後で決まるので ref を通す) */
@@ -581,25 +580,6 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     }
   }, [flushRecording]);
   useEffect(() => { if (menuOpen) void refreshRuns(); }, [menuOpen, refreshRuns]);
-  // 保管先は、メニューを開いたときに読む (アプリのみ。前のアプリは知らないので出さない)
-  useEffect(() => {
-    if (!menuOpen || !hasNative()) return;
-    callNative('system.storageInfo', {}).then(setStorage, () => setStorage(null));
-  }, [menuOpen]);
-
-  const chooseStorage = async (kind: 'local' | 'folder') => {
-    try {
-      const info = kind === 'folder' ? await callNative('system.pickStorageFolder', {}) : await callNative('system.setStorageLocal', {});
-      setStorage(info);
-      setSyncNote(null);
-      if (info.kind === 'folder') await syncStorage();
-    } catch (e) {
-      // フォルダを選ぶのをやめたときは何もしない
-      const msg = e instanceof Error ? e.message : (e as { message?: string })?.message ?? String(e);
-      if (msg !== 'cancelled') setSyncNote({ ok: false, text: msg });
-    }
-  };
-
   /** 走行を解析で開く・NMEA / bon4 で保存する・消す */
   const runAction = async (run: RunMeta, action: 'open' | 'nmea' | 'bon4' | 'delete') => {
     if (action === 'delete') {
@@ -878,31 +858,15 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               {t('ラップタイムの記録 (過去の周の一覧)', 'Lap time records (past laps)')}
             </button>
           )}
-          {hasNative() && storage && (
-            <div data-testid="lap-timer-storage">
-              <div className="text-slate-400 text-xs mb-1">{t('記録の保管先', 'Where runs are kept')}</div>
-              <div className="grid grid-cols-1 gap-1">
-                <button onClick={() => { void chooseStorage('local'); }} className={`text-left px-3 py-2 rounded-lg ${storage.kind === 'local' ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
-                  {t('この iPhone', 'This iPhone')}
-                </button>
-                <button onClick={() => { void chooseStorage('folder'); }} className={`text-left px-3 py-2 rounded-lg flex items-center gap-2 ${storage.kind === 'folder' ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
-                  <FolderOpen size={14} className="shrink-0" />
-                  <span className="truncate">
-                    {storage.kind === 'folder' && storage.folderName
-                      ? t(`フォルダ: ${storage.folderName} (選び直す)`, `Folder: ${storage.folderName} (change)`)
-                      : t('フォルダを選ぶ (iCloud Drive など)', 'Choose a folder (iCloud Drive etc.)')}
-                  </span>
-                </button>
-              </div>
-              {syncNote && (
-                <div className={`text-[11px] mt-1 ${syncNote.ok ? 'text-slate-400' : 'text-amber-500'}`}>
-                  {syncNote.ok ? t(`フォルダへ ${syncNote.text} 個のファイルを写しました`, `Copied ${syncNote.text} files to the folder`) : t(`フォルダへ写せませんでした: ${syncNote.text}`, `Could not copy to the folder: ${syncNote.text}`)}
-                </div>
-              )}
-              <p className="text-[10px] text-slate-500 mt-1">
-                {t('走っている間は、いつもこの iPhone に書きます (電波がなくても消えないように)。フォルダを選ぶと、アプリを閉じたとき・裏に回したとき・周を数え直したとき (走っている間は 3 分に 1 回まで) に、フォルダ → サーキット名 へ写します。',
-                  'While driving, runs are always written to this iPhone (so nothing is lost without signal). With a folder chosen, they are copied to folder → circuit name when the app is closed or sent to the background, when laps are reset, and at most every 3 minutes while driving.')}
-              </p>
+          {hasNative() && (
+            // 保管場所は設定の画面へ移した (2026-10-21)
+            <button onClick={() => { setMenuOpen(false); navStore.go('settings'); }} disabled={measuring} className="w-full text-left px-3 py-2 rounded-lg bg-surface-2 disabled:opacity-40" data-testid="lap-timer-storage">
+              {t('記録の保管場所 (設定)', 'Where runs are kept (Settings)')}
+            </button>
+          )}
+          {syncNote && (
+            <div className={`text-[11px] ${syncNote.ok ? 'text-slate-400' : 'text-amber-500'}`}>
+              {syncNote.ok ? t(`フォルダへ ${syncNote.text} 個のファイルを写しました`, `Copied ${syncNote.text} files to the folder`) : t(`フォルダへ写せませんでした: ${syncNote.text}`, `Could not copy to the folder: ${syncNote.text}`)}
             </div>
           )}
           <button onClick={() => { resetRun(); setMenuOpen(false); }} className="w-full px-3 py-2 rounded-lg bg-surface-2 text-slate-300">

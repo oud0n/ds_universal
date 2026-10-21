@@ -10,7 +10,7 @@
 
 import type { Session } from '../types/telemetry';
 import { loadLapHistory } from './lapHistory';
-import { isRunVideoName, lapKey } from './lapIndex';
+import { LAP_INDEX_FILE, isRunVideoName, lapKey, parseLapIndex, setHidden, type LapRecord } from './lapIndex';
 import { readRunsFile, updateRun, type RunEntry } from './runsFile';
 import type { RunFileInfo, RunStore } from './runStore';
 import { parseVideoMetadata } from './videoMetadataParser';
@@ -36,6 +36,8 @@ export interface RunItem {
   synced: boolean;
   /** 同じフォルダの動画 */
   folderVideos: RunFileInfo[];
+  /** 周の一覧 (走った順。hidden: 隠した周。一覧のベスト・周の数には数えない) */
+  laps: Array<LapRecord & { hidden: boolean }>;
   /** 周をまだ数えていない (iCloud にだけあって、まだ落としていない)。コースの分からないフォルダ (unsorted) の走行は含めない */
   pending: boolean;
   entry: RunEntry | null;
@@ -92,7 +94,8 @@ export async function listRuns(store: RunStore, onProgress?: (folder: string) =>
         ? [...(videosByDir.get(runDir) ?? [])]
         : [...(videosByDir.get(f.folder) ?? []), ...(videosByDir.get(runDir) ?? [])];
       const rec = f.index?.files[file];
-      const laps = (rec?.laps ?? []).filter(l => !hidden.has(lapKey(file, l.part, l.n)));
+      const allLaps = (rec?.laps ?? []).map(l => ({ ...l, hidden: hidden.has(lapKey(file, l.part, l.n)) }));
+      const laps = allLaps.filter(l => !l.hidden);
       // 日付のフォルダへ移す前に書いた行は、ファイルの名前だけで引く
       const entry = runs.runs[file] ?? runs.runs[baseName(file)] ?? null;
       const videos = entry?.videos ?? rec?.videos ?? [];
@@ -102,6 +105,7 @@ export async function listRuns(store: RunStore, onProgress?: (folder: string) =>
         courseName: f.courseName,
         startMs: rec?.startMs ?? startFromName(file),
         lapCount: laps.length,
+        laps: allLaps,
         best: laps.length ? Math.min(...laps.map(l => l.time)) : null,
         videos,
         synced: !!entry?.sync,
@@ -284,4 +288,12 @@ export async function addVideoToOpenRun(video: RemoteVideo): Promise<boolean> {
 /** 開いている走行 (動画の画面で、同じフォルダの動画を出すため) */
 export function getOpenRun(): { store: RunStore; item: RunItem } | null {
   return current ? { store: current.store, item: current.item } : null;
+}
+
+/** 走行の周を隠す・出す (控え laptimes.json に書く。ファイルは消さない) */
+export async function setRunLapHidden(store: RunStore, item: RunItem, lap: LapRecord, hide: boolean): Promise<void> {
+  const path = `${item.folder}/${LAP_INDEX_FILE}`;
+  const index = parseLapIndex(await store.readText(path));
+  if (!index) return;
+  await store.writeText(path, JSON.stringify(setHidden(index, item.file, lap.part, lap.n, hide)));
 }
