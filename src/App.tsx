@@ -2135,7 +2135,12 @@ export const App: React.FC = () => {
           <div className={`h-full w-full overflow-hidden ${currentTab === 'logger' ? 'block' : 'hidden'}`}>
             <Freeze active={currentTab === 'logger'}>
             <LoggerTab
-              onLoadSession={(fileName, buffer) => loadFileData(fileName, buffer)}
+              // 落としたログも、保管場所があれば走行ごとに分けて取り込むかを聞く (聞いたときは、開く・開かないはシートの中で決まる)
+              onLoadSession={async (fileName, buffer) => {
+                if (await offerImport(fileName, buffer)) return false;
+                await loadFileData(fileName, buffer);
+                return true;
+              }}
               onNavigateToGraph={() => navStore.go('analysis')}
               active={currentTab === 'logger'}
               onOpenLapTimer={() => navStore.go('timer')}

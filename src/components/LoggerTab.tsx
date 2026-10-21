@@ -20,7 +20,8 @@ function isSimulatorRequested(): boolean {
 }
 
 interface LoggerTabProps {
-  onLoadSession?: (fileName: string, buffer: ArrayBuffer) => void;
+  /** 落としたログを開く。false なら、解析へは移らない (取り込みの確認の中で決まった) */
+  onLoadSession?: (fileName: string, buffer: ArrayBuffer) => Promise<boolean | void> | boolean | void;
   onNavigateToGraph?: () => void;
   /** このタブを開いているか (開いたときに、登録してあるデジスパイスへ Bluetooth でつなぐ) */
   active?: boolean;
@@ -235,8 +236,8 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
     if (!downloadedData || !onLoadSession || isOpeningAnalyser) return;
     try {
       setIsOpeningAnalyser(true);
-      await onLoadSession(downloadedData.fileName, downloadedData.buffer.buffer as ArrayBuffer);
-      if (onNavigateToGraph) {
+      const opened = await onLoadSession(downloadedData.fileName, downloadedData.buffer.buffer as ArrayBuffer);
+      if (opened !== false && onNavigateToGraph) {
         onNavigateToGraph();
       }
     } catch (err: any) {
