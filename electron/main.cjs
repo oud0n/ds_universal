@@ -12,7 +12,8 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist');
 // アプリ名を「DS Universal Suite」から「DS Universal」、さらに「LapLoupe」に変えたので、データ (保存したユーザーコース・設定など) の
 // 保存先は前の名前のフォルダを使い続ける (名前に合わせて変わると、更新した人のデータが引き継がれないため)。
 // 開発中 (npm run electron:dev など、パッケージしていないとき) は従来どおり
-if (app.isPackaged) {
+// 起動のときに --user-data-dir で置き場所を指定したとき (試験など) は、その置き場所を使う
+if (app.isPackaged && !app.commandLine.hasSwitch('user-data-dir')) {
   app.setPath('userData', path.join(app.getPath('appData'), 'DS Universal Suite'));
 }
 
