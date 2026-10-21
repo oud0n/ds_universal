@@ -531,6 +531,28 @@ ipcMain.handle('laps-write-text', async (_event, rel, text) => {
   }
 });
 
+// 取り込み (2026-10-21): 走行のファイルを新しく書く。上書きはしない (もうあれば exists)。
+// 書けるのは走行の形式 (.nmea・.bon4・.csv) と、取り込み元/ の下の元のログだけ
+const IMPORT_EXTS = new Set(['.nmea', '.bon4', '.csv']);
+const IMPORT_SOURCE_EXTS = new Set(['.nmea', '.bon4', '.bnx4', '.bon', '.binx', '.dtb', '.csv', '.txt', '.vbo', '.gpx', '.tcx', '.fit', '.log', '.xrk', '.xrz', '.ibt']);
+const MAX_IMPORT_BYTES = 512 * 1024 * 1024;
+ipcMain.handle('laps-write-file', async (_event, rel, data) => {
+  const full = await lapPath(rel);
+  const ext = full ? path.extname(full).toLowerCase() : '';
+  const isSource = typeof rel === 'string' && rel.startsWith('取り込み元/');
+  if (!full || !(isSource ? IMPORT_SOURCE_EXTS.has(ext) : IMPORT_EXTS.has(ext))) return { success: false, error: 'not allowed' };
+  if (!(data instanceof Uint8Array) || data.byteLength > MAX_IMPORT_BYTES) return { success: false, error: 'not allowed' };
+  try {
+    await fs.promises.mkdir(path.dirname(full), { recursive: true });
+    // wx: もうあれば失敗する (上書きしない)
+    await fs.promises.writeFile(full, data, { flag: 'wx' });
+    return { success: true };
+  } catch (err) {
+    if (err && err.code === 'EEXIST') return { success: false, error: 'exists' };
+    return { success: false, error: err.message };
+  }
+});
+
 // ---- 保管場所の動画を lapfile://run/<道> で読む (2026-10-20、docs/session_storage_design.md) ----
 // 大きな動画を丸ごと読まずに、頼まれた範囲 (Range) だけ返す。読めるのは保管場所の中の動画だけ
 protocol.registerSchemesAsPrivileged([
