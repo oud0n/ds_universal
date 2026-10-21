@@ -26,12 +26,13 @@ export interface LapDeviceStatus {
 const COLUMNS: Record<string, string[]> = {
   hr: ['bpm'],
   obd: ['rpm', 'speed_kmh', 'throttle_pct', 'coolant_c', 'intake_c', 'load_pct'],
-  racebox: ['g_x', 'g_y', 'g_z', 'roll_dps', 'pitch_dps', 'yaw_dps', 'satellites', 'battery_pct']
+  racebox: ['g_x', 'g_y', 'g_z', 'roll_dps', 'pitch_dps', 'yaw_dps', 'satellites', 'battery_pct'],
+  drogger: ['satellites', 'fix_quality']
 };
 
 export function useLapDevices(opts: {
-  /** RaceBox を位置の出どころにするか */
-  useRacebox: boolean;
+  /** 位置の出どころにする Bluetooth の機器の種類 (RaceBox・Drogger。デジスパイス・端末の GPS なら null) */
+  position: 'racebox' | 'drogger' | null;
   onFix: (fix: LiveFix) => void;
   /** 今の走行のファイルの名前 (拡張子なし。まだ無ければ null) */
   runBase: () => string | null;
@@ -47,11 +48,13 @@ export function useLapDevices(opts: {
   runBaseRef.current = opts.runBase;
 
   const racebox = devices.find(d => d.kind === 'racebox') ?? null;
+  const drogger = devices.find(d => d.kind === 'drogger') ?? null;
+  const positionDevice = opts.position === 'racebox' ? racebox : opts.position === 'drogger' ? drogger : null;
 
   useEffect(() => {
     let cancelled = false;
-    // 位置の RaceBox は選んだときだけ、センサーとカメラはいつも
-    const wanted = devices.filter(d => d.kind !== 'racebox' || (opts.useRacebox && d.id === racebox?.id));
+    // 位置の機器 (RaceBox・Drogger) は選んだものだけ、センサーとカメラはいつも
+    const wanted = devices.filter(d => (d.kind !== 'racebox' && d.kind !== 'drogger') || d.id === positionDevice?.id);
     if (wanted.length === 0) return;
     const update = (id: string, patch: Partial<LapDeviceStatus>) =>
       setStatuses(list => list.map(s => (s.device.id === id ? { ...s, ...patch } : s)));
@@ -97,7 +100,7 @@ export function useLapDevices(opts: {
     };
     // 機器の一覧は開いている間は変えない
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opts.useRacebox, racebox?.id]);
+  }, [positionDevice?.id]);
 
   /** センサーの値を、走行と同じ名前の .csv にためる (走行のファイルができてから) */
   function record(d: RegisteredDevice, tMs: number, values: Record<string, number>) {
@@ -143,5 +146,5 @@ export function useLapDevices(opts: {
     recorders.current.clear();
   }, []);
 
-  return { devices, racebox, statuses, flush, startRun, lap, stopRun };
+  return { devices, racebox, drogger, statuses, flush, startRun, lap, stopRun };
 }
