@@ -18,6 +18,7 @@ import { useEscapeKey } from '../hooks/useEscapeKey';
 import { getPositionSource, setPositionSource } from '../services/positionSource';
 import { navStore } from '../app/navStore';
 import { PhoneImuRecorder } from '../services/phoneImu';
+import { digspiceFeed, distanceKm, phoneFeed, replayFeed } from '../services/timer/positionFeeds';
 import { getRunStore } from '../services/runStore';
 import { LAP_INDEX_FILE, lapKey, parseLapIndex } from '../services/lapIndex';
 import { OrientationToggle, StopConfirm, loadTimerOrientation, saveTimerOrientation, type TimerOrientation } from './LapTimerControls';
@@ -67,11 +68,6 @@ const FLASH_MS = 6000;
 const EXTRAPOLATE_SEC = 1;
 
 const presetsWithLine = CIRCUIT_PRESETS.filter(c => c.controlLine);
-
-function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const cosLat = Math.cos((((lat1 + lat2) / 2) * Math.PI) / 180);
-  return Math.hypot((lon2 - lon1) * cosLat * 111.32, (lat2 - lat1) * 111.32);
-}
 
 /** 差の色 (速いと緑、遅いと赤) */
 function deltaClass(d: number | null | undefined): string {
@@ -201,7 +197,6 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   /** 利用者がコースを選んだ (自動で選び直さない) */
   const manualCourseRef = useRef(false);
   /** iPhone の GPS の前の測位 (速さが来ないときに、位置から求める) */
-  const prevPhoneRef = useRef<LiveFix | null>(null);
   /** 出した経過 (同じ周の間は戻さない。測位がまとめて届いたときに、表示が戻って見えないように) */
   const shownElapsedRef = useRef<{ lapStartMs: number | null; value: number }>({ lapStartMs: null, value: 0 });
 
@@ -378,7 +373,6 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     void (rec ? rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true) : Promise.resolve()).then(() => syncRef.current());
     fixesRef.current = [];
     lastPosRef.current = null;
-    prevPhoneRef.current = null;
     shownElapsedRef.current = { lapStartMs: null, value: 0 };
     chooseCourse(courseRef.current);
     // 測っている途中で出どころを替えたときは、新しい走行としてカメラの録画を始め直す
@@ -391,15 +385,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     if (source === 'digspice') {
       // 開いただけではつながない (タイマーはタブの 1 つなので、見ただけでつなぎに行かないように。2026-10-21)。
       // つなぐのは、上の出どころの印を押したときと、測定開始を押したとき (startMeasuring)
-      void bleLoggerLink.start();
-      const off = bleLoggerLink.onFix(fix => handleFix({
-        tMs: fix.timestamp.getTime(),
-        latitude: fix.latitude,
-        longitude: fix.longitude,
-        speedKmh: fix.speedKmh,
-        altitude: fix.altitude,
-        valid: fix.valid
-      }));
+      const off = digspiceFeed(handleFix);
       return () => {
         off();
         // ここでつないだ接続は、測っていないまま離れたら切る (ほかの画面にいる間に探し続けて、電池を使わないように)
@@ -410,63 +396,15 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       };
     }
     if (source === 'phone') {
-      if (!('geolocation' in navigator)) {
-        setPhoneInfo({ accuracy: null, error: t('この端末では位置を使えません', 'Location is not available on this device') });
-        return;
-      }
-      setPhoneInfo({ accuracy: null, error: null });
-      const id = navigator.geolocation.watchPosition(
-        pos => {
-          setPhoneInfo({ accuracy: pos.coords.accuracy, error: null });
-          // 速さが来ない (null・負) ときは、前の測位からの位置と時刻で求める (iPhone はよく来ない)
-          const prev = prevPhoneRef.current;
-          const reported = pos.coords.speed;
-          let speedKmh = reported !== null && reported >= 0 ? reported * 3.6 : 0;
-          if ((reported === null || reported < 0) && prev && pos.timestamp > prev.tMs) {
-            speedKmh = (distanceKm(prev.latitude, prev.longitude, pos.coords.latitude, pos.coords.longitude) / ((pos.timestamp - prev.tMs) / 3600000));
-          }
-          const fix: LiveFix = {
-            tMs: pos.timestamp,
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude,
-            speedKmh,
-            altitude: pos.coords.altitude ?? undefined,
-            // 誤差の大きい測位 (屋内・測位の始め) は使わない
-            valid: pos.coords.accuracy <= 30
-          };
-          if (fix.valid) prevPhoneRef.current = fix;
-          handleFix(fix);
-        },
-        err => setPhoneInfo({
-          accuracy: null,
-          error: err.code === err.PERMISSION_DENIED
-            ? t('位置の許可がありません (アプリでは、位置を使う設定の入った版に入れ直すと使えます)', 'Location permission denied (in the app, reinstall a build that includes location access)')
-            : err.message
-        }),
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
-      );
-      return () => navigator.geolocation.clearWatch(id);
+      return phoneFeed(handleFix, setPhoneInfo, {
+        unavailable: t('この端末では位置を使えません', 'Location is not available on this device'),
+        denied: t('位置の許可がありません (アプリでは、位置を使う設定の入った版に入れ直すと使えます)', 'Location permission denied (in the app, reinstall a build that includes location access)')
+      });
     }
     // RaceBox・Drogger の測位は、機器の部品 (useLapDevices) が handleFix へ渡す
     if (source === 'racebox' || source === 'drogger') return;
     // ログの再生: 読み込んだ走行の点を、時刻のとおり (速さの倍率をかけて) 渡す
-    const log = replayLogs.find(l => l.id === replayId);
-    if (!log || log.points.length < 2) return;
-    const base = log.startDate?.getTime() ?? Date.now();
-    const pts = log.points;
-    const startPerf = performance.now();
-    const t0 = pts[0].time;
-    let i = 0;
-    const iv = setInterval(() => {
-      const simTime = t0 + ((performance.now() - startPerf) / 1000) * replaySpeed;
-      while (i < pts.length && pts[i].time <= simTime) {
-        const p = pts[i];
-        handleFix({ tMs: base + p.time * 1000, latitude: p.latitude, longitude: p.longitude, speedKmh: p.speed, altitude: p.altitude, valid: true });
-        i++;
-      }
-      if (i >= pts.length) clearInterval(iv);
-    }, 50);
-    return () => clearInterval(iv);
+    return replayFeed(replayLogs.find(l => l.id === replayId), replaySpeed, handleFix);
     // replayLogs は、開いている間は変わらない前提 (変わっても再生中のログは続ける)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, replayId, replaySpeed, handleFix, resetRun]);
