@@ -197,7 +197,9 @@ export function parseLapIndex(text: string | null): LapIndex | null {
 /** 同じ走行 (名前が同じで、日付のフォルダ・形式が違う) の控え */
 function sameRunRecord(files: Record<string, LapFileRecord>, name: string): LapFileRecord | undefined {
   const stem = runStem(name);
-  const key = Object.keys(files).find(k => k !== name && runStem(k) === stem);
+  const dir = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
+  // 同じ日付のフォルダ (か、日付のフォルダへ移す前の、フォルダのないもの) の同じ名前だけ。ほかの日の同じ名前の走行と混ぜない
+  const key = Object.keys(files).find(k => k !== name && runStem(k) === stem && (dir(k) === dir(name) || dir(k) === ''));
   return key ? files[key] : undefined;
 }
 

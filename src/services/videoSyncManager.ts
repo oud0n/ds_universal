@@ -216,7 +216,9 @@ class VideoSyncManager {
     // 名前は拡張子を除いてくらべる (.bon4 で保存した同期を、.nmea で開いた同じ走行に戻すため。2026-10-21)
     const stem = (n: string) => n.replace(/\.(nmea|bon4|bnx4|bon|binx)$/i, '');
     const candidates = sessions.filter(s => s.fileName === saved.fileName || stem(s.fileName) === stem(saved.fileName));
-    const hit = candidates.find(s => s.date === saved.startDateJst) ?? (candidates.length === 1 ? candidates[0] : undefined);
+    // 1 つのログが 2 つ以上の走行に分かれるとき (_1・_2) は、走行の名前で選ぶ
+    const hit = candidates.find(s => s.sessionName === saved.sessionName)
+      ?? candidates.find(s => s.date === saved.startDateJst) ?? (candidates.length === 1 ? candidates[0] : undefined);
     return hit ? hit.id : savedId;
   }
 

@@ -45,6 +45,14 @@ describe('Drogger の NMEA (Bluetooth LE)', () => {
     expect(out[0].altitude).toBe(45.3);
   });
 
+  it('RMC が GGA より先に来ても、続く測位に近い時刻の GGA の高さ・衛星の数を添える', () => {
+    const s = new DroggerStream();
+    s.push(enc(RMC));
+    const out = s.push(enc(GGA + nmea('GNRMC,012345.30,A,3524.0000,N,14000.0000,E,54.0,90.0,211026,,,R')));
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ altitude: 45.3, satellites: 24 });
+  });
+
   it('測位していない (V) は valid: false', () => {
     const s = new DroggerStream();
     const out = s.push(enc(nmea('GNRMC,012345.20,V,3524.0000,N,14000.0000,E,0.0,,211026,,,N')));
