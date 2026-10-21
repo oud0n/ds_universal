@@ -1,5 +1,5 @@
 import React from 'react';
-import { FolderOpen, Fuel, Sun, Moon, Monitor, Contrast, Download, SlidersHorizontal, ChevronLeft } from 'lucide-react';
+import { FolderOpen, Fuel, Sun, Moon, Monitor, Contrast, Download, SlidersHorizontal, ChevronLeft, List } from 'lucide-react';
 import type { ThemeSetting } from '../utils/theme';
 import { BleStatusPill } from './BleLoggerCard';
 import { useT, type LangSetting } from '../utils/i18n';
@@ -36,6 +36,9 @@ interface HeaderProps {
   onOpenDonate?: () => void;
   // スマートフォン向けの配置 (タブは画面下のタブバーに出し、ここには読み込みと ⚙ だけを置く)
   compact?: boolean;
+  /** 解析の「走行とコース」の引き出しを開いているか・開け閉めする */
+  dataOpen?: boolean;
+  onToggleData?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -44,7 +47,9 @@ export const Header: React.FC<HeaderProps> = ({
   badges,
   onOpenFile,
   onOpenDonate,
-  compact = false
+  compact = false,
+  dataOpen = false,
+  onToggleData
 }) => {
   const t = useT();
   // ⚙ の中の画面 (タブ・サイドバーに並ばない画面) を出しているときは、戻るボタンを出す
@@ -52,6 +57,19 @@ export const Header: React.FC<HeaderProps> = ({
   const go = (s: Screen) => navStore.go(s);
   // ⚙: 設定を開く。設定を出しているときは閉じる (来た画面へ戻る)
   const toggleSettings = () => (screen === 'settings' ? navStore.back() : go('settings'));
+  // 解析の画面の「走行とコース」(読み込んだ走行・Car の割り当て・コース・補正)
+  const dataButton = screen === 'analysis' && onToggleData && (
+    <button
+      onClick={onToggleData}
+      aria-pressed={dataOpen}
+      className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1.5 rounded border cursor-pointer whitespace-nowrap ${dataOpen ? 'bg-sky-600 text-white border-sky-500' : 'text-slate-300 border-line-3 hover:bg-surface-3'}`}
+      data-testid="toggle-data-drawer"
+    >
+      <List size={compact ? 16 : 14} />
+      {t('走行とコース', 'Runs & course')}
+      {!!badges?.data && <span className="px-1.5 text-[10px] rounded bg-slate-700 text-slate-300 font-mono">{badges.data}</span>}
+    </button>
+  );
 
   if (compact) {
     return (
@@ -72,6 +90,8 @@ export const Header: React.FC<HeaderProps> = ({
             {t('ファイルを開く', 'Open file')}
           </button>
         )}
+
+        {dataButton}
 
         {/* 右: つなぎの状態と ⚙ (状態を真ん中に置くと、名前の長さで位置がずれて見えるため右に寄せる) */}
         <div className="flex items-center gap-2 min-w-0">
@@ -123,10 +143,12 @@ export const Header: React.FC<HeaderProps> = ({
             );
           })}
           {plan.available.has('logger') && <span className="ml-2 self-center"><BleStatusPill onClick={() => go('logger')} /></span>}
+          {dataButton && <span className="ml-2 self-center">{dataButton}</span>}
         </div>
       ) : (
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-sm font-bold text-slate-200 truncate">{t(...screenLabel(screen))}</span>
+          {dataButton}
           {plan.available.has('logger') && <BleStatusPill onClick={() => go('logger')} />}
         </div>
       )}

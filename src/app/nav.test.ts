@@ -44,7 +44,8 @@ describe('組み方', () => {
     const plan = navPlan(profileFor('browser', false, { ...none, hasLogger: true }));
     expect(plan.chrome).toBe('top');
     expect(plan.home).toBe('analysis');
-    expect(plan.primary).toEqual(['analysis', 'video', 'data', 'convert', 'logger']);
+    expect(plan.primary).toEqual(['analysis', 'video', 'convert', 'logger']);
+    expect(plan.available.has('data')).toBe(true);
   });
 });
 
