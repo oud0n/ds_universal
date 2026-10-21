@@ -273,6 +273,9 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         return {};
       case 'system.keepAwake':
         return {};
+      case 'system.motionStart':
+      case 'system.motionStop':
+        return {};
       case 'system.setOrientation': {
         const { mode } = req.params as { mode: string };
         return { orientation: mode === 'landscape' ? 'landscape' : 'portrait' };

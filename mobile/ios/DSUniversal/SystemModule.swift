@@ -33,6 +33,14 @@ final class SystemModule {
             // ラップタイマーを開いている間、画面の自動ロックを止める
             UIApplication.shared.isIdleTimerDisabled = (params["on"] as? Bool) ?? false
             done(.success([:]))
+        case "system.motionStart":
+            // iPhone の G センサーを読み始める (MotionRecorder.swift)。値は知らせ system.motion で 0.5 秒ごとに渡す
+            let hz = (params["hz"] as? Double) ?? 50
+            let ok = MotionRecorder.shared.start(hz: hz) { [weak self] data in self?.core.emit("system.motion", data) }
+            if ok { done(.success([:])) } else { done(.failure(NativeError(.notSupported, "no motion sensor"))) }
+        case "system.motionStop":
+            MotionRecorder.shared.stop()
+            done(.success([:]))
         case "system.setOrientation":
             // ラップタイマーの画面の向き (Orientation.swift)
             let mode = (params["mode"] as? String) ?? "system"

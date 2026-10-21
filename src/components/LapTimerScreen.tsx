@@ -17,6 +17,7 @@ import { canUseLoggerBle } from '../utils/device';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { getPositionSource, setPositionSource } from '../services/positionSource';
 import { navStore } from '../app/navStore';
+import { PhoneImuRecorder } from '../services/phoneImu';
 import { OrientationToggle, StopConfirm, loadTimerOrientation, saveTimerOrientation, type TimerOrientation } from './LapTimerControls';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
 import type { CircuitPreset, TelemetryPoint } from '../types/telemetry';
@@ -161,6 +162,10 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     runBase: () => recorderRef.current?.current?.fileBase ?? null
   });
   const lapDevicesRef = useRef(lapDevices);
+  // iPhone の G センサー (測っている間だけ読み、走行と同じ名前の .iphone_imu.csv に書く。測定開始のときの傾きを基準にする)
+  const imuRef = useRef<PhoneImuRecorder | null>(null);
+  imuRef.current ??= new PhoneImuRecorder(() => recorderRef.current?.current?.fileBase ?? null);
+  useEffect(() => () => { void imuRef.current?.stop(); }, []);
   lapDevicesRef.current = lapDevices;
   /** ラップタイムの記録 (過去の周の一覧) を開いているか */
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -226,6 +231,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     const st = timerRef.current?.getState();
     // センサーの値の .csv も一緒に書く
     lapDevicesRef.current.flush();
+    void imuRef.current?.flush();
     return rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, force);
   }, []);
 
@@ -309,6 +315,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     recorderRef.current = null;
     // カメラ (GoPro) の時計を合わせて録画を始める
     lapDevicesRef.current.startRun(new Date());
+    // G センサーを読み始める (今の傾きを基準にするので、止まっているうちに押すのがよい)
+    void imuRef.current?.start();
     // 押す前の測位で周を数えないよう、コースの選び直しに使う測位も捨てる
     fixesRef.current = [];
     shownElapsedRef.current = { lapStartMs: null, value: 0 };
@@ -322,6 +330,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     setMeasuring(false);
     // カメラの録画を止め、センサーの値を書き、次の走行の .csv に替える
     lapDevicesRef.current.stopRun();
+    void imuRef.current?.stop();
     // 今の走行の記録を先に外してから保存する (保存の途中で測定開始を押しても、新しい走行の記録を消さないように)
     const rec = recorderRef.current;
     recorderRef.current = null;
@@ -334,6 +343,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const resetRun = useCallback(() => {
     // 録画を止め、センサーの .csv を次の走行に替える
     lapDevicesRef.current.stopRun();
+    imuRef.current?.newRun();
     // それまでの記録を外して保存してから、写す (外す前に保存し終わらないと、最後の数秒が残らないため)
     const rec = recorderRef.current;
     recorderRef.current = null;
