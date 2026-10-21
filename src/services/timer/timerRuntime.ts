@@ -167,8 +167,8 @@ export class TimerRuntime {
   start(): void {
     if (this.running) return;
     this.running = true;
+    // Bluetooth の機器 (位置・センサー・カメラ) は、開いただけではつながない。出どころの印か測定開始でつなぐ (2026-10-21)
     this.applySource();
-    void this.devices.connect(this.positionKind());
     this.intervals.push(setInterval(() => { void this.flush(); }, SAVE_INTERVAL_MS));
     document.addEventListener('visibilitychange', this.onHide);
     window.addEventListener('pagehide', this.onHide);
@@ -200,7 +200,8 @@ export class TimerRuntime {
     if (s !== 'replay') setPositionSource(s);
     if (!this.running) return;
     this.applySource();
-    void this.devices.connect(this.positionKind());
+    // つないでいたら、位置の機器を替えてつなぎ直す (つないでいなければ、印か測定開始まで待つ)
+    if (this.devices.isConnected) void this.devices.connect(this.positionKind());
   }
 
   setReplay(id: string, speed?: number): void {
@@ -242,11 +243,14 @@ export class TimerRuntime {
     // RaceBox・Drogger の測位は、機器 (LapDeviceSet) が handleFix へ渡す
   }
 
-  /** 上の出どころの印を押した: デジスパイスにつなぐ (切断ボタンで切っていても) */
+  /** 上の出どころの印を押した: 位置の機器につなぐ (デジスパイスは切断ボタンで切っていても。RaceBox・Drogger は機器の一式と一緒に) */
   connectSource(): void {
-    if (this.snap.source !== 'digspice') return;
-    if (bleLoggerLink.isLinkIdle()) this.connectedHere = true;
-    void bleLoggerLink.startAndConnect(true);
+    if (this.snap.source === 'digspice') {
+      if (bleLoggerLink.isLinkIdle()) this.connectedHere = true;
+      void bleLoggerLink.startAndConnect(true);
+    } else if (this.positionKind()) {
+      void this.devices.connect(this.positionKind());
+    }
   }
 
   // ---- コース ----
@@ -363,8 +367,9 @@ export class TimerRuntime {
 
   /** 測定開始: 周をはじめから数え、次の測位から新しい走行のファイルに書く */
   startMeasuring(): void {
-    // 測ると決めたので、切断ボタンで切っていてもつなぐ
+    // 測ると決めたので、位置の機器 (切断ボタンで切っていても)・センサー・カメラにつなぐ
     if (this.snap.source === 'digspice') this.connectSource();
+    void this.devices.connect(this.positionKind());
     this.recorder = null;
     // 押す前の測位で周を数えないよう、コースの選び直しに使う測位も捨てる
     this.fixes = [];

@@ -230,13 +230,12 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       const ok = link.status === 'fixing';
       return { ok, text: link.status === 'none' ? t('デジスパイスを登録してください (ロガー設定)', 'Register a DigSpice (Logger settings)') : statusLabel(link.status, link.rateHz) };
     }
-    if (source === 'drogger') {
-      const st = lapDevices.statuses.find(x => x.device.kind === 'drogger');
-      return { ok: !!st?.ok, text: st ? `${st.device.displayName}: ${st.state}${st.text ? ` · ${st.text}` : ''}` : t('Drogger を登録してください (機器)', 'Register a Drogger (Devices)') };
-    }
-    if (source === 'racebox') {
-      const st = lapDevices.statuses.find(x => x.device.kind === 'racebox');
-      return { ok: !!st?.ok, text: st ? `${st.device.displayName}: ${st.state}${st.text ? ` · ${st.text}` : ''}` : t('RaceBox を登録してください (ロガー設定)', 'Register a RaceBox (Logger settings)') };
+    if (source === 'drogger' || source === 'racebox') {
+      const dev = source === 'drogger' ? lapDevices.drogger : lapDevices.racebox;
+      const st = lapDevices.statuses.find(x => x.device.kind === source);
+      if (!dev) return { ok: false, text: source === 'drogger' ? t('Drogger を登録してください (機器)', 'Register a Drogger (Devices)') : t('RaceBox を登録してください (機器)', 'Register a RaceBox (Devices)') };
+      // つないでいなければ「未接続」(押すとつなぐ)
+      return { ok: !!st?.ok, text: st ? `${st.device.displayName}: ${st.state}${st.text ? ` · ${st.text}` : ''}` : `${dev.displayName}: ${t('未接続', 'Not connected')}` };
     }
     if (source === 'phone') {
       if (phoneInfo.error) return { ok: false, text: phoneInfo.error };
@@ -317,7 +316,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           disabled={measuring}
           onClick={() => {
             if (needsRegister) navStore.go('logger');
-            else if (source === 'digspice' && link.status === 'idle') {
+            else if ((source === 'digspice' && link.status === 'idle') || ((source === 'racebox' || source === 'drogger') && !lapDevices.statuses.some(x => x.device.kind === source))) {
               rt.connectSource();
             } else setMenuOpen(o => !o);
           }}
@@ -326,7 +325,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           data-testid="lap-timer-source"
         >
           {source === 'digspice' || source === 'racebox' || source === 'drogger' ? <Bluetooth size={14} className="shrink-0" /> : source === 'phone' ? <Smartphone size={14} className="shrink-0" /> : <PlayCircle size={14} className="shrink-0" />}
-          <span className="truncate">{sourceStatus.text}{source === 'digspice' && link.status === 'idle' ? t(' (押すとつなぐ)', ' (tap to connect)') : ''}</span>
+          <span className="truncate">{sourceStatus.text}{(source === 'digspice' && link.status === 'idle') || ((source === 'racebox' || source === 'drogger') && (source === 'racebox' ? lapDevices.racebox : lapDevices.drogger) && !lapDevices.statuses.some(x => x.device.kind === source)) ? t(' (押すとつなぐ)', ' (tap to connect)') : ''}</span>
         </button>
         <button onClick={() => setCoursePicker(true)} disabled={measuring} className="flex items-center gap-1 px-2 py-1 rounded-full border border-line-3 text-slate-200 whitespace-nowrap shrink-0 max-w-[40vw] disabled:opacity-60" data-testid="lap-timer-course">
           <MapPin size={14} className="shrink-0" />
