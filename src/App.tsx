@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ChevronDown, ChevronRight, FolderOpen, X } from 'lucide-react';
 import { CompareAxis, Lap, Session, TelemetryPoint, SelectedCarSlot, ControlLine, Sector, CircuitPreset, PolylineSource } from './types/telemetry';
-import { parseDtb } from './services/dtbParser';
-import { parseDigispiceRawBinary } from './services/rawBinaryParser';
-import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
 import { blobByteSource, goproRecording, NoGoproGpsError, parseGoproGps } from './services/gpmfParser';
 import { sessionStartUtcMs, videoSyncManager, placeTracks, isProxyFileName } from './services/videoSyncManager';
@@ -12,11 +9,8 @@ import { referenceCandidates } from './services/clockOffsetEstimator';
 import { analyseSessions, isSameRun } from './services/pairAnalysis';
 import type { ClockEstimateResult } from './components/DataTab';
 import { circuitLabel, tr, useT } from './utils/i18n';
-import { inflateXrz, isAimCsv, isXrk, parseAimCsv, parseXrk } from './services/aimFormats';
-import { isIbt, parseIbt } from './services/ibtParser';
-import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isTcx, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseTcx, parseVbo } from './services/externalFormats';
-import { parseFit } from './services/fitParser';
 import { parsePth, parseCln } from './services/pthParser';
+import { parseLogBuffer } from './services/logLoader';
 import { AUTO_CONTROL_LINE_NAME, createAutoControlLine, createEqualSectors } from './services/autoCourseLines';
 import { countGateCrossings, createVirtualControlLine, extractLaps, firstGateCrossingTime, gateDirection, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
 import { ConvertTab } from './components/ConvertTab';
@@ -922,98 +916,20 @@ export const App: React.FC = () => {
     buffer: ArrayBuffer | null,
     parsedLog?: { points: any[]; samplingRate: number; startDate?: Date }
   ): Promise<Session[]> => {
-    let rawPoints: any[] = [];
-    let samplingRate = 10;
-    let startDate: Date | undefined;
-    // 1 つのファイルに走行が複数入っているとき (生ログ) は、走行ごとに別のセッションにする
-    let parts: { points: any[]; samplingRate: number; startDate?: Date }[] | null = null;
+    // 1 つのファイルに走行が複数入っているとき (生ログ・空きのある NMEA など) は、走行ごとに別のセッションにする (services/logLoader.ts)
+    let parts: { points: any[]; samplingRate: number; startDate?: Date }[];
     // ログに記録されている車両名・ドライバー名・コース名 (iRacing の .ibt)
     let meta: { vehicleName?: string; driverName?: string; trackName?: string } = {};
-
-    const ext = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() : '';
     const added: Session[] = [];
 
     if (parsedLog) {
-      rawPoints = parsedLog.points;
-      samplingRate = parsedLog.samplingRate;
-      startDate = parsedLog.startDate;
+      parts = [{ points: parsedLog.points, samplingRate: parsedLog.samplingRate, startDate: parsedLog.startDate }];
     } else if (!buffer) {
       throw new Error(tr('ファイルの中身がありません', 'The file is empty'));
-    } else if (ext === 'dtb') {
-      const parsed = parseDtb(buffer);
-      rawPoints = parsed.points;
-      samplingRate = parsed.samplingRate;
-      startDate = parsed.startDate;
-    } else if (ext === 'bnx4' || ext === 'bon4' || ext === 'binx' || ext === 'bon') {
-      parts = parseDigispiceRawBinary(fileName, buffer);
-    } else if (ext === 'xrk' || ext === 'xrz') {
-      // AiM のロガーのファイル (.xrz は圧縮したもの)
-      const bytes = await inflateXrz(new Uint8Array(buffer));
-      if (!isXrk(bytes)) throw new Error(tr('AiM の .xrk / .xrz として読めませんでした', 'Could not read this as an AiM .xrk / .xrz file'));
-      const parsed = parseXrk(bytes);
-      rawPoints = parsed.points;
-      samplingRate = parsed.samplingRate;
-      startDate = parsed.startDate;
-    } else if (ext === 'fit') {
-      // Garmin などの FIT (腕時計・サイクルコンピューターの記録)
-      const parsed = parseFit(new Uint8Array(buffer));
-      rawPoints = parsed.points;
-      samplingRate = parsed.samplingRate;
-      startDate = parsed.startDate;
-    } else if (ext === 'ibt') {
-      // iRacing のテレメトリ。コースに出ていた間ごとに分ける (ピットへの移動などで区切る)
-      const bytes = new Uint8Array(buffer);
-      if (!isIbt(bytes)) throw new Error(tr('iRacing の .ibt として読めませんでした', 'Could not read this as an iRacing .ibt file'));
-      const parsed = parseIbt(bytes);
-      parts = parsed.parts;
-      meta = { vehicleName: parsed.vehicleName, driverName: parsed.driverName, trackName: parsed.trackName };
-    } else if (['vbo', 'csv', 'txt', 'gpx', 'tcx', 'nmea', 'log'].includes(ext || '')) {
-      // テキストの形式は拡張子で決めつけず、中身の先頭で判別する (.txt の NMEA・VBO、.log の CSV なども読めるように)。
-      // 判別できないときは拡張子に従う
-      const text = new TextDecoder('utf-8').decode(buffer);
-      // NMEA は受信機の起動時の文などの後から始まることがあるので、先頭から広めに (64 KB) 探す
-      const head = text.slice(0, 65536);
-      // CSV の見出し行 (緯度・経度の列がある行) があるか
-      const csvLike = isRaceChronoCsv(text) || isMotecCsv(text) || isAimCsv(text) ||
-        /^(?=[^\n]*(lat|緯度))(?=[^\n]*(lon|lng|経度))[^\n]*,/im.test(text.slice(0, 4000));
-      const kind =
-        isGpx(text) ? 'gpx'
-        : isTcx(text) ? 'tcx'
-        : isVbo(text) ? 'vbo'
-        : /^\s*\$G[PNLAB][A-Z]{3},/m.test(head) ? 'nmea'
-        : csvLike ? 'csv'
-        : ext === 'vbo' || ext === 'gpx' || ext === 'tcx' || ext === 'nmea' ? ext
-        : ext === 'log' ? 'nmea'
-        : 'csv';
-      let parsed: { points: any[]; samplingRate: number; startDate?: Date };
-      if (kind === 'gpx') parsed = parseGpx(text);
-      else if (kind === 'tcx') parsed = parseTcx(text);
-      else if (kind === 'vbo') parsed = parseVbo(text);
-      else if (kind === 'nmea') parsed = parseNmea(text, fileName);
-      else {
-        // 他社形式の CSV は先頭の書式で判別する
-        // MoTeC CSV は単位行などの構造が汎用 CSV と違うため、無効の間は汎用の読み込みに回さず断る
-        if (isMotecCsv(text) && !MOTEC_CSV_ENABLED) {
-          throw new Error(tr('MoTeC CSV の読み込みには現在対応していません', 'Loading MoTeC CSV is not supported at the moment'));
-        }
-        parsed = isRaceChronoCsv(text) ? parseRaceChronoCsv(text)
-          : isAimCsv(text) ? parseAimCsv(text)
-          : isMotecCsv(text) ? parseMotecCsv(text)
-          : parseCsv(text);
-      }
-      rawPoints = parsed.points;
-      samplingRate = parsed.samplingRate;
-      startDate = parsed.startDate;
     } else {
-      throw new Error(`${tr('未対応のファイル形式です', 'Unsupported file type')}: ${ext ? `.${ext}` : tr('(拡張子なし)', '(no extension)')}`);
-    }
-
-    if (!parts) parts = [{ points: rawPoints, samplingRate, startDate }];
-    // 位置として正しい点が 2 点に満たない走行は捨てる (違う中身のファイルを生ログなどとして読むと、でたらめな 1 点ができることがあるため)
-    const validPos = (p: any) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude) && Math.abs(p.latitude) <= 90 && Math.abs(p.longitude) <= 180 && !(p.latitude === 0 && p.longitude === 0);
-    parts = parts.filter(p => p.points.filter(validPos).length >= 2);
-    if (parts.length === 0 || parts.every(p => p.points.length === 0)) {
-      throw new Error(tr('有効なGPS位置データが見つかりませんでした', 'No valid GPS position data was found'));
+      const parsed = await parseLogBuffer(fileName, buffer, tr);
+      parts = parsed.parts;
+      meta = parsed.meta;
     }
 
     const baseName = fileName.replace(/\.[^/.]+$/, '');
