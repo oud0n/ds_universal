@@ -51,6 +51,14 @@ export class Page {
     return r.result?.result?.value;
   }
 
+  /** ファイルを選ぶ欄 (selector) に、ファイルを渡す (選んだのと同じ) */
+  async setFiles(selector, files) {
+    const doc = await this.send('DOM.getDocument', { depth: 0 });
+    const q = await this.send('DOM.querySelector', { nodeId: doc.result.root.nodeId, selector });
+    if (!q.result?.nodeId) throw new Error(`${selector} がない`);
+    await this.send('DOM.setFileInputFiles', { nodeId: q.result.nodeId, files });
+  }
+
   /** アプリの様子 (開発サーバーの window.__laploupe) */
   state() {
     return this.ev(`JSON.parse(JSON.stringify(window.__laploupe ?? null))`);

@@ -4,6 +4,9 @@
 
 import { check, sleep } from './cdp.mjs';
 import { sweepLayout } from './layout.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const APP = 'http://localhost:5183/';
 
@@ -262,6 +265,63 @@ export const journeys = [
       const s = await p.state();
       check(s.screen === 'convert', `#convert で ${s.screen}`);
       check(await p.exists('nav-analysis'), '上のタブがない');
+    }
+  },
+  {
+    name: '取り込み: 2 つのサーキットのログを開くと、走行ごとに分けて保管場所に書き、元のファイルを 取り込み元/ に残す',
+    target: 'electron',
+    async run(p) {
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      // 日光と筑波のログの日付を、ほかの走行と重ならない日 (2020 年) に替えてつなぐ (チェックサムも付け直す)
+      const day = 1 + (Date.now() % 27);
+      const ddmmyy = `${String(day).padStart(2, '0')}0120`;
+      const redate = text => text.split(/\r?\n/).map(line => {
+        if (!/^\$G[NP]RMC,/.test(line)) return line;
+        const body = line.slice(1, line.indexOf('*') >= 0 ? line.indexOf('*') : undefined).split(',');
+        body[9] = ddmmyy;
+        const b = body.join(',');
+        let x = 0;
+        for (const c of b) x ^= c.charCodeAt(0);
+        return `$${b}*${x.toString(16).toUpperCase().padStart(2, '0')}`;
+      }).join('\r\n');
+      const nikko = fs.readFileSync(path.join(root, 'nikko/20260830/20260830095701.nmea'), 'utf8');
+      const tc = fs.readFileSync(path.join(root, 'tsukuba2000/20261012/20261012133132.nmea'), 'utf8');
+      const name = `e2e_import_${Date.now()}.nmea`;
+      const src = path.join(os.tmpdir(), name);
+      fs.writeFileSync(src, redate(nikko) + '\r\n' + redate(tc));
+      const created = [];
+      try {
+        await p.setFiles('input[type=file]', [src]);
+        await p.waitFor(`document.querySelector('[data-testid="import-sheet"]')`, 30000, '取り込みの確認');
+        const rows = await p.ev(`[...document.querySelectorAll('[data-testid="import-row"]')].map(r => r.innerText.replace(/\\s+/g, ' '))`);
+        const kept = rows.filter(r => /日光|筑波|Nikko|Tsukuba/i.test(r));
+        check(kept.length === 2, `日光と筑波の 2 つに分かれていない: ${rows.join(' | ')}`);
+        await p.click('import-apply');
+        await p.waitFor(`document.querySelector('[data-testid="import-summary"]')`, 30000, '取り込みの終わり');
+        const dirs = ['nikko', 'tsukuba2000'].map(c => path.join(root, c, `202001${String(day).padStart(2, '0')}`));
+        for (const d of dirs) {
+          check(fs.existsSync(d), `${d} ができていない`);
+          created.push(d);
+          check(fs.readdirSync(d).some(f => f.endsWith('.nmea')), `${d} に .nmea がない`);
+        }
+        const kept0 = path.join(root, '取り込み元', name);
+        check(fs.existsSync(kept0), '取り込み元/ に元のファイルがない');
+        created.push(kept0);
+        check(fs.readFileSync(kept0).equals(fs.readFileSync(src)), '取り込み元/ のファイルが元と違う');
+        // 解析で開く
+        await p.click('import-open-after');
+        await p.waitFor(`window.__laploupe?.screen === 'analysis' && window.__laploupe.sessions.some(s => s.fileName === ${JSON.stringify(name)})`, 30000, '解析で開く');
+        check(!(await p.exists('import-sheet')), '開いたあとも確認が出ている');
+        // 同じファイルをもう一度開くと、全部取り込み済みなので聞かずに開く
+        await p.setFiles('input[type=file]', [src]);
+        await sleep(4000);
+        check(!(await p.exists('import-sheet')), '取り込み済みのログで、また確認が出た');
+      } finally {
+        // 試験で書いたものを消す (試験用の写しの中だけ)
+        for (const f of created) if (f.includes('scratchpad')) fs.rmSync(f, { recursive: true, force: true });
+        fs.rmSync(src, { force: true });
+      }
     }
   },
   // 寸法: 全部の画面を開き、バーの高さ・文字の折り返し・はみ出しを確かめる (「ファイルを開く」でバーが伸びていたもの)

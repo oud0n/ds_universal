@@ -34,8 +34,10 @@ export const ImportSheet: React.FC<{
   onApply: () => void;
   /** 取り込まずに、今だけ開く */
   onOpenOnly: () => void;
+  /** 取り込んだあと、解析で開く */
+  onOpenAfter?: () => void;
   onClose: () => void;
-}> = ({ plan, phase, progress, results, onToggle, onApply, onOpenOnly, onClose }) => {
+}> = ({ plan, phase, progress, results, onToggle, onApply, onOpenOnly, onOpenAfter, onClose }) => {
   const t = useT();
   useEscapeKey(phase !== 'writing', onClose);
   const checked = plan.parts.filter(p => p.checked).length;
@@ -112,7 +114,16 @@ export const ImportSheet: React.FC<{
             </>
           )}
           {phase === 'done' && (
-            <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-500 cursor-pointer" data-testid="import-done">{t('閉じる', 'Close')}</button>
+            <>
+              <span className="text-xs text-slate-300" data-testid="import-summary">
+                {t(`${results?.filter(r => r.written.length).length ?? 0} つを取り込みました`, `Imported ${results?.filter(r => r.written.length).length ?? 0}`)}
+              </span>
+              <div className="flex-1" />
+              <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-slate-300 border border-line-2 hover:bg-surface-3 cursor-pointer" data-testid="import-done">{t('閉じる', 'Close')}</button>
+              {onOpenAfter && (
+                <button onClick={onOpenAfter} className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-500 cursor-pointer" data-testid="import-open-after">{t('解析で開く', 'Open in analysis')}</button>
+              )}
+            </>
           )}
         </div>
       </div>
