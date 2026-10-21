@@ -844,6 +844,17 @@ export const App: React.FC = () => {
       setRunsSheetOpen(false);
       navStore.go('analysis');
       if (added.length === 0) return;
+      // 開いた走行を Car 1 にする (いちばん速い周)。前に開いていた走行が Car 1 のままだと、解析と動画が別の走行になる。
+      // Car 2〜4 は、同じコースのものだけ残す (違うコースと比べても意味がないため。比べるときは「Car 2 として足す」)
+      {
+        const main = added.reduce((a, b) => ((b.laps[b.bestLapIndex]?.lapTime ?? Infinity) < (a.laps[a.bestLapIndex]?.lapTime ?? Infinity) ? b : a));
+        const lapNumber = main.laps[main.bestLapIndex]?.lapNumber ?? main.laps[0]?.lapNumber ?? 1;
+        const byId = new Map(latestRef.current.sessions.map(x => [x.id, x]));
+        setSelectedCars(prev => [
+          { slot: 0, sessionId: main.id, lapNumber, colorHex: '#ef4444', label: `${main.sessionName} (L${lapNumber})` },
+          ...prev.filter(c => c.slot !== 0 && c.sessionId !== main.id && byId.get(c.sessionId)?.circuitName === main.circuitName)
+        ].sort((a, b) => a.slot - b.slot));
+      }
       const sessionsNow = () => {
         const cur = latestRef.current.sessions;
         return [...cur, ...added.filter(a => !cur.some(c => c.id === a.id))];
