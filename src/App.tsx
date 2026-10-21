@@ -748,7 +748,12 @@ export const App: React.FC = () => {
     // iPhone のアプリは、保管場所にもうあるファイルを書かない (選んだフォルダにだけある走行を上書きしないように)
     let have: Set<string> = new Set();
     if (!electron) {
-      try { have = new Set((await (await getRunStore())?.list() ?? []).map(f => f.path)); } catch { return; }
+      try {
+        have = new Set((await (await getRunStore())?.list() ?? []).map(f => f.path));
+      } catch (e) {
+        alert(tr(`保管場所を読めないため、取り込めませんでした: ${e instanceof Error ? e.message : e}`, `Could not read the storage folder, so nothing was imported: ${e instanceof Error ? e.message : e}`));
+        return;
+      }
     }
     const native = electron ? null : nativeWriter(have);
     const writer = electron ?? native;
