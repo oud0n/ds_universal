@@ -362,6 +362,28 @@ export const journeys = [
       const table = await p.ev(`document.querySelector('[data-testid="corner-analysis"]')?.innerText ?? null`);
       if (table !== null) check(table.includes('2-3'), 'コーナー別の表に名前が出ていない');
       else p.notes.push('コーナー別の表が画面になかったので、表の名前は確かめていない');
+      // 地図を押してコーナーを足す: 走行の線 (Car 1 の赤) の上で、札から離れた所を押す
+      await p.click('corner-edit');
+      await p.waitFor(`document.querySelectorAll('[data-testid="corner-edit-row"]').length === ${saved.corners.length}`, 5000, '編集の一覧 (2 回目)');
+      const spot = await p.ev(`(()=>{
+        const panel = document.querySelector('[data-testid="corner-edit-panel"]').getBoundingClientRect();
+        const cv = [...document.querySelectorAll('canvas')].find(c => c.parentElement?.contains(document.querySelector('[data-testid="corner-edit-panel"]')));
+        const r = cv.getBoundingClientRect(); const dpr = cv.width / r.width;
+        const img = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+        const hits = [];
+        for (let y = 30; y < r.height - 10; y += 3) for (let x = 10; x < panel.left - r.left - 10; x += 3) {
+          const i = (Math.round(y * dpr) * cv.width + Math.round(x * dpr)) * 4;
+          if (img[i] > 200 && img[i + 1] < 90 && img[i + 2] < 90) hits.push({ x: r.left + x, y: r.top + y });
+        }
+        return hits.length ? hits[Math.floor(hits.length / 2)] : null;
+      })()`);
+      check(spot, '地図の上に走行の線が見つからない');
+      for (const type of ['mousePressed', 'mouseReleased']) await p.send('Input.dispatchMouseEvent', { type, x: spot.x, y: spot.y, button: 'left', clickCount: 1 });
+      await sleep(400);
+      const rows = await p.ev(`document.querySelectorAll('[data-testid="corner-edit-row"]').length`);
+      // 札の上を押したときは選ぶだけ (数は増えない)。そうでなければ 1 つ増える
+      check(rows === saved.corners.length + 1, `地図を押してもコーナーが足されない (${rows} 個、元 ${saved.corners.length} 個)`);
+      await p.ev(`[...document.querySelectorAll('[data-testid="corner-edit-panel"] button')].find(b => /やめる|Cancel/.test(b.innerText)).click()`);
     }
   },
   // 寸法: 全部の画面を開き、バーの高さ・文字の折り返し・はみ出しを確かめる (「ファイルを開く」でバーが伸びていたもの)
