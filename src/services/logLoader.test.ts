@@ -47,3 +47,15 @@ describe('ログの読み込み (logLoader)', () => {
     await expect(parseLogBuffer('x.csv', new TextEncoder().encode('a,b\n1,2\n').buffer, tr)).rejects.toThrow();
   });
 });
+
+describe('NMEA を空きで分けたときの時刻 (2026-10-21 レビュー)', () => {
+  it('2 つ目の走行は、時刻・距離が 0 から始まり、走り始めの日時もその走行のもの', async () => {
+    const text = rmcRun(0, 0, 30) + rmcRun(0, 20, 30);
+    const r = await parseLogBuffer('x.nmea', new TextEncoder().encode(text).buffer, tr);
+    const [a, b] = r.parts;
+    expect(b.points[0].time).toBe(0);
+    expect(b.points[0].distance).toBe(0);
+    expect(b.points[29].time).toBeCloseTo(29, 3);
+    expect(b.startDate!.getTime() - a.startDate!.getTime()).toBe(20 * 60 * 1000);
+  });
+});

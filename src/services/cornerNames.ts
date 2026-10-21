@@ -177,8 +177,11 @@ export function splitCorner(list: NamedCorner[], k: number, geo: LapGeometry): N
     return best;
   };
   const c = list[k];
-  const first: NamedCorner = { name: `${c.name}a`, direction: c.direction, entry: c.entry, apex: at(geo, apexOf(s0, cut)), exit: at(geo, cut) };
-  const second: NamedCorner = { name: `${c.name}b`, direction: c.direction, entry: at(geo, cut + 1), apex: at(geo, apexOf(cut + 1, s1)), exit: c.exit };
+  // 向きは、それぞれの頂点の曲がりの向き (S 字を分けたとき、後ろが逆向きになる)。cornerAt と同じ決め方
+  const dirAt = (i: number): 'L' | 'R' => (geo.curvature[i] >= 0 ? 'R' : 'L');
+  const a1 = apexOf(s0, cut), a2 = apexOf(cut + 1, s1);
+  const first: NamedCorner = { name: `${c.name}a`, direction: dirAt(a1), entry: c.entry, apex: at(geo, a1), exit: at(geo, cut) };
+  const second: NamedCorner = { name: `${c.name}b`, direction: dirAt(a2), entry: at(geo, cut + 1), apex: at(geo, a2), exit: c.exit };
   return [...list.slice(0, k), first, second, ...list.slice(k + 1)];
 }
 

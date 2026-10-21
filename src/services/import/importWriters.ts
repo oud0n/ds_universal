@@ -23,11 +23,15 @@ export function electronWriter(): ImportWriter | null {
 /** 一度に送る大きさ (橋の上の base64 が大きくなりすぎないように) */
 const CHUNK = 4 * 1024 * 1024;
 
-/** iPhone のアプリ */
-export function nativeWriter(): (ImportWriter & { finish: () => Promise<void> }) | null {
+/**
+ * iPhone のアプリ。existing は保管場所 (選んだフォルダ) にあるファイルの道。アプリの中 (LapTimer/) に無くても、
+ * 選んだフォルダにあれば書かない (書くと、あとの写し (system.syncLapFiles) が選んだフォルダのファイルを上書きするため)
+ */
+export function nativeWriter(existing: ReadonlySet<string> = new Set()): (ImportWriter & { finish: () => Promise<void> }) | null {
   if (!hasNative()) return null;
   return {
     async writeNew(path, bytes) {
+      if (existing.has(path)) return 'exists';
       try {
         await callNative('system.appendFile', { path, b64: toBase64(bytes.subarray(0, CHUNK)), truncate: true, createNew: true });
       } catch (e) {

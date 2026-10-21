@@ -2,6 +2,7 @@ import React from 'react';
 import { FolderOpen, Fuel, Sun, Moon, Monitor, Contrast, Download, SlidersHorizontal, ChevronLeft, List } from 'lucide-react';
 import type { ThemeSetting } from '../utils/theme';
 import { BleStatusPill } from './BleLoggerCard';
+import { canUseLoggerBle } from '../utils/device';
 import { useT, type LangSetting } from '../utils/i18n';
 import type { NavPlan, Screen } from '../app/navPlan';
 import { SCREEN_META, screenLabel } from '../app/screenMeta';
@@ -95,7 +96,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* 右: つなぎの状態と ⚙ (状態を真ん中に置くと、名前の長さで位置がずれて見えるため右に寄せる) */}
         <div className="flex items-center gap-2 min-w-0">
-          {plan.available.has('logger') && <BleStatusPill onClick={() => go('logger')} />}
+          {plan.available.has('logger') && canUseLoggerBle && <BleStatusPill onClick={() => go('logger')} />}
           {/* 設定の画面でも同じ場所に出す (消すと左の印の位置がずれるため)。設定の画面では押した状態 */}
           <button
             onClick={toggleSettings}
@@ -144,7 +145,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             );
           })}
-          {plan.available.has('logger') && <span className="ml-2 self-center"><BleStatusPill onClick={() => go('logger')} /></span>}
+          {plan.available.has('logger') && canUseLoggerBle && <span className="ml-2 self-center"><BleStatusPill onClick={() => go('logger')} /></span>}
         </div>
         {dataButton}
         </div>
@@ -152,7 +153,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-2 min-w-0 h-[30px]">
           <span className="text-sm font-bold text-slate-200 truncate">{t(...screenLabel(screen))}</span>
           {dataButton}
-          {plan.available.has('logger') && <BleStatusPill onClick={() => go('logger')} />}
+          {plan.available.has('logger') && canUseLoggerBle && <BleStatusPill onClick={() => go('logger')} />}
         </div>
       )}
 

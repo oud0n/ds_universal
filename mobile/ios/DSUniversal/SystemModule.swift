@@ -332,8 +332,18 @@ final class SystemModule {
         let fm = FileManager.default
         for (file, rel) in Self.lapTimerFiles() {
             // ラップタイムの一覧の控えは端末ごとに作るので写さない (2 台で同じ控えを書いてぶつからないように)
-            if (rel as NSString).lastPathComponent == "laptimes.json" { continue }
+            let name = (rel as NSString).lastPathComponent
+            if name == "laptimes.json" { continue }
             let target = dest.appendingPathComponent(rel)
+            // 走行の動画の控え (runs.json)・コーナーの名前 (corners.json と .bak) は、選んだフォルダにまだ無いときだけ写す。
+            // 大きさで比べて写すと、選んだフォルダで直した名前・同期を、アプリの中に残った古い中身で毎回戻してしまうため
+            if name == "runs.json" || name == "corners.json" || name == "corners.json.bak" {
+                let placeholder = target.deletingLastPathComponent().appendingPathComponent(".\(name).icloud")
+                if fm.fileExists(atPath: target.path) || fm.fileExists(atPath: placeholder.path) {
+                    r.skipped += 1
+                    continue
+                }
+            }
             let srcSize = (try? fm.attributesOfItem(atPath: file.path)[.size] as? Int) ?? -1
             let dstSize = (try? fm.attributesOfItem(atPath: target.path)[.size] as? Int) ?? -2
             if srcSize == dstSize {

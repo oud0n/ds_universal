@@ -10,7 +10,7 @@
 
 import type { Session } from '../types/telemetry';
 import { loadLapHistory } from './lapHistory';
-import { LAP_INDEX_FILE, groupRunsByFolder, isRunVideoName, lapKey, parseLapIndex, runStem, setHidden, type LapRecord } from './lapIndex';
+import { LAP_INDEX_FILE, groupRunsByFolder, queueLapIndexWrite, isRunVideoName, lapKey, parseLapIndex, runStem, setHidden, type LapRecord } from './lapIndex';
 import { readRunsFile, updateRun, type RunEntry } from './runsFile';
 import type { RunFileInfo, RunStore } from './runStore';
 import { parseVideoMetadata } from './videoMetadataParser';
@@ -175,7 +175,10 @@ async function saveCurrent(): Promise<void> {
   const run = current;
   if (!run) return;
   const tracks = videoSyncManager.getTracks().filter(t => t.remote && run.names.has(t.remote.path));
-  if (tracks.length === 0 && run.keptNames.length === 0) return;
+  // 走行のログがもう無い (全部閉じた) ときは書かない (ログの無い同期を書くと、時刻合わせの元が消えるため)
+  if (!run.sessions().some(s => run.sessionIds.has(s.id))) return;
+  // 動画が無いときも、前は動画があった走行なら書く (外したことを覚える)
+  if (tracks.length === 0 && run.keptNames.length === 0 && !(run.item.entry?.videos?.length)) return;
   const key = run.circuitName() || 'default';
   const pins = videoViewStore.getPins(key).filter(p => tracks.some(t => t.id === p.trackId));
   const sync = JSON.parse(videoSyncManager.exportProjectJson(run.sessions().filter(s => run.sessionIds.has(s.id)), run.circuitName(), pins)) as SyncProjectData;
@@ -221,7 +224,19 @@ export function restoreSync(sync: SyncProjectData, sessions: Session[], setClock
  * 走行の動画を開いて、同期を戻し、これからの変化を runs.json に書くようにする。
  * ログはもう読み込んであること (session)。videos は videoCandidates の local
  */
-export async function attachRunVideos(opts: {
+/** 動画を付ける処理は 1 つずつ行う (続けて走行を開いたとき・相手の走行の動画を読んでいる間に、同じ動画を 2 回足さないように) */
+let attachQueue: Promise<unknown> = Promise.resolve();
+function queued<T>(fn: () => Promise<T>): Promise<T> {
+  const next = attachQueue.then(fn, fn);
+  attachQueue = next.catch(() => undefined);
+  return next;
+}
+
+export function attachRunVideos(opts: Parameters<typeof attachRunVideosNow>[0]): Promise<number> {
+  return queued(() => attachRunVideosNow(opts));
+}
+
+async function attachRunVideosNow(opts: {
   store: RunStore;
   item: RunItem;
   /** 開いた走行のログ (走行が途中で長く止まって分かれたときは複数) */
@@ -241,6 +256,17 @@ export async function attachRunVideos(opts: {
   // 残すと、戻す同期が名前でそちらに当たってしまうため。この走行の動画で、もう開いているものは残す。
   // 比べる相手 (Car 2〜4) の走行の動画も残す (走行比較で、その車の枠に出すため)
   const paths = new Set(videos.map(v => v.path));
+  // 比べる相手の走行の動画に、この走行の動画と同じ名前のものがあれば外す (GoPro の名前は別の日にも重なる)。
+  // 同期は名前で戻すので、残すとこの走行の同期がそちらに当たり、runs.json にも相手の行が混ざるため
+  const ownNames = new Set([...videos.map(v => v.name), ...(item.entry?.sync?.videos ?? []).map(v => v.fileName)]);
+  for (const ps of companions.values()) {
+    for (const t of videoSyncManager.getTracks()) {
+      if (t.remote && ps.has(t.remote.path) && !paths.has(t.remote.path) && ownNames.has(t.fileName)) {
+        videoSyncManager.removeTrack(t.id);
+        ps.delete(t.remote.path);
+      }
+    }
+  }
   const keep = companionPaths();
   for (const t of videoSyncManager.getTracks()) if (t.remote && !paths.has(t.remote.path) && !keep.has(t.remote.path)) videoSyncManager.removeTrack(t.id);
   // 先に同期を戻す (動画はまだないので、名前だけの枠ができる。そこに動画をつなぐと、戻した同期のまま使える)
@@ -295,7 +321,11 @@ export function companionRuns(): string[] {
  * 比べる相手の走行の動画を足す (Car 2〜4 に、開いている走行のほかの走行の周を入れたとき)。端末にある動画だけ。
  * 開いている動画と同じ名前の動画は足さない (同期を名前で戻すので、そちらの同期を書き換えてしまうため)
  */
-export async function attachCompanionVideos(opts: {
+export function attachCompanionVideos(opts: Parameters<typeof attachCompanionVideosNow>[0]): Promise<number> {
+  return queued(() => attachCompanionVideosNow(opts));
+}
+
+async function attachCompanionVideosNow(opts: {
   item: RunItem;
   runSessions: Session[];
   videos: RemoteVideo[];
@@ -373,9 +403,6 @@ export function getOpenRun(): { store: RunStore; item: RunItem } | null {
   return current ? { store: current.store, item: current.item } : null;
 }
 
-/** 控えの書き換えを 1 つずつにする (続けて押したとき、前の書き換えを古い控えで上書きしないように) */
-let lapIndexWrites: Promise<void> = Promise.resolve();
-
 /** 走行の周を隠す・出す (控え laptimes.json に書く。ファイルは消さない) */
 export function setRunLapHidden(store: RunStore, item: RunItem, lap: LapRecord, hide: boolean): Promise<void> {
   const run = async () => {
@@ -384,7 +411,5 @@ export function setRunLapHidden(store: RunStore, item: RunItem, lap: LapRecord, 
     if (!index) return;
     await store.writeText(path, JSON.stringify(setHidden(index, item.file, lap.part, lap.n, hide)));
   };
-  const next = lapIndexWrites.then(run, run);
-  lapIndexWrites = next.catch(() => {});
-  return next;
+  return queueLapIndexWrite(run);
 }

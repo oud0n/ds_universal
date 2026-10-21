@@ -65,7 +65,16 @@ export async function ensureAutoCorners(folder: string, geo: LapGeometry, found:
   if (autoTried.has(folder) || found.length === 0 || geo.lap.isWholeSession || geo.lap.isPartialLap) return;
   autoTried.add(folder);
   if (await loadCourseCorners(folder)) return;
-  if (!canUseRunStore() || !(await getRunStore())) return;
+  if (!canUseRunStore()) return;
+  const store = await getRunStore();
+  if (!store) return;
+  // 「無い」ときだけ作る。読めない (iCloud から落とせない など)・形が違う (手で直して壊れた) ときに作ると、
+  // ユーザーの名前を C1… で上書きしてしまうため
+  try {
+    if ((await store.readTextStrict(path(folder))) !== null) return;
+  } catch {
+    return;
+  }
   try {
     await saveCourseCorners(folder, newCornerFile(folder, cornersFromDetection(geo, found), true));
   } catch {

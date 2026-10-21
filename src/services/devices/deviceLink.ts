@@ -95,7 +95,8 @@ export class DeviceLink {
       setTimeout(() => {
         if (this.closed || this.state === 'connected' || this.obdProfile !== tried || tried + 1 >= OBD_BLE_PROFILES.length) return;
         this.obdProfile = tried + 1;
-        void this.central.disconnect(this.device.id).then(() => this.connect());
+        // 切っている間に利用者が切った (閉じた) ときは、つなぎ直さない
+        void this.central.disconnect(this.device.id).then(() => { if (!this.closed) void this.connect(); });
       }, OBD_PROFILE_WAIT_MS);
     }
   }
@@ -130,7 +131,8 @@ export class DeviceLink {
         sample => this.emit({ type: 'values', tMs: sample.tMs, values: { [sample.key]: sample.value } }),
         this.now
       );
-      void this.obd.start();
+      // 書けない (つながりが切れた) ときは、次につながったときにまた始める
+      void this.obd.start().catch(() => {});
     }
     if (this.device.kind === 'gopro') {
       this.stopTimers();

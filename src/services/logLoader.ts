@@ -96,7 +96,17 @@ export async function parseLogBuffer(fileName: string, buffer: ArrayBuffer, tr: 
     else if (kind === 'nmea') {
       // NMEA も、記録の空き (10 分以上) で走行を分ける (.bon4・周の一覧と同じ分け方。2026-10-21)
       const parsed = parseNmea(text, fileName);
-      parts = splitByGaps(parsed.points).map(points => ({ points, samplingRate: parsed.samplingRate, startDate: parsed.startDate }));
+      // 分けた 2 つ目からは、時刻と距離をその走行の始めから数え直し、走り始めの日時もその走行のものにする
+      // (.bon4 の分け方と同じ。続きのまま持つと、2 つ目の走行の時刻が数時間後から始まり、再生・距離がずれる)
+      parts = splitByGaps(parsed.points).map(points => {
+        const t0 = points[0].time ?? 0, d0 = points[0].distance ?? 0;
+        if (t0 === 0 && d0 === 0) return { points, samplingRate: parsed.samplingRate, startDate: parsed.startDate };
+        return {
+          points: points.map(p => ({ ...p, time: p.time - t0, distance: p.distance - d0 })),
+          samplingRate: parsed.samplingRate,
+          startDate: parsed.startDate ? new Date(parsed.startDate.getTime() + t0 * 1000) : undefined
+        };
+      });
     } else {
       // 他社形式の CSV は先頭の書式で判別する
       // MoTeC CSV は単位行などの構造が汎用 CSV と違うため、無効の間は汎用の読み込みに回さず断る

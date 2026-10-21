@@ -128,12 +128,17 @@ function stemMs(stem: string): number | null {
   return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime();
 }
 
-/** 同じフォルダ・日付に、走り始めの近い (10 秒以内) 走行があるか */
-function sameRunExists(existing: ReadonlySet<string>, base: string, startMs: number): boolean {
-  const dir = base.slice(0, base.lastIndexOf('/') + 1);
+/**
+ * 同じサーキットのフォルダに、走り始めの近い (10 秒以内) 走行があるか。日付のフォルダ (<サーキット>/<日付>/) と、
+ * 日付のフォルダを作る前の置き方 (<サーキット>/ の直下) の両方を見る
+ */
+export function sameRunExists(existing: ReadonlySet<string>, base: string, startMs: number): boolean {
+  const circuit = base.slice(0, base.indexOf('/') + 1);
   for (const e of existing) {
-    if (!e.startsWith(dir)) continue;
-    const t = stemMs(e.slice(dir.length));
+    if (!e.startsWith(circuit)) continue;
+    const rest = e.slice(circuit.length);
+    if (!/^(\d{8}\/)?[^/]+$/.test(rest)) continue;
+    const t = stemMs(rest.slice(rest.lastIndexOf('/') + 1));
     if (t !== null && Math.abs(t - startMs) <= 10_000) return true;
   }
   return false;

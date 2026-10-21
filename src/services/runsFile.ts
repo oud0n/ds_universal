@@ -61,8 +61,21 @@ export async function readRunsFile(store: LapFileStore, folder: string): Promise
   return parseRunsFile(await store.readText(`${folder}/${RUNS_FILE}`));
 }
 
-/** 1 つの走行の行を書き換える (直前に読み直して、ほかの行はそのまま) */
-export async function updateRun(store: RunStore, folder: string, file: string, patch: Omit<RunEntry, 'updatedAt'>): Promise<RunEntry> {
+/** runs.json ごとの書き換えの順番 (2 つの走行の書き換えが同じ中身を読んで、互いの行を消さないように) */
+const runsWrites = new Map<string, Promise<unknown>>();
+
+/** 1 つの走行の行を書き換える (直前に読み直して、ほかの行はそのまま)。同じ runs.json の書き換えは 1 つずつ */
+export function updateRun(store: RunStore, folder: string, file: string, patch: Omit<RunEntry, 'updatedAt'>): Promise<RunEntry> {
+  const key = `${folder}/${RUNS_FILE}`;
+  const run = () => updateRunNow(store, folder, file, patch);
+  const next = (runsWrites.get(key) ?? Promise.resolve()).then(run, run);
+  const tail = next.catch(() => undefined);
+  runsWrites.set(key, tail);
+  void tail.then(() => { if (runsWrites.get(key) === tail) runsWrites.delete(key); });
+  return next;
+}
+
+async function updateRunNow(store: RunStore, folder: string, file: string, patch: Omit<RunEntry, 'updatedAt'>): Promise<RunEntry> {
   // 読めないとき (無いのではなく) は書かない (空とみなして書くと、ほかの走行の行を消すため)
   const text = await store.readTextStrict(`${folder}/${RUNS_FILE}`);
   if (text !== null && !isRunsFileText(text)) throw new Error('runs.json could not be read');
