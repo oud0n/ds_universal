@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { ChevronDown, ChevronRight, FolderOpen } from 'lucide-react';
+import { ChevronDown, ChevronRight, FolderOpen, X } from 'lucide-react';
 import { CompareAxis, Lap, Session, TelemetryPoint, SelectedCarSlot, ControlLine, Sector, CircuitPreset, PolylineSource } from './types/telemetry';
 import { parseDtb } from './services/dtbParser';
 import { parseDigispiceRawBinary } from './services/rawBinaryParser';
@@ -48,7 +48,7 @@ import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLapTimer, canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
 import { bleLoggerLink } from './services/bleLoggerLink';
 import { useWheelScrollX } from './hooks/useWheelScrollX';
-import { isDialogOpen } from './hooks/useEscapeKey';
+import { isDialogOpen, useEscapeKey } from './hooks/useEscapeKey';
 import { readClockMaster } from './services/clockMaster';
 import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
 import { Freeze } from './components/Freeze';
@@ -140,6 +140,10 @@ export const App: React.FC = () => {
   useState(() => { navStore.init(plan); return 0; });
   useEffect(() => { navStore.init(plan); }, [plan]);
   const nav = useNav();
+  // 解析の「走行とコース」の引き出し (今のデータの画面の中身。PLAN-24 の作る順番の 6)
+  const [dataDrawer, setDataDrawer] = useState(false);
+  const dataDrawerOpen = dataDrawer && nav.screen === 'analysis';
+  useEscapeKey(dataDrawerOpen, () => setDataDrawer(false));
   // 幅が変わって組み方が変わり、今の画面がなくなったときは、入れ直す (上の effect) までの間も最初の画面を出す
   const currentTab = plan.available.has(nav.screen) ? nav.screen : plan.home;
   // 変換画面で書き出すログ (データ管理の「変換画面で開く」で選ぶ。空なら基準車のログ)
@@ -1582,7 +1586,8 @@ export const App: React.FC = () => {
       {plan.chrome === 'sidebar' && !nav.locked && (
         <Sidebar
           items={plan.primary}
-          bottom={plan.more}
+          // データは解析の「走行とコース」から開くので、サイドバーには並べない
+          bottom={plan.more.filter(s => s !== 'data')}
           current={currentTab}
           // 設定をもう一度押したら閉じる (来た画面へ戻る)
           onSelect={s => (s === 'settings' && currentTab === 'settings' ? navStore.back() : navStore.go(s))}
@@ -1598,6 +1603,8 @@ export const App: React.FC = () => {
         onOpenFile={openRunsOrFiles}
         onOpenDonate={() => setIsDonateModalOpen(true)}
         compact={isCompact}
+        dataOpen={dataDrawerOpen}
+        onToggleData={() => setDataDrawer(o => !o)}
       />}
 
       {/* メインコンテンツ */}
@@ -1978,8 +1985,20 @@ export const App: React.FC = () => {
         </div>
 
         {/* データ管理タブ */}
-        <div className={`h-full w-full overflow-hidden ${currentTab === 'data' ? 'block' : 'hidden'}`}>
-          <Freeze active={currentTab === 'data'}>
+        {/* データ (走行とコース): データの画面として出すか、解析の上に引き出しとして出す (中身は 1 つ。作り直さない) */}
+        <div className={`overflow-hidden ${currentTab === 'data'
+          ? 'h-full w-full block'
+          : dataDrawerOpen
+            ? `absolute z-[45] bg-surface-0 flex flex-col ${isCompact ? 'inset-0' : 'left-0 top-0 bottom-0 w-[460px] max-w-[92%] border-r border-line-2 shadow-2xl'}`
+            : 'hidden'}`} data-testid={dataDrawerOpen ? 'data-drawer' : undefined}>
+          {dataDrawerOpen && (
+            <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-line-2">
+              <span className="text-sm font-bold text-slate-200 flex-1">{T('走行とコース', 'Runs & course')}</span>
+              <button onClick={() => setDataDrawer(false)} className="p-1.5 rounded hover:bg-surface-3 text-slate-400 cursor-pointer" aria-label={T('閉じる', 'Close')} data-testid="data-drawer-close"><X size={18} /></button>
+            </div>
+          )}
+          <div className={dataDrawerOpen ? 'flex-1 min-h-0 overflow-auto' : 'h-full w-full'}>
+          <Freeze active={currentTab === 'data' || dataDrawerOpen}>
           <DataTab
             sessions={sessions}
             onOpenLapRun={file => { void loadFiles([file]).then(() => navStore.go('analysis')); }}
@@ -2016,6 +2035,7 @@ export const App: React.FC = () => {
             onChangeGFilterLevel={handleChangeGFilterLevel}
           />
           </Freeze>
+          </div>
         </div>
 
         {/* ログ変換タブ */}

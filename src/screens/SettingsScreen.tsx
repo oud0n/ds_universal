@@ -19,7 +19,8 @@ export const SettingsScreen: React.FC<{ plan: NavPlan; onOpenDonate?: () => void
   const theme = useThemeSetting();
   const lang = useLangSetting();
   // サイドバーの組み方では、サイドバーの下に同じものがあるので並べない
-  const rows = plan.chrome === 'sidebar' ? [] : plan.more.filter(s => s !== 'settings');
+  // データは解析の「走行とコース」から開く
+  const rows = plan.chrome === 'sidebar' ? [] : plan.more.filter(s => s !== 'settings' && s !== 'data');
   return (
     <div className="h-full overflow-y-auto" data-testid="settings-screen">
       <div className="max-w-lg mx-auto p-3 space-y-5">

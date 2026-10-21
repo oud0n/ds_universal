@@ -38,14 +38,15 @@ export function navPlan(p: AppProfile): NavPlan {
       break;
     case 'app-tablet':
       chrome = 'sidebar';
-      primary = only([p.hasLibrary && 'library', 'analysis', 'data', 'video', p.hasLapTimer && 'timer', p.hasLogger && 'logger', 'convert']);
-      more = ['settings'];
+      // データは解析の「走行とコース」の引き出しへ移した (作る順番の 6)。#data では今までどおり開ける
+      primary = only([p.hasLibrary && 'library', 'analysis', 'video', p.hasLapTimer && 'timer', p.hasLogger && 'logger', 'convert']);
+      more = ['data', 'settings'];
       home = p.hasLibrary ? 'library' : 'analysis';
       break;
     case 'desktop':
       chrome = 'sidebar';
-      primary = only([p.hasLibrary && 'library', 'analysis', 'data', 'video', p.hasLogger && 'logger', 'convert']);
-      more = only([p.hasLapTimer && 'timer', 'settings']);
+      primary = only([p.hasLibrary && 'library', 'analysis', 'video', p.hasLogger && 'logger', 'convert']);
+      more = only(['data', p.hasLapTimer && 'timer', 'settings']);
       home = p.hasLibrary ? 'library' : 'analysis';
       break;
     case 'browser-phone':
@@ -57,8 +58,8 @@ export function navPlan(p: AppProfile): NavPlan {
       break;
     default:
       chrome = 'top';
-      primary = only(['analysis', 'video', 'data', 'convert', p.hasLogger && 'logger']);
-      more = only([p.hasLapTimer && 'timer', 'settings']);
+      primary = only(['analysis', 'video', 'convert', p.hasLogger && 'logger']);
+      more = only(['data', p.hasLapTimer && 'timer', 'settings']);
       home = 'analysis';
   }
   return { chrome, primary, more, home, available: new Set([...primary, ...more]) };
