@@ -1468,6 +1468,7 @@ export const App: React.FC = () => {
       currentTime={currentTimeSec}
       compareAxis={compareAxis}
       onSeekDistance={handleSeekDistance}
+      circuitName={baseSession?.circuitName}
     />
   );
   const frictionEl = (
@@ -1484,7 +1485,7 @@ export const App: React.FC = () => {
     <DriftWindow cars={activeCars} currentDistance={currentDistanceKm} />
   );
   const cornerEl = (
-    <CornerAnalysisWindow cars={activeCars} currentDistance={currentDistanceKm} onSeekDistance={handleSeekDistance} />
+    <CornerAnalysisWindow cars={activeCars} currentDistance={currentDistanceKm} onSeekDistance={handleSeekDistance} circuitName={baseSession?.circuitName} />
   );
   const brakingEl = (
     <BrakingAnalysisWindow cars={activeCars} currentDistance={currentDistanceKm} onSeekDistance={handleSeekDistance} />

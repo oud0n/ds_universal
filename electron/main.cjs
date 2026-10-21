@@ -415,7 +415,7 @@ function loadLapFolder() {
   return lapFolder || null;
 }
 /** 控えとして読み書きしてよいファイルの名前と、読む大きさの上限 */
-const LAP_TEXT_NAMES = new Set(['laptimes.json', 'runs.json']);
+const LAP_TEXT_NAMES = new Set(['laptimes.json', 'runs.json', 'corners.json', 'corners.json.bak']);
 const MAX_LAP_TEXT_BYTES = 20 * 1024 * 1024;
 /**
  * 保管場所からの道を、保管場所の中の実際の場所にする (外へ出る道は断る)。

@@ -324,6 +324,46 @@ export const journeys = [
       }
     }
   },
+  {
+    name: 'コーナーの名前: 走行を開くと corners.json ができ、コースマップで名前を付け・まとめて保存すると、コーナー別の表にも出る',
+    target: 'electron',
+    async run(p) {
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      const file = path.join(root, 'nikko', 'corners.json');
+      // 前の試験で作ったものを消してから (自動で作られることから確かめる。試験用の写しの中だけ)
+      for (const f of [file, `${file}.bak`]) fs.rmSync(f, { force: true });
+      await p.goto(`${APP}`);
+      await openRun(p, '8/30', 'run-open-analysis');
+      await p.waitFor(`document.querySelector('[data-testid="corner-edit"]')`, 15000, 'コーナーの編集のボタン');
+      await sleep(1500);
+      check(fs.existsSync(file), 'corners.json が自動でできていない');
+      const auto = JSON.parse(fs.readFileSync(file, 'utf8'));
+      check(auto.auto === true && auto.corners.length >= 3, `自動の中身が違う: ${JSON.stringify(auto).slice(0, 200)}`);
+      const n0 = auto.corners.length;
+      await p.click('corner-edit');
+      await p.waitFor(`document.querySelectorAll('[data-testid="corner-edit-row"]').length === ${n0}`, 5000, '編集の一覧');
+      // 1 つ目の名前を「1」に、2 つ目と 3 つ目をまとめて「2-3」にする
+      const setName = async (k, v) => p.ev(`(()=>{const el=document.querySelectorAll('[data-testid="corner-name-input"]')[${k}]; const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; set.call(el, ${JSON.stringify(v)}); el.dispatchEvent(new Event('input',{bubbles:true})); return el.value})()`);
+      await setName(0, '1');
+      await p.ev(`document.querySelectorAll('[data-testid="corner-edit-row"]')[1].click()`);
+      await p.click('corner-merge');
+      await sleep(200);
+      await setName(1, '2-3');
+      await p.click('corner-save');
+      await p.waitFor(`!document.querySelector('[data-testid="corner-edit-panel"]')`, 5000, '保存して閉じる');
+      const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+      check(saved.auto === false, '保存しても auto のまま');
+      check(saved.corners.length === n0 - 1, `まとめたのに数が ${saved.corners.length} (元 ${n0})`);
+      check(saved.corners[0].name === '1' && saved.corners[1].name === '2-3', `名前が違う: ${saved.corners.map(c => c.name).join(',')}`);
+      check(saved.corners[1].exit.lat === auto.corners[2].exit.lat, 'まとめたコーナーの出口が、後ろのコーナーの出口でない');
+      check(fs.existsSync(`${file}.bak`), '前の中身の控え (.bak) がない');
+      // コーナー別の表 (あれば) にも同じ名前
+      const table = await p.ev(`document.querySelector('[data-testid="corner-analysis"]')?.innerText ?? null`);
+      if (table !== null) check(table.includes('2-3'), 'コーナー別の表に名前が出ていない');
+      else p.notes.push('コーナー別の表が画面になかったので、表の名前は確かめていない');
+    }
+  },
   // 寸法: 全部の画面を開き、バーの高さ・文字の折り返し・はみ出しを確かめる (「ファイルを開く」でバーが伸びていたもの)
   ...[
     ['スマートフォンのアプリ・縦', 390, 844, true, '?native=mock'],

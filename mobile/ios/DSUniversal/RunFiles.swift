@@ -212,9 +212,9 @@ enum RunFiles {
         }
     }
 
-    /// runs.json・laptimes.json だけを書く (一時ファイルに書いてから入れ替える)
+    /// runs.json・laptimes.json・corners.json (コーナーの名前。前の中身の控え .bak も) だけを書く (一時ファイルに書いてから入れ替える)
     static func write(_ rel: String, _ data: Data) throws {
-        let allowed = ["runs.json", "laptimes.json"]
+        let allowed = ["runs.json", "laptimes.json", "corners.json", "corners.json.bak"]
         try withRoot { root in
             guard let url = resolve(rel, in: root), allowed.contains(url.lastPathComponent) else {
                 throw NativeError(.notFound, "not writable")
