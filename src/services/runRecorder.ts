@@ -6,7 +6,8 @@
  * - 保存先 2 (iPhone のアプリ): 書類のフォルダの LapTimer/<サーキット名>/<走り始めの時刻>.nmea と .bon4 に、同じ測位を後ろへ足していく
  *   (「ファイル」アプリから取り出せる。前のアプリで書けないときは、保存先 1 だけ)。
  *   サーキット名のフォルダに入れるため、ファイルはコースが決まってから作る (決まらなければ COURSE_WAIT_MS で Unsorted)。フォルダの名前は英字 (courseFolder)。
- *   保管先に選んだフォルダ (iCloud Drive など) へは、LapTimerScreen がときどき写す (system.syncLapFiles)
+ *   保管先に選んだフォルダ (iCloud Drive など) へは、ラップタイマーがときどき写し (system.syncLapFiles)、走行を閉じたら
+ *   (closeRunFiles) 移す (アプリの中には控えを残さない。2026-10-21)
  */
 
 import { appendFixes, startRun, type RunMeta } from './liveRunStore';
@@ -36,6 +37,15 @@ function uniqueBase(startedMs: number, folder: string): string {
   for (let i = 2; usedBases.has(name); i++) name = `${base}_${i}`;
   usedBases.add(name);
   return name;
+}
+
+/**
+ * 走行を閉じた: その走行のファイル (.nmea・.bon4・センサーの .csv) を書き終えたものにする。
+ * このあとの system.syncLapFiles で、選んだフォルダへ移す (アプリの中から消す)
+ */
+export async function closeRunFiles(fileBase: string | null | undefined): Promise<void> {
+  if (!fileBase || !hasNative()) return;
+  await callNative('system.closeFiles', { prefix: `${fileBase}.` }).catch(() => {});
 }
 
 /** 同じ名前のファイルがあって作れなかった (前に起動したときの走行。system.appendFile の createNew) */

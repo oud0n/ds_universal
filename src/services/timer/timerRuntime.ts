@@ -8,7 +8,7 @@
 import { bleLoggerLink } from '../bleLoggerLink';
 import { LiveLapTimer, type LiveFix, type LiveLapEvent, type LiveLapState } from '../liveLapTimer';
 import { CIRCUIT_PRESETS, findMatchingCircuit } from '../circuitDatabase';
-import { LiveRunRecorder } from '../runRecorder';
+import { LiveRunRecorder, closeRunFiles } from '../runRecorder';
 import { courseFolder } from '../../utils/courseNames';
 import { callNative, hasNative } from '../../native/bridge';
 import { PhoneImuRecorder } from '../phoneImu';
@@ -159,7 +159,10 @@ export class TimerRuntime {
 
   /** 消した走行を書いていたら、次の測位から新しい走行にする */
   forgetRun(id: string): void {
-    if (this.recorder?.current?.id === id) this.recorder = null;
+    if (this.recorder?.current?.id === id) {
+      void closeRunFiles(this.recorder.current.fileBase);
+      this.recorder = null;
+    }
   }
 
   // ---- 始める・片付ける (画面を開いた・閉じた) ----
@@ -373,6 +376,8 @@ export class TimerRuntime {
     // 測ると決めたので、位置の機器 (切断ボタンで切っていても)・センサー・カメラにつなぐ
     if (this.snap.source === 'digspice') this.connectSource();
     void this.devices.connect(this.positionKind());
+    // 前の走行 (測る前に書いていたもの) は、ここで書き終える (選んだフォルダへ移せるように)
+    void closeRunFiles(this.recorder?.current?.fileBase);
     this.recorder = null;
     // 押す前の測位で周を数えないよう、コースの選び直しに使う測位も捨てる
     this.fixes = [];
@@ -398,6 +403,8 @@ export class TimerRuntime {
     await rec?.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true);
     if (rec) this.set({ savedRun: { laps: st?.laps.length ?? 0, best: st?.best?.timeSec ?? null } });
     await sensors;
+    // 書き終えたので、選んだフォルダへ移す (アプリの中に控えを残さない)
+    await closeRunFiles(rec?.current?.fileBase);
     await this.sync();
   }
 
@@ -409,7 +416,8 @@ export class TimerRuntime {
     const rec = this.recorder;
     this.recorder = null;
     const st = this.timer?.getState();
-    void (rec ? rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true) : Promise.resolve()).then(() => sensors).then(() => this.sync());
+    void (rec ? rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true) : Promise.resolve())
+      .then(() => sensors).then(() => closeRunFiles(rec?.current?.fileBase)).then(() => this.sync());
     this.fixes = [];
     this.set({ lastPos: null, epoch: this.snap.epoch + 1 });
     this.chooseCourse(this.snap.course);
@@ -442,7 +450,7 @@ export class TimerRuntime {
       const r = await callNative('system.syncLapFiles', {});
       if (r.kind !== 'folder') return;
       if (r.failed > 0) this.set({ syncNote: { ok: false, text: r.error ?? `${r.failed}` } });
-      else if (r.copied > 0) this.set({ syncNote: { ok: true, text: `${r.copied}` } });
+      else if (r.copied + (r.moved ?? 0) > 0) this.set({ syncNote: { ok: true, text: `${r.copied + (r.moved ?? 0)}` } });
     } catch (e) {
       this.set({ syncNote: { ok: false, text: e instanceof Error ? e.message : String(e) } });
     }
