@@ -253,6 +253,10 @@ export const App: React.FC = () => {
   const runDownloadTokenRef = useRef(0);
   /** 保管場所から開いた走行の道と、そのログ (同じ名前のほかのフォルダの走行と取り違えないため) */
   const runSessionsRef = useRef(new Map<string, string[]>());
+  /** 保管場所から開いた走行の一覧の行 (道 → 行)。Car 1 を替えたときに、その走行の動画を付け直すため */
+  const runItemsRef = useRef(new Map<string, RunItem>());
+  /** 今、動画を付けている走行の道 */
+  const attachedRunRef = useRef<string | null>(null);
   /** 走行の一覧を出す: 走行の画面がある組み方ならそこへ、なければ重ねて出す */
   const showAllRuns = () => (plan.available.has('library') ? navStore.go('library') : setRunsSheetOpen(true));
   /** 読み込みのボタン: 保管場所があれば走行の一覧、なければファイルを選ぶ */
@@ -786,6 +790,7 @@ export const App: React.FC = () => {
         added = await loadFileData(item.file.slice(item.file.lastIndexOf('/') + 1), buffer);
         runSessionsRef.current.set(runPath, added.map(x => x.id));
       }
+      runItemsRef.current.set(runPath, item);
       if (added.length === 0) return;
       const visible = item.laps.filter(l => !l.hidden);
       const best = visible.length ? visible.reduce((a, b) => (b.time < a.time ? b : a)) : null;
@@ -835,6 +840,8 @@ export const App: React.FC = () => {
       const already = latestRef.current.sessions.filter(x => openedIds.includes(x.id));
       const added = already.length ? already : await loadFileData(item.file.slice(item.file.lastIndexOf('/') + 1), buffer);
       runSessionsRef.current.set(runPath, added.map(x => x.id));
+      runItemsRef.current.set(runPath, item);
+      attachedRunRef.current = runPath;
       setRunsSheetOpen(false);
       navStore.go('analysis');
       if (added.length === 0) return;
@@ -908,6 +915,33 @@ export const App: React.FC = () => {
       setRunBusy(false);
     }
   };
+
+  // Car 1 を、保管場所から開いた別の走行に替えたら (走行とコースの引き出しなどで)、その走行の動画を付け直す
+  // (前の走行の動画が残ったままだと、動画の画面が別の走行の動画を出す)。端末にある動画だけ (iCloud から取り込むかは聞かない)
+  useEffect(() => {
+    const id = baseSession?.id;
+    if (!id || runOpeningRef.current) return;
+    const entry = [...runSessionsRef.current.entries()].find(([, ids]) => ids.includes(id));
+    if (!entry || entry[0] === attachedRunRef.current) return;
+    const item = runItemsRef.current.get(entry[0]);
+    if (!item) return;
+    attachedRunRef.current = entry[0];
+    void (async () => {
+      const store = await getRunStore();
+      if (!store) return;
+      const added = latestRef.current.sessions.filter(x => entry[1].includes(x.id));
+      const cand = await videoCandidates(store, item);
+      if (attachedRunRef.current !== entry[0]) return;
+      await attachRunVideos({
+        store, item, runSessions: added, videos: cand.local, fromRuns: cand.fromRuns,
+        sessions: () => latestRef.current.sessions,
+        circuitName: () => added[0]?.circuitName ?? '',
+        setClockOffset: setSessionClockOffset
+      }).catch(e => console.warn('[run] 動画を付け直せない:', e));
+    })();
+    // 基準の走行が替わったときだけ
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseSession?.id]);
 
   // データファイル読み込みロジック。読み込んだログはセッションとして加え、加えたセッションを返す
   // (parsedLog を渡したときは、ファイルを読まずにその点列を使う)
@@ -2028,6 +2062,8 @@ export const App: React.FC = () => {
             onOpenVideo={r => void openRun(r).then(() => navStore.go('video'))}
             // 走行がもう開いているときだけ、比べる相手として足せる
             onAddAsCar2={sessions.length > 0 ? (r => void addRunAsCar2(r)) : undefined}
+            // 比べられるのは Car 1 と同じコースの走行だけ
+            car1Course={baseSession?.circuitName ?? null}
             onPickFiles={() => fileInputRef.current?.click()}
             onOpenFile={file => { void loadFiles([file]).then(() => navStore.go('analysis')); }}
             canTime={plan.available.has('timer') && profile.host === 'native'}

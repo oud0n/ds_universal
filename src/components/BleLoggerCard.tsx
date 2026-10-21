@@ -2,6 +2,7 @@ import React, { useEffect, useSyncExternalStore } from 'react';
 import { Bluetooth, BluetoothSearching, Unlink, RefreshCw, Settings, Signal, Timer } from 'lucide-react';
 import { bleLoggerLink, loggerSerial, type LoggerLinkStatus } from '../services/bleLoggerLink';
 import { useT } from '../utils/i18n';
+import { hasNative } from '../native/bridge';
 import { usePositionSource } from '../services/positionSource';
 import { loadDevices } from '../services/devices/deviceRegistry';
 import { Smartphone } from 'lucide-react';
@@ -54,7 +55,7 @@ export const BleStatusPill: React.FC<{ onClick?: () => void }> = ({ onClick }) =
   const source = usePositionSource();
   if (source === 'racebox' || source === 'drogger' || source === 'phone') {
     const name = source === 'phone'
-      ? t('iPhone の GPS', 'Phone GPS')
+      ? (hasNative() ? t('iPhone の GPS', 'Phone GPS') : t('この端末の GPS', 'This device GPS'))
       : (loadDevices().find(d => d.kind === source)?.displayName ?? (source === 'racebox' ? 'RaceBox' : 'Drogger'));
     return (
       <button

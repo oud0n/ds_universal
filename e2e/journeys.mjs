@@ -106,6 +106,37 @@ export const journeys = [
     }
   },
   {
+    name: '走行とコースで Car 1 を別の走行に替えると、動画もその走行のものになる (agy の調査で見つかったもの)',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      await openRun(p, '10/12', 'run-open-analysis');
+      await openRun(p, '8/15', 'run-open-video');
+      check((await car1Name(p))?.includes('20260815'), '8/15 が Car 1 でない');
+      await p.click('nav-analysis');
+      await sleep(800);
+      await p.click('toggle-data-drawer');
+      await p.waitFor(`document.querySelector('[data-testid="data-drawer"]')`, 3000);
+      // TC2000 の走行の周の表で、Car 1 (1 の印) を押す
+      const ok = await p.ev(`(()=>{
+        const drawer=document.querySelector('[data-testid="data-drawer"]');
+        const isCar1=x=>(x.title||'').startsWith('Car 1');
+        const blocks=[...drawer.querySelectorAll('*')].filter(e=>e.innerText && e.innerText.includes('コース2000 (TC2000)') && e.innerText.includes('ラップタイム') && [...e.querySelectorAll('button')].some(isCar1));
+        const block=blocks.sort((a,b)=>a.innerText.length-b.innerText.length)[0];
+        const btn=block && [...block.querySelectorAll('button')].find(isCar1);
+        if(!btn) return false; btn.click(); return true })()`);
+      check(ok, 'TC2000 の周の Car 1 の印が見つからない');
+      await sleep(1500);
+      check((await car1Name(p))?.includes('20261012'), `Car 1 が TC2000 にならない: ${await car1Name(p)}`);
+      await p.click('data-drawer-close');
+      await p.click('nav-video');
+      await sleep(6000);
+      const src = await p.ev(`decodeURIComponent(document.querySelector('video')?.currentSrc ?? '')`);
+      check(src.includes('tsukuba2000'), `動画が TC2000 のものにならない: ${src}`);
+      await checkVideoSync(p, 'Car 1 を TC2000 に替えて動画へ');
+    }
+  },
+  {
     name: 'Car 2 として足すと、同じコースのその走行のベストの周が Car 2 に入る',
     target: 'electron',
     async run(p) {
