@@ -6,7 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X, FolderOpen, EyeOff, Eye, RefreshCw, BarChart3 } from 'lucide-react';
 import { loadLapHistory, toggleLapHidden, type LapFolder } from '../services/lapHistory';
-import { electronLapStore, nativeLapStore } from '../services/lapStores';
+import { electronRunStore as electronLapStore, nativeRunStore as nativeLapStore } from '../services/runStore';
 import { lapKey, type LapFileStore, type LapRow } from '../services/lapIndex';
 import { formatLapTime } from '../services/liveLapTimer';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
@@ -122,7 +122,8 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
     if (!store || !current || !onOpenRun) return;
     try {
       const bytes = await store.read(`${current.folder}/${file}`);
-      onOpenRun(new File([bytes as BlobPart], file, { type: 'application/octet-stream' }));
+      // 日付のフォルダの中の走行 (20261024/xxx.bon4) も、ファイルの名前だけで開く
+      onOpenRun(new File([bytes as BlobPart], file.slice(file.lastIndexOf('/') + 1), { type: 'application/octet-stream' }));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }

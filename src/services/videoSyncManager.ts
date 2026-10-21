@@ -1,6 +1,7 @@
 /**
  * 複数車載動画 & GPS走行データ 自動同期・プロジェクト管理サービス
  */
+import { isRemoteVideo, remoteByteSource, remoteFileLike, type RemoteVideo } from './remoteVideo';
 import { Session } from '../types/telemetry';
 import { parseVideoMetadata, VideoMetadata } from './videoMetadataParser';
 import type { SyncPin } from './videoSyncPinManager';
@@ -56,6 +57,8 @@ export interface VideoTrack {
   id: string;
   file?: File;
   objectUrl?: string;
+  /** 保管場所の動画 (lapfile://run/。file はない。範囲を頼んで読む) */
+  remote?: RemoteVideo;
   fileName: string;
   fileSize: number;
   durationSec: number;
@@ -210,8 +213,12 @@ class VideoSyncManager {
     if (sessions.some(s => s.id === savedId)) return savedId;
     const saved = this.importedSessions.find(s => s.id === savedId);
     if (!saved) return savedId;
-    const candidates = sessions.filter(s => s.fileName === saved.fileName);
-    const hit = candidates.find(s => s.date === saved.startDateJst) ?? (candidates.length === 1 ? candidates[0] : undefined);
+    // 名前は拡張子を除いてくらべる (.bon4 で保存した同期を、.nmea で開いた同じ走行に戻すため。2026-10-21)
+    const stem = (n: string) => n.replace(/\.(nmea|bon4|bnx4|bon|binx)$/i, '');
+    const candidates = sessions.filter(s => s.fileName === saved.fileName || stem(s.fileName) === stem(saved.fileName));
+    // 1 つのログが 2 つ以上の走行に分かれるとき (_1・_2) は、走行の名前で選ぶ
+    const hit = candidates.find(s => s.sessionName === saved.sessionName)
+      ?? candidates.find(s => s.date === saved.startDateJst) ?? (candidates.length === 1 ? candidates[0] : undefined);
     return hit ? hit.id : savedId;
   }
 
@@ -266,11 +273,11 @@ class VideoSyncManager {
 
   // 複数動画ファイルの読み込み & 自動解析。GoPro の低画質のファイル (.LRV) は、元の動画に組にする (動画としては加えない)
   // readGps: false なら動画の GPS を読まない (呼ぶ側で読んで時刻を入れるとき。同じ動画を 2 回読まないため)
-  public async addVideoFiles(files: FileList | File[], sessions: Session[], readGps = true): Promise<VideoTrack[]> {
+  public async addVideoFiles(files: FileList | Array<File | RemoteVideo>, sessions: Session[], readGps = true): Promise<VideoTrack[]> {
     const newTracks: VideoTrack[] = [];
     let relinked = false;
 
-    for (const file of Array.from(files).filter(f => isProxyFileName(f.name))) {
+    for (const file of Array.from(files).filter((f): f is File => !isRemoteVideo(f) && isProxyFileName(f.name))) {
       const key = proxyKey(file.name);
       if (!key) continue;
       const track = this.videos.find(v => proxyKey(v.fileName) === key);
@@ -279,15 +286,18 @@ class VideoSyncManager {
     const videoFiles = Array.from(files).filter(f => !isProxyFileName(f.name));
 
     for (let i = 0; i < videoFiles.length; i++) {
-      const file = videoFiles[i];
+      const item = videoFiles[i];
+      const remote = isRemoteVideo(item) ? item : undefined;
+      const file = remote ? remoteFileLike(remote) : (item as File);
       const meta: VideoMetadata = await parseVideoMetadata(file);
 
       // 同期プロジェクトから戻した、ファイルのまだない動画と同じファイルなら、そこにつなぐ (保存した同期を引き継ぐ)
       const placeholder = this.videos.find(v =>
         !v.objectUrl && v.fileName === file.name && (!v.fileSize || v.fileSize === file.size));
       if (placeholder) {
-        placeholder.file = file;
-        placeholder.objectUrl = URL.createObjectURL(file);
+        placeholder.file = remote ? undefined : file;
+        placeholder.remote = remote;
+        placeholder.objectUrl = remote ? remote.url : URL.createObjectURL(file);
         placeholder.fileSize = file.size;
         if (meta.durationSec > 0) placeholder.durationSec = meta.durationSec;
         if (!placeholder.rawRecordedAt && meta.creationTime) {
@@ -305,8 +315,9 @@ class VideoSyncManager {
 
       const track: VideoTrack = {
         id: `vid_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-        file,
-        objectUrl: URL.createObjectURL(file),
+        file: remote ? undefined : file,
+        remote,
+        objectUrl: remote ? remote.url : URL.createObjectURL(file),
         fileName: file.name,
         fileSize: file.size,
         durationSec: meta.durationSec,
@@ -333,9 +344,10 @@ class VideoSyncManager {
     this.autoMatchTracks(sessions, newTracks);
     // GoPro の動画は、動画自身の GPS の時刻で合わせる (撮影日時は ±1 秒ずれる)。GPS の記録がない動画は撮影日時のまま
     for (const track of readGps ? newTracks : []) {
-      if (!track.file) continue;
+      const source = track.file ? blobByteSource(track.file) : track.remote ? remoteByteSource(track.remote) : null;
+      if (!source) continue;
       try {
-        const gps = await parseGoproGps([blobByteSource(track.file)]);
+        const gps = await parseGoproGps([source]);
         const utcMs = gps.videoStartUtcMs[0];
         if (Number.isFinite(utcMs)) track.clock = clockAtUtc('gps', utcMs);
       } catch {

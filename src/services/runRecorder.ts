@@ -12,6 +12,7 @@
 import { appendFixes, startRun, type RunMeta } from './liveRunStore';
 import { UNSORTED_FOLDER } from '../utils/courseNames';
 import { bon4Header, bon4Records, fixesToNmea, runFileBase } from './runFiles';
+import { getWriteBon4 } from './runFormatSettings';
 import type { LiveFix } from './liveLapTimer';
 import { callNative, hasNative, toBase64 } from '../native/bridge';
 
@@ -27,8 +28,10 @@ export { courseFolder, UNSORTED_FOLDER } from '../utils/courseNames';
 /** このページで使ったファイルの名前 (同じ秒に新しい走行を始めても、前の走行のファイルに上書きしないように) */
 const usedBases = new Set<string>();
 
+/** 走行のファイルの場所: <サーキットのフォルダ>/<走り始めの日付 YYYYMMDD>/<走り始めの日時>。1 日の走行と動画を 1 つのフォルダにまとめる (2026-10-20) */
 function uniqueBase(startedMs: number, folder: string): string {
-  const base = `${folder}/${runFileBase(startedMs)}`;
+  const stamp = runFileBase(startedMs);
+  const base = `${folder}/${stamp.slice(0, 8)}/${stamp}`;
   let name = base;
   for (let i = 2; usedBases.has(name); i++) name = `${base}_${i}`;
   usedBases.add(name);
@@ -46,12 +49,14 @@ export class LiveRunRecorder {
   private lastFix: LiveFix | null = null;
   private chain: Promise<void> = Promise.resolve();
   private toFiles = false;
+  /** この走行で .bon4 も書くか (始めたときの設定。走っている途中では変えない) */
+  private bon4 = true;
   private retryAt = 0;
   /** 最初の測位を受け取った時刻 (端末の時計。測位が途切れても、コースを待つのを COURSE_WAIT_MS で止めるため) */
   private firstAddMs = 0;
 
   constructor(
-    private readonly source: 'digspice' | 'phone',
+    private readonly source: 'digspice' | 'phone' | 'racebox' | 'drogger',
     private readonly courseName: () => string,
     private readonly onError: (message: string) => void = () => {},
     /** ファイルを入れるフォルダの名前 (courseFolder。コースが決まっていなければ '') */
@@ -72,6 +77,14 @@ export class LiveRunRecorder {
    */
   private tryBegin(force: boolean): void {
     if (this.run || this.starting || this.buffer.length === 0 || Date.now() < this.retryAt) return;
+    // 測位のできた点が来るまでは始めない (衛星をつかむ前に止めた走行の、中身のないファイルを残さないように。LATER-18)。
+    // それより前のつかめていない点は捨てる
+    const firstValid = this.buffer.findIndex(f => f.valid);
+    if (firstValid < 0) {
+      if (this.buffer.length > 200) this.buffer.splice(0, this.buffer.length - 200);
+      return;
+    }
+    if (firstValid > 0) this.buffer.splice(0, firstValid);
     const last = this.buffer[this.buffer.length - 1];
     const waitCourse = hasNative() && !force && !this.courseName()
       && last.tMs - this.buffer[0].tMs < COURSE_WAIT_MS && Date.now() - this.firstAddMs < COURSE_WAIT_MS;
@@ -107,15 +120,17 @@ export class LiveRunRecorder {
         for (let tries = 0; ; tries++) {
           // 断られた名前は usedBases に入っているので、次は _2・_3 … になる
           const base = uniqueBase(first.tMs, folder);
+          this.bon4 = getWriteBon4();
           try {
-            await callNative('system.appendFile', { path: `${base}.bon4`, b64: toBase64(bon4Header(first)), truncate: true, createNew: true });
+            // 同じ名前があるかは、.nmea と .bon4 の両方で見る (前の走行の片方だけが残っていても、それと混ぜない)
+            await callNative('system.appendFile', { path: `${base}.nmea`, b64: '', truncate: true, createNew: true });
+            if (this.bon4) await callNative('system.appendFile', { path: `${base}.bon4`, b64: toBase64(bon4Header(first)), truncate: true, createNew: true });
             fileBase = base;
             break;
           } catch (e) {
             if (!isFileExists(e) || tries >= 20) throw e;
           }
         }
-        await callNative('system.appendFile', { path: `${fileBase}.nmea`, b64: '', truncate: true });
         this.toFiles = true;
       } catch {
         // 前のアプリ (ファイルに書けない) では、データベースにだけ保存する
@@ -145,7 +160,7 @@ export class LiveRunRecorder {
     if (this.toFiles && run.fileBase && batch.length) {
       try {
         await callNative('system.appendFile', { path: `${run.fileBase}.nmea`, b64: toBase64(encoder.encode(fixesToNmea(batch, this.lastFix))) });
-        await callNative('system.appendFile', { path: `${run.fileBase}.bon4`, b64: toBase64(bon4Records(batch)) });
+        if (this.bon4) await callNative('system.appendFile', { path: `${run.fileBase}.bon4`, b64: toBase64(bon4Records(batch)) });
       } catch (e) {
         // ファイルに書けなくなっても、データベースには残っている。途中までのファイルを渡さないよう、この走行のファイルは使わない印にする
         this.toFiles = false;

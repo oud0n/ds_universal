@@ -21,6 +21,9 @@ vi.mock('./liveRunStore', () => ({
   appendFixes: async (run: Record<string, unknown>, _seq: number, fixes: unknown[], patch: Record<string, unknown>) => ({ ...run, ...patch, fixCount: (run.fixCount as number) + fixes.length })
 }));
 
+let writeBon4 = true;
+vi.mock('./runFormatSettings', () => ({ getWriteBon4: () => writeBon4, setWriteBon4: (v: boolean) => { writeBon4 = v; } }));
+
 const { LiveRunRecorder } = await import('./runRecorder');
 const { runFileBase } = await import('./runFiles');
 
@@ -34,6 +37,36 @@ describe('走っている間の記録 (アプリ)', () => {
   beforeEach(() => { files.clear(); calls.length = 0; vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(T0); });
   afterEach(() => { vi.useRealTimers(); });
 
+  it('測位のできた点が来るまではファイルを作らず、それより前のつかめていない点は書かない (LATER-18)', async () => {
+    const rec = new LiveRunRecorder('digspice', () => '袖ヶ浦', () => {}, () => 'sodegaura');
+    // ほかの試験とファイルの名前 (秒まで) が重ならないよう、1 時間あとにする
+    const later = (i: number) => ({ ...fix(i), tMs: fix(i).tMs + 3600_000 });
+    rec.add({ ...later(0), valid: false });
+    rec.add({ ...later(1), valid: false });
+    await rec.flush(undefined, true);
+    expect(bon4Paths()).toEqual([]);
+    rec.add(later(2));
+    await rec.flush(undefined, true);
+    const name = runFileBase(T0 + 3600_000 + 100);
+    expect(bon4Paths()).toEqual([`sodegaura/${name.slice(0, 8)}/${name}.bon4`]);
+  });
+
+  it('.bon4 を書かない設定なら .nmea だけ書く', async () => {
+    writeBon4 = false;
+    try {
+      const rec = new LiveRunRecorder('phone', () => '袖ヶ浦', () => {}, () => 'sodegaura');
+      const later = (i: number) => ({ ...fix(i), tMs: fix(i).tMs + 7200_000 });
+      rec.add(later(0));
+      rec.add(later(1));
+      await rec.flush(undefined, true);
+      const paths = calls.filter(c => c.method === 'system.appendFile').map(c => c.params.path as string);
+      expect(paths.length).toBeGreaterThan(0);
+      expect(paths.every(p => p.endsWith('.nmea'))).toBe(true);
+    } finally {
+      writeBon4 = true;
+    }
+  });
+
   it('コースが決まったら、そのフォルダにファイルを作る', async () => {
     let course = '';
     const rec = new LiveRunRecorder('digspice', () => course, () => {}, () => (course ? 'sodegaura' : ''));
@@ -43,7 +76,7 @@ describe('走っている間の記録 (アプリ)', () => {
     course = '袖ヶ浦';
     rec.add(fix(1));
     await rec.flush();
-    expect(bon4Paths()).toEqual([`sodegaura/${NAME()}.bon4`]);
+    expect(bon4Paths()).toEqual([`sodegaura/${NAME().slice(0, 8)}/${NAME()}.bon4`]);
     expect(rec.current?.fixCount).toBe(2);
   });
 
@@ -73,6 +106,6 @@ describe('走っている間の記録 (アプリ)', () => {
     rec.add(fix(0));
     await rec.flush();
     expect(files.get(`sodegaura/${NAME()}.bon4`)).toBe(5);
-    expect(rec.current?.fileBase).toBe(`sodegaura/${NAME()}_2`);
+    expect(rec.current?.fileBase).toBe(`sodegaura/${NAME().slice(0, 8)}/${NAME()}_2`);
   });
 });

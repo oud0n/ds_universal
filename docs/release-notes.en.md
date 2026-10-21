@@ -4,6 +4,31 @@
 
 [Back to the README](../README.en.md)
 
+## v1.0.0
+
+**New layout**
+
+- Screens are now switched from a sidebar on the left (desktop app), tabs at the top (browser) or tabs at the bottom (phone). Settings live under ⚙, which closes again when pressed a second time.
+- **Runs screen** (desktop app): lists the runs in your storage folder by date. Pick a run to see its laps and the videos in the same folder, then open it in analysis, watch the video or add it as Car 2. Thousands of runs load quickly, and runs with no laps or videos are folded away. Choose the storage folder in Settings.
+- **"Runs & course" in analysis**: the loaded runs, car slots, course and clock correction open in a drawer above the analysis.
+- **Video screen**: switch between Watch / Compare / Align / Export to show only the tools you need.
+
+**Added**
+
+- **Importing logs** (desktop app): with a storage folder set, opening a log asks whether to import it, split by run and by circuit. A log that covers two circuits is filed into each circuit's folder and date folder. NMEA sentences are copied as they are, and the original file is kept untouched in `取り込み元/`. Existing files are never overwritten. Logs downloaded from the DigSpice over USB work the same way. You can also just open the log without importing it.
+- **Corner names**: use "Edit corners" on the course map to name, merge, split, delete or add corners (tap the map). Names are saved to `corners.json` in the course folder and shown in the corner table and on the course map. Courses without names get C1… names automatically when a run is opened.
+- **Opening a run makes it Car 1**: a run opened from the Runs screen becomes Car 1 (its fastest lap that is not hidden) and starts at the beginning of the lap. Cars from other courses are removed, and only runs on the same course can be added as Car 2–4.
+- **Where runs are kept**: runs go into `circuit folder/date folder/` and `.nmea` is now the main file of a run. Whether to also write `.bon4` for the official DigSpice software is a setting (on by default).
+- **First-run guide**: the Runs screen explains how to choose a storage folder and open files.
+
+**Fixed**
+
+- Video: after moving outside a lap in the whole-session view and switching to a lap (L◯), the video did not jump to the lap start and looked out of sync.
+- Video: changing Car 1 to another run in analysis left the previous run's video on screen.
+- Exported videos: two-digit lap labels overlapped the lap time.
+- The top bar changed height between screens. On phones, "Open file" is now "Open".
+- In run details, hiding and showing laps quickly in a row sometimes did not stick.
+
 ## v0.12.0
 
 **App renamed**

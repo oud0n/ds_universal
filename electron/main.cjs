@@ -1,4 +1,5 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeTheme } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeTheme, protocol } = require('electron');
+const { Readable } = require('stream');
 const path = require('path');
 const fs = require('fs');
 
@@ -11,7 +12,8 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist');
 // アプリ名を「DS Universal Suite」から「DS Universal」、さらに「LapLoupe」に変えたので、データ (保存したユーザーコース・設定など) の
 // 保存先は前の名前のフォルダを使い続ける (名前に合わせて変わると、更新した人のデータが引き継がれないため)。
 // 開発中 (npm run electron:dev など、パッケージしていないとき) は従来どおり
-if (app.isPackaged) {
+// 起動のときに --user-data-dir で置き場所を指定したとき (試験など) は、その置き場所を使う
+if (app.isPackaged && !app.commandLine.hasSwitch('user-data-dir')) {
   app.setPath('userData', path.join(app.getPath('appData'), 'DS Universal Suite'));
 }
 
@@ -414,7 +416,7 @@ function loadLapFolder() {
   return lapFolder || null;
 }
 /** 控えとして読み書きしてよいファイルの名前と、読む大きさの上限 */
-const LAP_TEXT_NAMES = new Set(['laptimes.json', 'runs.json']);
+const LAP_TEXT_NAMES = new Set(['laptimes.json', 'runs.json', 'corners.json', 'corners.json.bak']);
 const MAX_LAP_TEXT_BYTES = 20 * 1024 * 1024;
 /**
  * 保管場所からの道を、保管場所の中の実際の場所にする (外へ出る道は断る)。
@@ -468,7 +470,20 @@ ipcMain.handle('laps-list', async () => {
     for (const dir of await fs.promises.readdir(root, { withFileTypes: true })) {
       if (!dir.isDirectory() || dir.name.startsWith('.')) continue;
       for (const f of await fs.promises.readdir(path.join(root, dir.name), { withFileTypes: true })) {
-        if (!f.isFile() || f.name.startsWith('.')) continue;
+        if (f.name.startsWith('.')) continue;
+        // 日付のフォルダ (YYYYMMDD。2026-10-20 から、1 日の走行と動画をまとめる) の中も 1 段だけ見る
+        if (f.isDirectory() && /^\d{8}$/.test(f.name)) {
+          // 読めない日付のフォルダがあっても、ほかの走行は出す
+          let inner = [];
+          try { inner = await fs.promises.readdir(path.join(root, dir.name, f.name), { withFileTypes: true }); } catch { continue; }
+          for (const g of inner) {
+            if (!g.isFile() || g.name.startsWith('.')) continue;
+            const st = await fs.promises.stat(path.join(root, dir.name, f.name, g.name));
+            files.push({ path: `${dir.name}/${f.name}/${g.name}`, size: st.size, mtimeMs: Math.round(st.mtimeMs) });
+          }
+          continue;
+        }
+        if (!f.isFile()) continue;
         const st = await fs.promises.stat(path.join(root, dir.name, f.name));
         files.push({ path: `${dir.name}/${f.name}`, size: st.size, mtimeMs: Math.round(st.mtimeMs) });
       }
@@ -497,13 +512,15 @@ ipcMain.handle('laps-read-text', async (_event, rel) => {
     const st = await fs.promises.stat(full);
     if (st.size > MAX_LAP_TEXT_BYTES) return { success: false, error: 'too large' };
     return { success: true, text: await fs.promises.readFile(full, 'utf8') };
-  } catch {
-    return { success: true, text: null };
+  } catch (err) {
+    // 無いときだけ null。読めないとき (ほかのアプリが開いているなど) は失敗を返す (無いとみなして書くと、ほかの走行の行を消すため)
+    if (err && err.code === 'ENOENT') return { success: true, text: null };
+    return { success: false, error: err?.message ?? 'read failed' };
   }
 });
 ipcMain.handle('laps-write-text', async (_event, rel, text) => {
   const full = await lapPath(rel);
-  if (!full || path.basename(full) !== 'laptimes.json' || typeof text !== 'string' || text.length > MAX_LAP_TEXT_BYTES) return { success: false, error: 'not allowed' };
+  if (!full || !LAP_TEXT_NAMES.has(path.basename(full)) || typeof text !== 'string' || text.length > MAX_LAP_TEXT_BYTES) return { success: false, error: 'not allowed' };
   try {
     // 一時ファイルに書いてから入れ替える (途中で止まっても、前の控えが残る)
     const tmp = `${full}.tmp`;
@@ -515,7 +532,115 @@ ipcMain.handle('laps-write-text', async (_event, rel, text) => {
   }
 });
 
+// 取り込み (2026-10-21): 走行のファイルを新しく書く。上書きはしない (もうあれば exists)。
+// 書けるのは走行の形式 (.nmea・.bon4・.csv) と、取り込み元/ の下の元のログだけ
+const IMPORT_EXTS = new Set(['.nmea', '.bon4', '.csv']);
+const IMPORT_SOURCE_EXTS = new Set(['.nmea', '.bon4', '.bnx4', '.bon', '.binx', '.dtb', '.csv', '.txt', '.vbo', '.gpx', '.tcx', '.fit', '.log', '.xrk', '.xrz', '.ibt']);
+const MAX_IMPORT_BYTES = 512 * 1024 * 1024;
+/**
+ * 書く先の道 (まだないフォルダの中でもよい)。いちばん近い、もうあるフォルダの本当の場所で、保管場所の中かを確かめる
+ * (つないだ先 (シンボリックリンク) で保管場所の外へ出ないように)
+ */
+async function lapPathForWrite(rel) {
+  const root = loadLapFolder();
+  if (!root || typeof rel !== 'string' || !rel || path.isAbsolute(rel)) return null;
+  let realRoot;
+  try {
+    realRoot = await fs.promises.realpath(root);
+  } catch {
+    return null;
+  }
+  const prefix = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep;
+  const full = path.resolve(realRoot, rel);
+  if (!full.startsWith(prefix)) return null;
+  const rest = [];
+  let dir = path.dirname(full);
+  for (;;) {
+    try {
+      const realDir = await fs.promises.realpath(dir);
+      const real = path.join(realDir, ...rest, path.basename(full));
+      return (realDir === realRoot || realDir.startsWith(prefix)) && real.startsWith(prefix) ? real : null;
+    } catch {
+      if (dir.length <= realRoot.length) return null;
+      rest.unshift(path.basename(dir));
+      dir = path.dirname(dir);
+    }
+  }
+}
+ipcMain.handle('laps-write-file', async (_event, rel, data) => {
+  const full = await lapPathForWrite(rel);
+  const ext = full ? path.extname(full).toLowerCase() : '';
+  // 取り込み元/ は、その直下のファイルだけ (「取り込み元/../」で外へ出ないように)
+  const isSource = typeof rel === 'string' && /^取り込み元\/[^/\\]+$/.test(rel) && !rel.includes('..');
+  if (!full || !(isSource ? IMPORT_SOURCE_EXTS.has(ext) : IMPORT_EXTS.has(ext))) return { success: false, error: 'not allowed' };
+  if (!(data instanceof Uint8Array) || data.byteLength > MAX_IMPORT_BYTES) return { success: false, error: 'not allowed' };
+  try {
+    await fs.promises.mkdir(path.dirname(full), { recursive: true });
+    // wx: もうあれば失敗する (上書きしない)
+    await fs.promises.writeFile(full, data, { flag: 'wx' });
+    return { success: true };
+  } catch (err) {
+    if (err && err.code === 'EEXIST') return { success: false, error: 'exists' };
+    return { success: false, error: err.message };
+  }
+});
+
+// ---- 保管場所の動画を lapfile://run/<道> で読む (2026-10-20、docs/session_storage_design.md) ----
+// 大きな動画を丸ごと読まずに、頼まれた範囲 (Range) だけ返す。読めるのは保管場所の中の動画だけ
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'lapfile', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true, bypassCSP: true } }
+]);
+const LAP_VIDEO_TYPES = { mp4: 'video/mp4', m4v: 'video/mp4', lrv: 'video/mp4', insv: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', mkv: 'video/x-matroska' };
+async function serveLapFile(request) {
+  const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges', 'Cache-Control': 'no-store' };
+  let rel;
+  try {
+    const url = new URL(request.url);
+    if (url.host !== 'run') return new Response(null, { status: 404, headers });
+    rel = decodeURIComponent(url.pathname.replace(/^\//, ''));
+  } catch {
+    return new Response(null, { status: 400, headers });
+  }
+  const type = LAP_VIDEO_TYPES[path.extname(rel).slice(1).toLowerCase()];
+  const full = type ? await lapPath(rel) : null;
+  if (!full) return new Response(null, { status: 404, headers });
+  let size;
+  try {
+    size = (await fs.promises.stat(full)).size;
+  } catch {
+    return new Response(null, { status: 404, headers });
+  }
+  let start = 0;
+  let end = size - 1;
+  let partial = false;
+  const m = /^bytes=(\d*)-(\d*)/.exec(request.headers.get('range') || '');
+  if (m) {
+    partial = true;
+    if (m[1] === '' && m[2] !== '') start = Math.max(0, size - Number(m[2]));
+    else {
+      start = Number(m[1] || 0);
+      if (m[2] !== '') end = Math.min(end, Number(m[2]));
+    }
+  }
+  if (size === 0 && !partial) return new Response(null, { status: 200, headers: { ...headers, 'Content-Type': type, 'Content-Length': '0' } });
+  if (size === 0 || start > end || start >= size) {
+    return new Response(null, { status: 416, headers: { ...headers, 'Content-Range': `bytes */${size}` } });
+  }
+  const body = Readable.toWeb(fs.createReadStream(full, { start, end }));
+  return new Response(body, {
+    status: partial ? 206 : 200,
+    headers: {
+      ...headers,
+      'Content-Type': type,
+      'Content-Length': String(end - start + 1),
+      'Accept-Ranges': 'bytes',
+      ...(partial ? { 'Content-Range': `bytes ${start}-${end}/${size}` } : {})
+    }
+  });
+}
+
 app.whenReady().then(() => {
+  protocol.handle('lapfile', serveLapFile);
   createWindow();
 
   app.on('activate', () => {

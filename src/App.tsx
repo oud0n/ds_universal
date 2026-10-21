@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { ChevronDown, ChevronRight, FolderOpen } from 'lucide-react';
+import { ChevronDown, ChevronRight, FolderOpen, X } from 'lucide-react';
 import { CompareAxis, Lap, Session, TelemetryPoint, SelectedCarSlot, ControlLine, Sector, CircuitPreset, PolylineSource } from './types/telemetry';
-import { parseDtb } from './services/dtbParser';
-import { parseDigispiceRawBinary } from './services/rawBinaryParser';
-import { parseCsv } from './services/csvParser';
 import { parseNmea } from './services/nmeaParser';
 import { blobByteSource, goproRecording, NoGoproGpsError, parseGoproGps } from './services/gpmfParser';
 import { sessionStartUtcMs, videoSyncManager, placeTracks, isProxyFileName } from './services/videoSyncManager';
@@ -12,11 +9,8 @@ import { referenceCandidates } from './services/clockOffsetEstimator';
 import { analyseSessions, isSameRun } from './services/pairAnalysis';
 import type { ClockEstimateResult } from './components/DataTab';
 import { circuitLabel, tr, useT } from './utils/i18n';
-import { inflateXrz, isAimCsv, isXrk, parseAimCsv, parseXrk } from './services/aimFormats';
-import { isIbt, parseIbt } from './services/ibtParser';
-import { MOTEC_CSV_ENABLED, isGpx, isMotecCsv, isRaceChronoCsv, isTcx, isVbo, parseMotecCsv, parseGpx, parseRaceChronoCsv, parseTcx, parseVbo } from './services/externalFormats';
-import { parseFit } from './services/fitParser';
 import { parsePth, parseCln } from './services/pthParser';
+import { parseLogBuffer } from './services/logLoader';
 import { AUTO_CONTROL_LINE_NAME, createAutoControlLine, createEqualSectors } from './services/autoCourseLines';
 import { countGateCrossings, createVirtualControlLine, extractLaps, firstGateCrossingTime, gateDirection, passesNearControlLine, passesNearPoint } from './services/lapCalculator';
 import { ConvertTab } from './components/ConvertTab';
@@ -41,19 +35,34 @@ import { CircuitEditorModal } from './components/CircuitEditorModal';
 import { DonateModal } from './components/DonateModal';
 import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
+import { RecentRunsList, RunsSheet } from './components/RecentRuns';
+import { canUseRunStore, getRunStore } from './services/runStore';
+import { attachCompanionVideos, attachRunVideos, closeOpenRun, companionRuns, dropCompanion, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLapTimer, canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
 import { bleLoggerLink } from './services/bleLoggerLink';
 import { useWheelScrollX } from './hooks/useWheelScrollX';
-import { isDialogOpen } from './hooks/useEscapeKey';
+import { isDialogOpen, useEscapeKey } from './hooks/useEscapeKey';
 import { readClockMaster } from './services/clockMaster';
 import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
 import { Freeze } from './components/Freeze';
 import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
 import { BottomTabBar } from './components/MobileNav';
+import { Sidebar } from './components/shell/Sidebar';
+import { LibraryScreen } from './screens/LibraryScreen';
+import { SettingsScreen } from './screens/SettingsScreen';
+import { useAppProfile } from './app/appProfile';
+import { navPlan } from './app/navPlan';
+import { navStore, useNav } from './app/navStore';
 import { PlayBar } from './components/PlayBar';
 import { SplitResizer } from './components/SplitResizer';
 import { interpolatePoint } from './utils/telemetrySearch';
+import { ImportSheet } from './components/import/ImportSheet';
+import { planImport, type ImportPlan } from './services/import/importPlan';
+import { applyPlan, type PartResult } from './services/import/importApply';
+import { electronWriter, nativeWriter } from './services/import/importWriters';
+import { LOG_EXTENSIONS } from './services/logLoader';
+import { getWriteBon4 } from './services/runFormatSettings';
 
 /**
  * 距離を補正した周で、補正後の距離が 0 になる時刻 (秒)。
@@ -124,16 +133,21 @@ export const App: React.FC = () => {
   const T = useT();
   // タブ
   // 公開ページでは URL の末尾 (#convert など) で最初に開くタブを指定できる
-  const [currentTab, setCurrentTab] = useState<'graph' | 'data' | 'logger' | 'video' | 'convert'>(() => {
-    const h = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : '';
-    // ロガーと USB でつなげない環境 (スマートフォン・タブレット・Safari など) ではロガー設定を出さないので、#logger でもグラフ解析を開く
-    if (h === 'logger' && !canUseLogger) return 'graph';
-    return h === 'convert' || h === 'data' || h === 'logger' || h === 'video' ? h : 'graph';
-  });
-  // ラップタイマー (走りながら使う、画面いっぱいの表示)。URL の末尾 #laptimer で開いた状態から始める
-  const [lapTimerOpen, setLapTimerOpen] = useState(() => canUseLapTimer && typeof window !== 'undefined' && window.location.hash === '#laptimer');
-  const currentTabRef = useRef(currentTab);
-  currentTabRef.current = currentTab;
+  // 画面の組み方 (アプリ・デスクトップ版・ブラウザ、スマートフォンの幅か) と、出している画面 (app/navStore.ts。2026-10-21)
+  const profile = useAppProfile();
+  const plan = useMemo(() => navPlan(profile), [profile]);
+  // はじめの描画の前に入れる (URL の末尾 #convert・#laptimer などで最初の画面を決める)。幅が変わって組み方が変わったら入れ直す
+  useState(() => { navStore.init(plan); return 0; });
+  useEffect(() => { navStore.init(plan); }, [plan]);
+  const nav = useNav();
+  // 解析の「走行とコース」の引き出し (今のデータの画面の中身。PLAN-24 の作る順番の 6)
+  const [dataDrawer, setDataDrawer] = useState(false);
+  const dataDrawerOpen = dataDrawer && nav.screen === 'analysis';
+  // 解析から離れたら引き出しは閉じる (戻ったときに、グラフの上に出たままにならないように)
+  useEffect(() => { if (nav.screen !== 'analysis') setDataDrawer(false); }, [nav.screen]);
+  useEscapeKey(dataDrawerOpen, () => setDataDrawer(false));
+  // 幅が変わって組み方が変わり、今の画面がなくなったときは、入れ直す (上の effect) までの間も最初の画面を出す
+  const currentTab = plan.available.has(nav.screen) ? nav.screen : plan.home;
   // 変換画面で書き出すログ (データ管理の「変換画面で開く」で選ぶ。空なら基準車のログ)
   const [convertSessionId, setConvertSessionId] = useState('');
 
@@ -236,6 +250,56 @@ export const App: React.FC = () => {
   // モーダル
   const [isCircuitEditorOpen, setIsCircuitEditorOpen] = useState(false);
   const [isDonateModalOpen, setIsDonateModalOpen] = useState(false);
+  // 過去の走行 (保管場所。iPhone のアプリ・デスクトップ版): 全部の一覧を出しているか・開いている途中か
+  const [runsSheetOpen, setRunsSheetOpen] = useState(false);
+  const [runBusy, setRunBusy] = useState(false);
+  /** 取り込みの確認 (ログを開いたとき、走行の保管場所があれば。2026-10-21、PLAN-24) */
+  const [importing, setImporting] = useState<{
+    plan: ImportPlan;
+    name: string;
+    bytes: Uint8Array;
+    phase: 'confirm' | 'writing' | 'done';
+    progress?: { done: number; total: number };
+    results?: PartResult[];
+  } | null>(null);
+  /** 確認を閉じたら、次のファイルへ進む */
+  const importDoneRef = useRef<(() => void) | null>(null);
+  /** 確認は 1 つずつ (出ている間に別のファイルを開いたら、前のを閉じてから出す) */
+  const importQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const runOpeningRef = useRef(false);
+  // iCloud から取り込み中の動画 (取り込み終わったら、走行に付けて開く)。percent はふつう分からない (取り込み中とだけ出す)
+  const [runDownload, setRunDownload] = useState<{ names: string[]; done: number } | null>(null);
+  const runDownloadTokenRef = useRef(0);
+  /** 保管場所から開いた走行の道と、そのログ (同じ名前のほかのフォルダの走行と取り違えないため) */
+  const runSessionsRef = useRef(new Map<string, string[]>());
+  /** 保管場所から開いた走行の一覧の行 (道 → 行)。Car 1 を替えたときに、その走行の動画を付け直すため */
+  const runItemsRef = useRef(new Map<string, RunItem>());
+  /** 今、動画を付けている走行の道 */
+  const attachedRunRef = useRef<string | null>(null);
+  /** 走行の一覧を出す: 走行の画面がある組み方ならそこへ、なければ重ねて出す */
+  const showAllRuns = () => (plan.available.has('library') ? navStore.go('library') : setRunsSheetOpen(true));
+  /** 読み込みのボタン: 保管場所があれば走行の一覧、なければファイルを選ぶ */
+  // 走行の画面がある組み方では、ファイルを選ぶ (走行の一覧はタブ・サイドバーから)。ない組み方で保管場所があれば、走行の一覧を重ねて出す
+  const openRunsOrFiles = () => (!plan.available.has('library') && canUseRunStore() ? setRunsSheetOpen(true) : fileInputRef.current?.click());
+  // 開発サーバーで試すとき: #openrun=<フォルダ>/<ファイル> で、その走行を開く (画面を押せないシミュレーターで確かめるため)
+  useEffect(() => {
+    if (import.meta.env.DEV && window.location.hash === '#runsheet') {
+      if (navPlan(profile).available.has('library')) navStore.go('library'); else setRunsSheetOpen(true);
+    }
+    if (!import.meta.env.DEV || !window.location.hash.startsWith('#openrun=')) return;
+    const want = decodeURIComponent(window.location.hash.slice('#openrun='.length));
+    void (async () => {
+      const store = await getRunStore();
+      if (!store) return;
+      const { listRuns } = await import('./services/runOpener');
+      const item = (await listRuns(store)).find(r => `${r.folder}/${r.file}` === want);
+      if (item) await openRun(item);
+      navStore.go('video');
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // ログを全部消したら、開いていた走行の動画と同期を覚えるのをやめる
+  useEffect(() => { if (sessions.length === 0) closeOpenRun(); }, [sessions.length]);
 
   // コース図の問い合わせの通し番号 (最後に出した問い合わせの応答だけを反映するため)
 
@@ -385,7 +449,7 @@ export const App: React.FC = () => {
     .map(videoEndSessionSec);
   const sessionEndTime = Math.max(logEndTime, ...shownVideoEnds);
   const [clockBase, setClockBase] = useState<'lap' | 'session'>(() => (isVideoTab ? 'session' : 'lap'));
-  const wantClockBase: 'lap' | 'session' = isVideoTab ? 'session' : currentTab === 'graph' ? 'lap' : clockBase;
+  const wantClockBase: 'lap' | 'session' = isVideoTab ? 'session' : currentTab === 'analysis' ? 'lap' : clockBase;
   if (wantClockBase !== clockBase) {
     // 基準が変わったら、時刻と距離を読み替える。描画の途中で直し、ウインドウが古い基準の時刻を受け取らないようにする
     setClockBase(wantClockBase);
@@ -506,7 +570,7 @@ export const App: React.FC = () => {
       const off = nav.electronAPI.onOpenFiles(async (filePaths: string[]) => {
         for (const fp of filePaths) {
           if (/\.(mp4|mov)$/i.test(fp)) {
-            alert(tr('GoPro の動画は、画面の「ファイル読込」から開いてください', 'Open GoPro videos with "Open file" in the app window'));
+            alert(tr('GoPro の動画は、画面の上の「ファイルを開く」(スマートフォンは「開く」) から開いてください', 'Open GoPro videos with "Open file" in the app window'));
             continue;
           }
           try {
@@ -612,6 +676,8 @@ export const App: React.FC = () => {
     for (const file of files.filter(f => !isProxyFileName(f.name))) {
       if (!isVideoFileName(file.name)) {
         try {
+          // 保管場所があれば、走行ごとに分けて取り込むかを先に聞く (取り込まずに開くこともできる)
+          if (await offerImport(file.name, await file.arrayBuffer())) continue;
           await loadFileData(file.name, await file.arrayBuffer());
         } catch (err: any) {
           alert(tr(`ファイル ${file.name} の読み込みに失敗しました: ${err.message}`, `Could not load ${file.name}: ${err.message}`));
@@ -631,6 +697,77 @@ export const App: React.FC = () => {
       }
     }
     if (proxies.length > 0) await videoSyncManager.addVideoFiles(proxies, latestRef.current.sessions, false);
+  };
+
+  /**
+   * ログを保管場所に取り込むかを聞く (確認のシートを出し、閉じるまで待つ)。保管場所がない・分けられない・全部取り込み済みなら
+   * 聞かずに false (そのまま開く)。true なら、開くかどうかはシートの中で決まった
+   */
+  const offerImport = async (name: string, buffer: ArrayBuffer): Promise<boolean> => {
+    const ext = name.split('.').pop()?.toLowerCase() ?? '';
+    if (!LOG_EXTENSIONS.includes(ext) || !canUseRunStore()) return false;
+    let plan: ImportPlan;
+    try {
+      const store = await getRunStore();
+      if (!store) return false;
+      const existing = new Set((await store.list()).filter(f => /\.(nmea|bon4)$/i.test(f.path)).map(f => f.path.replace(/\.[^./]+$/, '')));
+      plan = planImport(await parseLogBuffer(name, buffer.slice(0), tr), name, existing);
+    } catch {
+      return false;
+    }
+    if (plan.parts.length === 0 || plan.parts.every(p => p.already)) return false;
+    const shown = importQueueRef.current.then(() => new Promise<void>(resolve => {
+      importDoneRef.current = resolve;
+      setImporting({ plan, name, bytes: new Uint8Array(buffer), phase: 'confirm' });
+    }));
+    importQueueRef.current = shown;
+    await shown;
+    return true;
+  };
+
+  const closeImport = () => {
+    setImporting(null);
+    importDoneRef.current?.();
+    importDoneRef.current = null;
+  };
+
+  /** 取り込みのシートから開く (取り込まずに・取り込んだあとに) */
+  const openImported = async () => {
+    const cur = importing;
+    closeImport();
+    if (!cur) return;
+    const b = cur.bytes;
+    await loadFileData(cur.name, b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
+    navStore.go('analysis');
+  };
+
+  const applyImport = async () => {
+    const cur = importing;
+    if (!cur || cur.phase !== 'confirm') return;
+    const electron = electronWriter();
+    // iPhone のアプリは、保管場所にもうあるファイルを書かない (選んだフォルダにだけある走行を上書きしないように)
+    let have: Set<string> = new Set();
+    if (!electron) {
+      try {
+        have = new Set((await (await getRunStore())?.list() ?? []).map(f => f.path));
+      } catch (e) {
+        alert(tr(`保管場所を読めないため、取り込めませんでした: ${e instanceof Error ? e.message : e}`, `Could not read the storage folder, so nothing was imported: ${e instanceof Error ? e.message : e}`));
+        return;
+      }
+    }
+    const native = electron ? null : nativeWriter(have);
+    const writer = electron ?? native;
+    if (!writer) return;
+    setImporting({ ...cur, phase: 'writing', progress: { done: 0, total: cur.plan.parts.filter(p => p.checked).length } });
+    try {
+      const { results } = await applyPlan(cur.plan, { name: cur.name, bytes: cur.bytes }, writer, { writeBon4: getWriteBon4() },
+        (done, total) => setImporting(s => (s ? { ...s, progress: { done, total } } : s)));
+      if (native) await native.finish();
+      setImporting(s => (s ? { ...s, phase: 'done', results } : s));
+    } catch (e) {
+      alert(tr(`取り込めませんでした: ${e instanceof Error ? e.message : e}`, `Import failed: ${e instanceof Error ? e.message : e}`));
+      setImporting(s => (s ? { ...s, phase: 'confirm' } : s));
+    }
   };
 
   // GoPro の動画 (1 回の撮影のチャプター、順に並べたもの) の GPS を走行ログとして読み込み、同じ動画を動画同期にも登録する。
@@ -725,6 +862,224 @@ export const App: React.FC = () => {
     if (first) videoSyncManager.setGpsClock(first.track.id, { session, offsetSec: (first.startMs - t0) / 1000 });
   };
 
+  /**
+   * 走行のいちばん速い周 (隠した周を除く) を、読み込んだログの周から探す。始まりの時刻がいちばん近く、タイムも同じ周
+   * (1 つのログが 2 つ以上に分かれていても、分け方によらず探せる)。見つからなければ、そのログのベストラップ
+   */
+  const pickRunBestLap = (added: Session[], item: RunItem): { session: Session; lapNumber: number } => {
+    const visible = item.laps.filter(l => !l.hidden);
+    const best = visible.length ? visible.reduce((a, b) => (b.time < a.time ? b : a)) : null;
+    let pick: { session: Session; lapNumber: number; gap: number } | null = null;
+    if (best) {
+      for (const s of added) {
+        for (const l of s.laps) {
+          if (l.isWholeSession || l.isPartialLap || Math.abs(l.lapTime - best.time) > 0.1) continue;
+          const ts = s.points[l.startIndex]?.timestamp;
+          const gap = ts ? Math.abs(Date.parse(ts) - best.startMs) : Infinity;
+          if (!pick || gap < pick.gap) pick = { session: s, lapNumber: l.lapNumber, gap };
+        }
+      }
+    }
+    if (pick) return pick;
+    const main = added.reduce((a, b) => ((b.laps[b.bestLapIndex]?.lapTime ?? Infinity) < (a.laps[a.bestLapIndex]?.lapTime ?? Infinity) ? b : a));
+    return { session: main, lapNumber: main.laps[main.bestLapIndex]?.lapNumber ?? main.laps[0]?.lapNumber ?? 1 };
+  };
+
+  /**
+   * 走行を比べる相手 (Car 2) として足す (走行の詳細の「Car 2 として足す」)。いま開いている走行と動画はそのまま。
+   * その走行の動画は、Car が変わったときの処理 (companionChainRef) で足す。
+   * 周は、その走行の隠していない周のうちいちばん速いもの (同じタイムの周を、読み込んだログの周から探す)
+   */
+  const addRunAsCar2 = async (item: RunItem) => {
+    if (runOpeningRef.current) return;
+    runOpeningRef.current = true;
+    setRunBusy(true);
+    try {
+      const store = await getRunStore();
+      if (!store) return;
+      const runPath = `${item.folder}/${item.file}`;
+      const openedIds = runSessionsRef.current.get(runPath) ?? [];
+      let added = latestRef.current.sessions.filter(x => openedIds.includes(x.id));
+      if (!added.length) {
+        const bytes = await store.read(runPath);
+        const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+        added = await loadFileData(item.file.slice(item.file.lastIndexOf('/') + 1), buffer);
+        runSessionsRef.current.set(runPath, added.map(x => x.id));
+      }
+      runItemsRef.current.set(runPath, item);
+      if (added.length === 0) return;
+      const { session, lapNumber } = pickRunBestLap(added, item);
+      setSelectedCars(prev => [
+        ...prev.filter(c => c.slot !== 1),
+        { slot: 1, sessionId: session.id, lapNumber, colorHex: '#3b82f6', label: `${session.sessionName} (L${lapNumber})` }
+      ].sort((a, b) => a.slot - b.slot));
+      navStore.go('analysis');
+    } catch (e) {
+      console.warn('[run] Car 2 として足せない:', e);
+    } finally {
+      runOpeningRef.current = false;
+      setRunBusy(false);
+    }
+  };
+
+  // 過去の走行を開く: ログを読み込み、同じフォルダの動画と同期をそろえる (runOpener.ts)
+  const openRun = async (item: RunItem) => {
+    // 続けて押しても 1 回だけ開く
+    if (runOpeningRef.current) return;
+    // ほかの走行を開いたら、前の走行の取り込み待ちはやめる
+    runDownloadTokenRef.current++;
+    setRunDownload(null);
+    runOpeningRef.current = true;
+    setRunBusy(true);
+    try {
+      const store = await getRunStore();
+      if (!store) return;
+      const bytes = await store.read(`${item.folder}/${item.file}`);
+      const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+      const runPath = `${item.folder}/${item.file}`;
+      const openedIds = runSessionsRef.current.get(runPath) ?? [];
+      const already = latestRef.current.sessions.filter(x => openedIds.includes(x.id));
+      const added = already.length ? already : await loadFileData(item.file.slice(item.file.lastIndexOf('/') + 1), buffer);
+      runSessionsRef.current.set(runPath, added.map(x => x.id));
+      runItemsRef.current.set(runPath, item);
+      attachedRunRef.current = runPath;
+      setRunsSheetOpen(false);
+      navStore.go('analysis');
+      if (added.length === 0) return;
+      // 開いた走行を Car 1 にする (いちばん速い周)。前に開いていた走行が Car 1 のままだと、解析と動画が別の走行になる。
+      // Car 2〜4 は、同じコースのものだけ残す (違うコースと比べても意味がないため。比べるときは「Car 2 として足す」)
+      {
+        // 隠した周を除いた、いちばん速い周
+        const { session: main, lapNumber } = pickRunBestLap(added, item);
+        const byId = new Map(latestRef.current.sessions.map(x => [x.id, x]));
+        setSelectedCars(prev => [
+          { slot: 0, sessionId: main.id, lapNumber, colorHex: '#ef4444', label: `${main.sessionName} (L${lapNumber})` },
+          ...prev.filter(c => c.slot !== 0 && c.sessionId !== main.id && byId.get(c.sessionId)?.circuitName === main.circuitName)
+        ].sort((a, b) => a.slot - b.slot));
+        // 周の始めから見る (前に見ていた位置を、新しい周へ持ち込まない)
+        setIsPlaying(false);
+        setClockBase('lap');
+        setCurrentTimeSec(0);
+      }
+      const sessionsNow = () => {
+        const cur = latestRef.current.sessions;
+        return [...cur, ...added.filter(a => !cur.some(c => c.id === a.id))];
+      };
+      const cand = await videoCandidates(store, item);
+      if (cand.missing.length) {
+        const gb = (totalBytes(cand.missing) / 1e9).toFixed(1);
+        const download = await askChoice(
+          tr('動画を iCloud から取り込みますか？', 'Download the videos from iCloud?'),
+          tr(`この走行の動画 ${cand.missing.length} 本 (${gb} GB) が、まだこの端末にありません。\n\n取り込む: 取り込みを始めます。終わったら、この走行に自動で動画を付けます (この走行を開いている間)\n取り込まない: 端末にある動画とログだけで開きます`,
+            `${cand.missing.length} video(s) of this run (${gb} GB) are not on this device yet.\n\nDownload: start downloading; the videos are attached automatically when done (while this run stays open)\nDon't download: open with the log and the videos on this device`),
+          [
+            { label: tr('取り込む', 'Download'), value: true },
+            { label: tr('取り込まない', "Don't download"), value: false, primary: true }
+          ],
+          false
+        );
+        if (download) for (const m of cand.missing) await store.startDownload(m.path);
+        // 取り込みが終わるのを待って、終わったら付ける (この走行を開いている間だけ)
+        if (download) {
+          const token = ++runDownloadTokenRef.current;
+          const paths = cand.missing.map(m => m.path);
+          setRunDownload({ names: paths.map(p => p.slice(p.lastIndexOf('/') + 1)), done: 0 });
+          void (async () => {
+            const started = Date.now();
+            for (;;) {
+              await new Promise(r => setTimeout(r, 3000));
+              if (token !== runDownloadTokenRef.current) return;
+              const st = await Promise.all(paths.map(p => store.fileStatus(p).catch(() => ({ local: false, downloading: false }))));
+              const done = st.filter(s => s.local).length;
+              setRunDownload(d => (d ? { ...d, done } : d));
+              if (done === paths.length) break;
+              // 1 時間で待つのをやめる (取り込みは「ファイル」アプリでも続く。終わってから開き直せば付く)
+              if (Date.now() - started > 3600_000) { setRunDownload(null); return; }
+            }
+            // 待っている間に Car 1 を別の走行に替えた (走行とコースの引き出しなど) ときは付けない
+            if (attachedRunRef.current !== runPath) { setRunDownload(null); return; }
+            const refreshed: RunItem = { ...item, folderVideos: item.folderVideos.map(v => (paths.includes(v.path) ? { ...v, local: true } : v)) };
+            const again = await videoCandidates(store, refreshed);
+            if (token !== runDownloadTokenRef.current || attachedRunRef.current !== runPath) return;
+            await attachRunVideos({
+              store, item: refreshed, runSessions: added, videos: again.local, fromRuns: again.fromRuns,
+              sessions: sessionsNow, circuitName: () => added[0]?.circuitName ?? '', setClockOffset: setSessionClockOffset
+            }).catch(() => undefined);
+            setRunDownload(null);
+          })();
+        }
+      }
+      await attachRunVideos({
+        store, item, runSessions: added, videos: cand.local, fromRuns: cand.fromRuns,
+        sessions: sessionsNow,
+        circuitName: () => added[0]?.circuitName ?? '',
+        setClockOffset: setSessionClockOffset
+      });
+    } catch (e) {
+      alert(tr('走行を開けませんでした: ', 'Could not open the run: ') + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      runOpeningRef.current = false;
+      setRunBusy(false);
+    }
+  };
+
+  // Car 1 を、保管場所から開いた別の走行に替えたら (走行とコースの引き出しなどで)、その走行の動画を付け直す
+  // (前の走行の動画が残ったままだと、動画の画面が別の走行の動画を出す)。端末にある動画だけ (iCloud から取り込むかは聞かない)
+  useEffect(() => {
+    const id = baseSession?.id;
+    if (!id || runOpeningRef.current) return;
+    const entry = [...runSessionsRef.current.entries()].find(([, ids]) => ids.includes(id));
+    if (!entry || entry[0] === attachedRunRef.current) return;
+    const item = runItemsRef.current.get(entry[0]);
+    if (!item) return;
+    attachedRunRef.current = entry[0];
+    void (async () => {
+      const store = await getRunStore();
+      if (!store) return;
+      const added = latestRef.current.sessions.filter(x => entry[1].includes(x.id));
+      const cand = await videoCandidates(store, item);
+      if (attachedRunRef.current !== entry[0]) return;
+      await attachRunVideos({
+        store, item, runSessions: added, videos: cand.local, fromRuns: cand.fromRuns,
+        sessions: () => latestRef.current.sessions,
+        circuitName: () => added[0]?.circuitName ?? '',
+        setClockOffset: setSessionClockOffset
+      }).catch(e => console.warn('[run] 動画を付け直せない:', e));
+    })();
+    // 基準の走行が替わったときだけ
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseSession?.id]);
+
+  // Car 2〜4 に、開いている走行のほかの走行 (保管場所から開いたもの) の周を入れたら、その走行の動画も読む
+  // (走行比較で、その車の枠にその車の動画を出すため。端末にある動画だけ)。どの Car にもいなくなった走行の動画は外す。
+  // 走行を開いている間は待つ (開き終わってからそろえる)。順に 1 つずつ行う
+  const companionChainRef = useRef<Promise<void>>(Promise.resolve());
+  useEffect(() => {
+    if (runBusy || runOpeningRef.current) return;
+    const want = new Map<string, string[]>();
+    for (const c of selectedCars) {
+      if (c.slot === 0) continue;
+      const entry = [...runSessionsRef.current.entries()].find(([, ids]) => ids.includes(c.sessionId));
+      if (entry && entry[0] !== attachedRunRef.current) want.set(entry[0], entry[1]);
+    }
+    companionChainRef.current = companionChainRef.current.then(async () => {
+      for (const p of companionRuns()) if (!want.has(p)) dropCompanion(p);
+      const missing = [...want].filter(([p]) => !companionRuns().includes(p));
+      if (!missing.length) return;
+      const store = await getRunStore();
+      if (!store) return;
+      for (const [p, ids] of missing) {
+        const item = runItemsRef.current.get(p);
+        if (!item || p === attachedRunRef.current) continue;
+        const cand = await videoCandidates(store, item);
+        await attachCompanionVideos({
+          item, runSessions: latestRef.current.sessions.filter(x => ids.includes(x.id)), videos: cand.local, fromRuns: cand.fromRuns,
+          sessions: () => latestRef.current.sessions, setClockOffset: setSessionClockOffset
+        });
+      }
+    }).catch(e => console.warn('[run] 比べる走行の動画を読めない:', e));
+  }, [selectedCars, runBusy]);
+
   // データファイル読み込みロジック。読み込んだログはセッションとして加え、加えたセッションを返す
   // (parsedLog を渡したときは、ファイルを読まずにその点列を使う)
   const loadFileData = async (
@@ -732,98 +1087,20 @@ export const App: React.FC = () => {
     buffer: ArrayBuffer | null,
     parsedLog?: { points: any[]; samplingRate: number; startDate?: Date }
   ): Promise<Session[]> => {
-    let rawPoints: any[] = [];
-    let samplingRate = 10;
-    let startDate: Date | undefined;
-    // 1 つのファイルに走行が複数入っているとき (生ログ) は、走行ごとに別のセッションにする
-    let parts: { points: any[]; samplingRate: number; startDate?: Date }[] | null = null;
+    // 1 つのファイルに走行が複数入っているとき (生ログ・空きのある NMEA など) は、走行ごとに別のセッションにする (services/logLoader.ts)
+    let parts: { points: any[]; samplingRate: number; startDate?: Date }[];
     // ログに記録されている車両名・ドライバー名・コース名 (iRacing の .ibt)
     let meta: { vehicleName?: string; driverName?: string; trackName?: string } = {};
-
-    const ext = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() : '';
     const added: Session[] = [];
 
     if (parsedLog) {
-      rawPoints = parsedLog.points;
-      samplingRate = parsedLog.samplingRate;
-      startDate = parsedLog.startDate;
+      parts = [{ points: parsedLog.points, samplingRate: parsedLog.samplingRate, startDate: parsedLog.startDate }];
     } else if (!buffer) {
       throw new Error(tr('ファイルの中身がありません', 'The file is empty'));
-    } else if (ext === 'dtb') {
-      const parsed = parseDtb(buffer);
-      rawPoints = parsed.points;
-      samplingRate = parsed.samplingRate;
-      startDate = parsed.startDate;
-    } else if (ext === 'bnx4' || ext === 'bon4' || ext === 'binx' || ext === 'bon') {
-      parts = parseDigispiceRawBinary(fileName, buffer);
-    } else if (ext === 'xrk' || ext === 'xrz') {
-      // AiM のロガーのファイル (.xrz は圧縮したもの)
-      const bytes = await inflateXrz(new Uint8Array(buffer));
-      if (!isXrk(bytes)) throw new Error(tr('AiM の .xrk / .xrz として読めませんでした', 'Could not read this as an AiM .xrk / .xrz file'));
-      const parsed = parseXrk(bytes);
-      rawPoints = parsed.points;
-      samplingRate = parsed.samplingRate;
-      startDate = parsed.startDate;
-    } else if (ext === 'fit') {
-      // Garmin などの FIT (腕時計・サイクルコンピューターの記録)
-      const parsed = parseFit(new Uint8Array(buffer));
-      rawPoints = parsed.points;
-      samplingRate = parsed.samplingRate;
-      startDate = parsed.startDate;
-    } else if (ext === 'ibt') {
-      // iRacing のテレメトリ。コースに出ていた間ごとに分ける (ピットへの移動などで区切る)
-      const bytes = new Uint8Array(buffer);
-      if (!isIbt(bytes)) throw new Error(tr('iRacing の .ibt として読めませんでした', 'Could not read this as an iRacing .ibt file'));
-      const parsed = parseIbt(bytes);
-      parts = parsed.parts;
-      meta = { vehicleName: parsed.vehicleName, driverName: parsed.driverName, trackName: parsed.trackName };
-    } else if (['vbo', 'csv', 'txt', 'gpx', 'tcx', 'nmea', 'log'].includes(ext || '')) {
-      // テキストの形式は拡張子で決めつけず、中身の先頭で判別する (.txt の NMEA・VBO、.log の CSV なども読めるように)。
-      // 判別できないときは拡張子に従う
-      const text = new TextDecoder('utf-8').decode(buffer);
-      // NMEA は受信機の起動時の文などの後から始まることがあるので、先頭から広めに (64 KB) 探す
-      const head = text.slice(0, 65536);
-      // CSV の見出し行 (緯度・経度の列がある行) があるか
-      const csvLike = isRaceChronoCsv(text) || isMotecCsv(text) || isAimCsv(text) ||
-        /^(?=[^\n]*(lat|緯度))(?=[^\n]*(lon|lng|経度))[^\n]*,/im.test(text.slice(0, 4000));
-      const kind =
-        isGpx(text) ? 'gpx'
-        : isTcx(text) ? 'tcx'
-        : isVbo(text) ? 'vbo'
-        : /^\s*\$G[PNLAB][A-Z]{3},/m.test(head) ? 'nmea'
-        : csvLike ? 'csv'
-        : ext === 'vbo' || ext === 'gpx' || ext === 'tcx' || ext === 'nmea' ? ext
-        : ext === 'log' ? 'nmea'
-        : 'csv';
-      let parsed: { points: any[]; samplingRate: number; startDate?: Date };
-      if (kind === 'gpx') parsed = parseGpx(text);
-      else if (kind === 'tcx') parsed = parseTcx(text);
-      else if (kind === 'vbo') parsed = parseVbo(text);
-      else if (kind === 'nmea') parsed = parseNmea(text, fileName);
-      else {
-        // 他社形式の CSV は先頭の書式で判別する
-        // MoTeC CSV は単位行などの構造が汎用 CSV と違うため、無効の間は汎用の読み込みに回さず断る
-        if (isMotecCsv(text) && !MOTEC_CSV_ENABLED) {
-          throw new Error(tr('MoTeC CSV の読み込みには現在対応していません', 'Loading MoTeC CSV is not supported at the moment'));
-        }
-        parsed = isRaceChronoCsv(text) ? parseRaceChronoCsv(text)
-          : isAimCsv(text) ? parseAimCsv(text)
-          : isMotecCsv(text) ? parseMotecCsv(text)
-          : parseCsv(text);
-      }
-      rawPoints = parsed.points;
-      samplingRate = parsed.samplingRate;
-      startDate = parsed.startDate;
     } else {
-      throw new Error(`${tr('未対応のファイル形式です', 'Unsupported file type')}: ${ext ? `.${ext}` : tr('(拡張子なし)', '(no extension)')}`);
-    }
-
-    if (!parts) parts = [{ points: rawPoints, samplingRate, startDate }];
-    // 位置として正しい点が 2 点に満たない走行は捨てる (違う中身のファイルを生ログなどとして読むと、でたらめな 1 点ができることがあるため)
-    const validPos = (p: any) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude) && Math.abs(p.latitude) <= 90 && Math.abs(p.longitude) <= 180 && !(p.latitude === 0 && p.longitude === 0);
-    parts = parts.filter(p => p.points.filter(validPos).length >= 2);
-    if (parts.length === 0 || parts.every(p => p.points.length === 0)) {
-      throw new Error(tr('有効なGPS位置データが見つかりませんでした', 'No valid GPS position data was found'));
+      const parsed = await parseLogBuffer(fileName, buffer, tr);
+      parts = parsed.parts;
+      meta = parsed.meta;
     }
 
     const baseName = fileName.replace(/\.[^/.]+$/, '');
@@ -955,7 +1232,7 @@ export const App: React.FC = () => {
     }
 
     // 変換ページ・動画同期から読み込んだときは、そのページに留まる (動画同期では、読み込んだ動画をそのまま見るため)
-    if (currentTabRef.current !== 'convert' && currentTabRef.current !== 'video') setCurrentTab('graph');
+    if (navStore.getSnapshot().screen !== 'convert' && navStore.getSnapshot().screen !== 'video') navStore.go('analysis');
     return added;
   };
 
@@ -1235,6 +1512,7 @@ export const App: React.FC = () => {
       currentTime={currentTimeSec}
       compareAxis={compareAxis}
       onSeekDistance={handleSeekDistance}
+      circuitName={baseSession?.circuitName}
     />
   );
   const frictionEl = (
@@ -1251,12 +1529,29 @@ export const App: React.FC = () => {
     <DriftWindow cars={activeCars} currentDistance={currentDistanceKm} />
   );
   const cornerEl = (
-    <CornerAnalysisWindow cars={activeCars} currentDistance={currentDistanceKm} onSeekDistance={handleSeekDistance} />
+    <CornerAnalysisWindow cars={activeCars} currentDistance={currentDistanceKm} onSeekDistance={handleSeekDistance} circuitName={baseSession?.circuitName} />
   );
   const brakingEl = (
     <BrakingAnalysisWindow cars={activeCars} currentDistance={currentDistanceKm} onSeekDistance={handleSeekDistance} />
   );
   const xyEl = <XYGraphWindow cars={activeCars} currentDistance={currentDistanceKm} />;
+
+  // 開発サーバーだけ: 画面の通しの試験 (e2e/) と、画面を触って調べる道具が、今の様子を読むための窓口 (公開版には入らない)
+  if (import.meta.env.DEV && typeof window !== 'undefined') {
+    (window as unknown as { __laploupe?: unknown }).__laploupe = {
+      screen: currentTab,
+      // 寸法の試験で、全部の画面を順に開くため
+      available: [...plan.available],
+      go: (s: Parameters<typeof navStore.go>[0]) => navStore.go(s),
+      clockBase,
+      currentTimeSec,
+      isPlaying,
+      sessions: sessions.map(x => ({ id: x.id, fileName: x.fileName, sessionName: x.sessionName, circuitName: x.circuitName, laps: x.laps.length })),
+      cars: selectedCars.map(c => ({ slot: c.slot, sessionId: c.sessionId, lapNumber: c.lapNumber })),
+      baseLap: baseLap ? { lapNumber: baseLap.lapNumber, startTime: baseLap.startTime, lapTime: baseLap.lapTime, isWholeSession: !!baseLap.isWholeSession } : null,
+      videos: placedVideos.map(v => ({ fileName: v.fileName, syncOffsetSec: v.syncOffsetSec, isPlaced: v.isPlaced, matchedSessionId: v.matchedSessionId }))
+    };
+  }
 
   return (
     <div
@@ -1414,20 +1709,36 @@ export const App: React.FC = () => {
         className="hidden"
       />
 
-      {/* ヘッダー */}
-      <Header
-        currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
-        sessions={sessions}
-        onOpenFile={() => fileInputRef.current?.click()}
+      {/* 外枠: デスクトップ版・iPad は左のサイドバー、ヘッダーと中身と再生の段はその右 */}
+      <div className="flex-1 min-h-0 flex flex-row">
+      {plan.chrome === 'sidebar' && !nav.locked && (
+        <Sidebar
+          items={plan.primary}
+          // データは解析の「走行とコース」から開くので、サイドバーには並べない
+          bottom={plan.more.filter(s => s !== 'data')}
+          current={currentTab}
+          // 設定をもう一度押したら閉じる (来た画面へ戻る)
+          onSelect={s => (s === 'settings' && currentTab === 'settings' ? navStore.back() : navStore.go(s))}
+          badges={{ data: sessions.length }}
+        />
+      )}
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+      {/* ヘッダー (iPhone のアプリのタイマーのタブでは出さない。タイマーが上の段を持つ) */}
+      {!(currentTab === 'timer' && profile.kind === 'app-phone') && <Header
+        plan={plan}
+        screen={currentTab}
+        badges={{ data: sessions.length }}
+        onOpenFile={openRunsOrFiles}
         onOpenDonate={() => setIsDonateModalOpen(true)}
         compact={isCompact}
-      />
+        dataOpen={dataDrawerOpen}
+        onToggleData={() => setDataDrawer(o => !o)}
+      />}
 
       {/* メインコンテンツ */}
       <main className={`relative flex-1 overflow-hidden ${isCompact ? 'p-2' : 'p-3'}`}>
         {/* ログを読み込む前のグラフ解析: 読み込み方を案内する (何もない画面で、どうすればよいか分からないため) */}
-        {currentTab === 'graph' && sessions.length === 0 && (
+        {currentTab === 'analysis' && sessions.length === 0 && (
           // 後ろの空のグラフ・コース図は隠す (動画・変換の画面と同じ見た目にする)
           <div className="absolute inset-0 z-40 bg-surface-0">
             <EmptyLoadPrompt
@@ -1440,11 +1751,13 @@ export const App: React.FC = () => {
                   'Drop a logger file (.bnx4 / .bon4 / .dtb), NMEA, CSV, VBO, GPX, AiM, iRacing or GoPro video here, or choose one with the button.')}
               buttonLabel={T('ファイルを選ぶ', 'Choose files')}
               onClick={() => fileInputRef.current?.click()}
-            />
+            >
+              {canUseRunStore() && <RecentRunsList limit={5} onOpen={r => void openRun(r)} onShowAll={showAllRuns} busy={runBusy} />}
+            </EmptyLoadPrompt>
           </div>
         )}
         {/* 計測線はあるのに周回を区切れず、ログ全体を 1 周として表示しているときの注意 (違うコースを当てはめた・計測線がコースの外にあるなど。issue #17) */}
-        {currentTab === 'graph' && baseLap?.isWholeSession && baseSession?.controlLine && wholeLapNoticeClosed !== baseSession.id && (
+        {currentTab === 'analysis' && baseLap?.isWholeSession && baseSession?.controlLine && wholeLapNoticeClosed !== baseSession.id && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 w-max max-w-[calc(100%-2rem)] flex items-start gap-2 px-3 py-2 rounded-lg text-xs text-amber-200 bg-surface-2/95 border border-amber-500/50 shadow-lg">
             <span>
               {T('計測線を 2 回以上通過していないため、周回を区切れず、ログ全体を 1 周として表示しています。データ管理で、コースと計測線の位置を確認してください。',
@@ -1456,8 +1769,8 @@ export const App: React.FC = () => {
         {/* グラフ解析タブ */}
         {isCompact ? (
           // スマートフォン: 速度ウインドウを上 (横向きでは左) に固定し、もう片方は切り替えて 1 つずつ表示する
-          <div className={`h-full w-full gap-2 overflow-hidden ${currentTab === 'graph' ? 'flex' : 'hidden'} ${isLandscape ? 'flex-row' : 'flex-col'}`}>
-            <Freeze active={currentTab === 'graph'}>
+          <div className={`h-full w-full gap-2 overflow-hidden ${currentTab === 'analysis' ? 'flex' : 'hidden'} ${isLandscape ? 'flex-row' : 'flex-col'}`}>
+            <Freeze active={currentTab === 'analysis'}>
             <div className={isLandscape ? 'w-1/2 h-full min-w-0' : 'h-[42%] min-h-[180px] shrink-0'}>
               {speedGraphEl}
             </div>
@@ -1491,9 +1804,9 @@ export const App: React.FC = () => {
         ) : (
           <div
             ref={horizSplit.containerRef}
-            className={`flex-row h-full w-full overflow-hidden select-none ${currentTab === 'graph' ? 'flex' : 'hidden'}`}
+            className={`flex-row h-full w-full overflow-hidden select-none ${currentTab === 'analysis' ? 'flex' : 'hidden'}`}
           >
-            <Freeze active={currentTab === 'graph'}>
+            <Freeze active={currentTab === 'analysis'}>
             {/* 左側 / メイン: 速度ウインドウ & アニメーション/動画 (上下分割) */}
             <div
               ref={leftVertSplit.containerRef}
@@ -1566,7 +1879,7 @@ export const App: React.FC = () => {
                       targetSessionId={baseSession?.id}
                       targetLap={baseLap}
                       isGraphEmbedded={true}
-                      isVisible={currentTab === 'graph'}
+                      isVisible={currentTab === 'analysis'}
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
                       onChooseLog={setBaseSession}
@@ -1750,7 +2063,7 @@ export const App: React.FC = () => {
                       targetSessionId={baseSession?.id}
                       targetLap={baseLap}
                       isGraphEmbedded={true}
-                      isVisible={currentTab === 'graph'}
+                      isVisible={currentTab === 'analysis'}
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
                       onChooseLog={setBaseSession}
@@ -1800,11 +2113,23 @@ export const App: React.FC = () => {
         </div>
 
         {/* データ管理タブ */}
-        <div className={`h-full w-full overflow-hidden ${currentTab === 'data' ? 'block' : 'hidden'}`}>
-          <Freeze active={currentTab === 'data'}>
+        {/* データ (走行とコース): データの画面として出すか、解析の上に引き出しとして出す (中身は 1 つ。作り直さない) */}
+        <div className={`overflow-hidden ${currentTab === 'data'
+          ? 'h-full w-full block'
+          : dataDrawerOpen
+            ? `absolute z-[45] bg-surface-0 flex flex-col ${isCompact ? 'inset-0' : 'left-0 top-0 bottom-0 w-[460px] max-w-[92%] border-r border-line-2 shadow-2xl'}`
+            : 'hidden'}`} data-testid={dataDrawerOpen ? 'data-drawer' : undefined}>
+          {dataDrawerOpen && (
+            <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-line-2">
+              <span className="text-sm font-bold text-slate-200 flex-1">{T('走行とコース', 'Runs & course')}</span>
+              <button onClick={() => setDataDrawer(false)} className="p-1.5 rounded hover:bg-surface-3 text-slate-400 cursor-pointer" aria-label={T('閉じる', 'Close')} data-testid="data-drawer-close"><X size={18} /></button>
+            </div>
+          )}
+          <div className={dataDrawerOpen ? 'flex-1 min-h-0 overflow-auto' : 'h-full w-full'}>
+          <Freeze active={currentTab === 'data' || dataDrawerOpen}>
           <DataTab
             sessions={sessions}
-            onOpenLapRun={file => { void loadFiles([file]).then(() => setCurrentTab('graph')); }}
+            onOpenLapRun={file => { setDataDrawer(false); void loadFiles([file]).then(() => navStore.go('analysis')); }}
             selectedCars={selectedCars}
             onSelectCarSlot={handleSelectCarSlot}
             onClearCarSlot={slotIndex => setSelectedCars(prev => prev.filter(c => c.slot !== slotIndex))}
@@ -1815,7 +2140,7 @@ export const App: React.FC = () => {
             userCircuitCount={userCircuitCount}
             onOpenInConvert={id => {
               setConvertSessionId(id);
-              setCurrentTab('convert');
+              navStore.go('convert');
             }}
             onRemoveSession={id => {
               polylineRequestRef.current.delete(id);
@@ -1838,6 +2163,7 @@ export const App: React.FC = () => {
             onChangeGFilterLevel={handleChangeGFilterLevel}
           />
           </Freeze>
+          </div>
         </div>
 
         {/* ログ変換タブ */}
@@ -1858,39 +2184,62 @@ export const App: React.FC = () => {
           <div className={`h-full w-full overflow-hidden ${currentTab === 'logger' ? 'block' : 'hidden'}`}>
             <Freeze active={currentTab === 'logger'}>
             <LoggerTab
-              onLoadSession={(fileName, buffer) => loadFileData(fileName, buffer)}
-              onNavigateToGraph={() => setCurrentTab('graph')}
-              active={currentTab === 'logger' && !lapTimerOpen}
-              onOpenLapTimer={() => setLapTimerOpen(true)}
+              // 落としたログも、保管場所があれば走行ごとに分けて取り込むかを聞く (聞いたときは、開く・開かないはシートの中で決まる)
+              onLoadSession={async (fileName, buffer) => {
+                if (await offerImport(fileName, buffer)) return false;
+                await loadFileData(fileName, buffer);
+                return true;
+              }}
+              onNavigateToGraph={() => navStore.go('analysis')}
+              active={currentTab === 'logger'}
+              onOpenLapTimer={() => navStore.go('timer')}
             />
             </Freeze>
           </div>
         )}
+
+        {/* 走行 (保管場所の一覧)・設定。開いたときだけ作る */}
+        {plan.available.has('library') && (
+          <LibraryScreen
+            active={currentTab === 'library'}
+            wide={profile.layout === 'wide'}
+            onOpen={r => void openRun(r)}
+            // 動画を見る: 走行を開いて (動画と同期もそろう)、動画の画面へ
+            onOpenVideo={r => void openRun(r).then(() => navStore.go('video'))}
+            // 走行がもう開いているときだけ、比べる相手として足せる
+            onAddAsCar2={sessions.length > 0 ? (r => void addRunAsCar2(r)) : undefined}
+            // 比べられるのは Car 1 と同じコースの走行だけ
+            car1Course={baseSession?.circuitName ?? null}
+            car1Run={baseSession ? ([...runSessionsRef.current].find(([, ids]) => ids.includes(baseSession.id))?.[0] ?? null) : null}
+            onPickFiles={() => fileInputRef.current?.click()}
+            onOpenFile={file => { void loadFiles([file]).then(() => navStore.go('analysis')); }}
+            canTime={plan.available.has('timer') && profile.host === 'native'}
+            busy={runBusy}
+          />
+        )}
+        {currentTab === 'settings' && <SettingsScreen plan={plan} onOpenDonate={() => setIsDonateModalOpen(true)} />}
+
+        {/* ラップタイマー。iPhone のアプリではタブの 1 つ (測っていない間はタブバーの上に収める)、ほかでは画面いっぱいに重ねる。
+            ほかの画面へ行くと閉じる (Bluetooth・画面のロック止め・向きの固定も外れる。作る順番の 4 で、測るのを画面の外へ出す) */}
+        {currentTab === 'timer' && canUseLapTimer && (
+          <LapTimerScreen
+            embedded={profile.kind === 'app-phone'}
+            onMeasuringChange={on => navStore.setLocked(on)}
+            onClose={() => navStore.back()}
+            replayLogs={sessions.map((s): ReplayLog => ({ id: s.id, name: s.sessionName || s.fileName, points: s.points, startDate: s.points[0]?.timestamp ? new Date(s.points[0].timestamp) : undefined }))}
+            // ラップタイムの記録から解析で開く (測っている途中でも、これまでどおりタイマーを閉じて開く)
+            onOpenLog={(fileName, text) => {
+              void loadFileData(fileName, null, parseNmea(text)).then(() => { navStore.setLocked(false); navStore.go('analysis'); });
+            }}
+            onOpenFile={file => {
+              void loadFiles([file]).then(() => { navStore.setLocked(false); navStore.go('analysis'); });
+            }}
+          />
+        )}
       </main>
 
-      {lapTimerOpen && canUseLapTimer && (
-        <LapTimerScreen
-          onClose={() => {
-            setLapTimerOpen(false);
-            // #laptimer で開いたときは、閉じたら外す (読み込み直したときに、また開かないように)
-            if (window.location.hash === '#laptimer') history.replaceState(null, '', window.location.pathname + window.location.search);
-          }}
-          replayLogs={sessions.map((s): ReplayLog => ({ id: s.id, name: s.sessionName || s.fileName, points: s.points, startDate: s.points[0]?.timestamp ? new Date(s.points[0].timestamp) : undefined }))}
-          onOpenLog={(fileName, text) => {
-            setLapTimerOpen(false);
-            if (window.location.hash === '#laptimer') history.replaceState(null, '', window.location.pathname + window.location.search);
-            void loadFileData(fileName, null, parseNmea(text)).then(() => setCurrentTab('graph'));
-          }}
-          onOpenFile={file => {
-            setLapTimerOpen(false);
-            if (window.location.hash === '#laptimer') history.replaceState(null, '', window.location.pathname + window.location.search);
-            void loadFiles([file]).then(() => setCurrentTab('graph'));
-          }}
-        />
-      )}
-
       {/* グラフ解析の再生の段 (シークバーと再生のボタン。動画同期の画面の下の段と同じ並び)。スマートフォンでは、この下にタブバー */}
-      {currentTab === 'graph' && baseLap && (
+      {currentTab === 'analysis' && baseLap && (
         <PlayBar
           label={baseLap.isWholeSession ? tr('全体', 'All') : `L${baseLap.lapNumber}`}
           currentTime={currentTimeSec}
@@ -1905,7 +2254,11 @@ export const App: React.FC = () => {
           compact={isCompact}
         />
       )}
-      {isCompact && <BottomTabBar currentTab={currentTab} setCurrentTab={setCurrentTab} sessionCount={sessions.length} />}
+      </div>
+      </div>
+      {plan.chrome === 'bottom' && !nav.locked && (
+        <BottomTabBar items={plan.primary} current={currentTab} onSelect={s => navStore.go(s)} badges={{ data: sessions.length }} />
+      )}
 
       {/* コース編集モーダル */}
       {isCircuitEditorOpen && (
@@ -1946,6 +2299,35 @@ export const App: React.FC = () => {
 
       {/* 開発支援 (Buy Me a Coffee) モーダル */}
       <ChoiceDialogHost />
+      {runDownload && (
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-24 z-[56] max-w-[90vw] flex items-center gap-2 px-3 py-2 rounded-full bg-surface-2/95 border border-sky-500/50 text-xs text-sky-200 shadow-lg" data-testid="run-download">
+          <span className="w-3 h-3 rounded-full border-2 border-sky-400 border-t-transparent animate-spin shrink-0" />
+          <span className="truncate">
+            {T(`動画をダウンロード中… (${runDownload.done}/${runDownload.names.length})`, `Downloading video… (${runDownload.done}/${runDownload.names.length})`)}
+          </span>
+        </div>
+      )}
+      {runsSheetOpen && (
+        <RunsSheet
+          onClose={() => setRunsSheetOpen(false)}
+          onOpen={r => void openRun(r)}
+          onPickFiles={() => { setRunsSheetOpen(false); fileInputRef.current?.click(); }}
+          busy={runBusy}
+        />
+      )}
+      {importing && (
+        <ImportSheet
+          plan={importing.plan}
+          phase={importing.phase}
+          progress={importing.progress}
+          results={importing.results}
+          onToggle={id => setImporting(s => (s && s.phase === 'confirm' ? { ...s, plan: { ...s.plan, parts: s.plan.parts.map(p => (p.id === id ? { ...p, checked: !p.checked } : p)) } } : s))}
+          onApply={() => void applyImport()}
+          onOpenOnly={() => void openImported()}
+          onOpenAfter={() => void openImported()}
+          onClose={closeImport}
+        />
+      )}
       <DonateModal
         isOpen={isDonateModalOpen}
         onClose={() => setIsDonateModalOpen(false)}

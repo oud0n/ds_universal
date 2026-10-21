@@ -1,4 +1,3 @@
 /* 設定アプリでアプリの言語を日本語にしたときの、許可を聞く文 (Info.plist と同じ) */
 "NSBluetoothAlwaysUsageDescription" = "デジスパイスから走行中の位置と速度を受け取るために Bluetooth を使います。";
 "NSLocationWhenInUseUsageDescription" = "ラップタイマーで、デジスパイスを使わずに iPhone の GPS で周を数えるときに、位置を使います。";
-"NSLocalNetworkUsageDescription" = "開発中に、Mac の開発サーバーの画面を読み込むために使います。";

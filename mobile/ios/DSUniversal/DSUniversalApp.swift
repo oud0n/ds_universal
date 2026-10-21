@@ -24,6 +24,8 @@ struct WebContainer: UIViewRepresentable {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
+        // 走行の置き場の動画・ログを lapfile://run/ で読む (RunFiles.swift)
+        config.setURLSchemeHandler(context.coordinator.lapFiles, forURLScheme: RunFiles.scheme)
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.isInspectable = true
         context.coordinator.attach(to: webView)

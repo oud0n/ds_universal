@@ -33,6 +33,18 @@ final class SystemModule {
             // ラップタイマーを開いている間、画面の自動ロックを止める
             UIApplication.shared.isIdleTimerDisabled = (params["on"] as? Bool) ?? false
             done(.success([:]))
+        case "system.motionStart":
+            // iPhone の G センサーを読み始める (MotionRecorder.swift)。値は知らせ system.motion で 0.5 秒ごとに渡す
+            let hz = (params["hz"] as? Double) ?? 50
+            let ok = MotionRecorder.shared.start(hz: hz) { [weak self] data in self?.core.emit("system.motion", data) }
+            if ok { done(.success([:])) } else { done(.failure(NativeError(.notSupported, "no motion sensor"))) }
+        case "system.motionStop":
+            MotionRecorder.shared.stop()
+            done(.success([:]))
+        case "system.setOrientation":
+            // ラップタイマーの画面の向き (Orientation.swift)
+            let mode = (params["mode"] as? String) ?? "system"
+            done(.success(["orientation": OrientationControl.shared.set(mode: mode)]))
         case "system.appendFile":
             // ラップタイマーの走行の記録を、走っている間に書類のフォルダの LapTimer/ に足していく
             guard let rel = params["path"] as? String, let url = lapTimerURL(rel),
@@ -107,6 +119,56 @@ final class SystemModule {
                 return ["path": rel, "size": size, "mtimeMs": mtime.rounded()]
             }
             done(.success(["files": files]))
+        // 走行の置き場 (選んだフォルダ、なければ LapTimer/) のファイル (RunFiles.swift。2026-10-20)
+        case "system.runRoot":
+            let (root, scoped) = RunFiles.root()
+            done(.success(["urlBase": RunFiles.urlBase, "kind": scoped ? "folder" : "local", "name": root.lastPathComponent]))
+        case "system.listRunFiles":
+            Task {
+                let files = await Task.detached(priority: .userInitiated) { RunFiles.list() }.value
+                done(.success(["files": files.map(\.dict)]))
+            }
+        case "system.readRunFile":
+            guard let rel = params["path"] as? String else { return done(.failure(NativeError(.notFound, "no path"))) }
+            Task {
+                let r: Result<Data, NativeError> = await Task.detached(priority: .userInitiated) {
+                    do { return .success(try RunFiles.read(rel)) }
+                    catch let e as NativeError { return .failure(e) }
+                    catch { return .failure(NativeError(.io, error.localizedDescription)) }
+                }.value
+                done(r.map { ["b64": $0.base64EncodedString()] })
+            }
+        case "system.writeRunFile":
+            guard let rel = params["path"] as? String, let b64 = params["b64"] as? String, let data = Data(base64Encoded: b64) else {
+                return done(.failure(NativeError(.notFound, "bad params")))
+            }
+            Task {
+                let r: Result<Bool, NativeError> = await Task.detached(priority: .userInitiated) {
+                    do { try RunFiles.write(rel, data); return .success(true) }
+                    catch let e as NativeError { return .failure(e) }
+                    catch { return .failure(NativeError(.io, error.localizedDescription)) }
+                }.value
+                done(r.map { _ in [:] })
+            }
+        case "system.readRunRange":
+            guard let rel = params["path"] as? String, let offset = params["offset"] as? Double, let length = params["length"] as? Int, offset >= 0 else {
+                return done(.failure(NativeError(.notFound, "bad params")))
+            }
+            Task {
+                let r: Result<Data, NativeError> = await Task.detached(priority: .userInitiated) {
+                    do { return .success(try RunFiles.readRange(rel, offset: UInt64(offset), length: length)) }
+                    catch let e as NativeError { return .failure(e) }
+                    catch { return .failure(NativeError(.io, error.localizedDescription)) }
+                }.value
+                done(r.map { ["b64": $0.base64EncodedString()] })
+            }
+        case "system.runFileStatus":
+            guard let rel = params["path"] as? String else { return done(.failure(NativeError(.notFound, "no path"))) }
+            done(.success(RunFiles.status(rel)))
+        case "system.downloadRunFile":
+            guard let rel = params["path"] as? String else { return done(.failure(NativeError(.notFound, "no path"))) }
+            do { try RunFiles.startDownload(rel); done(.success([:])) }
+            catch { done(.failure(NativeError(.io, error.localizedDescription))) }
         case "system.readLapFile":
             // 読めるのは走行のログと控えだけ。大きいファイル (動画など) は読まない (base64 で Web に渡すとメモリが足りなくなるため)
             let allowed = ["bon4", "nmea", "json"]
@@ -195,6 +257,8 @@ final class SystemModule {
     /// LapTimer/ の下のファイルを、選んだフォルダの同じ場所 (サーキット名/ファイル) へ写す。大きさの違うもの・ないものだけ。
     /// 写している間にもう一度頼まれたら、終わってからもう一度だけ回す (同時に 2 つは走らせない)
     private func syncLapFiles(done: @escaping (Result<[String: Any], NativeError>) -> Void) {
+        // 前の版がじかに置いた走行は、写す前に日付のフォルダへ移す (写した先でも日付のフォルダに入るように)
+        RunFiles.moveFlatRunsIntoDateFolders(in: RunFiles.lapTimerRoot)
         guard UserDefaults.standard.string(forKey: Self.storageKindKey) == "folder" else {
             done(.success(["kind": "local", "copied": 0, "skipped": 0, "failed": 0]))
             return
@@ -214,6 +278,12 @@ final class SystemModule {
             MainActor.assumeIsolated { self?.endSyncBackgroundTask() }
         }
         Task { @MainActor in
+            // 選んだフォルダにも前の版がじかに置いた走行があれば、日付のフォルダへ移す (同じ走行が 2 か所に並ばないように)
+            await Task.detached(priority: .utility) {
+                let access = dest.startAccessingSecurityScopedResource()
+                defer { if access { dest.stopAccessingSecurityScopedResource() } }
+                RunFiles.moveFlatRunsIntoDateFolders(in: dest, coordinated: true)
+            }.value
             var total = SyncResult()
             repeat {
                 syncAgain = false
@@ -262,8 +332,18 @@ final class SystemModule {
         let fm = FileManager.default
         for (file, rel) in Self.lapTimerFiles() {
             // ラップタイムの一覧の控えは端末ごとに作るので写さない (2 台で同じ控えを書いてぶつからないように)
-            if (rel as NSString).lastPathComponent == "laptimes.json" { continue }
+            let name = (rel as NSString).lastPathComponent
+            if name == "laptimes.json" { continue }
             let target = dest.appendingPathComponent(rel)
+            // 走行の動画の控え (runs.json)・コーナーの名前 (corners.json と .bak) は、選んだフォルダにまだ無いときだけ写す。
+            // 大きさで比べて写すと、選んだフォルダで直した名前・同期を、アプリの中に残った古い中身で毎回戻してしまうため
+            if name == "runs.json" || name == "corners.json" || name == "corners.json.bak" {
+                let placeholder = target.deletingLastPathComponent().appendingPathComponent(".\(name).icloud")
+                if fm.fileExists(atPath: target.path) || fm.fileExists(atPath: placeholder.path) {
+                    r.skipped += 1
+                    continue
+                }
+            }
             let srcSize = (try? fm.attributesOfItem(atPath: file.path)[.size] as? Int) ?? -1
             let dstSize = (try? fm.attributesOfItem(atPath: target.path)[.size] as? Int) ?? -2
             if srcSize == dstSize {
