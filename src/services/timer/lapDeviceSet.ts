@@ -47,6 +47,8 @@ export class LapDeviceSet {
   private links: DeviceLink[] = [];
   private recorders = new Map<string, SensorCsvRecorder>();
   private cameraRunning = false;
+  /** 測り始めたが、カメラがまだつながっていない (つながったら録画を始める) */
+  private pendingCameraStart: Date | null = null;
   private statuses: LapDeviceStatus[] = [];
   private listeners = new Set<() => void>();
   /** つないでいる位置の機器 (null: 位置の機器は使っていない)。undefined: つないでいない */
@@ -104,7 +106,11 @@ export class LapDeviceSet {
     for (const d of wanted) {
       const link = new DeviceLink(d, central);
       this.links.push(link);
-      link.onState(s => this.update(d.id, { state: s, ok: s === 'connected' }));
+      link.onState(s => {
+        this.update(d.id, { state: s, ok: s === 'connected' });
+        // 測定開始のあとにつながったカメラは、つながったところで録画を始める
+        if (s === 'connected' && d.kind === 'gopro' && this.pendingCameraStart) this.startCamera(link, this.pendingCameraStart);
+      });
       link.onSample((s: DeviceSample) => this.onSample(d, s));
       void link.connect().catch(e => this.update(d.id, { state: 'disconnected', text: e instanceof Error ? e.message : String(e) }));
     }
@@ -130,6 +136,7 @@ export class LapDeviceSet {
     if (this.connectedPosition === undefined) return;
     this.generation++;
     this.connectedPosition = undefined;
+    this.pendingCameraStart = null;
     const current = this.links;
     this.links = [];
     this.setStatuses([]);
@@ -161,13 +168,17 @@ export class LapDeviceSet {
     for (const r of this.recorders.values()) void r.flush();
   }
 
-  /** 走り始めた: カメラの時計を合わせて録画を始める (1 回の走行で 1 回) */
+  /** 走り始めた: カメラの時計を合わせて録画を始める (1 回の走行で 1 回)。まだつながっていないカメラは、つながったときに始める */
   startRun(at: Date): void {
     if (this.cameraRunning) return;
+    this.pendingCameraStart = at;
     const cams = this.links.filter(l => l.device.kind === 'gopro' && l.state === 'connected');
-    if (cams.length === 0) return;
+    for (const c of cams) this.startCamera(c, at);
+  }
+
+  private startCamera(c: DeviceLink, at: Date): void {
     this.cameraRunning = true;
-    for (const c of cams) void c.goproSetTime(at).catch(() => {}).then(() => c.goproShutter(true)).catch(() => {});
+    void c.goproSetTime(at).catch(() => {}).then(() => c.goproShutter(true)).catch(() => {});
   }
 
   /** 周を終えた: 動画に印を付ける */
@@ -178,6 +189,7 @@ export class LapDeviceSet {
 
   /** 走行を終えた (周を数え直す): 録画を止め、センサーの値を書き、次の走行の .csv に替える */
   stopRun(): void {
+    this.pendingCameraStart = null;
     if (this.cameraRunning) {
       this.cameraRunning = false;
       for (const c of this.links.filter(l => l.device.kind === 'gopro')) void c.goproShutter(false).catch(() => {});
