@@ -2,7 +2,7 @@ import React from 'react';
 import { useLandscape } from '../hooks/useCompactLayout';
 import { useT } from '../utils/i18n';
 import type { Screen } from '../app/navPlan';
-import { SCREEN_META } from '../app/screenMeta';
+import { SCREEN_META, screenLabel } from '../app/screenMeta';
 
 /** スマートフォン用の画面下のタブバー (親指で届く位置に置く)。並べる画面は組み方 (app/navPlan.ts) で決める */
 export const BottomTabBar: React.FC<{
@@ -20,7 +20,8 @@ export const BottomTabBar: React.FC<{
   return (
     <nav className={`shrink-0 flex border-t pb-[env(safe-area-inset-bottom)] ${dark ? 'bg-black border-white/15' : 'bg-surface-1 border-line-1'}`} data-testid="bottom-tabs">
       {items.map(id => {
-        const { short, Icon } = SCREEN_META[id];
+        const { Icon } = SCREEN_META[id];
+        const short = screenLabel(id, true);
         const badge = badges?.[id];
         return (
           <button

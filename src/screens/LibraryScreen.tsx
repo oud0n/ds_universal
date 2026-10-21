@@ -50,9 +50,10 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
     const m = new Map<string, { label: string; count: number }>();
     for (const r of runs ?? []) {
       const cur = m.get(r.folder);
-      m.set(r.folder, { label: r.courseName ?? r.folder, count: (cur?.count ?? 0) + 1 });
+      m.set(r.folder, { label: r.courseName ?? (r.folder === 'unsorted' ? t('未分類', 'Unsorted') : r.folder), count: (cur?.count ?? 0) + 1 });
     }
     return [...m.entries()];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runs]);
   const filtered = useMemo(() => (runs ?? []).filter(r => !folder || r.folder === folder), [runs, folder]);
   const selected = filtered.find(r => `${r.folder}/${r.file}` === selectedKey) ?? null;
@@ -211,7 +212,7 @@ const RunDetail: React.FC<{
     <div className="flex-1 min-h-0 flex flex-col" data-testid="run-detail">
       <div className="px-4 py-3 border-b border-line-2 flex items-start gap-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold text-slate-100">{fmtDate(run.startMs, ja)} {run.courseName ?? run.folder}</div>
+          <div className="text-sm font-bold text-slate-100">{fmtDate(run.startMs, ja)} {run.courseName ?? (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</div>
           <div className="text-xs text-slate-400 mt-0.5">
             {run.pending
               ? t('☁️ iCloud にだけあるので、開くと周を数えます', '☁️ Only in iCloud; laps are counted when opened')
@@ -269,7 +270,7 @@ const RunDetail: React.FC<{
       </div>
       <div className="shrink-0 flex gap-2 px-4 py-3 border-t border-line-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <button onClick={onOpen} disabled={busy} className="flex-1 inline-flex items-center justify-center gap-1.5 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm cursor-pointer disabled:opacity-50" data-testid="run-open-analysis">
-          <BarChart2 size={16} />{t('解析で開く', 'Open in Graph')}
+          <BarChart2 size={16} />{t('解析で開く', 'Open in Analysis')}
         </button>
         <button onClick={onOpenVideo} disabled={busy || videos.length === 0} className="flex-1 inline-flex items-center justify-center gap-1.5 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm cursor-pointer disabled:opacity-40" data-testid="run-open-video">
           <Video size={16} />{t('動画を見る', 'Watch video')}

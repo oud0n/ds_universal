@@ -4,7 +4,7 @@ import type { ThemeSetting } from '../utils/theme';
 import { BleStatusPill } from './BleLoggerCard';
 import { useT, type LangSetting } from '../utils/i18n';
 import type { NavPlan, Screen } from '../app/navPlan';
-import { SCREEN_META } from '../app/screenMeta';
+import { SCREEN_META, screenLabel } from '../app/screenMeta';
 import { navStore } from '../app/navStore';
 import { hasNative } from '../native/bridge';
 import { desktopDownloadUrl, isBrowserVersionOnPc } from '../utils/desktopApp';
@@ -59,17 +59,17 @@ export const Header: React.FC<HeaderProps> = ({
         {secondary && screen !== 'settings' ? (
           <button onClick={() => navStore.back()} className="flex items-center gap-1 text-sm text-slate-200 px-1 py-1.5 rounded" data-testid="nav-back">
             <ChevronLeft size={18} />
-            {t(...SCREEN_META[screen].label)}
+            {t(...screenLabel(screen))}
           </button>
         ) : screen === 'library' || screen === 'settings' ? (
-          <span className="text-sm font-bold text-slate-200 px-1">{t(...SCREEN_META[screen].label)}</span>
+          <span className="text-sm font-bold text-slate-200 px-1">{t(...screenLabel(screen))}</span>
         ) : (
           <button
             onClick={onOpenFile}
             className="flex items-center gap-1.5 text-xs bg-red-600 text-white font-bold px-3 py-1.5 rounded"
           >
             <FolderOpen size={16} />
-            {t('読込', 'Open')}
+            {t('ファイルを開く', 'Open file')}
           </button>
         )}
 
@@ -97,7 +97,8 @@ export const Header: React.FC<HeaderProps> = ({
       {plan.chrome === 'top' ? (
         <div className="flex min-w-0 bg-surface-2 p-0.5 rounded border border-line-2">
           {plan.primary.map(id => {
-            const { label, Icon } = SCREEN_META[id];
+            const { Icon } = SCREEN_META[id];
+    const label = screenLabel(id);
             const badge = badges?.[id];
             return (
               <button
@@ -125,7 +126,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       ) : (
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-sm font-bold text-slate-200 truncate">{t(...SCREEN_META[screen].label)}</span>
+          <span className="text-sm font-bold text-slate-200 truncate">{t(...screenLabel(screen))}</span>
           {plan.available.has('logger') && <BleStatusPill onClick={() => go('logger')} />}
         </div>
       )}
@@ -134,16 +135,18 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* ファイル操作 (フラットデザイン) */}
       <div className="flex items-center gap-2 shrink-0 ml-2">
-        {/* ファイル読み込み */}
-        <button
-          onClick={onOpenFile}
-          className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-500 text-white font-bold px-3 py-1.5 rounded whitespace-nowrap transition-colors cursor-pointer"
-          title={t('ファイル読込', 'Open file')}
-          aria-label={t('ファイル読込', 'Open file')}
-        >
-          <FolderOpen size={13} />
-          <span className="hidden md:inline">{t('ファイル読込', 'Open file')}</span>
-        </button>
+        {/* ファイルを開く (走行・設定の画面では出さない。走行の画面には下に同じボタンがある) */}
+        {screen !== 'library' && screen !== 'settings' && (
+          <button
+            onClick={onOpenFile}
+            className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-500 text-white font-bold px-3 py-1.5 rounded whitespace-nowrap transition-colors cursor-pointer"
+            title={t('ファイルを開く', 'Open file')}
+            aria-label={t('ファイルを開く', 'Open file')}
+          >
+            <FolderOpen size={13} />
+            <span className="hidden md:inline">{t('ファイルを開く', 'Open file')}</span>
+          </button>
+        )}
 
         {/* デスクトップ版の案内 (パソコンのブラウザ版だけ。デスクトップ版・iPhone アプリの中では出さない) */}
         {isBrowserVersionOnPc() && (
@@ -158,8 +161,8 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        {/* 開発支援 / Buy Me a Coffee */}
-        {onOpenDonate && (
+        {/* 開発支援 / Buy Me a Coffee (サイドバーの組み方では設定の画面にあるので出さない) */}
+        {onOpenDonate && plan.chrome !== 'sidebar' && (
           <button
             onClick={onOpenDonate}
             className="flex items-center gap-1.5 text-xs bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 hover:text-amber-200 border border-amber-500/30 hover:border-amber-400/50 font-medium px-2.5 py-1.5 rounded transition-colors cursor-pointer"

@@ -256,7 +256,8 @@ export const App: React.FC = () => {
   /** 走行の一覧を出す: 走行の画面がある組み方ならそこへ、なければ重ねて出す */
   const showAllRuns = () => (plan.available.has('library') ? navStore.go('library') : setRunsSheetOpen(true));
   /** 読み込みのボタン: 保管場所があれば走行の一覧、なければファイルを選ぶ */
-  const openRunsOrFiles = () => (canUseRunStore() ? showAllRuns() : fileInputRef.current?.click());
+  // 走行の画面がある組み方では、ファイルを選ぶ (走行の一覧はタブ・サイドバーから)。ない組み方で保管場所があれば、走行の一覧を重ねて出す
+  const openRunsOrFiles = () => (!plan.available.has('library') && canUseRunStore() ? setRunsSheetOpen(true) : fileInputRef.current?.click());
   // 開発サーバーで試すとき: #openrun=<フォルダ>/<ファイル> で、その走行を開く (画面を押せないシミュレーターで確かめるため)
   useEffect(() => {
     if (import.meta.env.DEV && window.location.hash === '#runsheet') {

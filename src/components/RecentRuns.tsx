@@ -55,7 +55,7 @@ export const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 text-xs">
           <span className="font-mono text-slate-200 shrink-0">{fmtDate(run.startMs, ja)}</span>
-          <span className="text-slate-400 truncate">{run.courseName ?? run.folder}</span>
+          <span className="text-slate-400 truncate">{run.courseName ?? (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</span>
         </div>
         <div className="flex items-center gap-3 mt-1 text-xs">
           {!run.pending && run.courseName === null ? (
