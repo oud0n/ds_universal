@@ -57,3 +57,41 @@ describe.skipIf(!existsSync(NIKKO) || !existsSync(TC))('取り込みの案: 実�
     expect(main[1].sparkline.length).toBeGreaterThan(10);
   });
 });
+
+import { applyPlan, memoryWriter, nmeaSlice } from './importApply';
+
+describe.skipIf(!existsSync(NIKKO) || !existsSync(TC))('取り込み: 書く (実際のログ)', () => {
+  it('印を付けた走行だけ書き、NMEA は元の文をそのまま写す。元のファイルは 取り込み元/ に 1 回だけ', async () => {
+    const nikko = readFileSync(NIKKO, 'utf8');
+    const text = nikko + readFileSync(TC, 'utf8');
+    const bytes = new TextEncoder().encode(text);
+    const parsed = await parseLogBuffer('both.nmea', bytes.buffer, tr);
+    const plan = planImport(parsed, 'both.nmea', new Set());
+    const writer = memoryWriter();
+    const { results, sourceWritten } = await applyPlan(plan, { name: 'both.nmea', bytes }, writer, { writeBon4: true });
+    expect(sourceWritten).toBe(true);
+    expect(writer.files.has('取り込み元/both.nmea')).toBe(true);
+    const nikkoOut = [...writer.files.keys()].find(k => k.startsWith('nikko/'))!;
+    const written = new TextDecoder().decode(writer.files.get(nikkoOut));
+    // 元の日光の文と同じ (書き換えない)。.bon4 は元が NMEA なので作らない
+    const rmcCount = (s: string) => (s.match(/\$G[NP]RMC,/g) ?? []).length;
+    expect(rmcCount(written)).toBe(rmcCount(nikko));
+    expect([...writer.files.keys()].some(k => k.endsWith('.bon4'))).toBe(false);
+    expect(results.every(r => !r.error)).toBe(true);
+    // 2 回目は、どれも書かない (もうある)
+    const again = await applyPlan(plan, { name: 'both.nmea', bytes }, writer, { writeBon4: true });
+    expect(again.results.every(r => r.written.length === 0)).toBe(true);
+    expect(again.sourceWritten).toBe(false);
+  });
+
+  it('NMEA の時間の切り出し: 範囲の外の文は入れない', () => {
+    const nikko = readFileSync(NIKKO, 'utf8');
+    const first = nikko.split('\n').find(l => /^\$G[NP]RMC,/.test(l))!;
+    const f = first.split(',');
+    const t0 = Date.UTC(2000 + +f[9].slice(4, 6), +f[9].slice(2, 4) - 1, +f[9].slice(0, 2), +f[1].slice(0, 2), +f[1].slice(2, 4), 0) + parseFloat(f[1].slice(4)) * 1000;
+    const out = nmeaSlice(nikko, t0, t0 + 10_000);
+    const n = (out.match(/\$G[NP]RMC,/g) ?? []).length;
+    expect(n).toBeGreaterThan(5);
+    expect(n).toBeLessThan(300);
+  });
+});
