@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
-import { LAP_INDEX_CHECKPOINT, courseHash, lapKey, groupBon4ByFolder, lapRows, lapsFromBon4, reconcileFolder, setHidden, setRunVideos, videosInFolder, type LapCourse, type LapRecord } from './lapIndex';
+import { LAP_INDEX_CHECKPOINT, courseHash, lapKey, groupBon4ByFolder, groupRunsByFolder, lapRows, lapsFromBon4, lapsFromNmea, reconcileFolder, setHidden, setRunVideos, videosInFolder, type LapCourse, type LapRecord } from './lapIndex';
 import { CIRCUIT_PRESETS } from './circuitDatabase';
 
 const line = (lat: number) => ({ name: 'x', latA: lat, lonA: 140, latB: lat + 0.0001, lonB: 140.0001 });
@@ -214,5 +214,50 @@ describe('レビューで直したこと', () => {
       { path: 'sodegaura/20261024/GX010001.MP4', size: 1, mtimeMs: 0 }
     ]);
     expect(g.get('sodegaura')?.map(f => f.path)).toEqual(['sodegaura/20261024/20261024100000.bon4', 'sodegaura/20260913092357.bon4']);
+  });
+});
+
+// 同じ走行の .bon4 と .nmea (iCloud の保管場所にあるとき)
+const PAIR = `${process.env.HOME}/Library/Mobile Documents/com~apple~CloudDocs/LapLoupe/sodegaura/20260913/20260913092357`;
+describe.skipIf(!existsSync(`${PAIR}.bon4`) || !existsSync(`${PAIR}.nmea`))('同じ走行の .bon4 と .nmea', () => {
+  it('どちらから数えても、周の数・タイム・始まりが同じ', () => {
+    const preset = CIRCUIT_PRESETS.find(p => p.id === 'sodegaura')!;
+    const course = { name: preset.name, controlLine: preset.controlLine!, sectors: preset.sectors };
+    const a = lapsFromBon4('x.bon4', new Uint8Array(readFileSync(`${PAIR}.bon4`)), course);
+    const b = lapsFromNmea('x.nmea', new Uint8Array(readFileSync(`${PAIR}.nmea`)), course);
+    expect(b.laps.length).toBe(a.laps.length);
+    b.laps.forEach((l, i) => {
+      expect(l.n).toBe(a.laps[i].n);
+      expect(l.part).toBe(a.laps[i].part);
+      expect(Math.abs(l.time - a.laps[i].time)).toBeLessThan(0.06);
+      expect(Math.abs(l.startMs - a.laps[i].startMs)).toBeLessThan(100);
+    });
+  });
+});
+
+describe('走行の基準のファイル (.nmea を先に)', () => {
+  it('同じ名前の .nmea と .bon4 は 1 つの走行で、.nmea を選ぶ。.nmea が iCloud にだけなら .bon4', () => {
+    const g = groupRunsByFolder([
+      { path: 'sodegaura/20260101/a.bon4', size: 1, mtimeMs: 1 },
+      { path: 'sodegaura/20260101/a.nmea', size: 3, mtimeMs: 1 },
+      { path: 'sodegaura/20260101/b.bon4', size: 1, mtimeMs: 1 },
+      { path: 'sodegaura/20260101/c.nmea', size: 3, mtimeMs: 1 },
+      { path: 'sodegaura/20260101/d.nmea', size: 3, mtimeMs: 1, local: false },
+      { path: 'sodegaura/20260101/d.bon4', size: 1, mtimeMs: 1, local: true }
+    ]);
+    expect(g.get('sodegaura')!.map(f => f.path).sort()).toEqual([
+      'sodegaura/20260101/a.nmea', 'sodegaura/20260101/b.bon4', 'sodegaura/20260101/c.nmea', 'sodegaura/20260101/d.bon4'
+    ]);
+  });
+
+  it('.bon4 で数えていた走行を .nmea で数え直しても、隠した周の印と動画を引き継ぐ', async () => {
+    const table = { 'a.bon4': [lap(1, 1000), lap(2, 91000)], 'a.nmea': [lap(1, 1000), lap(2, 91000)] };
+    const f = fakeCompute(table);
+    const first = await reconcileFolder('sodegaura', [{ path: 'sodegaura/a.bon4', size: 100, mtimeMs: 1 }], course, null, read, f.compute);
+    const withVideo = setRunVideos(setHidden(first.index, 'a.bon4', undefined, 2, true), 'a.bon4', ['GX01.MP4']);
+    const next = await reconcileFolder('sodegaura', [{ path: 'sodegaura/a.nmea', size: 300, mtimeMs: 2 }], course, withVideo, read, f.compute);
+    expect(Object.keys(next.index.files)).toEqual(['a.nmea']);
+    expect(next.index.hidden).toEqual([{ file: 'a.nmea', n: 2, startMs: 91000 }]);
+    expect(next.index.files['a.nmea'].videos).toEqual(['GX01.MP4']);
   });
 });

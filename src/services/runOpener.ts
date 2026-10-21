@@ -10,7 +10,7 @@
 
 import type { Session } from '../types/telemetry';
 import { loadLapHistory } from './lapHistory';
-import { LAP_INDEX_FILE, isRunVideoName, lapKey, parseLapIndex, setHidden, type LapRecord } from './lapIndex';
+import { LAP_INDEX_FILE, groupRunsByFolder, isRunVideoName, lapKey, parseLapIndex, runStem, setHidden, type LapRecord } from './lapIndex';
 import { readRunsFile, updateRun, type RunEntry } from './runsFile';
 import type { RunFileInfo, RunStore } from './runStore';
 import { parseVideoMetadata } from './videoMetadataParser';
@@ -64,27 +64,28 @@ export async function listRuns(store: RunStore, onProgress?: (folder: string) =>
   const folders = await loadLapHistory(listed, onProgress);
   // フォルダごとの動画と .bon4 を先に 1 回だけ分けておく (走行ごとに全部のファイルを探すと、数千件で遅くなる)
   const videosByDir = new Map<string, RunFileInfo[]>();
-  const bon4ByDir = new Map<string, string[]>();
+  // 走行の基準のファイル (.nmea、無ければ .bon4。同じ名前の 2 つは 1 つの走行)
+  const runsByFolder = groupRunsByFolder(all);
   const remoteOnly = new Set(all.filter(x => x.local === false).map(x => x.path));
   for (const x of all) {
     const dir = dirName(x.path);
     if (isRunVideoName(baseName(x.path))) {
       const list = videosByDir.get(dir);
       if (list) list.push(x); else videosByDir.set(dir, [x]);
-    } else if (/\.bon4$/i.test(x.path)) {
-      const top = x.path.slice(0, x.path.indexOf('/'));
-      const list = bon4ByDir.get(top);
-      if (list) list.push(x.path); else bon4ByDir.set(top, [x.path]);
     }
   }
   const out: RunItem[] = [];
   for (const f of folders) {
     const runs = await readRunsFile(store, f.folder);
     const hidden = new Set((f.index?.hidden ?? []).map(h => lapKey(h.file, h.part, h.n)));
-    const names = new Set([
-      ...Object.keys(f.index?.files ?? {}),
-      ...(bon4ByDir.get(f.folder) ?? []).map(path => path.slice(f.folder.length + 1))
-    ]);
+    // 控えにある走行と、フォルダにある走行 (同じ走行は 1 つに。控えの古い .bon4 の名前より、今の基準のファイルを使う)
+    const byStem = new Map<string, string>();
+    for (const k of Object.keys(f.index?.files ?? {})) byStem.set(`${dirName(k)}|${runStem(k)}`, k);
+    for (const x of runsByFolder.get(f.folder) ?? []) {
+      const rel = x.path.slice(f.folder.length + 1);
+      byStem.set(`${dirName(rel)}|${runStem(rel)}`, rel);
+    }
+    const names = new Set(byStem.values());
     for (const file of names) {
       if (!/^(\d{8}\/)?[^/]+$/.test(file)) continue;
       const runDir = dirName(`${f.folder}/${file}`);
@@ -97,7 +98,10 @@ export async function listRuns(store: RunStore, onProgress?: (folder: string) =>
       const allLaps = (rec?.laps ?? []).map(l => ({ ...l, hidden: hidden.has(lapKey(file, l.part, l.n)) }));
       const laps = allLaps.filter(l => !l.hidden);
       // 日付のフォルダへ移す前に書いた行は、ファイルの名前だけで引く
-      const entry = runs.runs[file] ?? runs.runs[baseName(file)] ?? null;
+      // .bon4 を基準にしていたころの行も引く (同じ走行の名前で)
+      const entry = runs.runs[file] ?? runs.runs[baseName(file)]
+        ?? Object.entries(runs.runs).find(([k]) => runStem(k) === runStem(file) && dirName(k) === dirName(file))?.[1]
+        ?? Object.entries(runs.runs).find(([k]) => runStem(k) === runStem(file) && !k.includes('/'))?.[1] ?? null;
       const videos = entry?.videos ?? rec?.videos ?? [];
       out.push({
         folder: f.folder,
