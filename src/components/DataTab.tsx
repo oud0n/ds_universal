@@ -411,7 +411,7 @@ export const DataTab: React.FC<DataTabProps> = ({
           <FileText size={48} className="mx-auto mb-3 text-slate-600" />
           <p className="text-sm font-medium">{t('走行データが読み込まれていません', 'No driving data loaded')}</p>
           <p className="text-xs text-slate-500 mt-1">
-            {t('ここをタップ（クリック）するか、上部の「ファイル読込」から、デジスパイス生ログ (.bnx4, .binx) や .dtb, .csv, .nmea などのログファイルを開いてください。', 'Tap (click) here or use "Open file" at the top to open a log file such as a DigSpice raw log (.bnx4, .binx), .dtb, .csv or .nmea.')}
+            {t('ここをタップ（クリック）するか、画面の上の「ファイルを開く」（スマートフォンは「開く」）から、デジスパイス生ログ (.bnx4, .binx) や .dtb, .csv, .nmea などのログファイルを開いてください。', 'Tap (click) here or use "Open file" at the top to open a log file such as a DigSpice raw log (.bnx4, .binx), .dtb, .csv or .nmea.')}
           </p>
         </button>
       ) : (

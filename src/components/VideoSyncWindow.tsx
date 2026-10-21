@@ -1716,7 +1716,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         const curVal = isLapMode ? effectiveSessionTime - baseLap.startTime : effectiveSessionTime;
 
         return (
-          <div className="bg-surface-1 border-t border-line-1 px-3 py-1 flex items-center justify-between gap-2.5 shrink-0 select-none">
+          <div className="touch-toolbar bg-surface-1 border-t border-line-1 px-3 py-1 flex items-center justify-between gap-2.5 shrink-0 select-none">
             {/* スコープ切替スイッチ (Lap / Session)。グラフ画面では周だけ */}
             {baseLap && !isGraphEmbedded && (
               <div className="flex items-center rounded border border-line-2 bg-surface-2 text-[10px] overflow-hidden shrink-0">
@@ -1783,7 +1783,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       {/* 6. 下部同期調整 ＆ 再生コントロールバー (フラットデザイン)。グラフ解析に埋め込んだときは、再生のボタンはグラフ解析の下の段に任せ、
           同期の調整を出すときだけこの段を出す */}
       {(!isGraphEmbedded || !baseLap || (activeTrack && (!isCompactLayout || showSyncTools))) && (
-      <div className="min-h-12 py-1 bg-surface-1 border-t border-line-1 px-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 shrink-0">
+      <div className="touch-toolbar min-h-12 py-1 bg-surface-1 border-t border-line-1 px-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 shrink-0">
         {/* 再生ボタン群 */}
         {/* グラフ解析で周を選んでいるときは、グラフ解析の下の段に任せる (周がないときは、その段が出ないのでここに出す) */}
         {!(isGraphEmbedded && baseLap) && (

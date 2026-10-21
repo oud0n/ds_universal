@@ -29,7 +29,7 @@ export const BottomTabBar: React.FC<{
             onClick={() => onSelect(id)}
             aria-current={current === id ? 'page' : undefined}
             className={`flex-1 flex items-center justify-center font-bold transition-colors ${
-              landscape ? 'flex-row gap-2 py-1 text-xs' : 'flex-col gap-0.5 py-2 text-[11px]'
+              landscape ? 'flex-row gap-2 py-1.5 text-xs' : 'flex-col gap-0.5 py-2 text-[11px]'
             } ${current === id ? 'text-red-500' : dark ? 'text-white/50' : 'text-slate-400'}`}
             data-testid={`nav-${id}`}
           >

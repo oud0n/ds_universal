@@ -816,7 +816,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
       {/* 狭いときはボタン単位で折り返す (文字の途中で折れないよう nowrap)。見出しは出さない (切り替えのないウインドウなので) */}
-      <div className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-1 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0 ${compact ? 'px-2 py-1' : 'px-3 py-1.5'}`}>
+      <div className={`touch-toolbar flex flex-wrap items-center justify-between gap-x-2 gap-y-1 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0 ${compact ? 'px-2 py-1' : 'px-3 py-1.5'}`}>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
 
           {/* カラーモード切替 */}
