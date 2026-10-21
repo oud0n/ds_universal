@@ -541,7 +541,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const hasStage = isCompare ? tileCount > 0 : !!(activeTrack && activeTrack.objectUrl);
   // グラフ解析に埋め込んだときは、タイムゾーン・再同期の段とタイムラインを、ボタンで開くまで隠す。
   // 狭い枠ではこれらの段が場所を使い切り、動画の映る部分の高さが 0 になっていた (BUG-19)。同期の調整は動画同期の画面でもできる
-  const [showSyncTools, setShowSyncTools] = useState(!isGraphEmbedded && !isCompactLayout);
+  // 合わせる (同期) の道具を出しているか。動画の画面は「見る」から始める (PLAN-24 の作る順番の 5。ずれが大きいときは帯を出す)
+  const [showSyncTools, setShowSyncTools] = useState(false);
   // 走行の確認 (RunsInspector) を開いているか
   const [showRuns, setShowRuns] = useState(false);
   // GoPro の動画の GPS も走行ログとして加えるか (次に読み込む動画から効く) LATER-12
@@ -1061,7 +1062,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
           {/* グラフ解析に埋め込んだときだけ: タイムゾーン・再同期の段とタイムラインを開く / 閉じる。
               狭い枠で右側が切れても押せるよう、いちばん左に置く */}
-          {(isGraphEmbedded || isCompactLayout) && activeTrack && (
+          {isGraphEmbedded && activeTrack && (
             <button
               onClick={() => setShowSyncTools(v => !v)}
               aria-pressed={showSyncTools}
@@ -1083,8 +1084,37 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             </span>
           )}
 
-          {/* モード: マルチカメラ (同じ時刻のカメラを並べる) / 走行比較 (比較の車が同じ地点を走った時刻) */}
-          {media.length > 0 && (
+          {/* 動画の画面のモード: 見る / 比べる / 合わせる / 書き出す (PLAN-24 の作る順番の 5。動画は作り直さず、出す道具だけ替える)。
+              スマートフォンは 見る / 比べる / 合わせる */}
+          {!isGraphEmbedded && (media.length > 0 || baseSession) && (
+            <div className={`flex items-center rounded border border-line-3 bg-surface-3 overflow-hidden shrink-0 ${phoneToolbar ? 'order-1' : ''}`} role="tablist" data-testid="video-modes">
+              {([
+                ['watch', t('見る', 'Watch'), !isCompare && !showSyncTools, () => { setWin({ mode: 'cameras' }); setShowSyncTools(false); }, media.length > 0],
+                ['compare', t('比べる', 'Compare'), isCompare, () => {
+                  if (!hasCompareCar && autoCompareLap && baseSession) onPickCompareLap?.(baseSession.id, autoCompareLap.lapNumber);
+                  setWin({ mode: 'compare', focus: null });
+                  setShowSyncTools(false);
+                }, canCompare],
+                ['sync', t('合わせる', 'Sync'), !isCompare && showSyncTools, () => { setWin({ mode: 'cameras' }); setShowSyncTools(true); }, !!activeTrack],
+                ...(!phoneToolbar ? [['export', t('書き出す', 'Export'), false, () => setShowExportModal(true), !!(activeTrack || baseSession)] as const] : [])
+              ] as const).map(([id, label, on, onClick, enabled]) => (
+                <button
+                  key={id}
+                  role="tab"
+                  aria-selected={on}
+                  onClick={onClick}
+                  disabled={!enabled}
+                  className={`px-2.5 py-1 text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-40 ${on ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                  data-testid={`video-mode-${id}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* モード: マルチカメラ (同じ時刻のカメラを並べる) / 走行比較 (比較の車が同じ地点を走った時刻)。グラフ解析に埋め込んだときだけ */}
+          {isGraphEmbedded && media.length > 0 && (
             <div className="flex items-center rounded border border-line-3 bg-surface-3 overflow-hidden shrink-0">
               <button
                 onClick={() => setWin({ mode: 'cameras' })}
@@ -1243,8 +1273,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         <div className={phoneToolbar ? 'contents' : 'flex items-center gap-1.5'}>
           {/* スマートフォンでは、ここで 2 段目にする (上の段: 同期の調整・ログ・モード・メーターの表示) */}
           {phoneToolbar && <div className="order-2 basis-full h-0" aria-hidden />}
-          {/* 手動キーフレーム同期 (ピン留め) ボタン */}
-          {activeTrack && (
+          {/* 手動キーフレーム同期 (ピン留め) ボタン (動画の画面では「合わせる」のときだけ) */}
+          {activeTrack && (isGraphEmbedded || showSyncTools) && (
             <button
               onClick={() => setShowPinModal(true)}
               className={`flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-4 text-xs text-amber-300 border border-amber-500/40 transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
@@ -1257,7 +1287,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
           {/* テレメトリ動画書き出し (MP4 Burn-in) ボタン。動画がなくても、ログがあればメーターだけを書き出せる。
               スマートフォンでは出さない (書き出しはパソコン向け。スマートフォンの動画は「見る」と「合わせる」だけ。PLAN-24 の D5) */}
-          {(activeTrack || baseSession) && !phoneToolbar && (
+          {(activeTrack || baseSession) && !phoneToolbar && isGraphEmbedded && (
             <button
               onClick={() => setShowExportModal(true)}
               className={`flex items-center gap-1 px-2 py-1 rounded bg-red-700 hover:bg-red-600 text-xs font-bold text-white transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
@@ -1793,7 +1823,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         )}
 
         {/* 同期オフセット微調整 & ピン選択。スマートフォンでは「同期の調整」を開いたときだけ出す (場所を取るため) */}
-        {activeTrack && (!isCompactLayout || showSyncTools) && (
+        {/* ずれの数字・コマ送り・ピン (動画の画面では「合わせる」のときだけ。グラフ解析に埋め込んだときは今までどおり) */}
+        {activeTrack && (showSyncTools || (isGraphEmbedded && !isCompactLayout)) && (
           <div className="flex flex-wrap items-center gap-2 text-xs bg-surface-3 px-3 py-1 rounded border border-line-2">
             {/* 登録済みピンのクイックジャンプドロップダウン */}
             {pins.length > 0 && (
