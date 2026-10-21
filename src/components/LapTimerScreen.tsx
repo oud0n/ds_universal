@@ -403,7 +403,9 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     }
     // RaceBox・Drogger の測位は、機器の部品 (useLapDevices) が handleFix へ渡す
     if (source === 'racebox' || source === 'drogger') return;
-    // ログの再生: 読み込んだ走行の点を、時刻のとおり (速さの倍率をかけて) 渡す
+    // ログの再生: 読み込んだ走行の点を、時刻のとおり (速さの倍率をかけて) 渡す。
+    // 自分で選んだのでなければ、コースは選び直す (前に再生したログのコースのままにしない)
+    if (!manualCourseRef.current) chooseCourse(null);
     return replayFeed(replayLogs.find(l => l.id === replayId), replaySpeed, handleFix);
     // replayLogs は、開いている間は変わらない前提 (変わっても再生中のログは続ける)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -537,7 +539,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     if (source === 'phone') {
       if (phoneInfo.error) return { ok: false, text: phoneInfo.error };
       const acc = phoneInfo.accuracy;
-      return { ok: acc !== null && acc <= 30, text: acc === null ? t('iPhone の GPS: 測位待ち', 'Phone GPS: waiting') : t(`iPhone の GPS ±${Math.round(acc)} m (1 Hz 前後・粗い)`, `Phone GPS ±${Math.round(acc)} m (~1 Hz, coarse)`) };
+      return { ok: acc !== null && acc <= 30, text: acc === null ? (hasNative() ? t('iPhone の GPS: 測位待ち', 'Phone GPS: waiting') : t('この端末の GPS: 測位待ち', 'Device GPS: waiting')) : t(`${hasNative() ? 'iPhone' : 'この端末'} の GPS ±${Math.round(acc)} m (1 Hz 前後・粗い)`, `Phone GPS ±${Math.round(acc)} m (~1 Hz, coarse)`) };
     }
     const log = replayLogs.find(l => l.id === replayId);
     return { ok: !!log, text: log ? t(`ログの再生 ×${replaySpeed}: ${log.name}`, `Replay ×${replaySpeed}: ${log.name}`) : t('再生するログがありません', 'No log to replay') };
@@ -639,7 +641,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           {voice ? <Volume2 size={18} /> : <VolumeX size={18} className="text-slate-400" />}
         </button>
         {/* 測っている間は、押せるのは声と測定終了だけ (メニューから出どころを替えると周が消えるため) */}
-        <button onClick={() => setMenuOpen(o => !o)} disabled={measuring} className="p-2 rounded-full border border-line-3 shrink-0 disabled:opacity-40" aria-label={t('メニュー', 'Menu')} title={t('メニュー', 'Menu')}>
+        <button onClick={() => setMenuOpen(o => !o)} disabled={measuring} data-testid="lap-timer-menu" className="p-2 rounded-full border border-line-3 shrink-0 disabled:opacity-40" aria-label={t('メニュー', 'Menu')} title={t('メニュー', 'Menu')}>
           <Menu size={18} />
         </button>
         {!embedded && (
@@ -773,7 +775,9 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           {!measuring && hasNative() && <OrientationToggle value={orientation} onChange={changeOrientation} />}
           <button
             onClick={() => {
-              if (!measuring) startMeasuring();
+              // 位置の機器を登録していなければ、測らずに機器の画面へ (測れない記録を作らないように)
+              if (!measuring && needsRegister) navStore.go('logger');
+              else if (!measuring) startMeasuring();
               // 走っている間に誤って押しても止まらないよう、終了は全画面で確かめる
               else setConfirmStop(true);
             }}
@@ -797,7 +801,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
             <div className="text-slate-400 text-xs mb-1">{t('測位の出どころ', 'Position source')}</div>
             <div className="grid grid-cols-1 gap-1">
               {canUseLoggerBle && (
-                <button onClick={() => { setSource('digspice'); setMenuOpen(false); }} className={`text-left px-3 py-2 rounded-lg ${source === 'digspice' ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
+                <button onClick={() => { setSource('digspice'); setMenuOpen(false); }} data-testid="lap-timer-src-digspice" className={`text-left px-3 py-2 rounded-lg ${source === 'digspice' ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
                   {t('デジスパイス (Bluetooth・20 Hz)', 'DigSpice (Bluetooth, 20 Hz)')}
                 </button>
               )}
@@ -811,7 +815,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
                   {t(`Drogger (${lapDevices.drogger.displayName})`, `Drogger (${lapDevices.drogger.displayName})`)}
                 </button>
               )}
-              <button onClick={() => { setSource('phone'); setMenuOpen(false); }} className={`text-left px-3 py-2 rounded-lg ${source === 'phone' ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
+              <button onClick={() => { setSource('phone'); setMenuOpen(false); }} data-testid="lap-timer-src-phone" className={`text-left px-3 py-2 rounded-lg ${source === 'phone' ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
                 {t('この端末の GPS (1 Hz 前後・粗い)', 'This device GPS (~1 Hz, coarse)')}
               </button>
               <button onClick={() => { setSource('replay'); setMenuOpen(false); }} disabled={replayLogs.length === 0} className={`text-left px-3 py-2 rounded-lg disabled:opacity-40 ${source === 'replay' ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>

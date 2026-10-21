@@ -84,10 +84,10 @@ export const Header: React.FC<HeaderProps> = ({
         ) : (
           <button
             onClick={onOpenFile}
-            className="flex items-center gap-1.5 text-xs bg-red-600 text-white font-bold px-3 py-1.5 rounded"
+            className="flex items-center gap-1.5 text-xs bg-red-600 text-white font-bold px-3 py-1.5 rounded whitespace-nowrap"
           >
             <FolderOpen size={16} />
-            {t('ファイルを開く', 'Open file')}
+            {t('開く', 'Open')}
           </button>
         )}
 

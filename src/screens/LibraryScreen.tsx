@@ -22,6 +22,8 @@ interface Props {
   onAddAsCar2?: (r: RunItem) => void;
   /** 今の Car 1 のコース (Car 2 として足せるのは、同じコースの走行だけ) */
   car1Course?: string | null;
+  /** Car 1 の走行 (folder/file)。同じ走行は Car 2 にできない */
+  car1Run?: string | null;
   onPickFiles: () => void;
   /** ラップタイムの記録から、走行のファイルを解析で開く */
   onOpenFile: (file: File) => void;
@@ -45,7 +47,7 @@ function dayKey(ms: number | null): string {
  * 保管場所の 1 行 / サーキットで絞る / 日付ごとの走行 / 下に「ファイルを選ぶ」「ラップタイムの記録」。
  * 行を押すと走行の詳細 (周の一覧・動画・解析で開く・動画を見る)
  */
-export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVideo, onAddAsCar2, car1Course = null, onPickFiles, onOpenFile, busy, canTime = false }) => {
+export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVideo, onAddAsCar2, car1Course = null, car1Run = null, onPickFiles, onOpenFile, busy, canTime = false }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const { store, runs, error, noFolder, reload } = useRuns(active);
@@ -153,6 +155,15 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
                 <RunRow key={`${r.folder}/${r.file}`} run={r} onOpen={select} busy={busy} selected={wide && `${r.folder}/${r.file}` === selectedKey} />
               ))}
               {/* 中身のない走行 (測定開始の前の記録など) はまとめて 1 行に */}
+              {showEmpty.has(g.day) && g.items.some(isEmptyRun) && (
+                <button
+                  onClick={() => setShowEmpty(s => { const n = new Set(s); n.delete(g.day); return n; })}
+                  className="w-full text-left px-3 py-2 rounded-lg border border-dashed border-line-2 text-xs text-slate-500 cursor-pointer hover:bg-surface-2"
+                  data-testid="library-empty-runs-fold"
+                >
+                  {t(`周も動画もない走行 ${g.items.filter(isEmptyRun).length} 件をたたむ`, `Hide ${g.items.filter(isEmptyRun).length} runs without laps or videos`)}
+                </button>
+              )}
               {!showEmpty.has(g.day) && g.items.some(isEmptyRun) && (
                 <button
                   onClick={() => setShowEmpty(s => new Set(s).add(g.day))}
@@ -199,6 +210,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
       onOpenVideo={() => { setSelectedKey(null); onOpenVideo(selected); }}
       onAddAsCar2={onAddAsCar2 ? () => { setSelectedKey(null); onAddAsCar2(selected); } : undefined}
       otherCourse={!!onAddAsCar2 && !!car1Course && selected.courseName !== car1Course}
+      isCar1={car1Run === `${selected.folder}/${selected.file}`}
       onToggleLap={async (lap, hide) => { await setRunLapHidden(store, selected, lap, hide); reload(); }}
       onClose={wide ? undefined : () => setSelectedKey(null)}
     />
@@ -233,10 +245,12 @@ const RunDetail: React.FC<{
   onAddAsCar2?: () => void;
   /** Car 1 と違うコースの走行 (比べられない) */
   otherCourse?: boolean;
+  /** この走行が Car 1 (自分とは比べられない) */
+  isCar1?: boolean;
   onToggleLap: (lap: RunItem['laps'][number], hide: boolean) => Promise<void>;
   /** 狭い画面のシートを閉じる (広い画面では右の欄なので無い) */
   onClose?: () => void;
-}> = ({ run, busy, onOpen, onOpenVideo, onAddAsCar2, otherCourse = false, onToggleLap, onClose }) => {
+}> = ({ run, busy, onOpen, onOpenVideo, onAddAsCar2, otherCourse = false, isCar1 = false, onToggleLap, onClose }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const [order, setOrder] = useState<'run' | 'time'>('run');
@@ -312,8 +326,10 @@ const RunDetail: React.FC<{
       </div>
       {onAddAsCar2 && visible.length > 0 && (
         <div className="shrink-0 px-4 pt-3 border-t border-line-2">
-          <button onClick={onAddAsCar2} disabled={busy || otherCourse} title={otherCourse ? t('同じコースの走行だけ比べられます', 'Only runs on the same course can be compared') : undefined} className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl border-2 border-sky-500 text-sky-500 font-bold text-sm cursor-pointer disabled:opacity-40" data-testid="run-add-car2">
-            <GitCompare size={16} />{otherCourse
+          <button onClick={onAddAsCar2} disabled={busy || otherCourse || isCar1} title={isCar1 ? t('開いている走行 (Car 1) です', 'This run is Car 1') : otherCourse ? t('同じコースの走行だけ比べられます', 'Only runs on the same course can be compared') : undefined} className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl border-2 border-sky-500 text-sky-500 font-bold text-sm cursor-pointer disabled:opacity-40" data-testid="run-add-car2">
+            <GitCompare size={16} />{isCar1
+              ? t('開いている走行 (Car 1) です', 'This run is Car 1')
+              : otherCourse
               ? t('同じコースの走行だけ比べられます', 'Only runs on the same course can be compared')
               : t(`Car 2 として足す (ベスト ${best !== null ? formatLapTime(best) : '--'} と比べる)`, `Add as Car 2 (compare best ${best !== null ? formatLapTime(best) : '--'})`)}
           </button>

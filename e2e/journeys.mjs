@@ -222,6 +222,19 @@ export const journeys = [
       await p.goto(`${APP}?native=mock`);
       await p.click('nav-timer');
       await sleep(600);
+      // デジスパイスを登録していないときは、測定開始で測らずに機器の画面へ (Fable の調査で見つかったもの)
+      await p.click('lap-timer-menu');
+      await p.click('lap-timer-src-digspice');
+      await sleep(300);
+      await p.click('lap-timer-start-stop');
+      await sleep(600);
+      check((await p.state()).screen === 'logger', `未登録で測定開始を押して ${(await p.state()).screen}`);
+      // 端末の GPS で測る
+      await p.click('nav-timer');
+      await sleep(600);
+      await p.click('lap-timer-menu');
+      await p.click('lap-timer-src-phone');
+      await sleep(300);
       await p.click('lap-timer-start-stop');
       await sleep(600);
       check(!(await p.exists('bottom-tabs')), '測っている間にタブが出ている');
