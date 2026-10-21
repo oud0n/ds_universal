@@ -5,7 +5,7 @@
 
 import { useSyncExternalStore } from 'react';
 
-export type PositionSource = 'digspice' | 'racebox' | 'phone';
+export type PositionSource = 'digspice' | 'racebox' | 'drogger' | 'phone';
 
 const KEY = 'lapTimer.source';
 const listeners = new Set<() => void>();
@@ -14,7 +14,7 @@ let current: PositionSource | null = load();
 function load(): PositionSource | null {
   try {
     const v = localStorage.getItem(KEY);
-    return v === 'digspice' || v === 'racebox' || v === 'phone' ? v : null;
+    return v === 'digspice' || v === 'racebox' || v === 'drogger' || v === 'phone' ? v : null;
   } catch {
     return null;
   }

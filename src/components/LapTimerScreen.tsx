@@ -33,7 +33,7 @@ const SAVE_INTERVAL_MS = 2000;
  * 測位の出どころ: デジスパイス (Bluetooth、20 Hz)・この端末の GPS (1 Hz 前後)・読み込んだログの再生 (試すため)
  */
 
-type Source = 'digspice' | 'phone' | 'replay' | 'racebox';
+type Source = 'digspice' | 'phone' | 'replay' | 'racebox' | 'drogger';
 
 export interface ReplayLog {
   id: string;
@@ -157,7 +157,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   /** 登録した Bluetooth LE の機器 (RaceBox・センサー・カメラ)。測位は handleFix へ (後で決まるので ref を通す) */
   const handleFixRef = useRef<(fix: LiveFix) => void>(() => {});
   const lapDevices = useLapDevices({
-    useRacebox: source === 'racebox',
+    position: source === 'racebox' || source === 'drogger' ? source : null,
     onFix: f => handleFixRef.current(f),
     runBase: () => recorderRef.current?.current?.fileBase ?? null
   });
@@ -420,8 +420,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       );
       return () => navigator.geolocation.clearWatch(id);
     }
-    // RaceBox の測位は、機器の部品 (useLapDevices) が handleFix へ渡す
-    if (source === 'racebox') return;
+    // RaceBox・Drogger の測位は、機器の部品 (useLapDevices) が handleFix へ渡す
+    if (source === 'racebox' || source === 'drogger') return;
     // ログの再生: 読み込んだ走行の点を、時刻のとおり (速さの倍率をかけて) 渡す
     const log = replayLogs.find(l => l.id === replayId);
     if (!log || log.points.length < 2) return;
@@ -555,11 +555,15 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
 
   // 出どころの状態
   // 選んだ出どころの機器を登録していない (測位が来ない)
-  const needsRegister = (source === 'digspice' && link.status === 'none') || (source === 'racebox' && !lapDevices.racebox);
+  const needsRegister = (source === 'digspice' && link.status === 'none') || (source === 'racebox' && !lapDevices.racebox) || (source === 'drogger' && !lapDevices.drogger);
   const sourceStatus = (() => {
     if (source === 'digspice') {
       const ok = link.status === 'fixing';
       return { ok, text: link.status === 'none' ? t('デジスパイスを登録してください (ロガー設定)', 'Register a DigSpice (Logger settings)') : statusLabel(link.status, link.rateHz) };
+    }
+    if (source === 'drogger') {
+      const st = lapDevices.statuses.find(x => x.device.kind === 'drogger');
+      return { ok: !!st?.ok, text: st ? `${st.device.displayName}: ${st.state}${st.text ? ` · ${st.text}` : ''}` : t('Drogger を登録してください (機器)', 'Register a Drogger (Devices)') };
     }
     if (source === 'racebox') {
       const st = lapDevices.statuses.find(x => x.device.kind === 'racebox');
@@ -653,7 +657,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           className={`flex items-center gap-1 px-2 py-1 rounded-full border whitespace-nowrap overflow-hidden text-ellipsis min-w-0 ${sourceStatus.ok ? 'border-emerald-500/50 text-emerald-500 bg-emerald-500/10' : 'border-amber-500/50 text-amber-500 bg-amber-500/10'}`}
           data-testid="lap-timer-source"
         >
-          {source === 'digspice' ? <Bluetooth size={14} className="shrink-0" /> : source === 'phone' ? <Smartphone size={14} className="shrink-0" /> : <PlayCircle size={14} className="shrink-0" />}
+          {source === 'digspice' || source === 'racebox' || source === 'drogger' ? <Bluetooth size={14} className="shrink-0" /> : source === 'phone' ? <Smartphone size={14} className="shrink-0" /> : <PlayCircle size={14} className="shrink-0" />}
           <span className="truncate">{sourceStatus.text}{source === 'digspice' && link.status === 'idle' ? t(' (押すとつなぐ)', ' (tap to connect)') : ''}</span>
         </button>
         <button onClick={() => setCoursePicker(true)} disabled={measuring} className="flex items-center gap-1 px-2 py-1 rounded-full border border-line-3 text-slate-200 whitespace-nowrap shrink-0 max-w-[40vw] disabled:opacity-60" data-testid="lap-timer-course">
@@ -682,9 +686,9 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
 
       {/* 真ん中: 大きな数字 */}
       {/* センサー・カメラの様子 (登録した機器があるときだけ) */}
-      {lapDevices.statuses.some(x => x.device.kind !== 'racebox') && (
+      {lapDevices.statuses.some(x => x.device.kind !== 'racebox' && x.device.kind !== 'drogger') && (
         <div className="flex flex-wrap gap-1.5 px-3 pb-1 text-[11px]" data-testid="lap-timer-devices">
-          {lapDevices.statuses.filter(x => x.device.kind !== 'racebox').map(x => (
+          {lapDevices.statuses.filter(x => x.device.kind !== 'racebox' && x.device.kind !== 'drogger').map(x => (
             <span key={x.device.id} className={`px-2 py-0.5 rounded-full border ${x.ok ? 'border-emerald-500/60 text-emerald-500' : 'border-amber-500/60 text-amber-500'}`}>
               {x.device.displayName}{x.text ? ` · ${x.text}` : ` · ${x.state}`}
             </span>
@@ -815,6 +819,11 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               {lapDevices.racebox && (
                 <button onClick={() => { setSource('racebox'); setMenuOpen(false); }} className={`text-left px-3 py-2 rounded-lg ${source === 'racebox' ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
                   {t(`RaceBox (${lapDevices.racebox.displayName}・25 Hz)`, `RaceBox (${lapDevices.racebox.displayName}, 25 Hz)`)}
+                </button>
+              )}
+              {lapDevices.drogger && (
+                <button onClick={() => { setSource('drogger'); setMenuOpen(false); }} className={`text-left px-3 py-2 rounded-lg ${source === 'drogger' ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
+                  {t(`Drogger (${lapDevices.drogger.displayName})`, `Drogger (${lapDevices.drogger.displayName})`)}
                 </button>
               )}
               <button onClick={() => { setSource('phone'); setMenuOpen(false); }} className={`text-left px-3 py-2 rounded-lg ${source === 'phone' ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>

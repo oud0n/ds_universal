@@ -52,10 +52,10 @@ export const BleStatusPill: React.FC<{ onClick?: () => void }> = ({ onClick }) =
   // ラップタイマーで選んだ位置の出どころを出す (RaceBox・端末の GPS を選んでいれば、デジスパイスの状態は出さない)。
   // RaceBox と端末の GPS は、ラップタイマーを開いている間だけ使うので、ほかの画面では名前だけ
   const source = usePositionSource();
-  if (source === 'racebox' || source === 'phone') {
-    const name = source === 'racebox'
-      ? (loadDevices().find(d => d.kind === 'racebox')?.displayName ?? 'RaceBox')
-      : t('iPhone の GPS', 'Phone GPS');
+  if (source === 'racebox' || source === 'drogger' || source === 'phone') {
+    const name = source === 'phone'
+      ? t('iPhone の GPS', 'Phone GPS')
+      : (loadDevices().find(d => d.kind === source)?.displayName ?? (source === 'racebox' ? 'RaceBox' : 'Drogger'));
     return (
       <button
         type="button"
@@ -63,7 +63,7 @@ export const BleStatusPill: React.FC<{ onClick?: () => void }> = ({ onClick }) =
         data-testid="ble-status-pill"
         className="flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-full border whitespace-nowrap min-w-0 border-line-3 text-slate-300"
       >
-        {source === 'racebox' ? <Bluetooth size={12} /> : <Smartphone size={12} />}
+        {source === 'phone' ? <Smartphone size={12} /> : <Bluetooth size={12} />}
         <span className="font-sans font-bold truncate">{name}</span>
       </button>
     );
