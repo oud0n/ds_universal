@@ -10,7 +10,7 @@ Log download and logger settings for DigSpice IV, racing line / speed / G analys
 
 ![Supported OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon-blue)
 ![Verification](https://img.shields.io/badge/Verified-macOS%20Only-amber)
-![Version](https://img.shields.io/badge/Version-0.12.0-red)
+![Version](https://img.shields.io/badge/Version-1.0.0-red)
 ![Device](https://img.shields.io/badge/Device-DigSpice%20IV-red)
 ![License](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-oud0n-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/oud0n)
@@ -43,6 +43,7 @@ The app's screens are available in Japanese and English (it follows your device'
 | :--- | :--- |
 | **Logger** | USB connection to the DigSpice IV, log download (`.bnx4`), sampling rate (5 / 10 / 20 Hz) and logging start speed settings, erasing the logger's memory |
 | **Analysis** | speed graph comparison of up to 4 cars (4 laps), track map and driving line (with GSI aerial photos as the background), G and friction circle, corner analysis, braking analysis, line difference heat map, X/Y graph |
+| **Run library** (desktop app) | list of the runs in your storage folder by date, importing logs split by run and circuit, lap time records, corner names (`corners.json`) |
 | **Course data** | 101 courses in Japan and 26 circuits abroad built in, automatic timing and sector lines for unknown courses, course editor, loading the official software's course folder |
 | **Onboard video** | automatic sync of GoPro / DJI / generic MP4 with the log, seamless playback of GoPro chapter files, multi-camera view of up to 4 cameras, lap-to-lap comparison, export of video with gauges or of transparent gauge-only video |
 | **Import formats** | DigSpice (.bnx4 / .bon4), Racelogic VBO, RaceChrono CSV, GPX, NMEA, MoTeC CSV, AiM (CSV, .xrk / .xrz), Garmin FIT / TCX, RaceBox, iRacing (.ibt), GPS from GoPro videos |
@@ -119,7 +120,7 @@ codesign --force --deep --sign - "/Applications/LapLoupe.app"
 | :--- | :--- |
 | [Features](docs/features.en.md) | details of each feature, where the course data (timing lines) comes from, features not implemented |
 | [Installation](docs/install.en.md) | requirements, detailed steps when the app won't open on macOS |
-| [Release notes](docs/release-notes.en.md) | changes in each version (latest: v0.12.0) |
+| [Release notes](docs/release-notes.en.md) | changes in each version (latest: v1.0.0) |
 | [Developer setup](docs/development.en.md) | running, building and packaging from source |
 | [Course data](courses/README.md) | the built-in course files and how they were made (Japanese) |
 | [Zenn article (Japanese)](https://zenn.dev/oud0n/articles/ace1347602c574) | why this app was made, and how the DigSpice's USB communication works |

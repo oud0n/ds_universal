@@ -10,7 +10,7 @@
 
 ![対応OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon-blue)
 ![検証状況](https://img.shields.io/badge/Verified-macOS%20Only-amber)
-![バージョン](https://img.shields.io/badge/Version-0.12.0-red)
+![バージョン](https://img.shields.io/badge/Version-1.0.0-red)
 ![デバイス](https://img.shields.io/badge/Device-DigSpice%20IV-red)
 ![ライセンス](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-oud0n-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/oud0n)
@@ -41,6 +41,7 @@
 | :--- | :--- |
 | **ロガー** | デジスパイスIV との USB 通信、ログの吸い出し（`.bnx4`）、サンプリングレート（5 / 10 / 20 Hz）・記録開始速度の変更、本体のメモリの消去 |
 | **走行の解析** | 最大 4 台（4 ラップ）の車速グラフの比較、コース図と走行ライン（国土地理院の航空写真を背景に）、G・フリクションサークル、コーナー解析、ブレーキング診断、走行ラインのずれのヒートマップ、X/Y グラフ |
+| **走行の管理**（デスクトップ版） | 保管場所の走行を日付ごとに一覧、ログを走行・サーキットごとに分けて取り込み、ラップタイムの記録、コーナーの名前（`corners.json`） |
 | **コースデータ** | 国内 101 コース・海外 26 サーキットを内蔵、知らないコースは計測線とセクター線を自動で配置、コース編集、公式ソフトのコースフォルダの読み込み |
 | **車載動画** | GoPro / DJI / 一般の MP4 と走行ログの自動同期、GoPro のチャプター分割ファイルの連続再生、最大 4 台のマルチカメラ、周どうしの走行比較、メーター付きの動画・透明なメーターだけの動画の書き出し |
 | **読み込める形式** | デジスパイス（.bnx4 / .bon4）、Racelogic VBO、RaceChrono CSV、GPX、NMEA、MoTeC CSV、AiM（CSV・.xrk / .xrz）、Garmin などの FIT・TCX、RaceBox、iRacing（.ibt）、GoPro の動画の GPS |
@@ -117,7 +118,7 @@ codesign --force --deep --sign - "/Applications/LapLoupe.app"
 | :--- | :--- |
 | [機能の一覧](docs/features.md) | 各機能の詳しい説明、コースデータ（計測線）の出どころ、実装していない機能 |
 | [インストールの手順](docs/install.md) | 動作要件、macOS で開けないときの詳しい手順 |
-| [リリースノート](docs/release-notes.md) | 版ごとの変更点（最新は v0.12.0） |
+| [リリースノート](docs/release-notes.md) | 版ごとの変更点（最新は v1.0.0） |
 | [開発者向けセットアップ](docs/development.md) | ソースからの起動・ビルド・パッケージング |
 | [コースデータ](courses/README.md) | 内蔵コースのファイルと、その作り方 |
 | [Zenn の記事](https://zenn.dev/oud0n/articles/ace1347602c574) | このアプリを作った経緯と、デジスパイスの USB 通信の仕組み |
