@@ -9,6 +9,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 const APP = 'http://localhost:5183/';
+/** スマートフォンの試験で読み込むログ (読むだけ。E2E_SAMPLE_NMEA で替えられる) */
+const SAMPLE_NMEA = process.env.E2E_SAMPLE_NMEA ?? `${os.homedir()}/Library/Mobile Documents/com~apple~CloudDocs/LapLoupe/nikko/20260830/20260830095701.nmea`;
 
 /** 走行の画面から、日付 (例 '8/30') の走行を開く。how: 'run-open-analysis' | 'run-open-video' | 'run-add-car2' */
 async function openRun(p, date, how) {
@@ -403,6 +405,30 @@ export const journeys = [
       await sweepLayout(p, `${w}x${h}${q ? '_app' : ''}`);
     }
   })),
+  {
+    name: '寸法: スマートフォンのアプリ (ログを読み込み、端末の GPS を選んだ状態)',
+    target: 'phone',
+    async run(p) {
+      await p.viewport(390, 844, true);
+      await p.goto(`${APP}?native=mock`);
+      await p.send('DOM.enable');
+      if (!fs.existsSync(SAMPLE_NMEA)) { p.notes.push(`読み込むログ ${SAMPLE_NMEA} がないので飛ばした`); return; }
+      // Chrome は iCloud のフォルダを読めない (macOS の保護) ので、一時フォルダに写して渡す
+      const tmp = path.join(os.tmpdir(), path.basename(SAMPLE_NMEA));
+      fs.copyFileSync(SAMPLE_NMEA, tmp);
+      await p.setFiles('input[type=file]', [tmp]);
+      await sleep(4000);
+      if (await p.exists('import-open-only')) { await p.click('import-open-only'); await sleep(3000); }
+      check((await p.state()).sessions.length > 0, 'ログを読み込めていない');
+      // タイマーで端末の GPS を選ぶ (上の印がいちばん長くなる)
+      await p.click('nav-timer');
+      await sleep(600);
+      await p.click('lap-timer-menu');
+      await p.click('lap-timer-src-phone');
+      await sleep(300);
+      await sweepLayout(p, '390x844_app_loaded');
+    }
+  },
   {
     name: '寸法: デスクトップ版 (走行を開いた状態)',
     target: 'electron',
