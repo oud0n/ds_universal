@@ -1,0 +1,222 @@
+// 画面の通しの試験の場面 (2026-10-21)。
+// electron: デスクトップ版を、保管場所の写し (e2e の実データ) で動かす。phone: Chrome をスマートフォンの幅にし、アプリのふり (?native=mock) で動かす。
+// どの場面も、操作のあとで「つじつま」(開いた走行が Car 1・動画の位置がログの時刻と合う など) を確かめる。
+
+import { check, sleep } from './cdp.mjs';
+
+const APP = 'http://localhost:5183/';
+
+/** 走行の画面から、日付 (例 '8/30') の走行を開く。how: 'run-open-analysis' | 'run-open-video' | 'run-add-car2' */
+async function openRun(p, date, how) {
+  await p.click('nav-library');
+  await p.waitFor(`document.querySelectorAll('[data-testid="run-row"]').length > 0`, 20000, '走行の一覧');
+  const ok = await p.ev(`(()=>{const r=[...document.querySelectorAll('[data-testid="run-row"]')].find(r=>r.innerText.includes(${JSON.stringify(date)})); r?.click(); return !!r})()`);
+  check(ok, `走行 ${date} が一覧にない`);
+  await p.waitFor(`document.querySelector('[data-testid="${how}"]')`, 5000, `走行の詳細の ${how}`);
+  await p.click(how);
+  // 開き終わる (動画を見るなら動画が出る) まで待つ
+  await p.waitFor(`!document.querySelector('[data-testid="run-open-analysis"]')`, 30000, '走行を開き終わる');
+  await sleep(how === 'run-open-video' ? 6000 : 3000);
+}
+
+/** 今の Car 1 の走行の名前 */
+async function car1Name(p) {
+  const s = await p.state();
+  const c = s.cars.find(c => c.slot === 0);
+  return s.sessions.find(x => x.id === c?.sessionId)?.fileName ?? null;
+}
+
+/** 動画の位置が、ログの時刻 − 同期のずれ と合っているか (止めた状態で) */
+async function checkVideoSync(p, where) {
+  await p.ev(`document.querySelectorAll('video').forEach(v => v.pause())`);
+  await sleep(1200);
+  const s = await p.state();
+  const v = await p.ev(`(()=>{const v=document.querySelector('video'); return v ? { t: v.currentTime, src: decodeURIComponent(v.currentSrc || v.src), dur: v.duration } : null})()`);
+  check(v, `${where}: 動画が出ていない`);
+  const main = s.videos.find(x => v.src.endsWith(x.fileName));
+  check(main, `${where}: 出ている動画 ${v.src} が同期の一覧にない`);
+  check(main.isPlaced, `${where}: 動画 ${main.fileName} がログの時刻に置けていない`);
+  const sessionTime = s.clockBase === 'lap' && s.baseLap ? s.baseLap.startTime + s.currentTimeSec : s.currentTimeSec;
+  const expected = sessionTime - main.syncOffsetSec;
+  // 動画の外 (始まる前・終わったあと) は、端に寄っていればよい
+  const clamped = Math.max(0, Math.min(v.dur || expected, expected));
+  check(Math.abs(v.t - clamped) < 0.6, `${where}: 動画の位置 ${v.t.toFixed(2)} 秒が、ログの時刻からの位置 ${clamped.toFixed(2)} 秒と合わない (ログ ${sessionTime.toFixed(2)} 秒・ずれ ${main.syncOffsetSec.toFixed(2)} 秒・基準 ${s.clockBase})`);
+}
+
+/** 周の表示 (L◯) にしているときは、今の位置がその周の中にあるか (表示は周の時刻なのに、位置が周の外のままにならないか) */
+async function checkInsideLap(p, where) {
+  const s = await p.state();
+  check(s.baseLap, `${where}: 周が選ばれていない`);
+  const sessionTime = s.clockBase === 'lap' ? s.baseLap.startTime + s.currentTimeSec : s.currentTimeSec;
+  const { startTime, lapTime, lapNumber } = s.baseLap;
+  check(sessionTime >= startTime - 0.2 && sessionTime <= startTime + lapTime + 0.2,
+    `${where}: L${lapNumber} を出しているのに、今の位置 ${sessionTime.toFixed(1)} 秒が周 (${startTime.toFixed(1)}〜${(startTime + lapTime).toFixed(1)} 秒) の外`);
+}
+
+/** シークバー (いちばん下の range) を割合で動かす */
+async function seekRatio(p, ratio) {
+  await p.ev(`(()=>{const r=[...document.querySelectorAll('input[type=range]')].pop(); const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; set.call(r, String(+r.max*${ratio})); r.dispatchEvent(new Event('input',{bubbles:true})); r.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await sleep(1500);
+}
+
+export const journeys = [
+  {
+    name: '走行を開くと Car 1 になる (別のコースの Car は外れる)',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      await openRun(p, '10/12', 'run-open-analysis');
+      check((await car1Name(p))?.includes('20261012'), `TC2000 を開いたのに Car 1 が ${await car1Name(p)}`);
+      await openRun(p, '8/30', 'run-open-video');
+      const s = await p.state();
+      check((await car1Name(p))?.includes('20260830'), `日光を開いたのに Car 1 が ${await car1Name(p)}`);
+      const others = s.cars.filter(c => c.slot !== 0).map(c => s.sessions.find(x => x.id === c.sessionId)?.circuitName);
+      const c1 = s.sessions.find(x => x.id === s.cars.find(c => c.slot === 0).sessionId).circuitName;
+      check(others.every(n => n === c1), `別のコースの Car が残っている: ${others.join(', ')}`);
+      check(s.screen === 'video', `動画を見るで開いたのに画面が ${s.screen}`);
+      await checkVideoSync(p, '日光を開いた直後');
+    }
+  },
+  {
+    name: '動画: 全体で動かす・周に切り替える・画面を行き来しても、動画とログが合っている',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      await openRun(p, '8/30', 'run-open-video');
+      await checkVideoSync(p, '開いた直後');
+      await p.clickText('全体');
+      await seekRatio(p, 0.6);
+      await checkVideoSync(p, '全体で 6 割へ動かしたあと');
+      const lapBtn = await p.ev(`[...document.querySelectorAll('button')].map(b=>b.innerText.trim()).find(t=>/^L\\d+$/.test(t))`);
+      await p.clickText(lapBtn);
+      await sleep(1200);
+      await checkVideoSync(p, `${lapBtn} に切り替えたあと`);
+      await checkInsideLap(p, `${lapBtn} に切り替えたあと`);
+      await seekRatio(p, 0.3);
+      await checkVideoSync(p, `${lapBtn} の中で 3 割へ動かしたあと`);
+      await p.click('nav-analysis');
+      await sleep(1500);
+      await p.click('nav-video');
+      await sleep(2000);
+      await checkVideoSync(p, '解析へ行って戻ったあと');
+      await p.click('video-mode-sync');
+      await sleep(1000);
+      await checkVideoSync(p, '合わせるに切り替えたあと');
+      await p.click('video-mode-watch');
+    }
+  },
+  {
+    name: 'Car 2 として足すと、同じコースのその走行のベストの周が Car 2 に入る',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      await openRun(p, '8/15', 'run-open-analysis');
+      await openRun(p, '9/18', 'run-add-car2');
+      const s = await p.state();
+      const c2 = s.cars.find(c => c.slot === 1);
+      check(c2, 'Car 2 が入っていない');
+      const sess = s.sessions.find(x => x.id === c2.sessionId);
+      check(sess?.fileName.includes('20260918'), `Car 2 が 9/18 の走行でない: ${sess?.fileName}`);
+      check((await car1Name(p))?.includes('20260815'), `Car 2 を足したら Car 1 が変わった: ${await car1Name(p)}`);
+    }
+  },
+  {
+    name: '走行の詳細: 周を隠して出すと元に戻る (laptimes.json も元どおり)',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      await p.click('nav-library');
+      await p.waitFor(`document.querySelectorAll('[data-testid="run-row"]').length > 0`, 20000);
+      await p.ev(`(()=>{const r=[...document.querySelectorAll('[data-testid="run-row"]')].find(r=>r.innerText.includes('9/13')); r?.click()})()`);
+      await p.waitFor(`document.querySelector('[data-testid="run-detail"]')`, 5000);
+      const head = () => p.ev(`document.querySelector('[data-testid="run-detail"]').innerText.split('\\n').slice(0,3).join(' ')`);
+      const before = await head();
+      await p.ev(`[...document.querySelectorAll('[data-testid="run-detail"] button[aria-label="隠す"]')][0].click()`);
+      await sleep(4000);
+      const hidden = await head();
+      check(hidden !== before, '周を隠しても見出し (ベスト・周の数) が変わらない');
+      await p.ev(`[...document.querySelectorAll('[data-testid="run-detail"] button[aria-label="出す"]')][0].click()`);
+      await sleep(4000);
+      check((await head()) === before, `出したのに元に戻らない: ${await head()} / 前 ${before}`);
+    }
+  },
+  {
+    name: '解析の「走行とコース」は、解析から離れると閉じる',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      await openRun(p, '8/15', 'run-open-analysis');
+      await p.click('toggle-data-drawer');
+      await p.waitFor(`document.querySelector('[data-testid="data-drawer"]')`, 3000, '引き出しが開く');
+      await p.click('nav-video');
+      await sleep(800);
+      await p.click('nav-analysis');
+      await sleep(800);
+      check(!(await p.exists('data-drawer')), '解析に戻ったら引き出しが開いたまま');
+    }
+  },
+  {
+    name: 'スマートフォンのアプリ: タブ・設定の開け閉め・⚙ の中の画面から戻る',
+    target: 'phone',
+    async run(p) {
+      await p.viewport(390, 844, true);
+      await p.goto(`${APP}?native=mock`);
+      let s = await p.state();
+      check(s.screen === 'library', `はじめの画面が ${s.screen}`);
+      for (const tab of ['timer', 'analysis', 'video', 'library']) {
+        await p.click(`nav-${tab}`);
+        await sleep(400);
+        s = await p.state();
+        check(s.screen === tab, `${tab} を押したのに ${s.screen}`);
+      }
+      await p.click('nav-video');
+      await p.click('nav-settings');
+      await sleep(300);
+      check((await p.state()).screen === 'settings', '⚙ で設定が開かない');
+      await p.click('settings-go-convert');
+      await sleep(300);
+      await p.click('nav-back');
+      await sleep(300);
+      check((await p.state()).screen === 'settings', '変換から戻ったら設定に戻らない');
+      await p.click('nav-settings');
+      await sleep(300);
+      check((await p.state()).screen === 'video', `⚙ をもう一度押したら元の画面 (動画) に戻らない: ${(await p.state()).screen}`);
+    }
+  },
+  {
+    name: 'スマートフォンのアプリ: タイマーの測定開始・終了の確認・10 秒で閉じる・測っている間はタブを出さない',
+    target: 'phone',
+    async run(p) {
+      await p.viewport(390, 844, true);
+      await p.goto(`${APP}?native=mock`);
+      await p.click('nav-timer');
+      await sleep(600);
+      await p.click('lap-timer-start-stop');
+      await sleep(600);
+      check(!(await p.exists('bottom-tabs')), '測っている間にタブが出ている');
+      await p.click('lap-timer-start-stop');
+      await p.waitFor(`document.querySelector('[data-testid="lap-timer-stop-confirm"]')`, 2000, '終了の確認');
+      await p.click('lap-timer-stop-no');
+      await sleep(300);
+      check(await p.ev(`document.querySelector('[data-testid="lap-timer-start-stop"]').innerText.includes('測定終了')`), 'いいえ で測るのが止まった');
+      await p.click('lap-timer-start-stop');
+      await sleep(11000);
+      check(!(await p.exists('lap-timer-stop-confirm')), '10 秒たっても確認が閉じない');
+      await p.click('lap-timer-start-stop');
+      await p.click('lap-timer-stop-yes');
+      await sleep(800);
+      check(await p.exists('bottom-tabs'), '測り終えてもタブが戻らない');
+    }
+  },
+  {
+    name: 'ブラウザ版: URL の末尾 #convert で変換が開き、上のタブがある',
+    target: 'phone',
+    async run(p) {
+      await p.viewport(1440, 900, false);
+      await p.goto(`${APP}#convert`);
+      const s = await p.state();
+      check(s.screen === 'convert', `#convert で ${s.screen}`);
+      check(await p.exists('nav-analysis'), '上のタブがない');
+    }
+  }
+];
