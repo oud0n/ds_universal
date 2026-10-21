@@ -235,10 +235,14 @@ export async function attachRunVideos(opts: {
   closeOpenRun();
   const { store, item, videos } = opts;
   const ids = new Set(opts.runSessions.map(s => s.id));
+  // この走行が比べる相手の走行だったら、その動画はこの走行のものとして扱う
+  companions.delete(`${item.folder}/${item.file}`);
   // 前に開いたほかの走行の動画 (保管場所のもの) は外す。GoPro の動画は、ほかのフォルダでも同じ名前のことがあり、
-  // 残すと、戻す同期が名前でそちらに当たってしまうため。この走行の動画で、もう開いているものは残す
+  // 残すと、戻す同期が名前でそちらに当たってしまうため。この走行の動画で、もう開いているものは残す。
+  // 比べる相手 (Car 2〜4) の走行の動画も残す (走行比較で、その車の枠に出すため)
   const paths = new Set(videos.map(v => v.path));
-  for (const t of videoSyncManager.getTracks()) if (t.remote && !paths.has(t.remote.path)) videoSyncManager.removeTrack(t.id);
+  const keep = companionPaths();
+  for (const t of videoSyncManager.getTracks()) if (t.remote && !paths.has(t.remote.path) && !keep.has(t.remote.path)) videoSyncManager.removeTrack(t.id);
   // 先に同期を戻す (動画はまだないので、名前だけの枠ができる。そこに動画をつなぐと、戻した同期のまま使える)
   if (opts.fromRuns && item.entry?.sync) {
     try { restoreSync(item.entry.sync, opts.sessions(), opts.setClockOffset); } catch { /* 壊れた同期は使わない */ }
@@ -267,6 +271,81 @@ export async function attachRunVideos(opts: {
   unsubscribe = () => { offA(); offB(); };
   if (names.size && !opts.fromRuns) scheduleSave();
   return names.size;
+}
+
+/**
+ * 比べる相手 (Car 2〜4) の走行の動画 (走行の道 → 動画の道)。走行比較で、その車の枠に出す。
+ * 同期は runs.json から戻すが、変えても書かない (書くのは開いている走行 = Car 1 だけ)
+ */
+const companions = new Map<string, Set<string>>();
+
+/** 比べる相手の走行の動画の道 (全部) */
+export function companionPaths(): Set<string> {
+  const out = new Set<string>();
+  for (const ps of companions.values()) for (const p of ps) out.add(p);
+  return out;
+}
+
+/** 動画を読んである、比べる相手の走行 */
+export function companionRuns(): string[] {
+  return [...companions.keys()];
+}
+
+/**
+ * 比べる相手の走行の動画を足す (Car 2〜4 に、開いている走行のほかの走行の周を入れたとき)。端末にある動画だけ。
+ * 開いている動画と同じ名前の動画は足さない (同期を名前で戻すので、そちらの同期を書き換えてしまうため)
+ */
+export async function attachCompanionVideos(opts: {
+  item: RunItem;
+  runSessions: Session[];
+  videos: RemoteVideo[];
+  fromRuns: boolean;
+  sessions: () => Session[];
+  setClockOffset?: (id: string, sec: number) => void;
+}): Promise<number> {
+  const { item, videos } = opts;
+  const runPath = `${item.folder}/${item.file}`;
+  const ids = new Set(opts.runSessions.map(s => s.id));
+  const before = videoSyncManager.getTracks();
+  const openPaths = new Set(before.filter(t => t.remote).map(t => t.remote!.path));
+  const openNames = new Set(before.map(t => t.fileName));
+  const mine = new Set(videos.filter(v => openPaths.has(v.path)).map(v => v.path));
+  const add = videos.filter(v => !openPaths.has(v.path) && !openNames.has(v.name));
+  if (add.length) {
+    const names = new Set(add.map(v => v.name));
+    const sync = item.entry?.sync;
+    if (opts.fromRuns && sync) {
+      try {
+        restoreSync({
+          ...sync,
+          videos: sync.videos.filter(v => names.has(v.fileName)),
+          pins: (sync.pins ?? []).filter(p => p.trackFileName !== null && names.has(p.trackFileName))
+        }, opts.sessions(), opts.setClockOffset);
+      } catch { /* 壊れた同期は使わない */ }
+    }
+    await videoSyncManager.addVideoFiles(add, opts.sessions());
+    const addPaths = new Set(add.map(v => v.path));
+    for (const t of videoSyncManager.getTracks()) {
+      if (!t.objectUrl && names.has(t.fileName)) { videoSyncManager.removeTrack(t.id); continue; }
+      if (!t.remote || !addPaths.has(t.remote.path)) continue;
+      // runs.json にない候補は、照合してこの走行に合ったものだけ残す
+      if (!opts.fromRuns && (!t.matchedSessionId || !ids.has(t.matchedSessionId))) { videoSyncManager.removeTrack(t.id); continue; }
+      mine.add(t.remote.path);
+    }
+  }
+  companions.set(runPath, mine);
+  return mine.size;
+}
+
+/** 比べる相手の走行の動画を外す (その走行がどの Car にもいなくなったとき)。開いている走行・ほかの相手の動画は残す */
+export function dropCompanion(runPath: string): void {
+  const ps = companions.get(runPath);
+  companions.delete(runPath);
+  if (!ps) return;
+  const keep = companionPaths();
+  for (const t of videoSyncManager.getTracks()) {
+    if (t.remote && ps.has(t.remote.path) && !keep.has(t.remote.path) && !current?.names.has(t.remote.path)) videoSyncManager.removeTrack(t.id);
+  }
 }
 
 /** 開いている走行に、同じフォルダの動画を足す (動画の画面から) */

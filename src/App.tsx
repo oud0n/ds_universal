@@ -37,7 +37,7 @@ import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
 import { RecentRunsList, RunsSheet } from './components/RecentRuns';
 import { canUseRunStore, getRunStore } from './services/runStore';
-import { attachRunVideos, closeOpenRun, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
+import { attachCompanionVideos, attachRunVideos, closeOpenRun, companionRuns, dropCompanion, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLapTimer, canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
 import { bleLoggerLink } from './services/bleLoggerLink';
@@ -876,6 +876,7 @@ export const App: React.FC = () => {
 
   /**
    * 走行を比べる相手 (Car 2) として足す (走行の詳細の「Car 2 として足す」)。いま開いている走行と動画はそのまま。
+   * その走行の動画は、Car が変わったときの処理 (companionChainRef) で足す。
    * 周は、その走行の隠していない周のうちいちばん速いもの (同じタイムの周を、読み込んだログの周から探す)
    */
   const addRunAsCar2 = async (item: RunItem) => {
@@ -1035,6 +1036,36 @@ export const App: React.FC = () => {
     // 基準の走行が替わったときだけ
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseSession?.id]);
+
+  // Car 2〜4 に、開いている走行のほかの走行 (保管場所から開いたもの) の周を入れたら、その走行の動画も読む
+  // (走行比較で、その車の枠にその車の動画を出すため。端末にある動画だけ)。どの Car にもいなくなった走行の動画は外す。
+  // 走行を開いている間は待つ (開き終わってからそろえる)。順に 1 つずつ行う
+  const companionChainRef = useRef<Promise<void>>(Promise.resolve());
+  useEffect(() => {
+    if (runBusy || runOpeningRef.current) return;
+    const want = new Map<string, string[]>();
+    for (const c of selectedCars) {
+      if (c.slot === 0) continue;
+      const entry = [...runSessionsRef.current.entries()].find(([, ids]) => ids.includes(c.sessionId));
+      if (entry && entry[0] !== attachedRunRef.current) want.set(entry[0], entry[1]);
+    }
+    companionChainRef.current = companionChainRef.current.then(async () => {
+      for (const p of companionRuns()) if (!want.has(p)) dropCompanion(p);
+      const missing = [...want].filter(([p]) => !companionRuns().includes(p));
+      if (!missing.length) return;
+      const store = await getRunStore();
+      if (!store) return;
+      for (const [p, ids] of missing) {
+        const item = runItemsRef.current.get(p);
+        if (!item || p === attachedRunRef.current) continue;
+        const cand = await videoCandidates(store, item);
+        await attachCompanionVideos({
+          item, runSessions: latestRef.current.sessions.filter(x => ids.includes(x.id)), videos: cand.local, fromRuns: cand.fromRuns,
+          sessions: () => latestRef.current.sessions, setClockOffset: setSessionClockOffset
+        });
+      }
+    }).catch(e => console.warn('[run] 比べる走行の動画を読めない:', e));
+  }, [selectedCars, runBusy]);
 
   // データファイル読み込みロジック。読み込んだログはセッションとして加え、加えたセッションを返す
   // (parsedLog を渡したときは、ファイルを読まずにその点列を使う)

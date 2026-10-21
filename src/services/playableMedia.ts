@@ -83,10 +83,15 @@ export function mediaStartIn(media: PlayableMedia, session: Session, sessions: S
 export function mediaForLap(media: PlayableMedia[], session: Session, lap: Lap, sessions: Session[]): PlayableMedia | undefined {
   let best: PlayableMedia | undefined, bestOverlap = 0;
   for (const m of media) {
-    const start = mediaStartIn(m, session, sessions);
-    if (start === null) continue;
-    const overlap = Math.min(lap.endTime, start + (m.endSec - m.startSec)) - Math.max(lap.startTime, start);
+    const overlap = lapOverlapSec(m, session, lap, sessions);
     if (overlap > bestOverlap) { best = m; bestOverlap = overlap; }
   }
   return best;
+}
+
+/** 動画が周を映している長さ (秒。映していなければ 0 以下) */
+export function lapOverlapSec(m: PlayableMedia, session: Session, lap: Lap, sessions: Session[]): number {
+  const start = mediaStartIn(m, session, sessions);
+  if (start === null) return 0;
+  return Math.min(lap.endTime, start + (m.endSec - m.startSec)) - Math.max(lap.startTime, start);
 }
