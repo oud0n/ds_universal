@@ -264,6 +264,8 @@ export const App: React.FC = () => {
   } | null>(null);
   /** 確認を閉じたら、次のファイルへ進む */
   const importDoneRef = useRef<(() => void) | null>(null);
+  /** 確認は 1 つずつ (出ている間に別のファイルを開いたら、前のを閉じてから出す) */
+  const importQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const runOpeningRef = useRef(false);
   // iCloud から取り込み中の動画 (取り込み終わったら、走行に付けて開く)。percent はふつう分からない (取り込み中とだけ出す)
   const [runDownload, setRunDownload] = useState<{ names: string[]; done: number } | null>(null);
@@ -714,10 +716,12 @@ export const App: React.FC = () => {
       return false;
     }
     if (plan.parts.length === 0 || plan.parts.every(p => p.already)) return false;
-    await new Promise<void>(resolve => {
+    const shown = importQueueRef.current.then(() => new Promise<void>(resolve => {
       importDoneRef.current = resolve;
       setImporting({ plan, name, bytes: new Uint8Array(buffer), phase: 'confirm' });
-    });
+    }));
+    importQueueRef.current = shown;
+    await shown;
     return true;
   };
 
