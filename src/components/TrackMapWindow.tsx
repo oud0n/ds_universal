@@ -188,7 +188,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       const p = baseCar.lap.points[c.apexIndex];
       if (!p) continue;
       const q = toScreen(p.latitude, p.longitude);
-      if (Math.hypot(q.x - x, q.y + 14 - y) < 16) { setSelectedCorner(c.k); return; }
+      // 名札は頂点の 14px 上に描く (描くところと同じ位置で当たりを見る)
+      if (Math.hypot(q.x - x, q.y - 14 - y) < 16) { setSelectedCorner(c.k); return; }
     }
     let best = -1, bestD = 24;
     baseCar.lap.points.forEach((p, i) => {

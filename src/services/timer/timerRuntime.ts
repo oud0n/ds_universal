@@ -389,27 +389,28 @@ export class TimerRuntime {
     if (!this.snap.measuring) return;
     this.set({ measuring: false });
     // カメラの録画を止め、センサーの値を書き、次の走行の .csv に替える
-    this.devices.stopRun();
-    void this.imu.stop();
+    // センサーの .csv は、書き終えてから写す (写したあとに残りの行を書くと、選んだフォルダの .csv が欠けるため)
+    const sensors = Promise.all([this.devices.stopRun(), this.imu.stop()]).catch(() => {});
     // 今の走行の記録を先に外してから保存する (保存の途中で測定開始を押しても、新しい走行の記録を消さないように)
     const rec = this.recorder;
     this.recorder = null;
     const st = this.timer?.getState();
     await rec?.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true);
     if (rec) this.set({ savedRun: { laps: st?.laps.length ?? 0, best: st?.best?.timeSec ?? null } });
+    await sensors;
     await this.sync();
   }
 
   /** 周をはじめから数える (出どころを替えた・メニューで数え直した)。それまでの記録は保存して閉じ、次の測位から新しい走行にする */
   resetRun(): void {
-    // 録画を止め、センサーの .csv を次の走行に替える
-    this.devices.stopRun();
+    // 録画を止め、センサーの .csv を次の走行に替える (書き終えてから写す)
+    const sensors = this.devices.stopRun().catch(() => {});
     this.imu.newRun();
     // それまでの記録を外して保存してから、写す (外す前に保存し終わらないと、最後の数秒が残らないため)
     const rec = this.recorder;
     this.recorder = null;
     const st = this.timer?.getState();
-    void (rec ? rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true) : Promise.resolve()).then(() => this.sync());
+    void (rec ? rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true) : Promise.resolve()).then(() => sensors).then(() => this.sync());
     this.fixes = [];
     this.set({ lastPos: null, epoch: this.snap.epoch + 1 });
     this.chooseCourse(this.snap.course);

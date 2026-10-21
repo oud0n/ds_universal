@@ -399,12 +399,18 @@ export const journeys = [
         const cv = [...document.querySelectorAll('canvas')].find(c => c.parentElement?.contains(document.querySelector('[data-testid="corner-edit-panel"]')));
         const r = cv.getBoundingClientRect(); const dpr = cv.width / r.width;
         const img = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
-        const hits = [];
+        const hits = [], amber = [];
         for (let y = 30; y < r.height - 10; y += 3) for (let x = 10; x < panel.left - r.left - 10; x += 3) {
           const i = (Math.round(y * dpr) * cv.width + Math.round(x * dpr)) * 4;
           if (img[i] > 200 && img[i + 1] < 90 && img[i + 2] < 90) hits.push({ x: r.left + x, y: r.top + y });
+          // コーナーの名札 (黄色の文字・縁)
+          if (img[i] > 200 && img[i + 1] > 150 && img[i + 2] < 80) amber.push({ x: r.left + x, y: r.top + y });
+          // 車の印 (白)
+          if (img[i] > 220 && img[i + 1] > 220 && img[i + 2] > 220) amber.push({ x: r.left + x, y: r.top + y });
         }
-        return hits.length ? hits[Math.floor(hits.length / 2)] : null;
+        // 名札から離れた線の上 (名札の上を押すと、足さずに選ぶため)
+        const far = hits.filter(h => amber.every(a => Math.hypot(a.x - h.x, a.y - h.y) > 25));
+        return far.length ? far[Math.floor(far.length / 2)] : null;
       })()`);
       check(spot, '地図の上に走行の線が見つからない');
       for (const type of ['mousePressed', 'mouseReleased']) await p.send('Input.dispatchMouseEvent', { type, x: spot.x, y: spot.y, button: 'left', clickCount: 1 });

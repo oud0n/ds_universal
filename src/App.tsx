@@ -744,8 +744,14 @@ export const App: React.FC = () => {
   const applyImport = async () => {
     const cur = importing;
     if (!cur || cur.phase !== 'confirm') return;
-    const native = nativeWriter();
-    const writer = electronWriter() ?? native;
+    const electron = electronWriter();
+    // iPhone のアプリは、保管場所にもうあるファイルを書かない (選んだフォルダにだけある走行を上書きしないように)
+    let have: Set<string> = new Set();
+    if (!electron) {
+      try { have = new Set((await (await getRunStore())?.list() ?? []).map(f => f.path)); } catch { return; }
+    }
+    const native = electron ? null : nativeWriter(have);
+    const writer = electron ?? native;
     if (!writer) return;
     setImporting({ ...cur, phase: 'writing', progress: { done: 0, total: cur.plan.parts.filter(p => p.checked).length } });
     try {
@@ -985,9 +991,11 @@ export const App: React.FC = () => {
               // 1 時間で待つのをやめる (取り込みは「ファイル」アプリでも続く。終わってから開き直せば付く)
               if (Date.now() - started > 3600_000) { setRunDownload(null); return; }
             }
+            // 待っている間に Car 1 を別の走行に替えた (走行とコースの引き出しなど) ときは付けない
+            if (attachedRunRef.current !== runPath) { setRunDownload(null); return; }
             const refreshed: RunItem = { ...item, folderVideos: item.folderVideos.map(v => (paths.includes(v.path) ? { ...v, local: true } : v)) };
             const again = await videoCandidates(store, refreshed);
-            if (token !== runDownloadTokenRef.current) return;
+            if (token !== runDownloadTokenRef.current || attachedRunRef.current !== runPath) return;
             await attachRunVideos({
               store, item: refreshed, runSessions: added, videos: again.local, fromRuns: again.fromRuns,
               sessions: sessionsNow, circuitName: () => added[0]?.circuitName ?? '', setClockOffset: setSessionClockOffset

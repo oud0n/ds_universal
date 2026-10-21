@@ -188,13 +188,15 @@ export class LapDeviceSet {
   }
 
   /** 走行を終えた (周を数え直す): 録画を止め、センサーの値を書き、次の走行の .csv に替える */
-  stopRun(): void {
+  stopRun(): Promise<void> {
     this.pendingCameraStart = null;
     if (this.cameraRunning) {
       this.cameraRunning = false;
       for (const c of this.links.filter(l => l.device.kind === 'gopro')) void c.goproShutter(false).catch(() => {});
     }
-    for (const r of this.recorders.values()) void r.flush();
+    // 書き終わるのを返す (書き終えてから選んだフォルダへ写すため)
+    const flushes = [...this.recorders.values()].map(r => r.flush());
     this.recorders.clear();
+    return Promise.all(flushes).then(() => {});
   }
 }

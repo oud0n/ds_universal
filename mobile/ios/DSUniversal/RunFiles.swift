@@ -64,7 +64,8 @@ enum RunFiles {
         let fm = FileManager.default
         guard let folders = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return }
         let pattern = try! NSRegularExpression(pattern: "^((\\d{8})\\d{6}(?:_\\d+)?)(?:\\.[A-Za-z0-9_]+)?\\.(bon4|nmea|csv)$", options: [.caseInsensitive])
-        for folder in folders where (try? folder.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true && folder.lastPathComponent != "exports" {
+        // 共有のための exports/ と、取り込んだ元のログ (取り込み元/) は走行のフォルダではないので動かさない
+        for folder in folders where (try? folder.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true && folder.lastPathComponent != "exports" && folder.lastPathComponent != "取り込み元" {
             guard let files = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey], options: [.skipsHiddenFiles]) else { continue }
             // 走行ごと (名前の頭 YYYYMMDDhhmmss) にまとめる
             var runs: [String: (date: String, files: [URL])] = [:]
@@ -81,7 +82,11 @@ enum RunFiles {
                     return Date().timeIntervalSince(d) < 600
                 }
                 let dir = folder.appendingPathComponent(run.date, isDirectory: true)
-                let clash = run.files.contains { fm.fileExists(atPath: dir.appendingPathComponent($0.lastPathComponent).path) }
+                // 移す先に同じ名前があれば動かさない (iCloud にだけあるファイル .名前.icloud も、あるものとみなす)
+                let clash = run.files.contains {
+                    fm.fileExists(atPath: dir.appendingPathComponent($0.lastPathComponent).path)
+                        || fm.fileExists(atPath: dir.appendingPathComponent(".\($0.lastPathComponent).icloud").path)
+                }
                 if recent || clash { continue }
                 do {
                     try fm.createDirectory(at: dir, withIntermediateDirectories: true)

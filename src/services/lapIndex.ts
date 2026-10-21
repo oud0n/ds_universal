@@ -87,6 +87,14 @@ export interface LapIndex {
 }
 
 export const LAP_INDEX_FILE = 'laptimes.json';
+
+/** 控え (laptimes.json) の書き換えを 1 つずつにする (周を隠す操作と、控えの作り直しが、互いの書き換えを古い中身で上書きしないように) */
+let lapIndexWrites: Promise<void> = Promise.resolve();
+export function queueLapIndexWrite(fn: () => Promise<void>): Promise<void> {
+  const next = lapIndexWrites.then(fn, fn);
+  lapIndexWrites = next.catch(() => {});
+  return next;
+}
 /** 走行に付けられる動画の拡張子 */
 const VIDEO_EXT = /\.(mp4|mov|m4v|lrv|insv|mkv|webm)$/i;
 
@@ -338,12 +346,16 @@ export function videosInFolder(files: LapFileInfo[], folder: string): string[] {
  * 日付のフォルダのない 保管場所/<サーキットのフォルダ>/<走行>.nmea|.bon4 (それより前) の両方を数える。ほかの階層・形式は数えない。
  * 同じフォルダに同じ名前の .nmea と .bon4 があれば .nmea を基準にする (2026-10-21)
  */
+/** 走行を置かないフォルダ (保管場所の直下) */
+export const NON_RUN_FOLDERS: ReadonlySet<string> = new Set(['取り込み元', 'exports']);
+
 export function groupRunsByFolder(files: LapFileInfo[]): Map<string, LapFileInfo[]> {
   const out = new Map<string, LapFileInfo[]>();
   const chosen = new Map<string, LapFileInfo>();
   for (const f of files) {
     const m = /^([^/]+)\/((?:\d{8}\/)?[^/]+)\.(nmea|bon4)$/i.exec(f.path);
-    if (!m) continue;
+    // 取り込んだ元のログ (取り込み元/)・共有のための書き出し (exports/) は走行ではない
+    if (!m || NON_RUN_FOLDERS.has(m[1])) continue;
     const key = `${m[1]}/${m[2]}`;
     const cur = chosen.get(key);
     // .nmea を選ぶ。ただし .nmea が iCloud にだけあり .bon4 がこの端末にあるときは、落とさずに数えられる .bon4 を選ぶ

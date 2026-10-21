@@ -7,7 +7,7 @@ import { CIRCUIT_PRESETS } from './circuitDatabase';
 import { userCircuitStorage } from './userCircuitStorage';
 import { courseFolder } from '../utils/courseNames';
 import {
-  LAP_INDEX_FILE, groupBon4ByFolder, lapRows, parseLapIndex, reconcileFolder, setHidden,
+  LAP_INDEX_FILE, groupBon4ByFolder, lapRows, parseLapIndex, queueLapIndexWrite, reconcileFolder, setHidden,
   type LapCourse, type LapFileStore, type LapIndex, type LapRow
 } from './lapIndex';
 
@@ -51,10 +51,15 @@ export async function loadLapHistory(store: LapFileStore, onProgress?: (folder: 
     onProgress?.(folder);
     const prev = parseLapIndex(await store.readText(`${folder}/${LAP_INDEX_FILE}`));
     const indexPath = `${folder}/${LAP_INDEX_FILE}`;
-    const { index, changed } = await reconcileFolder(folder, files, course, prev, p => store.read(p), undefined,
-      partial => store.writeText(indexPath, JSON.stringify(partial)));
+    // 書くのは 1 つずつ (lapIndex.ts)。計算している間に周を隠した・出したときは、その隠し方を残す
+    const writeIndex = (ix: LapIndex) => queueLapIndexWrite(async () => {
+      const cur = parseLapIndex(await store.readText(indexPath));
+      const userChanged = !!cur && JSON.stringify(cur.hidden) !== JSON.stringify(prev?.hidden ?? []);
+      await store.writeText(indexPath, JSON.stringify(userChanged ? { ...ix, hidden: cur!.hidden } : ix));
+    });
+    const { index, changed } = await reconcileFolder(folder, files, course, prev, p => store.read(p), undefined, writeIndex);
     // 控えを書けなくても、一覧は出す (次に開いたときにもう一度計算する)
-    if (changed) await store.writeText(`${folder}/${LAP_INDEX_FILE}`, JSON.stringify(index)).catch(() => {});
+    if (changed) await writeIndex(index).catch(() => {});
     out.push({ folder, courseName: course.name, fileCount: files.length, rows: lapRows(folder, index), index });
   }
   return out;
