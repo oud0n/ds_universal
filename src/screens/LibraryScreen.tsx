@@ -95,7 +95,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
           {[[null, { label: t('すべて', 'All'), count: runs?.length ?? 0 }] as const, ...folders].map(([f, { label, count }]) => (
             <button
               key={f ?? '*'}
-              onClick={() => { setFolder(f); setShown(PAGE); }}
+              onClick={() => { setFolder(f); setShown(PAGE); setSelectedKey(null); }}
               className={`px-3 py-1.5 rounded-full text-xs whitespace-nowrap border cursor-pointer ${folder === f ? 'bg-sky-600 border-sky-500 text-white' : 'bg-surface-3 border-line-2 text-slate-300'}`}
             >
               {label} <span className="opacity-70">{count}</span>
@@ -156,8 +156,9 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
     <RunDetail
       run={selected}
       busy={busy}
-      onOpen={() => onOpen(selected)}
-      onOpenVideo={() => onOpenVideo(selected)}
+      // 開いたら詳細は閉じる (走行のタブに戻ったとき、前の詳細が出たままにならないように)
+      onOpen={() => { setSelectedKey(null); onOpen(selected); }}
+      onOpenVideo={() => { setSelectedKey(null); onOpenVideo(selected); }}
       onToggleLap={async (lap, hide) => { await setRunLapHidden(store, selected, lap, hide); reload(); }}
       onClose={wide ? undefined : () => setSelectedKey(null)}
     />
@@ -196,6 +197,8 @@ const RunDetail: React.FC<{
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const [order, setOrder] = useState<'run' | 'time'>('run');
+  // 書き換えている間は、隠す・出すを押せなくする
+  const [saving, setSaving] = useState(false);
   useEscapeKey(!!onClose, () => onClose?.());
   const visible = run.laps.filter(l => !l.hidden);
   const best = visible.length ? Math.min(...visible.map(l => l.time)) : null;
@@ -237,8 +240,9 @@ const RunDetail: React.FC<{
                   <span className="w-12 text-xs text-slate-400">{l.part ? `${l.part}-` : ''}L{l.n}</span>
                   <span className={`font-mono font-bold flex-1 ${!l.hidden && l.time === best ? 'text-fuchsia-400' : 'text-slate-200'}`}>{formatLapTime(l.time)}</span>
                   <button
-                    onClick={() => void onToggleLap(l, !l.hidden)}
-                    className="p-1 rounded text-slate-500 hover:text-slate-300 cursor-pointer"
+                    onClick={() => { setSaving(true); void onToggleLap(l, !l.hidden).finally(() => setSaving(false)); }}
+                    disabled={saving}
+                    className="p-2.5 -m-1.5 rounded text-slate-500 hover:text-slate-300 cursor-pointer disabled:opacity-40"
                     title={l.hidden ? t('出す', 'Show') : t('隠す (ピットイン・赤旗の周など)', 'Hide (pit, red flag laps etc.)')}
                     aria-label={l.hidden ? t('出す', 'Show') : t('隠す', 'Hide')}
                   >

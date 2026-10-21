@@ -68,6 +68,10 @@ export class PhoneImuRecorder {
   private baseline: { t0: number; sum: Vec; n: number } | null = null;
   private recorders = new Map<string, SensorCsvRecorder>();
   private running = false;
+  /** 最後に書いた走行 (止めたあとに届いた最後の値も、その走行に書くため) */
+  private lastBase: string | null = null;
+  /** 周を数え直したとき: この時刻より前の値は前の走行へ */
+  private split: { beforeMs: number; base: string } | null = null;
 
   constructor(private readonly runBase: () => string | null) {}
 
@@ -79,6 +83,8 @@ export class PhoneImuRecorder {
     this.off = onNative('system.motion', b => this.onBatch(b));
     try {
       await callNative('system.motionStart', { hz: 50 });
+      // 頼んでいる間に止められたら、アプリにも止めてもらう
+      if (!this.running) await callNative('system.motionStop', {}).catch(() => {});
     } catch {
       // 前のアプリ (G センサーを読めない) では記録しない
       this.off?.();
@@ -90,11 +96,15 @@ export class PhoneImuRecorder {
   async stop(): Promise<void> {
     if (!this.running) return;
     this.running = false;
+    // 止めると、アプリはためていた最後の値を知らせてくる。それを受け取ってから受け取りをやめる
     await callNative('system.motionStop', {}).catch(() => {});
+    await new Promise(r => setTimeout(r, 50));
     this.off?.();
     this.off = null;
     await this.flush();
     this.recorders.clear();
+    this.lastBase = null;
+    this.split = null;
   }
 
   /** ためた行を書く (ラップタイマーの保存と一緒に) */
@@ -104,8 +114,9 @@ export class PhoneImuRecorder {
 
   /** 走行が替わった (周を数え直した): 次の値から新しいファイルに書く。基準の傾きはそのまま */
   newRun(): void {
+    // アプリにためてある (まだ届いていない) 値は前の走行のもの。今の時刻で分ける
+    if (this.lastBase) this.split = { beforeMs: Date.now(), base: this.lastBase };
     void this.flush();
-    this.recorders.clear();
   }
 
   private onBatch(b: MotionBatch): void {
@@ -129,7 +140,18 @@ export class PhoneImuRecorder {
   }
 
   private record(tMs: number, values: Record<string, number>): void {
-    const base = this.runBase();
+    let base: string | null;
+    if (this.split && tMs < this.split.beforeMs) base = this.split.base;
+    else {
+      base = this.runBase() ?? (this.running ? null : this.lastBase);
+      if (base && this.split && base !== this.split.base) {
+        // 前の走行の残りは書き終えた
+        const old = this.recorders.get(this.split.base);
+        if (old) { void old.flush(); this.recorders.delete(this.split.base); }
+        this.split = null;
+      }
+      if (base) this.lastBase = base;
+    }
     if (!base) return;
     let rec = this.recorders.get(base);
     if (!rec) {
