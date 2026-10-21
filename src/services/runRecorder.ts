@@ -12,6 +12,7 @@
 import { appendFixes, startRun, type RunMeta } from './liveRunStore';
 import { UNSORTED_FOLDER } from '../utils/courseNames';
 import { bon4Header, bon4Records, fixesToNmea, runFileBase } from './runFiles';
+import { getWriteBon4 } from './runFormatSettings';
 import type { LiveFix } from './liveLapTimer';
 import { callNative, hasNative, toBase64 } from '../native/bridge';
 
@@ -48,6 +49,8 @@ export class LiveRunRecorder {
   private lastFix: LiveFix | null = null;
   private chain: Promise<void> = Promise.resolve();
   private toFiles = false;
+  /** この走行で .bon4 も書くか (始めたときの設定。走っている途中では変えない) */
+  private bon4 = true;
   private retryAt = 0;
   /** 最初の測位を受け取った時刻 (端末の時計。測位が途切れても、コースを待つのを COURSE_WAIT_MS で止めるため) */
   private firstAddMs = 0;
@@ -117,15 +120,18 @@ export class LiveRunRecorder {
         for (let tries = 0; ; tries++) {
           // 断られた名前は usedBases に入っているので、次は _2・_3 … になる
           const base = uniqueBase(first.tMs, folder);
+          this.bon4 = getWriteBon4();
           try {
-            await callNative('system.appendFile', { path: `${base}.bon4`, b64: toBase64(bon4Header(first)), truncate: true, createNew: true });
+            // 同じ名前があるかは、先に作るファイルで見る (.bon4 を書くなら .bon4、書かないなら .nmea)
+            if (this.bon4) await callNative('system.appendFile', { path: `${base}.bon4`, b64: toBase64(bon4Header(first)), truncate: true, createNew: true });
+            else await callNative('system.appendFile', { path: `${base}.nmea`, b64: '', truncate: true, createNew: true });
             fileBase = base;
             break;
           } catch (e) {
             if (!isFileExists(e) || tries >= 20) throw e;
           }
         }
-        await callNative('system.appendFile', { path: `${fileBase}.nmea`, b64: '', truncate: true });
+        if (this.bon4) await callNative('system.appendFile', { path: `${fileBase}.nmea`, b64: '', truncate: true });
         this.toFiles = true;
       } catch {
         // 前のアプリ (ファイルに書けない) では、データベースにだけ保存する
@@ -155,7 +161,7 @@ export class LiveRunRecorder {
     if (this.toFiles && run.fileBase && batch.length) {
       try {
         await callNative('system.appendFile', { path: `${run.fileBase}.nmea`, b64: toBase64(encoder.encode(fixesToNmea(batch, this.lastFix))) });
-        await callNative('system.appendFile', { path: `${run.fileBase}.bon4`, b64: toBase64(bon4Records(batch)) });
+        if (this.bon4) await callNative('system.appendFile', { path: `${run.fileBase}.bon4`, b64: toBase64(bon4Records(batch)) });
       } catch (e) {
         // ファイルに書けなくなっても、データベースには残っている。途中までのファイルを渡さないよう、この走行のファイルは使わない印にする
         this.toFiles = false;

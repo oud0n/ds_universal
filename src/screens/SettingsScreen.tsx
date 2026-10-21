@@ -9,6 +9,8 @@ import type { NavPlan } from '../app/navPlan';
 import { navStore } from '../app/navStore';
 import { SCREEN_META, screenLabel } from '../app/screenMeta';
 import { StorageSettings } from '../components/StorageSettings';
+import { getWriteBon4, setWriteBon4 } from '../services/runFormatSettings';
+import { hasNative } from '../native/bridge';
 
 /**
  * 設定 (⚙)。2026-10-21 (PLAN-24 の 2)。今は、タブに並ばない画面 (データ管理・変換・ロガーなど) への入口と、テーマ・言語・開発支援。
@@ -25,6 +27,7 @@ export const SettingsScreen: React.FC<{ plan: NavPlan; onOpenDonate?: () => void
     <div className="h-full overflow-y-auto" data-testid="settings-screen">
       <div className="max-w-lg mx-auto p-3 space-y-5">
         <StorageSettings />
+        {hasNative() && <RunFormatSetting />}
         {rows.length > 0 && (
           <section className="rounded-xl bg-surface-1 border border-line-2 overflow-hidden">
             {rows.map((s, i) => {
@@ -100,5 +103,21 @@ export const SettingsScreen: React.FC<{ plan: NavPlan; onOpenDonate?: () => void
         </section>
       </div>
     </div>
+  );
+};
+
+/** 走行のファイルの形式: .bon4 も書くか (走行の基準は .nmea) */
+const RunFormatSetting: React.FC = () => {
+  const t = useT();
+  const [on, setOn] = React.useState(getWriteBon4);
+  return (
+    <section className="space-y-2" data-testid="run-format-setting">
+      <h3 className="text-xs text-slate-500 px-1">{t('走行のファイル', 'Run files')}</h3>
+      <label className="flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-1 border border-line-2 text-sm text-slate-200 cursor-pointer">
+        <input type="checkbox" checked={on} onChange={e => { setOn(e.target.checked); setWriteBon4(e.target.checked); }} className="w-5 h-5 accent-sky-600" />
+        <span className="flex-1">{t('デジスパイスの公式ソフト用の .bon4 も書く', 'Also write .bon4 for the official DigSpice software')}</span>
+      </label>
+      <p className="text-[11px] text-slate-500 px-1">{t('走行はいつも .nmea で記録します (ほかのアプリでも読める形)。次に測り始めた走行から変わります。', 'Runs are always recorded as .nmea (readable by other apps). Applies from the next run.')}</p>
+    </section>
   );
 };
