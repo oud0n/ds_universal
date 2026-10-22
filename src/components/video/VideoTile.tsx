@@ -136,8 +136,11 @@ export const VideoTile: React.FC<VideoTileProps> = ({
         <video
           ref={setVideo}
           onSeeked={onSeeked}
-          // 動画を読み込めたら、もう一度位置を合わせる (止めているときは、App の時刻が変わらず合わせ直されないため)
+          // 動画を読み込めたら、もう一度位置を合わせる (止めているときは、App の時刻が変わらず合わせ直されないため)。
+          // iPhone の Safari は再生するまで中身を読まず loadeddata が来ないので、長さが分かったとき (loadedmetadata) にも合わせる。
+          // そこで、止めたままでも最初のコマを出すための一度だけの再生をする (Car を替えて動画が替わったときも。2026-10-22)
           onLoadedData={onSeeked}
+          onLoadedMetadata={onSeeked}
           src={src}
           muted={muted}
           playsInline
