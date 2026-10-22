@@ -174,6 +174,8 @@ const SessionNameField: React.FC<{ name: string; compact: boolean; onSave: (name
         onChange={e => setDraft(e.target.value)}
         onBlur={() => finish(true)}
         onKeyDown={e => {
+          // 日本語入力の変換を確定する Enter・候補を閉じる Esc では決めない (漢字を確定した途端に閉じないように)
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
           if (e.key === 'Enter') finish(true);
           else if (e.key === 'Escape') finish(false);
         }}
