@@ -40,6 +40,12 @@ const MAX_SEEK_LEAD_SEC = 0.8;
 // 飛んだ移動が動き出すのを待つ長さの上限
 const SEEK_HOLD_MS = 1500;
 
+/**
+ * <video> の今のファイル。src は替えたその場で替わる。currentSrc は読み込みが始まるまで前のファイルのままなので、それより先に見る
+ * (止めたまま Car を替えたとき、前のファイルと見誤って一度だけの再生をやり直さず、iPhone で黒いままだった。2026-10-22)
+ */
+const videoSrc = (el: HTMLVideoElement): string => el.getAttribute?.('src') || el.src || el.currentSrc;
+
 interface Entry {
   el: HTMLVideoElement;
   /** 最後に出たコマの、動画の中の時刻と、それを受け取った時刻 (performance.now) */
@@ -112,7 +118,7 @@ export class PlaybackController {
     if (old) { this.stopFrames(old); old.el.removeEventListener('seeked', old.onSeeked); }
     if (!el) { this.entries.delete(key); return; }
     const entry: Entry = {
-      el, frame: null, frameHandle: null, correcting: false, rateChangedAt: 0, src: el.currentSrc || el.src,
+      el, frame: null, frameHandle: null, correcting: false, rateChangedAt: 0, src: videoSrc(el),
       seekStartedAt: null, seekDone: false, seekTarget: 0, lastLocal: 0, lastSyncAt: null, seekAudible: false, seekLead: [0, 0],
       appOffset: null, masterLast: null, masterBlockedUntil: 0,
       onSeeked: () => {
@@ -241,7 +247,7 @@ export class PlaybackController {
 
   private syncEntry(entry: Entry, t: PlaybackTarget, isPlaying: boolean, speed: number): void {
     const el = entry.el;
-    const src = el.currentSrc || el.src;
+    const src = videoSrc(el);
     if (entry.src !== src) {
       entry.src = src;
       entry.frame = null;
