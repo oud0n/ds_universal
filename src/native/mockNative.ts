@@ -98,6 +98,10 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   const lapTimerFiles = new Map<string, string>();
   /** 保管先 (選んだフォルダ) に写したファイル */
   const syncedFiles = new Map<string, string>();
+  /** 書いている最中のファイル (system.closeFiles で閉じるまで) */
+  const openFiles = new Set<string>();
+  /** 走行の置き場に見えるファイル (選んだフォルダなら、移したものとアプリの中のもの) */
+  const visibleFiles = () => (storage.kind === 'folder' ? new Map([...syncedFiles, ...lapTimerFiles]) : lapTimerFiles);
   let storage: StorageInfo = { kind: 'local', folderName: '', folderOk: false };
   const nowNs = () => Math.round(performance.now() * 1e6);
   const hex = (u8: Uint8Array) => Array.from(u8, b => b.toString(16).padStart(2, '0')).join('');
@@ -284,6 +288,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         const { path, b64, truncate, createNew } = req.params as { path: string; b64: string; truncate?: boolean; createNew?: boolean };
         if (createNew && lapTimerFiles.has(path)) throw { code: 'busy', message: 'file exists' };
         lapTimerFiles.set(path, (truncate ? '' : lapTimerFiles.get(path) ?? '') + b64);
+        if (!path.startsWith('exports/')) openFiles.add(path);
         return {};
       }
       case 'system.storageInfo':
@@ -296,22 +301,32 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         return { ...storage };
       case 'system.syncLapFiles': {
         if (storage.kind !== 'folder') return { kind: 'local', copied: 0, skipped: 0, failed: 0 };
+        // 書き終えたものは選んだフォルダへ移す (アプリの中から消す)。書いている最中のものは写すだけ
         let copied = 0;
+        let moved = 0;
         let skipped = 0;
-        for (const [path, b64] of lapTimerFiles) {
+        for (const [path, b64] of [...lapTimerFiles]) {
           if (path.startsWith('exports/')) continue;
-          if (syncedFiles.get(path) === b64) { skipped++; continue; }
+          const same = syncedFiles.get(path) === b64;
           syncedFiles.set(path, b64);
-          copied++;
+          if (!openFiles.has(path)) { lapTimerFiles.delete(path); moved++; } else if (same) skipped++; else copied++;
         }
-        return { kind: 'folder', copied, skipped, failed: 0 };
+        return { kind: 'folder', copied, moved, skipped, failed: 0 };
       }
+      case 'system.closeFiles': {
+        const { all, prefix, paths } = req.params as { all?: boolean; prefix?: string; paths?: string[] };
+        if (all) openFiles.clear();
+        for (const p of [...openFiles]) if ((prefix && p.startsWith(prefix)) || paths?.includes(p)) openFiles.delete(p);
+        return { open: openFiles.size };
+      }
+      // 選んだフォルダへ移したものも、同じ置き場にあるものとして見せる (このふりの窓口は、走行の置き場の窓口を持たないため)
       case 'system.listLapFiles':
-        return { files: [...lapTimerFiles.entries()].filter(([p]) => !p.startsWith('exports/')).map(([path, b64]) => ({ path, size: b64.length, mtimeMs: 0 })) };
+        return { files: [...visibleFiles().entries()].filter(([p]) => !p.startsWith('exports/')).map(([path, b64]) => ({ path, size: b64.length, mtimeMs: 0 })) };
       case 'system.readLapFile': {
         const { path } = req.params as { path: string };
-        if (!lapTimerFiles.has(path)) throw { code: 'not-found', message: 'no file' };
-        return { b64: lapTimerFiles.get(path)! };
+        const files = visibleFiles();
+        if (!files.has(path)) throw { code: 'not-found', message: 'no file' };
+        return { b64: files.get(path)! };
       }
       case 'system.shareFile':
         shared.push({ fileName: (req.params as { path: string }).path });

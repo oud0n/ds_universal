@@ -13,6 +13,17 @@ final class SystemModule {
     private var syncAgain = false
     private var syncWaiters: [(Result<[String: Any], NativeError>) -> Void] = []
     private var syncBackgroundTask: UIBackgroundTaskIdentifier = .invalid
+    /// LapTimer/ の下の、いま書いている最中のファイル (system.appendFile で書き始め、system.closeFiles で閉じる)。
+    /// 選んだフォルダへは写すだけにして、アプリの中からは消さない。閉じたものは、写せたらアプリの中から消す (移す。2026-10-21)。
+    /// アプリを起動し直すと空になる (起動し直したあとは、前の走行のファイルに書き足さないため)
+    private var openFiles = Set<String>()
+    /// system.closeFiles で閉じたファイル。閉じたあとに書き足されても (測り直した直後に届く前の走行の G センサーの値など)、
+    /// 書いている最中に戻さない (戻すと二度と閉じられず、選んだフォルダで消しても写し直してしまう。2026-10-22 のレビュー)
+    private var closedFiles = Set<String>()
+    /// ファイルに最後に書いた時刻。書いてから少しの間は移さない (閉じたあとに遅れて届く書き足しが、移したあとで書けなくならないように)
+    private var lastAppend: [String: Date] = [:]
+    /// 最後に書いてから、これだけたったものを移す
+    private static let settleSeconds: TimeInterval = 30
 
     /// ラップタイマーの記録の保管先 ("local" = この iPhone、"folder" = 選んだフォルダ) と、選んだフォルダのブックマーク
     private static let storageKindKey = "lapTimer.storage.kind"
@@ -72,19 +83,32 @@ final class SystemModule {
                     try handle.seekToEnd()
                     try handle.write(contentsOf: data)
                 }
+                // 書けたファイルを、書いている最中に数える (createNew で断ったもの・前の走行のファイルは数えない)。
+                // 共有のために作るファイル (exports/) は走行ではないので数えない。閉じたファイルは書いている最中に戻さない
+                if !rel.hasPrefix("exports/") {
+                    lastAppend[rel] = Date()
+                    if (params["createNew"] as? Bool) == true { closedFiles.remove(rel) }
+                    if !closedFiles.contains(rel) { openFiles.insert(rel) }
+                }
                 done(.success([:]))
             } catch {
                 done(.failure(NativeError(.io, error.localizedDescription)))
             }
         case "system.shareFile":
-            guard let rel = params["path"] as? String, let url = lapTimerURL(rel), FileManager.default.fileExists(atPath: url.path) else {
+            guard let rel = params["path"] as? String, let url = lapTimerURL(rel) else {
                 done(.failure(NativeError(.notFound, "no file")))
                 return
             }
-            if share(url: url) {
-                done(.success([:]))
-            } else {
-                done(.failure(NativeError(.io, "could not show the share sheet")))
+            if FileManager.default.fileExists(atPath: url.path) {
+                if share(url: url) { done(.success([:])) } else { done(.failure(NativeError(.io, "could not show the share sheet"))) }
+                return
+            }
+            // LapTimer/ に無ければ (選んだフォルダへ移したあと)、走行の置き場から一時ファイルに写して渡す。
+            // iCloud にだけあるときは取り込みを待つので、画面の動くスレッドでは読まない (固まらないように)
+            Task {
+                let file = await Task.detached(priority: .userInitiated) { Self.copyFromRunRoot(rel) }.value
+                guard let file else { return done(.failure(NativeError(.notFound, "no file"))) }
+                if self.share(url: file) { done(.success([:])) } else { done(.failure(NativeError(.io, "could not show the share sheet"))) }
             }
         case "system.shareText":
             // Web で作った文 (変換した CSV など) を一時ファイルにして共有する
@@ -109,6 +133,15 @@ final class SystemModule {
             done(.success(storageInfo()))
         case "system.syncLapFiles":
             syncLapFiles(done: done)
+        case "system.closeFiles":
+            // 書き終えたファイル (走行を閉じた・取り込み終えた)。次の system.syncLapFiles で、選んだフォルダへ移す
+            var closing = Set<String>()
+            if (params["all"] as? Bool) == true { closing = openFiles }
+            if let prefix = params["prefix"] as? String, !prefix.isEmpty { closing.formUnion(openFiles.filter { $0.hasPrefix(prefix) }) }
+            if let paths = params["paths"] as? [String] { closing.formUnion(paths) }
+            openFiles.subtract(closing)
+            closedFiles.formUnion(closing)
+            done(.success(["open": openFiles.count]))
         case "system.listLapFiles":
             // ラップタイムの一覧のため、LapTimer/ の下のファイル (大きさと更新日時)
             let fm = FileManager.default
@@ -193,6 +226,14 @@ final class SystemModule {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("LapTimer", isDirectory: true)
     }
 
+    /// 走行の置き場 (選んだフォルダ) のログを、一時フォルダに写す (共有の画面で渡すため)
+    nonisolated private static func copyFromRunRoot(_ rel: String) -> URL? {
+        guard let data = try? RunFiles.read(rel) else { return nil }
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent((rel as NSString).lastPathComponent)
+        do { try data.write(to: tmp, options: .atomic) } catch { return nil }
+        return tmp
+    }
+
     /// 書類のフォルダの LapTimer/ の下の場所 (上のフォルダへ出る名前・絶対の道は断る)
     private func lapTimerURL(_ rel: String) -> URL? {
         guard !rel.isEmpty, !rel.contains(".."), !rel.hasPrefix("/") else { return nil }
@@ -254,7 +295,10 @@ final class SystemModule {
         top.present(picker, animated: true)
     }
 
-    /// LapTimer/ の下のファイルを、選んだフォルダの同じ場所 (サーキット名/ファイル) へ写す。大きさの違うもの・ないものだけ。
+    /// LapTimer/ の下のファイルを、選んだフォルダの同じ場所 (サーキット名/日付/ファイル) へ移す (2026-10-21)。
+    /// 書いている最中のファイル (openFiles) は写すだけ (大きさの違うもの・ないもの)。書き終えたものは、写せたらアプリの中から消す。
+    /// アプリの中に控えを残すと、選んだフォルダ (iCloud Drive など) で消したフォルダを、次に開いたときに写し直して戻してしまうため。
+    /// 写せなかったもの (フォルダが使えない・書けない) は、アプリの中に残して次にもう一度移す。
     /// 写している間にもう一度頼まれたら、終わってからもう一度だけ回す (同時に 2 つは走らせない)
     private func syncLapFiles(done: @escaping (Result<[String: Any], NativeError>) -> Void) {
         // 前の版がじかに置いた走行は、写す前に日付のフォルダへ移す (写した先でも日付のフォルダに入るように)
@@ -289,12 +333,16 @@ final class SystemModule {
                 syncAgain = false
                 let r = await copyChanged(to: dest)
                 total.copied += r.copied
+                total.moved += r.moved
                 total.skipped += r.skipped
                 total.failed += r.failed
                 total.error = r.error ?? total.error
             } while syncAgain
             if total.failed > 0 { DebugLog.write("storage sync failed=\(total.failed) error=\(total.error ?? "-")") }
-            var out: [String: Any] = ["kind": "folder", "copied": total.copied, "skipped": total.skipped, "failed": total.failed]
+            let access = dest.startAccessingSecurityScopedResource()
+            if !Self.isInsideLapTimer(dest) { Self.pruneEmptyFolders(Self.lapTimerRoot) }
+            if access { dest.stopAccessingSecurityScopedResource() }
+            var out: [String: Any] = ["kind": "folder", "copied": total.copied, "moved": total.moved, "skipped": total.skipped, "failed": total.failed]
             if let e = total.error { out["error"] = e }
             let waiters = syncWaiters
             syncWaiters = []
@@ -312,6 +360,8 @@ final class SystemModule {
 
     struct SyncResult: Sendable {
         var copied = 0
+        /// 写して (か、もう同じものがあって)、アプリの中から消したもの
+        var moved = 0
         var skipped = 0
         var failed = 0
         var error: String?
@@ -322,7 +372,7 @@ final class SystemModule {
         case failed(String)
     }
 
-    /// 写す。ファイルを読むのは、書き足し (system.appendFile) と同じ MainActor の上 (書きかけのファイルを読まないように)。
+    /// 写す・移す。ファイルを読むのは、書き足し (system.appendFile) と同じ MainActor の上 (書きかけのファイルを読まないように)。
     /// 書くのは別のスレッドで、一時ファイルに書いてから入れ替える (途中で失敗しても、写し先の前のファイルは残る)
     private func copyChanged(to dest: URL) async -> SyncResult {
         var r = SyncResult()
@@ -330,24 +380,42 @@ final class SystemModule {
         let access = dest.startAccessingSecurityScopedResource()
         defer { if access { dest.stopAccessingSecurityScopedResource() } }
         let fm = FileManager.default
+        let sameTree = Self.isInsideLapTimer(dest)
+        // 写し終えた (か、もう同じものがある) 書き終えたファイルを、アプリの中から消す
+        let now = Date()
+        let done = { (file: URL, rel: String) in
+            guard !sameTree, !self.openFiles.contains(rel) else { return false }
+            if let last = self.lastAppend[rel], now.timeIntervalSince(last) < Self.settleSeconds { return false }
+            do {
+                try fm.removeItem(at: file)
+                self.closedFiles.remove(rel)
+                self.lastAppend[rel] = nil
+                return true
+            } catch {
+                DebugLog.write("storage move: could not remove \(rel) \(error.localizedDescription)")
+                return false
+            }
+        }
         for (file, rel) in Self.lapTimerFiles() {
-            // ラップタイムの一覧の控えは端末ごとに作るので写さない (2 台で同じ控えを書いてぶつからないように)
+            // ラップタイムの一覧の控えは端末ごとに作るので写さない (2 台で同じ控えを書いてぶつからないように)。
+            // 選んだフォルダでは、選んだフォルダの控えを使う。アプリの中の控えは、フォルダが空になったら消す (pruneEmptyFolders)
             let name = (rel as NSString).lastPathComponent
             if name == "laptimes.json" { continue }
             let target = dest.appendingPathComponent(rel)
             // 走行の動画の控え (runs.json)・コーナーの名前 (corners.json と .bak) は、選んだフォルダにまだ無いときだけ写す。
             // 大きさで比べて写すと、選んだフォルダで直した名前・同期を、アプリの中に残った古い中身で毎回戻してしまうため
+            // 選んだフォルダにもうあるときは、中身がまったく同じときだけアプリの中から消す。違えば残す
+            // (中身を比べずに消すと、この iPhone で付けた動画・コーナーの名前を失う。2026-10-22 のレビュー)
             if name == "runs.json" || name == "corners.json" || name == "corners.json.bak" {
-                let placeholder = target.deletingLastPathComponent().appendingPathComponent(".\(name).icloud")
-                if fm.fileExists(atPath: target.path) || fm.fileExists(atPath: placeholder.path) {
-                    r.skipped += 1
+                if Self.destSize(target) != nil {
+                    let same = fm.fileExists(atPath: target.path) && fm.contentsEqual(atPath: file.path, andPath: target.path)
+                    if same && done(file, rel) { r.moved += 1 } else { r.skipped += 1 }
                     continue
                 }
             }
             let srcSize = (try? fm.attributesOfItem(atPath: file.path)[.size] as? Int) ?? -1
-            let dstSize = (try? fm.attributesOfItem(atPath: target.path)[.size] as? Int) ?? -2
-            if srcSize == dstSize {
-                r.skipped += 1
+            if srcSize == Self.destSize(target) {
+                if done(file, rel) { r.moved += 1 } else { r.skipped += 1 }
                 continue
             }
             guard let data = try? Data(contentsOf: file) else {
@@ -357,13 +425,65 @@ final class SystemModule {
             }
             let outcome = await Task.detached(priority: .utility) { Self.writeCoordinated(data, to: target) }.value
             switch outcome {
-            case .copied: r.copied += 1
+            case .copied:
+                // 読んでから書き終えるまでに書き足された (書いている最中だった) ものは、消さずに次に写す
+                let nowSize = (try? fm.attributesOfItem(atPath: file.path)[.size] as? Int) ?? -1
+                if nowSize == data.count && done(file, rel) { r.moved += 1 } else { r.copied += 1 }
             case .failed(let message):
                 r.failed += 1
                 r.error = message
             }
         }
         return r
+    }
+
+    /// 選んだフォルダがアプリの中の LapTimer/ そのもの (か、その中) か。そうなら写し先と写し元が同じファイルになるので、アプリの中から消さない
+    private static func isInsideLapTimer(_ dest: URL) -> Bool {
+        let src = lapTimerRoot.resolvingSymlinksInPath().standardizedFileURL.path
+        let dst = dest.resolvingSymlinksInPath().standardizedFileURL.path
+        return dst == src || dst.hasPrefix(src + "/")
+    }
+
+    /// 選んだフォルダのファイルの大きさ。iCloud にだけあるもの (.名前.icloud) は、その中に書いてある大きさ。無ければ nil
+    nonisolated private static func destSize(_ target: URL) -> Int? {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: target.path) {
+            return (try? fm.attributesOfItem(atPath: target.path)[.size] as? Int) ?? -2
+        }
+        let placeholder = target.deletingLastPathComponent().appendingPathComponent(".\(target.lastPathComponent).icloud")
+        guard fm.fileExists(atPath: placeholder.path) else { return nil }
+        if let data = try? Data(contentsOf: placeholder),
+           let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+           let size = plist["NSURLFileSizeKey"] as? Int {
+            return size
+        }
+        return -2
+    }
+
+    /// LapTimer/ の下の、空になったフォルダを消す (ラップタイムの一覧の控え laptimes.json だけが残ったフォルダも)。exports/ は残す
+    private static func pruneEmptyFolders(_ root: URL) {
+        let fm = FileManager.default
+        func prune(_ dir: URL) -> Bool {
+            guard let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: []) else { return false }
+            var keep = false
+            for item in items {
+                let isDir = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+                if isDir {
+                    if item.lastPathComponent == "exports" && dir == root { keep = true; continue }
+                    if !prune(item) { keep = true }
+                } else if item.lastPathComponent != "laptimes.json" && item.lastPathComponent != ".DS_Store" {
+                    keep = true
+                }
+            }
+            if keep || dir == root { return false }
+            do {
+                try fm.removeItem(at: dir)
+                return true
+            } catch {
+                return false
+            }
+        }
+        _ = prune(root)
     }
 
     /// LapTimer/ の下のファイル (共有のために作った exports/ は除く) と、LapTimer/ からの道
