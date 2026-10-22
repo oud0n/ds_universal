@@ -154,9 +154,25 @@ const CIRCUIT_EN: Record<string, string> = {
   '名阪スポーツランド (Meihan Sportsland)': 'Meihan Sportsland'
 };
 
-/** サーキット名を画面に出す形にする (英語のときは英語名。読み込んだコースの「(ユーザー設置)」も英語にする) */
+/** 内蔵のサーキットの表にある英語名。無ければ名前のまま (記録のフォルダの名前を決めるのに使う。フォルダの名前が変わらないよう、表だけを見る) */
+export function circuitTableName(name: string): string {
+  return CIRCUIT_EN[name] ?? name;
+}
+
+// 名前の後ろに付く日本語の書き添え (海外のコースの「(カート)」など)
+const NOTE_EN: Record<string, string> = { 'カート': 'kart', 'ロードコース': 'road course', 'ユーザー設置': 'user' };
+
+/**
+ * サーキット名を画面に出す形にする。英語のときは、表にあればその英語名、
+ * 無ければ「日本語の名前 (English)」の括弧の中を出す。後ろの「(ユーザー設置)」「(カート)」なども英語にする
+ */
 export function circuitLabel(name: string, l: Lang = lang): string {
   if (l !== 'en' || !name) return name;
   if (CIRCUIT_EN[name]) return CIRCUIT_EN[name];
-  return name.replace(/ \(ユーザー設置\)$/, ' (user)');
+  const note = name.match(/^(.+) \(([^()]+)\)$/);
+  if (note && NOTE_EN[note[2]]) return `${circuitLabel(note[1], l)} (${NOTE_EN[note[2]]})`;
+  // 英字の無い文字 (日本語) を含む名前で、括弧の中が英字だけのとき
+  const pair = name.match(/^(.*[^\x00-\x7f].*) \(([\x20-\x7e]+)\)$/);
+  if (pair) return pair[2];
+  return name;
 }
