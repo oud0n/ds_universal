@@ -4,7 +4,7 @@
  * (英小文字・数字と _ だけ。空白は使わない) にする。入っているコースは、コースのファイルと同じ ID (sodegaura など) をそのまま使う。
  * 表示の名前 (日本語名・英語名) は、空白を使ってよい
  */
-import { circuitLabel } from './i18n';
+import { circuitTableName } from './i18n';
 
 /** コースの分からない走行のフォルダ */
 export const UNSORTED_FOLDER = 'unsorted';
@@ -33,7 +33,7 @@ const withoutUserMark = (name: string) => name.trim().replace(USER_MARK, '').tri
 const isLatin = (s: string) => /[A-Za-z]/.test(s) && !/[^ -ɏ]/.test(s);
 
 /**
- * コースの名前から、英語名の候補を作る: 英語表示の名前 → 名前の終わりのかっこの中の英字
+ * コースの名前から、英語名の候補を作る: 内蔵のサーキットの表の英語名 → 名前の終わりのかっこの中の英字
  * (「袖ヶ浦フォレストレースウェイ (Sodegaura)」の Sodegaura) → 名前の英字の部分 の順。無ければ ''
  */
 export function guessEnglishName(name: string): string {
@@ -41,7 +41,7 @@ export function guessEnglishName(name: string): string {
   if (!n) return '';
   const paren = /\(([^()]+)\)\s*$/.exec(n)?.[1] ?? '';
   const before = n.replace(/\s*\([^()]*\)\s*$/, '');
-  for (const c of [circuitLabel(n, 'en'), paren, n, before]) {
+  for (const c of [circuitTableName(n), paren, n, before]) {
     if (isLatin(c)) {
       // アクセントを外し、使えない字を空白にする (英語名として、そのまま確かめに通る形)
       const cleaned = c.normalize('NFD').replace(COMBINING_MARKS, '')

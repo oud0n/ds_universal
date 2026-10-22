@@ -5,7 +5,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { FolderOpen, Video, X, Loader2, ChevronRight } from 'lucide-react';
-import { useT } from '../utils/i18n';
+import { circuitLabel, useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { formatLapTime } from '../services/liveLapTimer';
 import { getRunStore, type RunStore } from '../services/runStore';
@@ -55,7 +55,7 @@ export const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 text-xs">
           <span className="font-mono text-slate-200 shrink-0">{fmtDate(run.startMs, ja)}</span>
-          <span className="text-slate-400 truncate">{run.courseName ?? (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</span>
+          <span className="text-slate-400 truncate">{run.courseName != null ? circuitLabel(run.courseName) : (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</span>
         </div>
         <div className="flex items-center gap-3 mt-1 text-xs">
           {!run.pending && run.courseName === null ? (
@@ -139,7 +139,7 @@ export const RunsBrowser: React.FC<{ onOpen: (r: RunItem) => void; onPickFiles: 
               onClick={() => setFolder(f)}
               className={`px-3 py-1.5 rounded-full text-xs whitespace-nowrap border cursor-pointer ${folder === f ? 'bg-sky-600 border-sky-500 text-white' : 'bg-surface-3 border-line-2 text-slate-300'}`}
             >
-              {label}
+              {f === null ? label : circuitLabel(label)}
             </button>
           ))}
         </div>
