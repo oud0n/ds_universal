@@ -174,16 +174,27 @@ export interface NativeMethods {
   'system.shareFile': { params: { path: string }; result: Record<string, never> };
   /**
    * ラップタイマーの記録の保管先 (2026-10-20 に足した。版は 1 のまま)。
-   * local: この iPhone (LapTimer/<サーキット名>/)。folder: 利用者が「ファイル」で選んだフォルダ (iCloud Drive など) にも写す。
-   * 走っている間は、どちらでも LapTimer/ に書く (電波がなくても記録が消えないように)
+   * local: この iPhone (LapTimer/<サーキット名>/)。folder: 利用者が「ファイル」で選んだフォルダ (iCloud Drive など)。
+   * 書いている間は、どちらでも LapTimer/ に書く。folder では、書き終えたファイルを選んだフォルダへ移す (system.syncLapFiles。
+   * 2026-10-21 からはアプリの中に控えを残さない。残すと、選んだフォルダで消したものを写し直して戻してしまうため)
    */
   'system.storageInfo': { params: Record<string, never>; result: StorageInfo };
   /** 「ファイル」のフォルダを選ぶ画面を出し、選んだフォルダを保管先にする。やめたら not-found (message: cancelled) */
   'system.pickStorageFolder': { params: Record<string, never>; result: StorageInfo };
   /** 保管先を この iPhone に戻す */
   'system.setStorageLocal': { params: Record<string, never>; result: StorageInfo };
-  /** LapTimer/ の下のファイルのうち、選んだフォルダにない・大きさの違うものを写す (保管先が local なら何もしない) */
-  'system.syncLapFiles': { params: Record<string, never>; result: { kind: 'local' | 'folder'; copied: number; skipped: number; failed: number; error?: string } };
+  /**
+   * LapTimer/ の下のファイルを、選んだフォルダへ移す (保管先が local なら何もしない)。書いている最中のファイル (system.closeFiles で
+   * まだ閉じていないもの) は、選んだフォルダにない・大きさの違うときに写すだけ (copied)。書き終えたものは写してからアプリの中から消す (moved)。
+   * 写せなかったものはアプリの中に残し、次に移す。moved は 2026-10-21 に足した (前のアプリは返さず、写すだけ)
+   */
+  'system.syncLapFiles': { params: Record<string, never>; result: { kind: 'local' | 'folder'; copied: number; moved?: number; skipped: number; failed: number; error?: string } };
+  /**
+   * 書き終えたファイル (system.appendFile で書いたもの) を知らせる (2026-10-21 に足した。前のアプリは not-supported)。
+   * all: 全部 (ページを読み込んだとき。読み込み直したあとは前の走行のファイルに書き足さない)。prefix: その名前で始まるもの (走行を閉じたとき。
+   * .nmea・.bon4・センサーの .csv)。paths: そのファイル (取り込み終えたとき)。open は、まだ書いている最中のファイルの数
+   */
+  'system.closeFiles': { params: { all?: boolean; prefix?: string; paths?: string[] }; result: { open: number } };
   /** LapTimer/ の下のファイルの一覧 (ラップタイムの一覧のため。exports/ は除く。2026-10-20 に足した) */
   'system.listLapFiles': { params: Record<string, never>; result: { files: Array<{ path: string; size: number; mtimeMs: number }> } };
   /** LapTimer/ の下のファイルを読む (base64) */
