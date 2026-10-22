@@ -4,6 +4,18 @@
 
 [Back to the README](../README.en.md)
 
+## v1.0.1
+
+**Changes**
+
+- **Analysis "Runs and course"**: a run's name can now only be changed with the pencil button next to it (so a stray tap no longer edits it). Press Enter to confirm or Esc to cancel. Each run card can be folded with the ">" to the left of its name. The header wraps in narrow panels so the name and the clock correction are no longer squeezed.
+- **iPhone app**: when a folder such as iCloud Drive is chosen as storage, run files are now moved to that folder instead of also being kept on the iPhone. Before, runs deleted in the folder (such as `unsorted/`) came back the next time the app was opened. Copies left on the iPhone by earlier versions that are missing from the folder are put back once, the first time this version opens; delete them again if you don't need them. Switching storage back to "This iPhone" leaves the moved runs in the folder.
+
+**Fixes**
+
+- iPhone app: changing a Car while "Compare" was open on the video screen could leave a video black.
+- iPhone app: sharing a run that exists only in iCloud (for example as NMEA) froze the screen until it was downloaded.
+
 ## v1.0.0
 
 **New layout**

@@ -120,6 +120,12 @@ export class LiveRunRecorder {
     return this.run;
   }
 
+  /** この走行で書き始めたファイルの名前 (途中で書けなくなって fileBase を外したあとも、閉じるために覚えておく) */
+  get filesBase(): string | null {
+    return this.startedBase;
+  }
+  private startedBase: string | null = null;
+
   private async begin(first: LiveFix): Promise<void> {
     const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `run-${first.tMs}-${Math.random().toString(36).slice(2)}`;
     let fileBase: string | null = null;
@@ -136,6 +142,7 @@ export class LiveRunRecorder {
             await callNative('system.appendFile', { path: `${base}.nmea`, b64: '', truncate: true, createNew: true });
             if (this.bon4) await callNative('system.appendFile', { path: `${base}.bon4`, b64: toBase64(bon4Header(first)), truncate: true, createNew: true });
             fileBase = base;
+            this.startedBase = base;
             break;
           } catch (e) {
             if (!isFileExists(e) || tries >= 20) throw e;

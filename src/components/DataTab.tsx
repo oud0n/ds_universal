@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Session, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { CIRCUIT_PRESETS } from '../services/circuitDatabase';
 import {
@@ -155,7 +155,11 @@ const SessionNameField: React.FC<{ name: string; compact: boolean; onSave: (name
   const t = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
+  // 決めた・やめたあとに来る blur (入力欄が消えるときに来ることがある) では何もしない。Esc のあとに決めてしまわないように
+  const finished = useRef(false);
   const finish = (save: boolean) => {
+    if (finished.current) return;
+    finished.current = true;
     const v = draft.trim();
     if (save && v && v !== name) onSave(v);
     setEditing(false);
@@ -170,6 +174,8 @@ const SessionNameField: React.FC<{ name: string; compact: boolean; onSave: (name
         onChange={e => setDraft(e.target.value)}
         onBlur={() => finish(true)}
         onKeyDown={e => {
+          // 日本語入力の変換を確定する Enter・候補を閉じる Esc では決めない (漢字を確定した途端に閉じないように)
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
           if (e.key === 'Enter') finish(true);
           else if (e.key === 'Escape') finish(false);
         }}
@@ -184,7 +190,7 @@ const SessionNameField: React.FC<{ name: string; compact: boolean; onSave: (name
       <span className="text-sm font-bold text-slate-100 truncate" title={name}>{name}</span>
       <button
         type="button"
-        onClick={() => { setDraft(name); setEditing(true); }}
+        onClick={() => { setDraft(name); finished.current = false; setEditing(true); }}
         title={t('名前を変える', 'Rename')}
         aria-label={t('名前を変える', 'Rename')}
         data-testid="session-rename"

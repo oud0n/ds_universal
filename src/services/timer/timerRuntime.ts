@@ -160,7 +160,7 @@ export class TimerRuntime {
   /** 消した走行を書いていたら、次の測位から新しい走行にする */
   forgetRun(id: string): void {
     if (this.recorder?.current?.id === id) {
-      void closeRunFiles(this.recorder.current.fileBase);
+      void closeRunFiles(this.recorder.filesBase);
       this.recorder = null;
     }
   }
@@ -377,7 +377,7 @@ export class TimerRuntime {
     if (this.snap.source === 'digspice') this.connectSource();
     void this.devices.connect(this.positionKind());
     // 前の走行 (測る前に書いていたもの) は、ここで書き終える (選んだフォルダへ移せるように)
-    void closeRunFiles(this.recorder?.current?.fileBase);
+    void closeRunFiles(this.recorder?.filesBase);
     this.recorder = null;
     // 押す前の測位で周を数えないよう、コースの選び直しに使う測位も捨てる
     this.fixes = [];
@@ -404,7 +404,7 @@ export class TimerRuntime {
     if (rec) this.set({ savedRun: { laps: st?.laps.length ?? 0, best: st?.best?.timeSec ?? null } });
     await sensors;
     // 書き終えたので、選んだフォルダへ移す (アプリの中に控えを残さない)
-    await closeRunFiles(rec?.current?.fileBase);
+    await closeRunFiles(rec?.filesBase);
     await this.sync();
   }
 
@@ -417,7 +417,7 @@ export class TimerRuntime {
     this.recorder = null;
     const st = this.timer?.getState();
     void (rec ? rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true) : Promise.resolve())
-      .then(() => sensors).then(() => closeRunFiles(rec?.current?.fileBase)).then(() => this.sync());
+      .then(() => sensors).then(() => closeRunFiles(rec?.filesBase)).then(() => this.sync());
     this.fixes = [];
     this.set({ lastPos: null, epoch: this.snap.epoch + 1 });
     this.chooseCourse(this.snap.course);
