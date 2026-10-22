@@ -17,6 +17,13 @@ final class SystemModule {
     /// 選んだフォルダへは写すだけにして、アプリの中からは消さない。閉じたものは、写せたらアプリの中から消す (移す。2026-10-21)。
     /// アプリを起動し直すと空になる (起動し直したあとは、前の走行のファイルに書き足さないため)
     private var openFiles = Set<String>()
+    /// system.closeFiles で閉じたファイル。閉じたあとに書き足されても (測り直した直後に届く前の走行の G センサーの値など)、
+    /// 書いている最中に戻さない (戻すと二度と閉じられず、選んだフォルダで消しても写し直してしまう。2026-10-22 のレビュー)
+    private var closedFiles = Set<String>()
+    /// ファイルに最後に書いた時刻。書いてから少しの間は移さない (閉じたあとに遅れて届く書き足しが、移したあとで書けなくならないように)
+    private var lastAppend: [String: Date] = [:]
+    /// 最後に書いてから、これだけたったものを移す
+    private static let settleSeconds: TimeInterval = 30
 
     /// ラップタイマーの記録の保管先 ("local" = この iPhone、"folder" = 選んだフォルダ) と、選んだフォルダのブックマーク
     private static let storageKindKey = "lapTimer.storage.kind"
@@ -77,23 +84,31 @@ final class SystemModule {
                     try handle.write(contentsOf: data)
                 }
                 // 書けたファイルを、書いている最中に数える (createNew で断ったもの・前の走行のファイルは数えない)。
-                // 共有のために作るファイル (exports/) は走行ではないので数えない
-                if !rel.hasPrefix("exports/") { openFiles.insert(rel) }
+                // 共有のために作るファイル (exports/) は走行ではないので数えない。閉じたファイルは書いている最中に戻さない
+                if !rel.hasPrefix("exports/") {
+                    lastAppend[rel] = Date()
+                    if (params["createNew"] as? Bool) == true { closedFiles.remove(rel) }
+                    if !closedFiles.contains(rel) { openFiles.insert(rel) }
+                }
                 done(.success([:]))
             } catch {
                 done(.failure(NativeError(.io, error.localizedDescription)))
             }
         case "system.shareFile":
-            // LapTimer/ に無ければ (選んだフォルダへ移したあと)、走行の置き場から一時ファイルに写して渡す
-            guard let rel = params["path"] as? String, let url = lapTimerURL(rel),
-                  let file = FileManager.default.fileExists(atPath: url.path) ? url : Self.copyFromRunRoot(rel) else {
+            guard let rel = params["path"] as? String, let url = lapTimerURL(rel) else {
                 done(.failure(NativeError(.notFound, "no file")))
                 return
             }
-            if share(url: file) {
-                done(.success([:]))
-            } else {
-                done(.failure(NativeError(.io, "could not show the share sheet")))
+            if FileManager.default.fileExists(atPath: url.path) {
+                if share(url: url) { done(.success([:])) } else { done(.failure(NativeError(.io, "could not show the share sheet"))) }
+                return
+            }
+            // LapTimer/ に無ければ (選んだフォルダへ移したあと)、走行の置き場から一時ファイルに写して渡す。
+            // iCloud にだけあるときは取り込みを待つので、画面の動くスレッドでは読まない (固まらないように)
+            Task {
+                let file = await Task.detached(priority: .userInitiated) { Self.copyFromRunRoot(rel) }.value
+                guard let file else { return done(.failure(NativeError(.notFound, "no file"))) }
+                if self.share(url: file) { done(.success([:])) } else { done(.failure(NativeError(.io, "could not show the share sheet"))) }
             }
         case "system.shareText":
             // Web で作った文 (変換した CSV など) を一時ファイルにして共有する
@@ -120,9 +135,12 @@ final class SystemModule {
             syncLapFiles(done: done)
         case "system.closeFiles":
             // 書き終えたファイル (走行を閉じた・取り込み終えた)。次の system.syncLapFiles で、選んだフォルダへ移す
-            if (params["all"] as? Bool) == true { openFiles.removeAll() }
-            if let prefix = params["prefix"] as? String, !prefix.isEmpty { openFiles = openFiles.filter { !$0.hasPrefix(prefix) } }
-            if let paths = params["paths"] as? [String] { openFiles.subtract(paths) }
+            var closing = Set<String>()
+            if (params["all"] as? Bool) == true { closing = openFiles }
+            if let prefix = params["prefix"] as? String, !prefix.isEmpty { closing.formUnion(openFiles.filter { $0.hasPrefix(prefix) }) }
+            if let paths = params["paths"] as? [String] { closing.formUnion(paths) }
+            openFiles.subtract(closing)
+            closedFiles.formUnion(closing)
             done(.success(["open": openFiles.count]))
         case "system.listLapFiles":
             // ラップタイムの一覧のため、LapTimer/ の下のファイル (大きさと更新日時)
@@ -209,7 +227,7 @@ final class SystemModule {
     }
 
     /// 走行の置き場 (選んだフォルダ) のログを、一時フォルダに写す (共有の画面で渡すため)
-    private static func copyFromRunRoot(_ rel: String) -> URL? {
+    nonisolated private static func copyFromRunRoot(_ rel: String) -> URL? {
         guard let data = try? RunFiles.read(rel) else { return nil }
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent((rel as NSString).lastPathComponent)
         do { try data.write(to: tmp, options: .atomic) } catch { return nil }
@@ -321,7 +339,9 @@ final class SystemModule {
                 total.error = r.error ?? total.error
             } while syncAgain
             if total.failed > 0 { DebugLog.write("storage sync failed=\(total.failed) error=\(total.error ?? "-")") }
+            let access = dest.startAccessingSecurityScopedResource()
             if !Self.isInsideLapTimer(dest) { Self.pruneEmptyFolders(Self.lapTimerRoot) }
+            if access { dest.stopAccessingSecurityScopedResource() }
             var out: [String: Any] = ["kind": "folder", "copied": total.copied, "moved": total.moved, "skipped": total.skipped, "failed": total.failed]
             if let e = total.error { out["error"] = e }
             let waiters = syncWaiters
@@ -362,10 +382,14 @@ final class SystemModule {
         let fm = FileManager.default
         let sameTree = Self.isInsideLapTimer(dest)
         // 写し終えた (か、もう同じものがある) 書き終えたファイルを、アプリの中から消す
+        let now = Date()
         let done = { (file: URL, rel: String) in
             guard !sameTree, !self.openFiles.contains(rel) else { return false }
+            if let last = self.lastAppend[rel], now.timeIntervalSince(last) < Self.settleSeconds { return false }
             do {
                 try fm.removeItem(at: file)
+                self.closedFiles.remove(rel)
+                self.lastAppend[rel] = nil
                 return true
             } catch {
                 DebugLog.write("storage move: could not remove \(rel) \(error.localizedDescription)")
@@ -380,9 +404,12 @@ final class SystemModule {
             let target = dest.appendingPathComponent(rel)
             // 走行の動画の控え (runs.json)・コーナーの名前 (corners.json と .bak) は、選んだフォルダにまだ無いときだけ写す。
             // 大きさで比べて写すと、選んだフォルダで直した名前・同期を、アプリの中に残った古い中身で毎回戻してしまうため
+            // 選んだフォルダにもうあるときは、中身がまったく同じときだけアプリの中から消す。違えば残す
+            // (中身を比べずに消すと、この iPhone で付けた動画・コーナーの名前を失う。2026-10-22 のレビュー)
             if name == "runs.json" || name == "corners.json" || name == "corners.json.bak" {
                 if Self.destSize(target) != nil {
-                    if done(file, rel) { r.moved += 1 } else { r.skipped += 1 }
+                    let same = fm.fileExists(atPath: target.path) && fm.contentsEqual(atPath: file.path, andPath: target.path)
+                    if same && done(file, rel) { r.moved += 1 } else { r.skipped += 1 }
                     continue
                 }
             }

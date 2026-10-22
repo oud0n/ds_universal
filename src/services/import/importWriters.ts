@@ -34,9 +34,10 @@ export function nativeWriter(existing: ReadonlySet<string> = new Set()): (Import
   return {
     async writeNew(path, bytes) {
       if (existing.has(path)) return 'exists';
-      written.push(path);
       try {
         await callNative('system.appendFile', { path, b64: toBase64(bytes.subarray(0, CHUNK)), truncate: true, createNew: true });
+        // 書けたものだけ、あとで閉じる (同じ名前があって書かなかったものは数えない)
+        written.push(path);
       } catch (e) {
         const code = (e as { code?: string })?.code;
         if (code === 'busy') return 'exists';
