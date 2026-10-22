@@ -765,6 +765,8 @@ export const App: React.FC = () => {
       if (native) await native.finish();
       setImporting(s => (s ? { ...s, phase: 'done', results } : s));
     } catch (e) {
+      // 途中で失敗しても、書いたファイルは閉じる (書いている最中のまま残さない)
+      if (native) await native.finish().catch(() => {});
       alert(tr(`取り込めませんでした: ${e instanceof Error ? e.message : e}`, `Import failed: ${e instanceof Error ? e.message : e}`));
       setImporting(s => (s ? { ...s, phase: 'confirm' } : s));
     }
@@ -1543,6 +1545,8 @@ export const App: React.FC = () => {
       // 寸法の試験で、全部の画面を順に開くため
       available: [...plan.available],
       go: (s: Parameters<typeof navStore.go>[0]) => navStore.go(s),
+      // 走行とコースの引き出しの Car の割り当てと同じ (比べるを開いたまま Car を替える試験のため)
+      selectCar: (slot: number, sessionId: string, lapNumber: number) => handleSelectCarSlot(slot, sessionId, lapNumber),
       clockBase,
       currentTimeSec,
       isPlaying,

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Session, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { CIRCUIT_PRESETS } from '../services/circuitDatabase';
 import {
@@ -15,7 +15,10 @@ import {
   Globe,
   Repeat,
   X,
-  ListOrdered
+  ListOrdered,
+  Pencil,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { LapHistoryPanel } from './LapHistoryPanel';
 import { formatMinSec } from '../utils/timeFormat';
@@ -144,6 +147,61 @@ const ClockOffsetControl: React.FC<{
   );
 };
 
+/**
+ * 走行の名前。ふだんは文字だけで出し、鉛筆のボタンを押したときだけ書き換えられる (触っただけで書き換わらないように。2026-10-22)。
+ * Enter か欄の外を押すと決める。Esc でやめる。空にしたら前の名前のまま
+ */
+const SessionNameField: React.FC<{ name: string; compact: boolean; onSave: (name: string) => void }> = ({ name, compact, onSave }) => {
+  const t = useT();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  // 決めた・やめたあとに来る blur (入力欄が消えるときに来ることがある) では何もしない。Esc のあとに決めてしまわないように
+  const finished = useRef(false);
+  const finish = (save: boolean) => {
+    if (finished.current) return;
+    finished.current = true;
+    const v = draft.trim();
+    if (save && v && v !== name) onSave(v);
+    setEditing(false);
+  };
+  if (editing) {
+    return (
+      <input
+        type="text"
+        value={draft}
+        autoFocus
+        onFocus={e => e.target.select()}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={() => finish(true)}
+        onKeyDown={e => {
+          // 日本語入力の変換を確定する Enter・候補を閉じる Esc では決めない (漢字を確定した途端に閉じないように)
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+          if (e.key === 'Enter') finish(true);
+          else if (e.key === 'Escape') finish(false);
+        }}
+        aria-label={t('走行の名前', 'Run name')}
+        data-testid="session-name-input"
+        className={`bg-surface-1 border border-red-500 text-sm font-bold text-slate-100 rounded px-2.5 py-1 outline-none min-w-0 ${compact ? 'flex-1' : 'w-72'}`}
+      />
+    );
+  }
+  return (
+    <span className={`flex items-center gap-1 min-w-0 ${compact ? 'flex-1' : 'max-w-full'}`}>
+      <span className="text-sm font-bold text-slate-100 truncate" title={name}>{name}</span>
+      <button
+        type="button"
+        onClick={() => { setDraft(name); finished.current = false; setEditing(true); }}
+        title={t('名前を変える', 'Rename')}
+        aria-label={t('名前を変える', 'Rename')}
+        data-testid="session-rename"
+        className="shrink-0 p-1 rounded text-slate-500 hover:text-slate-200 hover:bg-surface-4 transition-colors cursor-pointer"
+      >
+        <Pencil size={13} />
+      </button>
+    </span>
+  );
+};
+
 export const DataTab: React.FC<DataTabProps> = ({
   sessions,
   onOpenLapRun,
@@ -178,6 +236,13 @@ export const DataTab: React.FC<DataTabProps> = ({
   // ラップタイムの記録 (デスクトップ版だけ。保管場所のフォルダから過去の周を一覧にする)
   const [lapHistoryOpen, setLapHistoryOpen] = useState(false);
   const showCourseTools = !compact || courseOpen;
+  // たたんだ走行の枠 (見出しだけ出す)。走行をたくさん読み込んだときに、見たいものへ早くたどり着けるように (2026-10-22)
+  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
+  const toggleFold = (id: string) => setFolded(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   const formatTime = (sec: number) => {
     if (!sec || isNaN(sec)) return '--:--.---';
@@ -415,21 +480,32 @@ export const DataTab: React.FC<DataTabProps> = ({
           </p>
         </button>
       ) : (
-        sessions.map(session => (
+        sessions.map(session => {
+          const isFolded = folded.has(session.id);
+          return (
           <div
             key={session.id}
+            data-testid="session-card"
             className={`bg-surface-2 border border-line-2 rounded-xl shadow-md ${compact ? 'p-2 space-y-2' : 'p-4 space-y-4'}`}
           >
             {/* セッションヘッダー */}
-            <div className="flex flex-wrap items-center justify-between border-b border-line-2 pb-3 gap-2">
-              <div className={compact ? 'flex flex-wrap items-center gap-2 w-full' : 'flex items-center gap-3'}>
-                <input
-                  type="text"
-                  value={session.sessionName}
-                  onChange={e => onEditSessionName(session.id, e.target.value)}
-                  className={`bg-surface-1 border border-line-3 text-sm font-bold text-slate-100 rounded px-2.5 py-1 focus:border-red-500 outline-none min-w-0 ${compact ? 'w-full' : ''}`}
-                  title={t('クリックして名前を変更', 'Click to rename')}
-                />
+            <div className={`flex flex-wrap items-center justify-between gap-2 ${isFolded ? '' : 'border-b border-line-2 pb-3'}`}>
+              {/* 狭い枠 (解析の引き出し) でも名前や時計の補正が潰れないよう、入らなければ折り返す */}
+              <div className={compact ? 'flex flex-wrap items-center gap-2 w-full' : 'flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0'}>
+                <span className={`flex items-center gap-1 min-w-0 ${compact ? 'w-full' : 'shrink-0 max-w-full'}`}>
+                  <button
+                    type="button"
+                    onClick={() => toggleFold(session.id)}
+                    aria-expanded={!isFolded}
+                    title={isFolded ? t('開く', 'Expand') : t('たたむ', 'Collapse')}
+                    aria-label={isFolded ? t('開く', 'Expand') : t('たたむ', 'Collapse')}
+                    data-testid="session-fold"
+                    className="shrink-0 p-1 rounded text-slate-400 hover:text-slate-100 hover:bg-surface-4 transition-colors cursor-pointer"
+                  >
+                    {isFolded ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                  </button>
+                  <SessionNameField name={session.sessionName} compact={compact} onSave={name => onEditSessionName(session.id, name)} />
+                </span>
                 <span className="text-xs bg-surface-4 text-slate-300 px-2.5 py-0.5 rounded font-mono">
                   {session.circuitName ? circuitLabel(session.circuitName, lang) : t('一般コース', 'Unknown course')}
                 </span>
@@ -462,6 +538,7 @@ export const DataTab: React.FC<DataTabProps> = ({
               </div>
             </div>
 
+            {!isFolded && (<>
             {/* 周回を区切れていないときは、その理由と対処を示す (全体が 1 周として表示されるため) */}
             {(!session.controlLine || session.laps.some(l => l.isWholeSession)) && (
               <div className="px-4 py-2 text-xs text-amber-300 bg-amber-500/10 border-b border-amber-500/30">
@@ -622,8 +699,10 @@ export const DataTab: React.FC<DataTabProps> = ({
                 </table>
               </div>
             )}
+            </>)}
           </div>
-        ))
+          );
+        })
       )}
     </div>
   );
