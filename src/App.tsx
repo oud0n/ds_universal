@@ -765,6 +765,8 @@ export const App: React.FC = () => {
       if (native) await native.finish();
       setImporting(s => (s ? { ...s, phase: 'done', results } : s));
     } catch (e) {
+      // 途中で失敗しても、書いたファイルは閉じる (書いている最中のまま残さない)
+      if (native) await native.finish().catch(() => {});
       alert(tr(`取り込めませんでした: ${e instanceof Error ? e.message : e}`, `Import failed: ${e instanceof Error ? e.message : e}`));
       setImporting(s => (s ? { ...s, phase: 'confirm' } : s));
     }
