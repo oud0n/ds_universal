@@ -1,6 +1,6 @@
 /**
  * 取り込みの書き方 (2026-10-21)。デスクトップ版は保管場所のフォルダへ直接、iPhone のアプリはアプリの中 (LapTimer/) に書いてから
- * 選んだフォルダへ写す (system.syncLapFiles)。どちらも、もうあるファイルは書かない
+ * 選んだフォルダへ移す (system.closeFiles → system.syncLapFiles。アプリの中には残さない)。どちらも、もうあるファイルは書かない
  */
 
 import { callNative, hasNative, toBase64 } from '../../native/bridge';
@@ -29,9 +29,12 @@ const CHUNK = 4 * 1024 * 1024;
  */
 export function nativeWriter(existing: ReadonlySet<string> = new Set()): (ImportWriter & { finish: () => Promise<void> }) | null {
   if (!hasNative()) return null;
+  /** 書いたファイル (書き終えたら閉じて、選んだフォルダへ移す) */
+  const written: string[] = [];
   return {
     async writeNew(path, bytes) {
       if (existing.has(path)) return 'exists';
+      written.push(path);
       try {
         await callNative('system.appendFile', { path, b64: toBase64(bytes.subarray(0, CHUNK)), truncate: true, createNew: true });
       } catch (e) {
@@ -44,8 +47,9 @@ export function nativeWriter(existing: ReadonlySet<string> = new Set()): (Import
       }
       return 'ok';
     },
-    /** 書き終えたら、選んだフォルダへ写す */
+    /** 書き終えたら、選んだフォルダへ移す */
     async finish() {
+      if (written.length) await callNative('system.closeFiles', { paths: written.splice(0) }).catch(() => {});
       await callNative('system.syncLapFiles', {}).catch(() => {});
     }
   };
