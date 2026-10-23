@@ -95,7 +95,7 @@ export const Header: React.FC<HeaderProps> = ({
         {dataButton}
 
         {/* 右: つなぎの状態と ⚙ (状態を真ん中に置くと、名前の長さで位置がずれて見えるため右に寄せる) */}
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center justify-end gap-2 min-w-0 flex-1">
           {plan.available.has('logger') && canUseLoggerBle && <BleStatusPill onClick={() => go('logger')} />}
           {/* 設定の画面でも同じ場所に出す (消すと左の印の位置がずれるため)。設定の画面では押した状態 */}
           <button

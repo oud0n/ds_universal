@@ -37,7 +37,7 @@ import { hasNative } from './native/bridge';
 import { sameCourseName } from './utils/courseNames';
 import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
-import { RecentRunsList, RunsSheet } from './components/RecentRuns';
+import { RecentRunsList, RunsSheet, notifyRunsChanged } from './components/RecentRuns';
 import { canUseRunStore, getRunStore } from './services/runStore';
 import { attachCompanionVideos, attachRunVideos, closeOpenRun, companionRuns, dropCompanion, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
 import { useResizableSplit } from './hooks/useResizableSplit';
@@ -430,6 +430,14 @@ export const App: React.FC = () => {
     setSelectedCars(prev => prev.map(c => (c.slot === slotIndex ? { ...c, distanceOffsetM: offsetM } : c)));
   };
 
+  // 画面が隠れたら (ほかのアプリ・ウインドウの裏、iPhone のアプリを裏に回した) 再生を止める。
+  // 時刻を進めるループ (requestAnimationFrame) は隠れている間は動かないのに、動画だけ進み続け、戻ったときや止めたときに動画が数秒戻っていた
+  useEffect(() => {
+    const onVisibility = () => { if (document.visibilityState === 'hidden') setIsPlaying(false); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
   // アニメーションループ (requestAnimationFrame)
   const animRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(performance.now());
@@ -769,6 +777,8 @@ export const App: React.FC = () => {
         (done, total) => setImporting(s => (s ? { ...s, progress: { done, total } } : s)));
       if (native) await native.finish();
       setImporting(s => (s ? { ...s, phase: 'done', results } : s));
+      // 開いている走行の一覧に、取り込んだ走行を出す (取り込みを走行の画面から始めると、画面が切り替わらず読み直されなかった)
+      notifyRunsChanged();
     } catch (e) {
       // 途中で失敗しても、書いたファイルは閉じる (書いている最中のまま残さない)
       if (native) await native.finish().catch(() => {});

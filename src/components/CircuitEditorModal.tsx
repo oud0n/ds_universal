@@ -66,7 +66,8 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   onSaveCircuit
 }) => {
   const t = useT();
-  const [name, setName] = useState((currentCircuitName || tr('カスタムコース', 'Custom course')).replace(USER_SUFFIX, ''));
+  // 名前のないコースは空にしておく (「カスタムコース」を入れておくと、英語名を入れてもその名前で保存されていた)。空のままなら英語名を名前にする
+  const [name, setName] = useState((currentCircuitName || '').replace(USER_SUFFIX, ''));
   // 英語名とフォルダ名: 保存したコースならそれ、なければコースの名前から作った候補
   const initialSaved = userCircuitStorage.getEditedCircuits().find(c => c.name === (currentCircuitName || '').replace(USER_SUFFIX, ''));
   const [nameEn, setNameEn] = useState(() => initialSaved?.nameEn ?? guessEnglishName(currentCircuitName.replace(USER_SUFFIX, '')));
@@ -311,7 +312,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
     const folderProblem = checkFolderName(folder);
     if (folderProblem) { setSaveError(msg(folderProblem)); return; }
     // 日本語の名前は任意 (無ければ英語名を名前にする)
-    const saveName = name.trim() || nameEn.trim();
+    const saveName = name.trim() || nameEn.trim() || tr('カスタムコース', 'Custom course');
     // 同じ名前で別の場所のコースを保存していたら、上書きしてよいか聞く (名前を付けずに別のコースで保存したときなど)
     if (remember && userCircuitStorage.isEditedNameUsedElsewhere(saveName, newControlLine) &&
         !confirm(tr(`「${saveName}」という名前で、別の場所のコースを保存しています。上書きしますか？ (残すときは、キャンセルしてコース名を変えてください)`, `A course at a different place is already saved as "${saveName}". Overwrite it? (To keep it, cancel and change the course name.)`))) {
@@ -350,6 +351,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
                 type="text"
                 value={name}
                 onChange={e => setName(e.target.value)}
+                placeholder={t('空なら英語名を使います', 'Uses the English name if empty')}
                 className="w-full bg-surface-0 border border-line-3 rounded-lg p-2 text-slate-100 focus:border-red-500 outline-none"
               />
             </div>
@@ -623,7 +625,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
         </div>
 
         {/* フッター */}
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-line-2 bg-surface-1">
+        <div className="flex flex-wrap items-center justify-end gap-2 px-5 py-3 border-t border-line-2 bg-surface-1">
           <label className="mr-auto flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer" title={t('アプリに保存し、次からこの計測線を通るログに使います (データ管理の「ユーザーコース」に入ります)', 'Saves the course in the app and uses it for later logs that cross this timing line (added to your courses on the data tab)')}>
             <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
             {t('アプリに保存して、次からも使う', 'Save in the app and use it next time')}
@@ -631,13 +633,13 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
           {saveError && <span className="text-xs text-amber-400">{saveError}</span>}
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg border border-line-3 text-xs text-slate-300 hover:bg-surface-4"
+            className="px-4 py-1.5 rounded-lg border border-line-3 text-xs text-slate-300 hover:bg-surface-4 whitespace-nowrap"
           >
             {t('キャンセル', 'Cancel')}
           </button>
           <button
             onClick={handleSave}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-xs text-white font-bold transition-all shadow"
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-xs text-white font-bold transition-all shadow whitespace-nowrap"
           >
             <Check size={14} />
             {t('保存して適用', 'Save and apply')}

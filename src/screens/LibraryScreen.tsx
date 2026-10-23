@@ -1,7 +1,7 @@
 import { sameCourseName } from '../utils/courseNames';
 import React, { useMemo, useState } from 'react';
 import { BarChart2, Bluetooth, ChevronRight, Cloud, EyeOff, FolderOpen, GitCompare, Loader2, Timer, Trophy, Video, X } from 'lucide-react';
-import { useT } from '../utils/i18n';
+import { circuitLabel, useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { formatLapTime } from '../services/liveLapTimer';
 import { RunRow, fmtDate, useRuns } from '../components/RecentRuns';
@@ -52,7 +52,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const { store, runs, error, noFolder, reload } = useRuns(active);
-  const storageLabel = useStorageLabel();
+  const storageLabel = useStorageLabel(active);
   const [folder, setFolder] = useState<string | null>(null);
   const [shown, setShown] = useState(PAGE);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -64,7 +64,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
     const m = new Map<string, { label: string; count: number }>();
     for (const r of runs ?? []) {
       const cur = m.get(r.folder);
-      m.set(r.folder, { label: r.courseName ?? (r.folder === 'unsorted' ? t('未分類', 'Unsorted') : r.folder), count: (cur?.count ?? 0) + 1 });
+      m.set(r.folder, { label: r.courseName ?? r.folder, count: (cur?.count ?? 0) + 1 });
     }
     return [...m.entries()];
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -86,7 +86,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
     if (!day) return t('日時が分からない走行', 'Unknown date');
     const [y, m, d] = day.split('-').map(Number);
     const w = (ja ? ['日', '月', '火', '水', '木', '金', '土'] : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'])[new Date(y, m - 1, d).getDay()];
-    return ja ? `${y}年${m}月${d}日 (${w})` : `${w}, ${y}-${m}-${d}`;
+    return ja ? `${y}年${m}月${d}日 (${w})` : `${w}, ${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
   };
 
   const select = (r: RunItem) => setSelectedKey(`${r.folder}/${r.file}`);
@@ -113,7 +113,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
               onClick={() => { setFolder(f); setShown(PAGE); setSelectedKey(null); }}
               className={`px-3 py-1.5 rounded-full text-xs whitespace-nowrap border cursor-pointer ${folder === f ? 'bg-sky-600 border-sky-500 text-white' : 'bg-surface-3 border-line-2 text-slate-300'}`}
             >
-              {label} <span className="opacity-70">{count}</span>
+              {f === 'unsorted' && label === 'unsorted' ? t('未分類', 'Unsorted') : f !== null ? circuitLabel(label) : label} <span className="opacity-70">{count}</span>
             </button>
           ))}
         </div>
@@ -162,7 +162,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
                   className="w-full text-left px-3 py-2 rounded-lg border border-dashed border-line-2 text-xs text-slate-500 cursor-pointer hover:bg-surface-2"
                   data-testid="library-empty-runs-fold"
                 >
-                  {t(`周も動画もない走行 ${g.items.filter(isEmptyRun).length} 件をたたむ`, `Hide ${g.items.filter(isEmptyRun).length} runs without laps or videos`)}
+                  {t(`周も動画もない走行 ${g.items.filter(isEmptyRun).length} 件をたたむ`, `Hide ${g.items.filter(isEmptyRun).length} run${g.items.filter(isEmptyRun).length === 1 ? '' : 's'} without laps or videos`)}
                 </button>
               )}
               {!showEmpty.has(g.day) && g.items.some(isEmptyRun) && (
@@ -171,7 +171,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
                   className="w-full text-left px-3 py-2 rounded-lg border border-dashed border-line-2 text-xs text-slate-500 cursor-pointer hover:bg-surface-2"
                   data-testid="library-empty-runs"
                 >
-                  {t(`周も動画もない走行 ${g.items.filter(isEmptyRun).length} 件 (表示する)`, `${g.items.filter(isEmptyRun).length} runs without laps or videos (show)`)}
+                  {t(`周も動画もない走行 ${g.items.filter(isEmptyRun).length} 件 (表示する)`, `${g.items.filter(isEmptyRun).length} run${g.items.filter(isEmptyRun).length === 1 ? '' : 's'} without laps or videos (show)`)}
                 </button>
               )}
             </div>
@@ -273,12 +273,12 @@ const RunDetail: React.FC<{
     <div className="flex-1 min-h-0 flex flex-col" data-testid="run-detail">
       <div className="px-4 py-3 border-b border-line-2 flex items-start gap-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold text-slate-100">{fmtDate(run.startMs, ja)} {run.courseName ?? (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</div>
+          <div className="text-sm font-bold text-slate-100">{fmtDate(run.startMs, ja)} {run.courseName != null ? circuitLabel(run.courseName) : (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</div>
           <div className="text-xs text-slate-400 mt-0.5">
             {run.pending
               ? t('☁️ iCloud にだけあるので、開くと周を数えます', '☁️ Only in iCloud; laps are counted when opened')
-              : <>{t('ベスト', 'Best')} <span className="font-mono font-bold text-fuchsia-400">{best !== null ? formatLapTime(best) : '--'}</span> ・ {t(`${visible.length} 周`, `${visible.length} laps`)}</>}
-            {run.videos.length > 0 && <> ・ <Video size={11} className="inline" /> {run.videos.length}{run.synced ? t(' (同期済み)', ' (synced)') : ''}</>}
+              : <>{t('ベスト', 'Best')} <span className="font-mono font-bold text-fuchsia-400">{best !== null ? formatLapTime(best) : '--'}</span>{t(' ・ ', ' · ')}{t(`${visible.length} 周`, `${visible.length} lap${(visible.length) === 1 ? '' : 's'}`)}</>}
+            {run.videos.length > 0 && <>{t(' ・ ', ' · ')}<Video size={11} className="inline" /> {run.videos.length}{run.synced ? t(' (同期済み)', ' (synced)') : ''}</>}
           </div>
         </div>
         {onClose && (
