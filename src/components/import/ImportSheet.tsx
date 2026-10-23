@@ -95,20 +95,21 @@ export const ImportSheet: React.FC<{
           {t('元のファイルは 取り込み元/ に、手を加えずに残します。知らない場所の走行は 未分類 に入れます (あとでコースにできます)。',
             'The original file is kept untouched in 取り込み元/. Runs at unknown places go to 未分類 (you can make a course later).')}
         </div>
-        <div className="flex items-center gap-2 px-4 py-3 border-t border-line-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        {/* 狭い幅では折り返す (ボタンの中で文字が割れないよう、ボタンは折り返さない) */}
+        <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-t border-line-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           {phase === 'writing' && progress && (
             <span className="flex items-center gap-2 text-xs text-slate-300"><Loader2 size={14} className="animate-spin" />{t(`書いています ${progress.done}/${progress.total}`, `Writing ${progress.done}/${progress.total}`)}</span>
           )}
           {phase === 'confirm' && (
-            <button onClick={onOpenOnly} className="px-3 py-2 rounded-lg text-xs text-slate-300 border border-line-2 hover:bg-surface-3 cursor-pointer" data-testid="import-open-only">
+            <button onClick={onOpenOnly} className="px-3 py-2 rounded-lg text-xs text-slate-300 border border-line-2 hover:bg-surface-3 cursor-pointer whitespace-nowrap" data-testid="import-open-only">
               {t('取り込まずに今だけ開く', 'Just open (no import)')}
             </button>
           )}
           <div className="flex-1" />
           {phase === 'confirm' && (
             <>
-              <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-slate-300 border border-line-2 hover:bg-surface-3 cursor-pointer">{t('やめる', 'Cancel')}</button>
-              <button onClick={onApply} disabled={checked === 0} className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-red-600 hover:bg-red-500 disabled:opacity-40 cursor-pointer" data-testid="import-apply">
+              <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-slate-300 border border-line-2 hover:bg-surface-3 cursor-pointer whitespace-nowrap">{t('やめる', 'Cancel')}</button>
+              <button onClick={onApply} disabled={checked === 0} className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-red-600 hover:bg-red-500 disabled:opacity-40 cursor-pointer whitespace-nowrap" data-testid="import-apply">
                 {t(`${checked} つを取り込む`, `Import ${checked}`)}
               </button>
             </>

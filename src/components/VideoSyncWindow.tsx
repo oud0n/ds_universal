@@ -1109,7 +1109,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           {!isGraphEmbedded && (media.length > 0 || baseSession) && (
             <div className={`flex items-center rounded border border-line-3 bg-surface-3 overflow-hidden shrink-0 ${phoneToolbar ? 'order-1' : ''}`} role="tablist" data-testid="video-modes">
               {([
-                ['watch', t('見る', 'Watch'), !isCompare && !showSyncTools, () => { setWin({ mode: 'cameras' }); setShowSyncTools(false); }, media.length > 0],
+                // 動画がなくても、比べるからは見るへ戻れるようにする (戻る手段がなくなっていた)
+                ['watch', t('見る', 'Watch'), !isCompare && !showSyncTools, () => { setWin({ mode: 'cameras' }); setShowSyncTools(false); }, media.length > 0 || isCompare],
                 ['compare', t('比べる', 'Compare'), isCompare, () => {
                   if (!hasCompareCar && autoCompareLap && baseSession) onPickCompareLap?.(baseSession.id, autoCompareLap.lapNumber);
                   setWin({ mode: 'compare', focus: null });
@@ -1252,7 +1253,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           )}
 
           {/* 並べ方 (枠が 2 つ以上のとき) */}
-          {tileCount > 1 && (
+          {/* 枠の並び。スマートフォンでは向きで決まる (縦の比べるは上下に 2 つ、ほかは 1 つずつ・横に送る) ので出さない (押しても変わらなかった) */}
+          {tileCount > 1 && !isCompactLayout && (
             <div className={`flex items-center rounded border border-line-3 bg-surface-3 overflow-hidden ${phoneToolbar ? 'order-3' : ''}`}>
               {([
                 ['single', t('単一', 'Single'), t('メインだけを出す', 'Main only'), null],

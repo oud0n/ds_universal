@@ -273,7 +273,7 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
         {basePoint && (
           <div className="w-full md:w-36 bg-surface-1 border border-line-2 rounded p-2.5 flex flex-col gap-2 text-xs">
             <div className="text-[11px] font-bold text-slate-400 border-b border-line-2 pb-1">
-              {t('基準車 (Red) テレメトリ', 'Reference car (red)')}
+              {t('基準車 (赤) の値', 'Reference car (red)')}
             </div>
 
             <div className="flex justify-between items-center font-mono">
