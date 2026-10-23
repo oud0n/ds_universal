@@ -250,7 +250,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     const p = snap.lastPos;
     // 自分で作ったコースも並べる (内蔵のコースだけだと、自分のコースを選べなかった)
     const list = [...userCircuitPresets(), ...presetsWithLine].map(c => ({ c, d: p ? distanceKm(p.latitude, p.longitude, c.centerLat, c.centerLon) : Infinity }));
-    return list.sort((a, b) => a.d - b.d || a.c.name.localeCompare(b.c.name));
+    // 位置が分からないときは、出している名前 (英語の表示なら英語名) の順
+    return list.sort((a, b) => a.d - b.d || circuitLabel(a.c.name).localeCompare(circuitLabel(b.c.name)));
     // 開いたときの位置で並べる
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coursePicker]);

@@ -112,7 +112,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   };
 
   const handleDeleteSaved = async (c: UserCircuitItem) => {
-    if (!confirm(tr(`保存したコース「${c.name}」を削除しますか？ (読み込み済みのログの設定はそのままです)`, `Delete the saved course "${c.name}"? (Settings of logs already loaded are kept.)`))) return;
+    if (!confirm(tr(`保存したコース「${c.name}」を削除しますか？ (読み込み済みのログの設定はそのままです。このコースで測った走行は、走行の画面とラップタイムの一覧で周を数えられなくなります。同じ保存フォルダ名でコースを作り直すと戻ります)`, `Delete the saved course "${c.name}"? (Settings of logs already loaded are kept. Runs recorded on this course will show no laps in Runs and lap records until you make a course with the same folder name again.)`))) return;
     const r = await userCircuitStorage.deleteEditedCircuit(c.name);
     setSavedCircuits([...userCircuitStorage.getEditedCircuits()]);
     onSavedCircuitsChange?.();
