@@ -22,6 +22,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
     private var downloads: WebDownloads?
     /// lapfile://run/ の受け手 (WKWebViewConfiguration は受け手を強く持たないことがあるので、ここで持つ)
     let lapFiles = LapFileSchemeHandler()
+    let bundledWeb = BundledWebSchemeHandler()
 
     func attach(to webView: WKWebView) {
         self.webView = webView

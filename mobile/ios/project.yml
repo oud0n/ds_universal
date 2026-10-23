@@ -10,7 +10,7 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "1.0.2"
-    CURRENT_PROJECT_VERSION: "4"
+    CURRENT_PROJECT_VERSION: "5"
     # 開発中に読み込む Web (Mac の開発サーバー)。作るときの環境変数で渡す (例: DS_WEB_URL=http://192.168.1.13:5192/ xcodegen)。
     # 空なら公開版のページを読む。IP アドレスは人ごとに違うので、ここには書かない
     # (Mac の開発サーバーを LAN で読むには、Info.plist に NSLocalNetworkUsageDescription が要る。配る版の審査のため外したので、使うときだけ足す)
@@ -27,11 +27,29 @@ targets:
       - path: DSUniversal
         excludes:
           - Info.plist
+      # アプリに入れる Web (npm run build で作った dist をそのまま入れる。BundledWeb.swift が laploupe://app/ で返す)
+      - path: ../../dist
+        type: folder
+        buildPhase: resources
+    # アプリに入れる Web (dist) を作り忘れていないかを確かめる (npm run build を先に。古い dist のままにしないこと)
+    preBuildScripts:
+      - name: Check bundled web (dist)
+        script: |
+          if [ ! -f "${SRCROOT}/../../dist/index.html" ]; then
+            echo "error: dist がありません。リポジトリの直下で npm run build を先に実行してください"
+            exit 1
+          fi
+          VERSION=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "${SRCROOT}/../../package.json" | head -1)
+          if [ "$VERSION" != "${MARKETING_VERSION}" ]; then
+            echo "warning: package.json の版 ($VERSION) とアプリの版 (${MARKETING_VERSION}) が違います"
+          fi
+        basedOnDependencyAnalysis: false
     # Info.plist は手で書いたものを使う (XcodeGen の info: を使うと、作るたびに上書きされる)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.oud0n.dsuniversal
-        TARGETED_DEVICE_FAMILY: "1,2"
+        # iPhone だけ (iPad は審査で iPad の画面も見られるので、最初は出さない。docs/app_store.md)
+        TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_FILE: DSUniversal/Info.plist
         # アプリのアイコン (Assets.xcassets/AppIcon。build/icon-ios.svg から作った 1024 の透明のない PNG。角は iOS が丸める)
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
