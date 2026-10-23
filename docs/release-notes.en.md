@@ -10,6 +10,10 @@
 
 - **Video**: a mute / unmute button in the playback bar. The choice is remembered on this device.
 
+**Fixes**
+
+- In Runs, "Add as Car 2" could stay disabled ("Only runs on the same course can be compared") for a run at the same circuit.
+
 ## v1.0.2
 
 **Changes**
