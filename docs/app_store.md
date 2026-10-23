@@ -159,3 +159,13 @@ The app shows the same web-based analysis as our free desktop/browser versions, 
 6.9 インチ（1320 × 2868）を 3〜10 枚。iPhone 17 Pro Max の実機の画面がちょうどこの大きさ。
 
 候補: 走行の一覧 / 解析（速度グラフとコース図）/ 2 つの周の比べ / 車載動画の比べる / ラップタイマー
+
+## アプリ内課金 (1.0.3 から。2026-10-24)
+
+- 消耗型 3 つ: `io.github.oud0n.dsuniversal.tip.gas1` (ガソリン 1L)・`tip.gas5` (5L)・`tip.gas10` (10L)。何も解放しない投げ銭。
+- アプリの中: 設定の「開発支援」→ ガソリンの投げ銭の画面 (TipModal.tsx)。Swift は IapModule.swift (StoreKit 2)。
+- 有料アプリ契約・銀行口座・W-8BEN は 2026-10-24 に有効。Small Business Program は持ち主が申し込む。
+- 各項目の配信可否は、アプリと同じく EU の 27 か国を外す。
+- 審査用のスクリーンショット: 投げ銭の画面 (3 つの金額が並んだ状態) を撮って、3 つの項目それぞれに入れる。
+- 審査のメモ (項目ごと): `A voluntary tip to support the developer. It does not unlock any content or features; every feature of the app is free. Open Settings (gear icon, top right) > "Support" (開発支援) to see the tip options.`
+- 最初の課金は、バージョン 1.0.3 のページの「アプリ内購入およびサブスクリプション」に 3 つを足して、一緒に提出する。
