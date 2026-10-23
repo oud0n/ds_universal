@@ -1,3 +1,4 @@
+import courseIndex from '../../courses/index.json';
 import { useSyncExternalStore } from 'react';
 
 // 画面の言語。日本語と英語の文言は、使う場所に t('日本語', 'English') のように並べて書く
@@ -154,9 +155,32 @@ const CIRCUIT_EN: Record<string, string> = {
   '名阪スポーツランド (Meihan Sportsland)': 'Meihan Sportsland'
 };
 
-/** サーキット名を画面に出す形にする (英語のときは英語名。読み込んだコースの「(ユーザー設置)」も英語にする) */
+/** 内蔵のサーキットの表にある英語名。無ければ名前のまま (記録のフォルダの名前を決めるのに使う。フォルダの名前が変わらないよう、表だけを見る) */
+export function circuitTableName(name: string): string {
+  return CIRCUIT_EN[name] ?? name;
+}
+
+// 名前の後ろに付く書き添え (海外のコースの「(カート)」など)。英語表示で作ったコースは、はじめから (user) が付いている
+const NOTE_EN: Record<string, string> = {
+  'カート': 'kart', 'ロードコース': 'road course', 'ユーザー設置': 'user',
+  'kart': 'kart', 'road course': 'road course', 'user': 'user'
+};
+// 内蔵のコースの名前。「日本語の名前 (English)」の括弧の中を英語名として使うのは、これだけ
+// (自分で作ったコースの「鈴鹿 (East)」「袖ヶ浦 (2024)」などを、括弧の中だけにしないため)
+const BUILTIN_NAMES = new Set((courseIndex as Array<{ name: string }>).map(c => c.name));
+
+/**
+ * サーキット名を画面に出す形にする。英語のときは、表にあればその英語名、
+ * 表に無い内蔵のコースは「日本語の名前 (English)」の括弧の中を出す。後ろの「(ユーザー設置)」「(カート)」なども英語にする
+ */
 export function circuitLabel(name: string, l: Lang = lang): string {
   if (l !== 'en' || !name) return name;
   if (CIRCUIT_EN[name]) return CIRCUIT_EN[name];
-  return name.replace(/ \(ユーザー設置\)$/, ' (user)');
+  if (BUILTIN_NAMES.has(name)) {
+    const pair = name.match(/^(.*[^\x00-\x7f].*) \(([\x20-\x7e]+)\)$/);
+    if (pair) return pair[2];
+  }
+  const note = name.match(/^(.+) \(([^()]+)\)$/);
+  if (note && NOTE_EN[note[2]]) return `${circuitLabel(note[1], l)} (${NOTE_EN[note[2]]})`;
+  return name;
 }

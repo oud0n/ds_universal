@@ -4,6 +4,18 @@
 
 [Back to the README](../README.en.md)
 
+## v1.0.2
+
+**Changes**
+
+- **Video "Compare"** (especially in the iPhone app): less stutter when two videos play side by side. The audible Car 1 video now drives the playback clock, and Car 2–4 no longer change playback rate in tiny steps. In a 60-second test on a real iPhone, Car 1 frame stalls went from 7 to 0, and Car 2 from about 30 per minute to 1–2.
+- **Video "Compare"**: "All" now switches to "Watch" and shows the whole run (before, it did nothing and stayed on the lap).
+- **English display**: the runs list and the circuit filter showed Japanese circuit names. Built-in courses that are not in the English name table (about 120) are now shown with their English names, and notes such as "(カート)" and "(ユーザー設置)" are translated. Storage folder names do not change.
+
+**iPhone app**
+
+- Added the app icon and made the app ready for TestFlight.
+
 ## v1.0.1
 
 **Changes**

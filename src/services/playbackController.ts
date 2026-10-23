@@ -18,6 +18,11 @@ export interface PlaybackTarget {
   outOfRange: boolean;
   /** 再生の速さの倍率 (既定 1)。走行比較の、距離の対応の傾き */
   rate?: number;
+  /**
+   * false なら、音を出していても時計の元にしない。走行比較の Car 2〜4 (時間で合わせると周の終わりで止まり、App の時計まで止めてしまう)。
+   * 時計の元にするのは Car 1 だけ
+   */
+  clockEligible?: boolean;
 }
 
 // ずれを詰め始める大きさと、詰め終える大きさ (行ったり来たりしないよう、間をあける)。
@@ -153,7 +158,7 @@ export class PlaybackController {
     this.entries.forEach((entry, key) => {
       const t = targets.get(key);
       const el = entry.el;
-      const eligible = clockMasterEnabled && appTime !== undefined && isPlaying && !!t && !t.outOfRange && t.rate === undefined && !el.muted
+      const eligible = clockMasterEnabled && appTime !== undefined && isPlaying && !!t && !t.outOfRange && t.rate === undefined && t.clockEligible !== false && !el.muted
         && performance.now() >= entry.masterBlockedUntil
         && t.localTime >= 0 && !(t.durationSec > 0 && t.localTime > t.durationSec);
       entry.appOffset = eligible ? t!.localTime - appTime! : null;
@@ -323,8 +328,21 @@ export class PlaybackController {
     // (動き出すまで currentTime が止まって遅れて見えるので、飛び直し続けて、移動にかかる時間も覚えられなくなる)。
     // 見ている位置を動かしたとき (上で待つのをやめる) と、1.5 秒たっても動き出さないときは飛ぶ
     const seeking = entry.seekStartedAt !== null && nowMs - entry.seekStartedAt < SEEK_HOLD_MS;
+    // 倍率のある枠 (走行比較) は、元の速さ (距離の対応の傾き) そのものが少しずつ揺れ続ける。iPhone は速さを変えるたびに引っかかるので、
+    // その小さな揺れ (2% 未満) には付いていかず、変えるのも 0.5 秒に 1 回まで (再生の速さを切り替えたような 10% を超える変化はすぐ)。
+    // 以前は揺れのたびに変えていて、1 秒に 12 回ほど速さを変え、そのたびに Car 2 のコマが止まっていた (BUG-32、2026-10-23 実機で計測)
+    const rateNow = performance.now();
+    const shouldSetRate = (target: number, smallOk: boolean): boolean => {
+      const d = Math.abs(el.playbackRate - target);
+      if (d <= 0.001) return false;
+      if (d > target * 0.1) return true;
+      if (smallOk) return true;
+      return d > target * 0.02 && rateNow - entry.rateChangedAt >= RATE_CHANGE_INTERVAL_MS;
+    };
+    const setRate = (target: number) => { el.playbackRate = target; entry.rateChangedAt = rateNow; };
+    const wasCorrecting = entry.correcting;
     if (seeking) {
-      if (Math.abs(el.playbackRate - base) > 0.001) el.playbackRate = base;
+      if (shouldSetRate(base, !rated)) setRate(base);
     } else if (Math.abs(diff) > jump || (isMaster && userMoved && Math.abs(diff) > 0.02)) {
       // 時計の元の動画は、見ている位置を少し動かしただけでも、その位置へ飛ぶ (App はこの動画に付いてくるので、飛ばないと位置が戻される)
       // 大きくずれたら (シーク・周の始めに戻ったときなど) 飛ぶ。前の移動にかかった時間の分だけ先へ
@@ -340,7 +358,7 @@ export class PlaybackController {
       entry.correcting = false;
       // 移動の前に出ていたコマの記録は使わない (移動が終わってすぐ合わせ直すと、前の位置を見てもう一度飛ぶため)。次のコマが出るまでは currentTime で測る
       entry.frame = null;
-      if (Math.abs(el.playbackRate - base) > 0.001) el.playbackRate = base;
+      if (shouldSetRate(base, !rated)) setRate(base);
     } else {
       // 少しのずれは、再生の速さを少し変えて追いつく (毎回飛ぶと映像が止まって見える)。
       // Safari では、音を出している動画は速さを変えずにおく (速さを変えると、音の高さを保つ処理をして、映像が重くなる)。上で小さなずれでも飛ぶ。
@@ -351,14 +369,10 @@ export class PlaybackController {
       else if (Math.abs(diff) < CORRECT_STOP_SEC) entry.correcting = false;
       const correction = entry.correcting ? Math.max(-0.1, Math.min(0.1, diff * 0.5)) : 0;
       const rate = Math.max(MIN_RATE * speed, Math.min(MAX_RATE * speed, base * (1 + correction)));
-      // 速さを小刻みに変えない (2% より小さい変化と、前に変えてから 0.5 秒たたないうちの変化はしない。ただし詰め終えたら元の速さへすぐ戻す)
-      const now = performance.now();
-      const big = Math.abs(el.playbackRate - rate) > Math.max(0.001, rate * 0.02);
-      const backToBase = !entry.correcting && Math.abs(el.playbackRate - rate) > 0.001;
-      if (backToBase || (big && now - entry.rateChangedAt >= RATE_CHANGE_INTERVAL_MS)) {
-        el.playbackRate = rate;
-        entry.rateChangedAt = now;
-      }
+      // 速さを小刻みに変えない (2% より小さい変化と、前に変えてから 0.5 秒たたないうちの変化はしない)。
+      // ただし詰め終えたら元の速さへすぐ戻す (倍率のある枠は、詰め終えた直後だけ。元の速さの揺れには付いていかない)
+      const backToBase = !entry.correcting && (wasCorrecting || !rated);
+      if (shouldSetRate(rate, backToBase)) setRate(rate);
     }
     // 長さが分かっていれば再生を始める (iPhone の Safari は再生を始めるまでコマを読まないので、コマを読むのを待たない)
     if (el.paused && el.readyState >= 1) playSafely(el);
