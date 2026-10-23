@@ -142,8 +142,12 @@ class Sim {
   /** App のループが最後に入れた時刻 (外で動かしたかを見分ける。App.tsx と同じ) */
   private loopTime: number | null = null;
 
-  constructor(model: Model, opts: { adjustAudibleRate: boolean; muted?: boolean; duration?: number; masterClock?: boolean }) {
+  /** false なら、時計の元にしない枠 (走行比較の Car 2〜4) */
+  clockEligible: boolean;
+
+  constructor(model: Model, opts: { adjustAudibleRate: boolean; muted?: boolean; duration?: number; masterClock?: boolean; clockEligible?: boolean }) {
     this.masterClock = opts.masterClock ?? false;
+    this.clockEligible = opts.clockEligible ?? true;
     vi.spyOn(performance, 'now').mockImplementation(() => this.clock.now);
     this.video = new FakeVideo(this.clock, model, { muted: opts.muted, duration: opts.duration });
     this.controller = new PlaybackController(opts.adjustAudibleRate);
@@ -163,7 +167,7 @@ class Sim {
       this.appTime = m !== null && !movedOutside && Math.abs(m - next) < 1 ? Math.max(this.appTime, m) : next;
       this.loopTime = this.appTime;
     }
-    const t: PlaybackTarget = { localTime: this.appTime, durationSec: this.durationSec, outOfRange: false, ...(this.rate !== undefined ? { rate: this.rate } : {}) };
+    const t: PlaybackTarget = { localTime: this.appTime, durationSec: this.durationSec, outOfRange: false, ...(this.rate !== undefined ? { rate: this.rate } : {}), ...(this.clockEligible ? {} : { clockEligible: false }) };
     this.controller.sync(new Map([['main', t]]), this.playing, 1, this.masterClock ? this.appTime : undefined);
     this.log.push({ t: this.clock.now, diff: this.appTime - this.video.mediaTime });
   }
@@ -242,6 +246,14 @@ describe('PlaybackController (音を出している動画を時計の元にす�
     sim.play();
     sim.run(5000);
     expect(sim.appTime).toBeGreaterThan(100 + 2.5);
+  });
+
+  it('時計の元にしない枠 (走行比較の Car 2〜4) は、音を出していても App の時計に合わせる', () => {
+    const sim = new Sim(SAFARI_AUDIBLE, { adjustAudibleRate: false, masterClock: true, clockEligible: false });
+    sim.play();
+    sim.run(6000);
+    // App は動画を待たずに進む (時計の元なら、動き出すまでの 0.46 秒だけ遅れる)
+    expect(sim.appTime).toBeCloseTo(106, 1);
   });
 
   it('音を消した動画は時計の元にしない (これまでどおり App の時計に合わせる)', () => {
