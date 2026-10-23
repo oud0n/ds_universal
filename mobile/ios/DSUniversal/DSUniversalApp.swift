@@ -26,12 +26,24 @@ struct WebContainer: UIViewRepresentable {
         config.mediaTypesRequiringUserActionForPlayback = []
         // 走行の置き場の動画・ログを lapfile://run/ で読む (RunFiles.swift)
         config.setURLSchemeHandler(context.coordinator.lapFiles, forURLScheme: RunFiles.scheme)
+        // アプリに入れた Web を laploupe://app/ で返す (BundledWeb.swift)
+        config.setURLSchemeHandler(context.coordinator.bundledWeb, forURLScheme: BundledWebSchemeHandler.scheme)
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.isInspectable = true
         context.coordinator.attach(to: webView)
         // 入口のページは、起動のたびに取り直す (GitHub Pages は 10 分覚えさせるので、出し直した版が起動し直しても出ないことがあった)。
         // 中で読む JS・CSS は名前に版が入っているので、これまでどおり覚えたものを使う
-        webView.load(URLRequest(url: WebSource.startURL, cachePolicy: .reloadIgnoringLocalCacheData))
+        let start = WebSource.startURL
+        if start == BundledWebSchemeHandler.startURL {
+            // アプリに入れた Web を初めて開くときは、前の読み込み元の保存を先に写してから開く (WebMigration.swift)
+            let migration = WebMigration(schemeHandler: context.coordinator.bundledWeb)
+            Task { @MainActor in
+                await migration.runIfNeeded()
+                webView.load(URLRequest(url: start))
+            }
+        } else {
+            webView.load(URLRequest(url: start, cachePolicy: .reloadIgnoringLocalCacheData))
+        }
         return webView
     }
 
@@ -39,11 +51,14 @@ struct WebContainer: UIViewRepresentable {
 }
 
 enum WebSource {
-    /// 読み込む Web。開発中は Info.plist の DSWebURL (Mac の開発サーバー、例 http://192.168.1.13:5173/) を読む。
-    /// 配る版は、アプリに入れたビルド (dist) を app:// で読む形にする (動画の範囲の読み出しと一緒に作る。進め方の 1)
+    /// 読み込む Web。開発中は Info.plist の DSWebURL (Mac の開発サーバー・試験版のページ) を読む。
+    /// 空なら、アプリに入れたビルド (dist) を laploupe://app/ で読む (電波がなくても起動できる)。入れ忘れたときだけ公開版のページを読む
     static var startURL: URL {
         if let text = Bundle.main.object(forInfoDictionaryKey: "DSWebURL") as? String, let url = URL(string: text), !text.isEmpty {
             return url
+        }
+        if let root = BundledWebSchemeHandler.root, FileManager.default.fileExists(atPath: root.appendingPathComponent("index.html").path) {
+            return BundledWebSchemeHandler.startURL
         }
         return URL(string: "https://oud0n.github.io/ds_universal/")!
     }
