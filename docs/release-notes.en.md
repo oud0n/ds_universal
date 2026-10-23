@@ -4,6 +4,12 @@
 
 [Back to the README](../README.en.md)
 
+## Next version (unreleased)
+
+**Added**
+
+- **Video**: a mute / unmute button in the playback bar. The choice is remembered on this device.
+
 ## v1.0.2
 
 **Changes**
