@@ -34,6 +34,7 @@ import { LapTimerScreen, type ReplayLog } from './components/LapTimerScreen';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
 import { DonateModal } from './components/DonateModal';
 import { hasNative } from './native/bridge';
+import { sameCourseName } from './utils/courseNames';
 import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
 import { RecentRunsList, RunsSheet } from './components/RecentRuns';
@@ -960,7 +961,7 @@ export const App: React.FC = () => {
         const byId = new Map(latestRef.current.sessions.map(x => [x.id, x]));
         setSelectedCars(prev => [
           { slot: 0, sessionId: main.id, lapNumber, colorHex: '#ef4444', label: `${main.sessionName} (L${lapNumber})` },
-          ...prev.filter(c => c.slot !== 0 && c.sessionId !== main.id && byId.get(c.sessionId)?.circuitName === main.circuitName)
+          ...prev.filter(c => c.slot !== 0 && c.sessionId !== main.id && sameCourseName(byId.get(c.sessionId)?.circuitName, main.circuitName))
         ].sort((a, b) => a.slot - b.slot));
         // 周の始めから見る (前に見ていた位置を、新しい周へ持ち込まない)
         setIsPlaying(false);

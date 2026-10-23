@@ -44,6 +44,7 @@ import { formatMinSec } from '../utils/timeFormat';
 import { tr, useT } from '../utils/i18n';
 import { fileAccept, isIOS, isWebKitBrowser } from '../utils/device';
 import { setClockMaster } from '../services/clockMaster';
+import { sameCourseName } from '../utils/courseNames';
 import { useCompactLayout, useLandscape } from '../hooks/useCompactLayout';
 import { EmptyLoadPrompt } from './EmptyLoadPrompt';
 import { RunFolderVideos } from './RunFolderVideos';
@@ -435,7 +436,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const baseSession = sessions.find(s => s.id === speedSessionId) || sessions[0];
   // ラップの欄で比べる周: 'best' (そのログのベスト) か、Car の枠 (0〜3) で選んだ周
   // 同じコースの周だけ比べられる (コースの名前が同じ Car の周)
-  const sameCourse = (s: Session | undefined) => !!s && !!baseSession && s.circuitName === baseSession.circuitName;
+  const sameCourse = (s: Session | undefined) => !!s && !!baseSession && sameCourseName(s.circuitName, baseSession.circuitName);
   const refCar = selectedCars.find(c => win.lapRef !== 'best' && c.slot === win.lapRef);
   const refSession = refCar ? sessions.find(s => s.id === refCar.sessionId) : undefined;
   const refLapPicked = sameCourse(refSession) ? refSession!.laps.find(l => l.lapNumber === refCar!.lapNumber && !l.isWholeSession) : undefined;
