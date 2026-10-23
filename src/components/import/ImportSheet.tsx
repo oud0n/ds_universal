@@ -1,6 +1,6 @@
 import React from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, X } from 'lucide-react';
-import { useT } from '../../utils/i18n';
+import { circuitLabel, useT } from '../../utils/i18n';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import type { ImportPart, ImportPlan } from '../../services/import/importPlan';
 import type { PartResult } from '../../services/import/importApply';
@@ -45,7 +45,7 @@ export const ImportSheet: React.FC<{
   const label = (p: ImportPart) => {
     if (p.kind === 'transit') return t('移動 (コースの外)', 'Transit (off course)');
     if (p.kind === 'unknown') return t('知らない場所 (計測線を自動で置ける)', 'Unknown place (timing line can be placed)');
-    return p.course?.name ?? t('未分類', 'Unsorted');
+    return p.course?.name ? circuitLabel(p.course.name) : t('未分類', 'Unsorted');
   };
   const countText = (p: ImportPart) => (p.kind === 'stage' ? t(`区間 ${p.laps}`, `${p.laps} stage${(p.laps) === 1 ? '' : 's'}`) : p.kind === 'transit' ? '—' : t(`${p.laps} 周`, `${p.laps} lap${(p.laps) === 1 ? '' : 's'}`));
   const color = (p: ImportPart) => (p.kind === 'transit' ? '#64748b' : p.kind === 'unknown' ? '#f59e0b' : p.kind === 'stage' ? '#a78bfa' : '#10b981');

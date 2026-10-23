@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExtern
 import { X, Volume2, VolumeX, Menu, MapPin, Bluetooth, Smartphone, PlayCircle, Save, BarChart3, Trash2, Play, Square } from 'lucide-react';
 import { useLoggerLink, useStatusLabel } from './BleLoggerCard';
 import { formatDelta, formatLapTime } from '../services/liveLapTimer';
-import { CIRCUIT_PRESETS } from '../services/circuitDatabase';
+import { CIRCUIT_PRESETS, userCircuitPresets } from '../services/circuitDatabase';
 import { triggerFileDownload } from '../services/nmeaExporter';
 import { downloadBlob } from '../services/telemetryVideoExporter';
 import { LapHistoryPanel } from './LapHistoryPanel';
@@ -248,7 +248,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
 
   const nearbyCourses = useMemo(() => {
     const p = snap.lastPos;
-    const list = presetsWithLine.map(c => ({ c, d: p ? distanceKm(p.latitude, p.longitude, c.centerLat, c.centerLon) : Infinity }));
+    // 自分で作ったコースも並べる (内蔵のコースだけだと、自分のコースを選べなかった)
+    const list = [...userCircuitPresets(), ...presetsWithLine].map(c => ({ c, d: p ? distanceKm(p.latitude, p.longitude, c.centerLat, c.centerLon) : Infinity }));
     return list.sort((a, b) => a.d - b.d || a.c.name.localeCompare(b.c.name));
     // 開いたときの位置で並べる
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -400,7 +401,9 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           ) : !course ? (
             <div className="text-center space-y-3">
               <div className="text-2xl font-bold">{t('コースを決めています', 'Finding the course')}</div>
-              <div className="text-slate-400 text-sm">{t('測位が届くと、近くのコースを選びます。違うときは上のコースを押して選んでください。', 'The nearest course is chosen when GPS arrives. Tap the course above to change it.')}</div>
+              <div className="text-slate-400 text-sm">{measuring
+                ? t('測位が届くと、近くのコースを選びます。違うときは、測定を終えてから上のコースを押して選んでください。', 'The nearest course is chosen when GPS arrives. To change it, stop measuring and tap the course above.')
+                : t('測位が届くと、近くのコースを選びます。違うときは上のコースを押して選んでください。', 'The nearest course is chosen when GPS arrives. Tap the course above to change it.')}</div>
             </div>
           ) : flashing ? (
             <>

@@ -52,7 +52,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const { store, runs, error, noFolder, reload } = useRuns(active);
-  const storageLabel = useStorageLabel();
+  const storageLabel = useStorageLabel(active);
   const [folder, setFolder] = useState<string | null>(null);
   const [shown, setShown] = useState(PAGE);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
