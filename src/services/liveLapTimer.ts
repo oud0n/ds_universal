@@ -327,5 +327,7 @@ export function formatLapTime(sec: number, digits = 3): string {
 /** 差を +0.12 / -0.34 の形で */
 export function formatDelta(sec: number | null, digits = 2): string {
   if (sec === null || !Number.isFinite(sec)) return '';
-  return `${sec >= 0 ? '+' : '-'}${Math.abs(sec).toFixed(digits)}`;
+  // 丸めると 0 になる差は + にそろえる (同じタイムで -0.00 と +0.00 が入れ替わって見えた)
+  const shown = Math.abs(sec).toFixed(digits);
+  return `${sec >= 0 || Number(shown) === 0 ? '+' : '-'}${shown}`;
 }

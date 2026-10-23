@@ -55,23 +55,33 @@ export function findMatchingCircuit(lat: number, lon: number, points?: Telemetry
   const preset = findMatchingPreset(lat, lon, points);
   const presetCrossed = !!(points && preset?.controlLine && countGateCrossings(points, preset.controlLine) > 0);
   const useUser = userMatch && (found!.crossings !== 0 || (!presetCrossed && !!points && passesNearControlLine(points, userMatch.controlLine)));
-  if (userMatch && useUser) {
-    return {
-      id: `user:${userMatch.id}`,
-      name: `${userMatch.name} (ユーザー設置)`,
-      country: 'JP',
-      centerLat: (userMatch.controlLine.latA + userMatch.controlLine.latB) / 2,
-      centerLon: (userMatch.controlLine.lonA + userMatch.controlLine.lonB) / 2,
-      controlLine: userMatch.controlLine,
-      sectors: userMatch.sectors,
-      pathPolylines: userMatch.polylines,
-      ...(userMatch.nameEn ? { nameEn: userMatch.nameEn } : {}),
-      ...(userMatch.folder ? { folder: userMatch.folder } : {}),
-      ...(userMatch.finishLine ? { finishLine: userMatch.finishLine } : {})
-    };
-  }
+  if (userMatch && useUser) return userCircuitPreset(userMatch);
 
   return preset;
+}
+
+type UserCircuitEntry = ReturnType<typeof userCircuitStorage.getAllCircuits>[number];
+
+/** 自分のコースを、内蔵のコースと同じ形にする (名前の終わりに「(ユーザー設置)」を付ける) */
+function userCircuitPreset(u: UserCircuitEntry): CircuitPreset {
+  return {
+    id: `user:${u.id}`,
+    name: `${u.name} (ユーザー設置)`,
+    country: 'JP',
+    centerLat: (u.controlLine.latA + u.controlLine.latB) / 2,
+    centerLon: (u.controlLine.lonA + u.controlLine.lonB) / 2,
+    controlLine: u.controlLine,
+    sectors: u.sectors,
+    pathPolylines: u.polylines,
+    ...(u.nameEn ? { nameEn: u.nameEn } : {}),
+    ...(u.folder ? { folder: u.folder } : {}),
+    ...(u.finishLine ? { finishLine: u.finishLine } : {})
+  };
+}
+
+/** 計測線のある自分のコースの一覧 (ラップタイマーのコースを選ぶ画面に、内蔵のコースと並べて出す) */
+export function userCircuitPresets(): CircuitPreset[] {
+  return userCircuitStorage.getAllCircuits().filter(u => !!u.controlLine).map(userCircuitPreset);
 }
 
 /** 内蔵のコースから検索 (近くに複数あるときは、計測線を実際に通過しているコースを優先する) */
