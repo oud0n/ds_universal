@@ -1,3 +1,4 @@
+import { sameCourseName } from '../utils/courseNames';
 import React, { useMemo, useState } from 'react';
 import { BarChart2, Bluetooth, ChevronRight, Cloud, EyeOff, FolderOpen, GitCompare, Loader2, Timer, Trophy, Video, X } from 'lucide-react';
 import { useT } from '../utils/i18n';
@@ -210,7 +211,10 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
       onOpen={() => { setSelectedKey(null); onOpen(selected); }}
       onOpenVideo={() => { setSelectedKey(null); onOpenVideo(selected); }}
       onAddAsCar2={onAddAsCar2 ? () => { setSelectedKey(null); onAddAsCar2(selected); } : undefined}
-      otherCourse={!!onAddAsCar2 && !!car1Course && selected.courseName !== car1Course}
+      // 同じコースか: Car 1 と同じフォルダ (コースごとのフォルダ) の走行か、コースの名前が同じコースを指すとき
+      otherCourse={!!onAddAsCar2 && !!car1Course
+        && !(car1Run !== null && car1Run.slice(0, car1Run.indexOf('/')) === selected.folder)
+        && !sameCourseName(selected.courseName, car1Course)}
       isCar1={car1Run === `${selected.folder}/${selected.file}`}
       onToggleLap={async (lap, hide) => { await setRunLapHidden(store, selected, lap, hide); reload(); }}
       onClose={wide ? undefined : () => setSelectedKey(null)}
