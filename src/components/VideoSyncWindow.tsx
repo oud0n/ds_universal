@@ -1813,7 +1813,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   }
                 }
               }}
-              className="flex-1 h-1 bg-slate-700 rounded appearance-none cursor-pointer accent-red-500"
+              // つまみを掴みやすいよう、押せる高さを取る (h-1 だと 4 px で、指でもマウスでも掴みにくかった。解析の再生の段と同じ)
+              className={`flex-1 min-w-0 cursor-pointer accent-red-500 ${isCompactLayout ? 'h-6' : 'h-4'}`}
             />
 
             {/* 終了時刻表示 */}
