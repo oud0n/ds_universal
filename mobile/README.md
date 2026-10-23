@@ -52,6 +52,7 @@ npm run dev
 有料の開発者登録 (チーム A84PUTN545) で、Xcode に Apple ID を入れてあること。App Store Connect にアプリ (バンドル ID `io.github.oud0n.dsuniversal`) を登録してあること。
 
 ```sh
+npm run build          # アプリに入れる Web (dist) を作る。忘れると、アプリを作るときに止まる
 cd mobile/ios
 # CURRENT_PROJECT_VERSION (ビルド番号) は、送るたびに project.yml で上げる (同じ番号は送れない)
 xcodegen
@@ -62,6 +63,7 @@ xcodebuild -exportArchive -archivePath /tmp/LapLoupe.xcarchive -exportPath /tmp/
   -exportOptionsPlist ExportOptions.plist -allowProvisioningUpdates
 ```
 
-- `DS_WEB_URL=` (空) で、公開版のページ (main) を読む。
+- `DS_WEB_URL=` (空) で、アプリに入れた Web (dist) を `laploupe://app/` で読む (BundledWeb.swift)。電波がなくても起動でき、審査を通った版の画面がそのまま動く。
+- 前の版 (GitHub Pages を読んでいた版) から上げたときは、初めて開いたときに一度だけ、前の読み込み元のブラウザの保存 (自分のコース・登録した機器・設定・ラップタイマーの控え) を写す (WebMigration.swift)。前の保存は消さない。
 - 署名は Xcode の Apple ID で行う (Apple が管理する配布用の証明書)。App Store Connect の API キー (役割 Developer) だけでは、配布用の署名が「Cloud signing permission error」になる。
 - アイコンは `DSUniversal/Assets.xcassets/AppIcon` (元は `build/icon-ios.svg`)。
