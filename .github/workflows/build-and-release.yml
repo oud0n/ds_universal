@@ -69,7 +69,20 @@ jobs:
           NOTARIZE: ${{ startsWith(github.ref, 'refs/tags/') || inputs.notarize == true }}
         run: |
           if [ -n "$MAC_CERT_P12_BASE64" ]; then
-            export CSC_LINK="$MAC_CERT_P12_BASE64"
+            # 新しい macOS が書き出した .p12 は、CI の macOS の security が読めない暗号の形のことがあるので、
+            # 読める形 (3DES・SHA1) に入れ直してから使う
+            printf '%s' "$MAC_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/in.p12"
+            openssl pkcs12 -in "$RUNNER_TEMP/in.p12" -info -noout -passin env:MAC_CERT_PASSWORD 2>&1 | grep -viE 'bag attributes|localKeyID|friendlyName' || true
+            openssl pkcs12 -in "$RUNNER_TEMP/in.p12" -nodes -passin env:MAC_CERT_PASSWORD -out "$RUNNER_TEMP/pem.pem"
+            openssl pkcs12 -export -in "$RUNNER_TEMP/pem.pem" -out "$RUNNER_TEMP/cert.p12" -passout env:MAC_CERT_PASSWORD \
+              -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1
+            rm -f "$RUNNER_TEMP/pem.pem" "$RUNNER_TEMP/in.p12"
+            # 読めるかを確かめる (中身の数だけ出す)
+            security create-keychain -p check "$RUNNER_TEMP/check.keychain"
+            security import "$RUNNER_TEMP/cert.p12" -k "$RUNNER_TEMP/check.keychain" -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
+            security find-identity -v -p codesigning "$RUNNER_TEMP/check.keychain" | tail -1
+            security delete-keychain "$RUNNER_TEMP/check.keychain"
+            export CSC_LINK="$RUNNER_TEMP/cert.p12"
             export CSC_KEY_PASSWORD="$MAC_CERT_PASSWORD"
             echo "Developer ID で署名します"
           else
