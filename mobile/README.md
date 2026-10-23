@@ -46,3 +46,22 @@ npm run dev
 4. Bluetooth はシミュレーターでは使えないので、実機で試す (Apple の開発者の登録が要る)
 
 まだないもの: アプリに入れた Web を `app://` で読む (動画の範囲の読み出しと一緒に作る)、保存 (files)、記録 (recorder)、カメラ、センサー。
+
+## TestFlight に送る (2026-10-23)
+
+有料の開発者登録 (チーム A84PUTN545) で、Xcode に Apple ID を入れてあること。App Store Connect にアプリ (バンドル ID `io.github.oud0n.dsuniversal`) を登録してあること。
+
+```sh
+cd mobile/ios
+# CURRENT_PROJECT_VERSION (ビルド番号) は、送るたびに project.yml で上げる (同じ番号は送れない)
+xcodegen
+xcodebuild -project DSUniversal.xcodeproj -scheme DSUniversal -configuration Release \
+  -destination 'generic/platform=iOS' -archivePath /tmp/LapLoupe.xcarchive \
+  DEVELOPMENT_TEAM=A84PUTN545 DS_WEB_URL= -allowProvisioningUpdates archive
+xcodebuild -exportArchive -archivePath /tmp/LapLoupe.xcarchive -exportPath /tmp/LapLoupe-ipa \
+  -exportOptionsPlist ExportOptions.plist -allowProvisioningUpdates
+```
+
+- `DS_WEB_URL=` (空) で、公開版のページ (main) を読む。
+- 署名は Xcode の Apple ID で行う (Apple が管理する配布用の証明書)。App Store Connect の API キー (役割 Developer) だけでは、配布用の署名が「Cloud signing permission error」になる。
+- アイコンは `DSUniversal/Assets.xcassets/AppIcon` (元は `build/icon-ios.svg`)。
