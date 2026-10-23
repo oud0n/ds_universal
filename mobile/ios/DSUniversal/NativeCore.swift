@@ -10,6 +10,7 @@ final class NativeCore {
 
     private(set) lazy var ble = BleModule(core: self)
     private(set) lazy var system = SystemModule(core: self)
+    private(set) lazy var iap = IapModule(core: self)
 
     /// 知らせの送り先 (画面の窓口)。画面がないときは nil で、知らせは捨てる
     var sink: ((String, [String: Any]) -> Void)?
@@ -25,6 +26,8 @@ final class NativeCore {
     func launch() {
         system.startObservingAppState()
         ble.resumeRecordingIfNeeded()
+        // 終わっていないアプリ内課金を受け取る (IapModule.swift)
+        iap.start()
     }
 }
 
