@@ -80,7 +80,7 @@ export const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy
               <span className={`font-mono font-bold ${run.best !== null ? 'text-fuchsia-400' : 'text-slate-500'}`}>
                 {run.best !== null ? formatLapTime(run.best) : '--'}
               </span>
-              <span className="text-slate-400">{t(`${run.lapCount} 周`, `${run.lapCount} laps`)}</span>
+              <span className="text-slate-400">{t(`${run.lapCount} 周`, `${run.lapCount} lap${(run.lapCount) === 1 ? '' : 's'}`)}</span>
             </>
           )}
           {videoCount > 0 && (

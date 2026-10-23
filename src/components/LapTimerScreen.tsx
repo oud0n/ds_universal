@@ -386,7 +386,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               {savedRun && (
                 <div className="mt-3 inline-flex items-center gap-3 px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/40 text-sm" data-testid="lap-timer-saved">
                   <span className="text-emerald-500 font-bold">
-                    {t(`${savedRun.laps} 周の走行を保存しました`, `Saved a run with ${savedRun.laps} laps`)}
+                    {t(`${savedRun.laps} 周の走行を保存しました`, `Saved a run with ${savedRun.laps} lap${(savedRun.laps) === 1 ? '' : 's'}`)}
                     {savedRun.best !== null ? ` (${t('ベスト', 'best')} ${formatLapTime(savedRun.best, 2)})` : ''}
                   </span>
                   {hasNative() && (
@@ -554,7 +554,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
                         {recording && <span className="text-red-500 text-[10px] whitespace-nowrap">{t('記録中', 'Recording')}</span>}
                       </div>
                       <div className="text-[11px] text-slate-400 font-mono">
-                        {t(`${r.lapCount} 周`, `${r.lapCount} laps`)}{r.bestLapSec !== null ? ` · ${t('ベスト', 'best')} ${formatLapTime(r.bestLapSec, 3)}` : ''}{` · ${Math.round(r.fixCount / 20 / 60) || '<1'} min`}
+                        {t(`${r.lapCount} 周`, `${r.lapCount} lap${(r.lapCount) === 1 ? '' : 's'}`)}{r.bestLapSec !== null ? ` · ${t('ベスト', 'best')} ${formatLapTime(r.bestLapSec, 3)}` : ''}{` · ${Math.round(r.fixCount / 20 / 60) || '<1'} min`}
                       </div>
                       <div className="flex gap-1 mt-1.5">
                         <button onClick={() => { void runAction(r, 'open'); }} className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded bg-surface-3 text-xs"><BarChart3 size={12} />{t('解析', 'Analyse')}</button>

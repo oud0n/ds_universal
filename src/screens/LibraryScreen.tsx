@@ -86,7 +86,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
     if (!day) return t('日時が分からない走行', 'Unknown date');
     const [y, m, d] = day.split('-').map(Number);
     const w = (ja ? ['日', '月', '火', '水', '木', '金', '土'] : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'])[new Date(y, m - 1, d).getDay()];
-    return ja ? `${y}年${m}月${d}日 (${w})` : `${w}, ${y}-${m}-${d}`;
+    return ja ? `${y}年${m}月${d}日 (${w})` : `${w}, ${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
   };
 
   const select = (r: RunItem) => setSelectedKey(`${r.folder}/${r.file}`);
@@ -277,8 +277,8 @@ const RunDetail: React.FC<{
           <div className="text-xs text-slate-400 mt-0.5">
             {run.pending
               ? t('☁️ iCloud にだけあるので、開くと周を数えます', '☁️ Only in iCloud; laps are counted when opened')
-              : <>{t('ベスト', 'Best')} <span className="font-mono font-bold text-fuchsia-400">{best !== null ? formatLapTime(best) : '--'}</span> ・ {t(`${visible.length} 周`, `${visible.length} laps`)}</>}
-            {run.videos.length > 0 && <> ・ <Video size={11} className="inline" /> {run.videos.length}{run.synced ? t(' (同期済み)', ' (synced)') : ''}</>}
+              : <>{t('ベスト', 'Best')} <span className="font-mono font-bold text-fuchsia-400">{best !== null ? formatLapTime(best) : '--'}</span>{t(' ・ ', ' · ')}{t(`${visible.length} 周`, `${visible.length} lap${(visible.length) === 1 ? '' : 's'}`)}</>}
+            {run.videos.length > 0 && <>{t(' ・ ', ' · ')}<Video size={11} className="inline" /> {run.videos.length}{run.synced ? t(' (同期済み)', ' (synced)') : ''}</>}
           </div>
         </div>
         {onClose && (

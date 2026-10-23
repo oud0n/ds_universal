@@ -787,7 +787,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
                 : findClosestPointByTime(pts, currentTime);
 
               return (
-                <div key={idx} className="flex items-center justify-between font-mono">
+                <div key={idx} className="flex items-center justify-between gap-3 font-mono">
                   <span className="flex items-center gap-1.5 font-bold" style={{ color: c.slot.colorHex }}>
                     <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: c.slot.colorHex }}></span>
                     {c.slot.label}:
