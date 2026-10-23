@@ -6,7 +6,7 @@ import {
   Clock, Gauge, Plus, Trash2, CheckCircle2, ChevronRight,
   Globe, AlertTriangle, Zap, Layers, ChevronLeft,
   Columns, PictureInPicture, MapPin, Download, X,
-  ArrowLeftRight, VolumeX, Maximize2, ListChecks
+  ArrowLeftRight, Volume2, VolumeX, Maximize2, ListChecks
 } from 'lucide-react';
 import { Session, TelemetryPoint, SelectedCarSlot, Lap } from '../types/telemetry';
 import { getAddVideoGpsLog, setAddVideoGpsLog } from '../services/videoPrefs';
@@ -50,6 +50,9 @@ import { RunFolderVideos } from './RunFolderVideos';
 import { SKIP_SEC, Skip10Icon } from './Skip10Icon';
 import { useWheelScrollX } from '../hooks/useWheelScrollX';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+
+/** 動画の音を消したか (この端末に覚えておく) */
+const VIDEO_MUTED_KEY = 'ds_video_muted';
 
 export type { PipPosition };
 
@@ -364,6 +367,17 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // シークバースコープ ('lap': 速度ウィンドウ選択中ラップ時間, 'session': セッション全体時間)
   // 動画同期タブはセッション全体の時刻で再生するので、はじめはセッション全体にする (周の表示は周の外に出ると端に止まる)
   const [seekbarScope, setSeekbarScope] = useState<'lap' | 'session'>(isGraphEmbedded ? 'lap' : 'session');
+  // 利用者が音を消したか (動画の再生の段のボタン)。この端末に覚えておく
+  const [userMuted, setUserMuted] = useState<boolean>(() => {
+    try { return localStorage.getItem(VIDEO_MUTED_KEY) === '1'; } catch { return false; }
+  });
+  const toggleUserMuted = () => {
+    setUserMuted(m => {
+      const next = !m;
+      try { localStorage.setItem(VIDEO_MUTED_KEY, next ? '1' : '0'); } catch { /* 保存できなくても、今だけ切り替える */ }
+      return next;
+    });
+  };
 
   const [isDragging, setIsDragging] = useState<boolean>(false);
   // 動画の移動 (seek) が終わった回数。移動中に来た時刻に合わせ直すため、変わったら動画をもう一度合わせる
@@ -1480,7 +1494,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 const x = tiles[i];
                 const isMain = i === 0;
                 // 音を出すのは、大きく出している枠 (なければメイン) だけ
-                const sound = !muteAll && (win.focus !== null ? i === win.focus : isMain);
+                const sound = !muteAll && !userMuted && (win.focus !== null ? i === win.focus : isMain);
                 return (
                   <VideoTile
                     key={`tile-${i}`}
@@ -1844,6 +1858,20 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               <option key={v} value={String(v)}>{v}x</option>
             ))}
           </select>
+
+          {/* 音を消す・出す (グラフ解析に埋め込んだときは、もともと音を出さない) */}
+          {!muteAll && (
+            <button
+              onClick={toggleUserMuted}
+              className={`p-1 rounded border border-line-2 transition-colors cursor-pointer ml-1 ${userMuted ? 'bg-surface-3 text-slate-500 hover:bg-surface-4' : 'bg-surface-3 text-slate-300 hover:bg-surface-4'}`}
+              title={userMuted ? t('音を出す', 'Unmute') : t('音を消す', 'Mute')}
+              aria-label={userMuted ? t('音を出す', 'Unmute') : t('音を消す', 'Mute')}
+              aria-pressed={userMuted}
+              data-testid="video-mute"
+            >
+              {userMuted ? <VolumeX size={isCompactLayout ? 18 : 15} /> : <Volume2 size={isCompactLayout ? 18 : 15} />}
+            </button>
+          )}
         </div>
         )}
 
