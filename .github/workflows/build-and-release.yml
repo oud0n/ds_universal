@@ -72,10 +72,11 @@ jobs:
             # 新しい macOS が書き出した .p12 は、CI の macOS の security が読めない暗号の形のことがあるので、
             # 読める形 (3DES・SHA1) に入れ直してから使う
             printf '%s' "$MAC_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/in.p12"
-            openssl pkcs12 -in "$RUNNER_TEMP/in.p12" -info -noout -passin env:MAC_CERT_PASSWORD 2>&1 | grep -viE 'bag attributes|localKeyID|friendlyName' || true
-            openssl pkcs12 -in "$RUNNER_TEMP/in.p12" -nodes -passin env:MAC_CERT_PASSWORD -out "$RUNNER_TEMP/pem.pem"
+            openssl pkcs12 -legacy -in "$RUNNER_TEMP/in.p12" -info -noout -passin env:MAC_CERT_PASSWORD 2>&1 | grep -viE 'bag attributes|localKeyID|friendlyName' || true
+            openssl pkcs12 -legacy -in "$RUNNER_TEMP/in.p12" -nodes -passin env:MAC_CERT_PASSWORD -out "$RUNNER_TEMP/pem.pem"
             openssl pkcs12 -export -in "$RUNNER_TEMP/pem.pem" -out "$RUNNER_TEMP/cert.p12" -passout env:MAC_CERT_PASSWORD \
               -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1
+            echo "keys in p12: $(grep -c "PRIVATE KEY-----" "$RUNNER_TEMP/pem.pem" || true), certs: $(grep -c "BEGIN CERTIFICATE" "$RUNNER_TEMP/pem.pem" || true)"
             rm -f "$RUNNER_TEMP/pem.pem" "$RUNNER_TEMP/in.p12"
             # 読めるかを確かめる (中身の数だけ出す)
             security create-keychain -p check "$RUNNER_TEMP/check.keychain"
