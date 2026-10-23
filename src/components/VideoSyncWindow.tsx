@@ -622,9 +622,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     if (isExporting && !recordingStage) return;
     if (!isVisible || (isAnyExporting && !recordingStage)) { playback.pauseAll(); return; }
     const targets = new Map<string, PlaybackTarget>();
-    tiles.slice(0, shownCount).forEach((x, i) => { if (x.position) targets.set(`tile-${i}`, { ...x.position, rate: x.rate }); });
-    // 走行比較では、時計の元にしない (比べる車の動画は周の終わりで止まるので、App の時計を止めてしまう)
-    playback.sync(targets, isPlaying, playbackSpeed, isCompare ? undefined : currentTimeSec);
+    // 走行比較では、時計の元にするのは Car 1 だけ (比べる車の動画は周の終わりで止まるので、時計の元にすると App の時計を止めてしまう)。
+    // 以前は走行比較では時計の元を使わず、iPhone では音を出している Car 1 が、0.2 秒遅れるたびに飛んで 0.4〜0.6 秒止まっていた (BUG-32)
+    tiles.slice(0, shownCount).forEach((x, i) => {
+      if (x.position) targets.set(`tile-${i}`, { ...x.position, rate: x.rate, ...(isCompare && x.slot !== 0 ? { clockEligible: false } : {}) });
+    });
+    playback.sync(targets, isPlaying, playbackSpeed, currentTimeSec);
   });
 
   // 見えている間は、音を出している動画を App の時計の元にする (clockMaster.ts)
