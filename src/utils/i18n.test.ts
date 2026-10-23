@@ -17,6 +17,14 @@ describe('circuitLabel', () => {
     expect(circuitLabel('袖ヶ浦フォレストレースウェイ (Sodegaura) (ユーザー設置)', 'en')).toBe('Sodegaura Forest Raceway (user)');
     expect(circuitLabel('うちの近所 (ユーザー設置)', 'en')).toBe('うちの近所 (user)');
   });
+  it('自分で作ったコースは、括弧の中だけにしない (書き添えだけ英語にする)', () => {
+    expect(circuitLabel('鈴鹿 (East)', 'en')).toBe('鈴鹿 (East)');
+    expect(circuitLabel('袖ヶ浦 (2024)', 'en')).toBe('袖ヶ浦 (2024)');
+    expect(circuitLabel('マイコース (user)', 'en')).toBe('マイコース (user)');
+    expect(circuitLabel(circuitLabel('マイコース (ユーザー設置)', 'en'), 'en')).toBe('マイコース (user)');
+    expect(circuitLabel('MotorLand Aragón (Club)', 'en')).toBe('MotorLand Aragón (Club)');
+    expect(circuitLabel('Autódromo do Estoril (Estoril)', 'en')).toBe('Autódromo do Estoril (Estoril)');
+  });
   it('英語の名前や括弧の中も英語の名前はそのまま', () => {
     expect(circuitLabel('Circuit Bugatti (Le Mans)', 'en')).toBe('Circuit Bugatti (Le Mans)');
     expect(circuitLabel('THE MAGARIGAWA CLUB', 'en')).toBe('THE MAGARIGAWA CLUB');
