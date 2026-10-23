@@ -988,7 +988,7 @@ export const App: React.FC = () => {
         const download = await askChoice(
           tr('動画を iCloud から取り込みますか？', 'Download the videos from iCloud?'),
           tr(`この走行の動画 ${cand.missing.length} 本 (${gb} GB) が、まだこの端末にありません。\n\n取り込む: 取り込みを始めます。終わったら、この走行に自動で動画を付けます (この走行を開いている間)\n取り込まない: 端末にある動画とログだけで開きます`,
-            `${cand.missing.length} video(s) of this run (${gb} GB) are not on this device yet.\n\nDownload: start downloading; the videos are attached automatically when done (while this run stays open)\nDon't download: open with the log and the videos on this device`),
+            `${cand.missing.length} video${cand.missing.length === 1 ? '' : 's'} of this run (${gb} GB) are not on this device yet.\n\nDownload: start downloading; the videos are attached automatically when done (while this run stays open)\nDon't download: open with the log and the videos on this device`),
           [
             { label: tr('取り込む', 'Download'), value: true },
             { label: tr('取り込まない', "Don't download"), value: false, primary: true }

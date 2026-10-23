@@ -57,7 +57,7 @@ export const ImportSheet: React.FC<{
             <h2 className="text-sm font-bold text-slate-100 truncate">{t(`取り込み: ${plan.sourceName}`, `Import: ${plan.sourceName}`)}</h2>
             <p className="text-xs text-slate-400 mt-0.5">
               {t(`走行を ${plan.parts.length} つに分けました${circuits > 1 ? ` (${circuits} つのサーキット)` : ''}。取り込むものに印を付けてください。`,
-                `Split into ${plan.parts.length} part(s)${circuits > 1 ? ` (${circuits} circuits)` : ''}. Tick the ones to import.`)}
+                `Split into ${plan.parts.length} part${plan.parts.length === 1 ? '' : 's'}${circuits > 1 ? ` (${circuits} circuits)` : ''}. Tick the ones to import.`)}
             </p>
           </div>
           {phase !== 'writing' && (

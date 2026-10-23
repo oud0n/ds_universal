@@ -331,7 +331,7 @@ const RunDetail: React.FC<{
       </div>
       {onAddAsCar2 && visible.length > 0 && (
         <div className="shrink-0 px-4 pt-3 border-t border-line-2">
-          <button onClick={onAddAsCar2} disabled={busy || otherCourse || isCar1} title={isCar1 ? t('開いている走行 (Car 1) です', 'This run is Car 1') : otherCourse ? t('同じコースの走行だけ比べられます', 'Only runs on the same course can be compared') : undefined} className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl border-2 border-sky-500 text-sky-500 font-bold text-sm cursor-pointer disabled:opacity-40" data-testid="run-add-car2">
+          <button onClick={onAddAsCar2} disabled={busy || otherCourse || isCar1} title={isCar1 ? t('開いている走行 (Car 1) です', 'This run is Car 1') : otherCourse ? t('同じコースの走行だけ比べられます', 'Only runs on the same course can be compared') : undefined} className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl border-2 border-sky-500 text-sky-500 font-bold text-sm cursor-pointer disabled:cursor-not-allowed disabled:border-line-3 disabled:text-slate-400" data-testid="run-add-car2">
             <GitCompare size={16} />{isCar1
               ? t('開いている走行 (Car 1) です', 'This run is Car 1')
               : otherCourse
@@ -344,7 +344,7 @@ const RunDetail: React.FC<{
         <button onClick={onOpen} disabled={busy} className="flex-1 inline-flex items-center justify-center gap-1.5 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm cursor-pointer disabled:opacity-50" data-testid="run-open-analysis">
           <BarChart2 size={16} />{t('解析で開く', 'Open in Analysis')}
         </button>
-        <button onClick={onOpenVideo} disabled={busy || videos.length === 0} className="flex-1 inline-flex items-center justify-center gap-1.5 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm cursor-pointer disabled:opacity-40" data-testid="run-open-video">
+        <button onClick={onOpenVideo} disabled={busy || videos.length === 0} className="flex-1 inline-flex items-center justify-center gap-1.5 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm cursor-pointer disabled:cursor-not-allowed disabled:bg-surface-4 disabled:text-slate-400 disabled:hover:bg-surface-4" data-testid="run-open-video">
           <Video size={16} />{t('動画を見る', 'Watch video')}
         </button>
       </div>
