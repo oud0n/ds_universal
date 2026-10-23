@@ -175,7 +175,21 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   const handle = (req: NativeRequest): unknown => {
     switch (req.method) {
       case 'caps.get':
-        return { contractVersion: CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true } };
+        return { contractVersion: CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, iap: true } };
+      // アプリ内課金の模擬 (値段は日本円の例。買うとすぐ買えたことにする)
+      case 'iap.products': {
+        const { ids } = req.params as { ids: string[] };
+        const prices: Record<string, string> = { gas1: '¥180', gas5: '¥900', gas10: '¥1,800' };
+        return {
+          products: ids.map(id => {
+            const key = id.slice(id.lastIndexOf('.') + 1);
+            const liters = key.replace('gas', '');
+            return { id, displayName: `ガソリン ${liters}L 分の投げ銭`, description: '開発を応援する投げ銭です。', displayPrice: prices[key] ?? '¥0' };
+          })
+        };
+      }
+      case 'iap.purchase':
+        return { status: 'purchased' };
       case 'ble.permission':
         return { state: options.permission ?? 'granted' };
       case 'ble.scan': {
