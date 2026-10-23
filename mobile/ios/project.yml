@@ -10,7 +10,7 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "1.0.2"
-    CURRENT_PROJECT_VERSION: "3"
+    CURRENT_PROJECT_VERSION: "4"
     # 開発中に読み込む Web (Mac の開発サーバー)。作るときの環境変数で渡す (例: DS_WEB_URL=http://192.168.1.13:5192/ xcodegen)。
     # 空なら公開版のページを読む。IP アドレスは人ごとに違うので、ここには書かない
     # (Mac の開発サーバーを LAN で読むには、Info.plist に NSLocalNetworkUsageDescription が要る。配る版の審査のため外したので、使うときだけ足す)
