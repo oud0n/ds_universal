@@ -1751,7 +1751,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     if (isCompare) { setWin({ mode: 'cameras' }); setShowSyncTools(false); }
                     setSeekbarScope('session');
                   }}
-                  className={`px-2 py-0.5 font-bold transition-colors cursor-pointer ${
+                  // 動画がないとき (メーターだけの比べる) は、「見る」に切り替えても何も映らないので押せなくする
+                  disabled={isCompare && media.length === 0}
+                  className={`px-2 py-0.5 font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                     !isLapMode ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
                   }`}
                   title={isCompare
