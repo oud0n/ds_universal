@@ -47,7 +47,7 @@ export const ImportSheet: React.FC<{
     if (p.kind === 'unknown') return t('知らない場所 (計測線を自動で置ける)', 'Unknown place (timing line can be placed)');
     return p.course?.name ?? t('未分類', 'Unsorted');
   };
-  const countText = (p: ImportPart) => (p.kind === 'stage' ? t(`区間 ${p.laps}`, `${p.laps} stages`) : p.kind === 'transit' ? '—' : t(`${p.laps} 周`, `${p.laps} laps`));
+  const countText = (p: ImportPart) => (p.kind === 'stage' ? t(`区間 ${p.laps}`, `${p.laps} stage${(p.laps) === 1 ? '' : 's'}`) : p.kind === 'transit' ? '—' : t(`${p.laps} 周`, `${p.laps} lap${(p.laps) === 1 ? '' : 's'}`));
   const color = (p: ImportPart) => (p.kind === 'transit' ? '#64748b' : p.kind === 'unknown' ? '#f59e0b' : p.kind === 'stage' ? '#a78bfa' : '#10b981');
   return (
     <div className="fixed inset-0 z-[60] bg-black/70 flex items-stretch sm:items-center justify-center" role="dialog" aria-modal="true" data-testid="import-sheet">
@@ -93,7 +93,7 @@ export const ImportSheet: React.FC<{
         </div>
         <div className="px-4 py-2 text-[11px] text-slate-500 border-t border-line-2">
           {t('元のファイルは 取り込み元/ に、手を加えずに残します。知らない場所の走行は 未分類 に入れます (あとでコースにできます)。',
-            'The original file is kept untouched in 取り込み元/. Runs at unknown places go to 未分類 (you can make a course later).')}
+            'The original file is kept untouched in the 取り込み元/ (originals) folder. Runs at unknown places go to Unsorted (you can make a course later).')}
         </div>
         {/* 狭い幅では折り返す (ボタンの中で文字が割れないよう、ボタンは折り返さない) */}
         <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-t border-line-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">

@@ -63,7 +63,7 @@ export const CornerAnalysisWindow: React.FC<CornerAnalysisWindowProps> = ({ cars
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-line-1 text-[11px] shrink-0">
         <span className="font-bold flex items-center gap-1.5">
           <CornerDownRight size={13} className="text-amber-400" />
-          {t(`コーナー別速度 (${result.corners.length} コーナー)`, `Corner speeds (${result.corners.length} corners)`)}
+          {t(`コーナー別速度 (${result.corners.length} コーナー)`, `Corner speeds (${result.corners.length} corner${(result.corners.length) === 1 ? '' : 's'})`)}
         </span>
         <span className="text-slate-500 truncate ml-2">{t('行クリックで移動 / 差は Car 1 比', 'Click a row to jump / differences vs Car 1')}</span>
       </div>

@@ -430,6 +430,14 @@ export const App: React.FC = () => {
     setSelectedCars(prev => prev.map(c => (c.slot === slotIndex ? { ...c, distanceOffsetM: offsetM } : c)));
   };
 
+  // 画面が隠れたら (ほかのアプリ・ウインドウの裏、iPhone のアプリを裏に回した) 再生を止める。
+  // 時刻を進めるループ (requestAnimationFrame) は隠れている間は動かないのに、動画だけ進み続け、戻ったときや止めたときに動画が数秒戻っていた
+  useEffect(() => {
+    const onVisibility = () => { if (document.visibilityState === 'hidden') setIsPlaying(false); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
   // アニメーションループ (requestAnimationFrame)
   const animRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(performance.now());

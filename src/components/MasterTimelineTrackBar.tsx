@@ -147,7 +147,7 @@ export const MasterTimelineTrackBar: React.FC<MasterTimelineTrackBarProps> = ({
             {t('タイムライン', 'Timeline')}
           </span>
           <span className="text-slate-500">|</span>
-          <span className="truncate">{t('範囲', 'Range')}: {formatDuration(minTime)} 〜 {formatDuration(maxTime)} ({formatDuration(totalDuration)})</span>
+          <span className="truncate">{t('範囲', 'Range')}: {formatDuration(minTime)}{t(' 〜 ', ' – ')}{formatDuration(maxTime)} ({formatDuration(totalDuration)})</span>
         </div>
 
         <div className="flex items-center gap-2">

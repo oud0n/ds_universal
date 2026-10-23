@@ -182,7 +182,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
               <span>{t('ベスト', 'Best')} <b className="text-fuchsia-400 font-mono">{best !== null ? formatLapTime(best, 3) : '—'}</b></span>
               {top3[1] !== undefined && <span>2nd <b className="text-emerald-400 font-mono">{formatLapTime(top3[1], 3)}</b></span>}
               {top3[2] !== undefined && <span>3rd <b className="text-amber-400 font-mono">{formatLapTime(top3[2], 3)}</b></span>}
-              <span>{t(`${current.rows.filter(r => !r.hidden).length} 周`, `${current.rows.filter(r => !r.hidden).length} laps`)}</span>
+              <span>{t(`${current.rows.filter(r => !r.hidden).length} 周`, `${current.rows.filter(r => !r.hidden).length} lap${(current.rows.filter(r => !r.hidden).length) === 1 ? '' : 's'}`)}</span>
               <span>{t(`${current.fileCount} 走行`, `${current.fileCount} run${current.fileCount === 1 ? '' : 's'}`)}</span>
             </div>
           )}
@@ -212,7 +212,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
                 <div key={file} className="space-y-1">
                   <div className="flex items-baseline gap-2 text-xs">
                     <span className="font-bold text-slate-200 whitespace-nowrap">{fmtDate(rows[0].runStartMs)}</span>
-                    <span className="text-slate-500">{t(`${rows.length} 周`, `${rows.length} laps`)}{Number.isFinite(runBest) ? ` · ${t('ベスト', 'best')} ${formatLapTime(runBest, 3)}` : ''}</span>
+                    <span className="text-slate-500">{t(`${rows.length} 周`, `${rows.length} lap${(rows.length) === 1 ? '' : 's'}`)}{Number.isFinite(runBest) ? ` · ${t('ベスト', 'best')} ${formatLapTime(runBest, 3)}` : ''}</span>
                     {/* ファイル名は、幅のある画面だけ (スマートフォンでは日付が折れないように) */}
                     <span className="hidden sm:inline text-slate-600 text-[10px] ml-auto truncate">{file}</span>
                     {onOpenRun && (

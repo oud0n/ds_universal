@@ -624,11 +624,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const shownCount = isCompactLayout ? tileCount : win.layout === 'single' ? Math.min(1, tileCount) : win.layout === 'pip' ? Math.min(2, tileCount) : tileCount;
 
   // 走行比較で、Car 1 が周の終わりに来たら周の始めに戻す (動画同期のタブはセッション全体の時刻で進むため。グラフ画面は App が戻す)
+  // 見るで周 (L◯) を選んでいるときも同じ (周の終わりを過ぎても再生が続き、時刻が周の長さを超えていた)
   useEffect(() => {
-    if (!isCompare || isGraphEmbedded || !baseLap || !isVisible || isAnyExporting) return;
+    if (!(isCompare || seekbarScope === 'lap') || isGraphEmbedded || !baseLap || !isVisible || isAnyExporting) return;
     if (isPlaying && renderSessionTime > baseLap.endTime) seekTo(baseLap.startTime);
     else if (renderSessionTime < baseLap.startTime - 0.5 || renderSessionTime > baseLap.endTime + 0.5) seekTo(baseLap.startTime);
-  }, [isCompare, renderSessionTime, baseLap?.startTime, baseLap?.endTime, isPlaying, isVisible]);
+  }, [isCompare, seekbarScope, renderSessionTime, baseLap?.startTime, baseLap?.endTime, isPlaying, isVisible]);
 
   // 動画を App の時刻に合わせる (PlaybackController)。見えていないウインドウ・書き出し中は合わせない (書き出しは動画を自分で動かす)
   useEffect(() => {
@@ -1065,13 +1066,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       )}
       {/* 1. 上部コントロールバー (フラットデザイン) */}
       {/* グラフ解析に埋め込んだ狭い枠では、右側のボタンが切れないよう横にスクロールできるようにする */}
-      {/* ボタンの文字は折り返さない。入りきらないときは横にスクロールし、広い画面でだけ文字を出すボタンもある */}
+      {/* ボタンの文字は折り返さない。入りきらないときは段を折り返す (横にスクロールさせると、右端のボタンがあることに気づけなかった)。広い画面でだけ文字を出すボタンもある */}
       {/* スマートフォンでは、横にスクロールさせず折り返し、押しやすいよう大きくする (2026-10-20) */}
       <div
         ref={toolbarScrollRef}
         className={phoneToolbar
           ? 'bg-surface-1 border-b border-line-1 px-2 py-1.5 flex flex-wrap items-center gap-1 shrink-0 [&_button]:whitespace-nowrap [&_button]:shrink-0 [&_button]:min-h-9 [&_button]:text-xs [&_select]:min-h-9 [&_select]:text-sm [&_svg]:w-4 [&_svg]:h-4'
-          : 'h-11 bg-surface-1 border-b border-line-1 px-3 flex items-center justify-between gap-2 shrink-0 overflow-x-auto overflow-y-hidden [&_button]:whitespace-nowrap [&_button]:shrink-0'}
+          : 'min-h-11 bg-surface-1 border-b border-line-1 px-3 py-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 shrink-0 [&_button]:whitespace-nowrap [&_button]:shrink-0'}
         data-testid="video-toolbar"
       >
         <div className={phoneToolbar ? 'contents' : 'flex items-center gap-2.5 shrink-0'}>
@@ -1232,7 +1233,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               ))}
               {cameras.length < Math.min(MAX_CAMERAS, media.length) && (
                 <button
-                  onClick={() => videoViewStore.setCamera(cameras.length, media.find(x => !cameraIds.includes(x.id))?.id ?? null)}
+                  onClick={() => {
+                    // 足すカメラは、今の時刻を映している動画を先に選ぶ (別の日の動画を選ぶと、何も映らない枠になっていた)
+                    const rest = media.filter(x => !cameraIds.includes(x.id));
+                    const pick = rest.find(x => !positionInMedia(x, renderSessionTime).outOfRange) ?? rest[0];
+                    videoViewStore.setCamera(cameras.length, pick?.id ?? null);
+                  }}
                   className="flex items-center gap-0.5 px-1.5 py-1 rounded bg-surface-3 hover:bg-surface-5 text-[10px] text-slate-300 border border-line-3 cursor-pointer"
                   title={t('カメラの枠を足す', 'Add a camera view')}
                 >
@@ -2054,7 +2060,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             </div>
 
             <p className="text-xs text-slate-400 leading-relaxed">
-              {t('車載動画にメーター（速度・Gフォース・ラップタイム）を合成し、MP4動画としてエクスポートします。', 'Composites gauges (speed, G-force, lap time) onto the onboard video and exports it as MP4.')}
+              {t('メーター（速度・Gフォース・ラップタイム）を描いて書き出します。車載動画に重ねるか、メーターだけにするかを選べます。', 'Draws gauges (speed, G-force, lap time) and exports them with or without the onboard video.')}
             </p>
 
             {/* 書き出し範囲選択 */}
@@ -2116,8 +2122,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   className="w-full bg-surface-1 border border-line-3 text-xs px-2 py-1 rounded outline-none text-slate-200 cursor-pointer"
                   data-testid="export-method"
                 >
-                  <option value="overlay-png">{t('メーターだけ・背景は透明 (PNG の連番の ZIP。Premiere・DaVinci・After Effects 向け)', 'Meters only, transparent (PNG sequence ZIP; Premiere, DaVinci, After Effects)')}</option>
-                  {webmAlphaOk && <option value="overlay-webm">{t('メーターだけ・背景は透明 (WebM。小さいが、読めるソフトが限られる)', 'Meters only, transparent (WebM; small, limited editor support)')}</option>}
+                  <option value="overlay-png">{t('メーターだけ・背景は透明 (PNG の連番の ZIP。Premiere・DaVinci・After Effects 向け)', 'Gauges only, transparent (PNG sequence ZIP; Premiere, DaVinci, After Effects)')}</option>
+                  {webmAlphaOk && <option value="overlay-webm">{t('メーターだけ・背景は透明 (WebM。小さいが、読めるソフトが限られる)', 'Gauges only, transparent (WebM; small, limited editor support)')}</option>}
                   <option value="encode" disabled={!activeTrack?.file || !canUseEncodeExport()}>{t('動画にメーターを焼き込む (エンコード)', 'Burn meters into the video (encode)')}</option>
                   <option value="record" disabled={!activeTrack}>{t('動画にメーターを焼き込む (再生しながら録る・これまでの方式)', 'Burn meters into the video (record while playing, previous method)')}</option>
                 </select>

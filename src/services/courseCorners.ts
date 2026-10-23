@@ -44,6 +44,8 @@ export function loadCourseCorners(folder: string): Promise<CornerFile | null> {
       return parseCornerFile(await store.readText(path(folder)).catch(() => null));
     })();
     cache.set(folder, p);
+    // 無かった (読めなかった) ときは覚えない。あとで置かれた・iCloud から落ちてきたファイルを、次に開いたときに読む
+    void p.then(file => { if (file === null && cache.get(folder) === p) cache.delete(folder); });
   }
   return p;
 }
