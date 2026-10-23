@@ -13,6 +13,14 @@
 **Fixes**
 
 - In Runs, "Add as Car 2" could stay disabled ("Only runs on the same course can be compared") for a run at the same circuit.
+- With your own edited copy of a built-in circuit, your corner names were not shown (C1… instead).
+- English UI: the circuit filter in Runs and the run detail heading were in Japanese.
+- Runs imported from the Runs screen did not show up until you switched screens.
+- Phone: the Single / Grid / PinP buttons in video Compare did nothing and are now hidden; you can return from Compare to Watch without a video; import buttons no longer wrap mid-word.
+- Phone: with a DigSpice registered, the ⚙ button was pushed off screen on Analysis.
+- Lap timer: your own courses are listed in the course picker.
+- Playback stops when the app goes to the background, so the video no longer jumps back when you return.
+- The video toolbar wraps instead of hiding buttons; card borders are visible in the high-contrast theme.
 
 ## v1.0.2
 

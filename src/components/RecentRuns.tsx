@@ -19,10 +19,21 @@ export function fmtDate(ms: number | null, ja: boolean): string {
   return `${d.getMonth() + 1}/${d.getDate()} (${w}) ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** 走行の一覧を読み込む (開いている間に 1 回) */
+const runsListeners = new Set<() => void>();
+/** 保管場所の走行が増えた・変わったことを、走行の一覧に知らせる (取り込みのあとなど。開いたままの一覧も読み直す) */
+export function notifyRunsChanged(): void {
+  runsListeners.forEach(f => f());
+}
+
+/** 走行の一覧を読み込む (開いている間に 1 回。notifyRunsChanged でも読み直す) */
 export function useRuns(enabled: boolean) {
   const [state, setState] = useState<{ store: RunStore | null; runs: RunItem[] | null; error: string | null; noFolder: boolean }>({ store: null, runs: null, error: null, noFolder: false });
   const [reload, setReload] = useState(0);
+  useEffect(() => {
+    const f = () => setReload(n => n + 1);
+    runsListeners.add(f);
+    return () => { runsListeners.delete(f); };
+  }, []);
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
@@ -69,7 +80,7 @@ export const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy
               <span className={`font-mono font-bold ${run.best !== null ? 'text-fuchsia-400' : 'text-slate-500'}`}>
                 {run.best !== null ? formatLapTime(run.best) : '--'}
               </span>
-              <span className="text-slate-400">{t(`${run.lapCount} 周`, `${run.lapCount} laps`)}</span>
+              <span className="text-slate-400">{t(`${run.lapCount} 周`, `${run.lapCount} lap${(run.lapCount) === 1 ? '' : 's'}`)}</span>
             </>
           )}
           {videoCount > 0 && (

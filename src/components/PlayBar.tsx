@@ -44,7 +44,8 @@ export const PlayBar: React.FC<{
         onChange={e => onSeekTime(Number(e.target.value))}
         // 触り終わったら注目を外す (入力欄に注目があると、スペース・矢印キーの再生・コマ送りが効かないため)
         onPointerUp={e => e.currentTarget.blur()}
-        className={`flex-1 min-w-0 cursor-pointer accent-red-500 ${compact ? 'h-6' : 'h-1'}`}
+        // つまみを掴みやすいよう、押せる高さを取る (h-1 だと 4 px で、指で掴めなかった)
+        className={`flex-1 min-w-0 cursor-pointer accent-red-500 ${compact ? 'h-6' : 'h-4'}`}
         aria-label={t('再生位置', 'Playback position')}
       />
       <span className="text-[11px] font-mono text-slate-400 min-w-[44px] text-right">{formatMinSec(end, 1)}</span>
