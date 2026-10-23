@@ -64,7 +64,7 @@ LapLoupe は、サーキット走行・ジムカーナ・カートの走行ロ�
 ■ 内蔵のサーキット
 日本の主なサーキット・カートコースと、海外の主なサーキットの計測線を内蔵しています。自分でコースを作ることもできます。
 
-※ デジスパイスは、株式会社デジスパイスの商標です。LapLoupe は株式会社デジスパイスとは関係のない、個人が作ったアプリです。
+※ デジスパイスは、その権利者の商標です。LapLoupe は、デジスパイスの開発元とは関係のない、個人が作ったアプリです。
 ```
 
 **キーワード（100 文字まで。カンマ区切り、空白なし）**
@@ -110,7 +110,7 @@ DigSpice logs (.bon4 etc.), NMEA, GPX, CSV (RaceChrono, AiM and others), FIT, Go
 BUILT-IN CIRCUITS
 Timing lines for major circuits and kart tracks in Japan and major circuits abroad. You can also make your own courses.
 
-DigSpice is a trademark of DigSpice Inc. LapLoupe is an independent app and is not affiliated with DigSpice Inc.
+DigSpice is a trademark of its respective owner. LapLoupe is an independent app and is not affiliated with the maker of DigSpice.
 ```
 
 **Keywords**
