@@ -97,18 +97,18 @@ export const StorageSettings: React.FC = () => {
 /** 保管場所の 1 行の説明 (走行の画面の上に出す) */
 export function useStorageLabel(): string | null {
   const t = useT();
-  const [label, setLabel] = useState<string | null>(null);
+  // 読んだもの。「この iPhone」は出すときに言葉にする (言語を替えても日本語のまま残っていた)
+  const [info, setInfo] = useState<{ device: true } | { name: string } | null>(null);
   useEffect(() => {
     if (hasNative()) {
       callNative('system.storageInfo', {}).then(
-        i => setLabel(i.kind === 'folder' && i.folderName ? i.folderName : t('この iPhone', 'This iPhone')),
-        () => setLabel(null)
+        i => setInfo(i.kind === 'folder' && i.folderName ? { name: i.folderName } : { device: true }),
+        () => setInfo(null)
       );
     } else if (window.electronAPI?.laps) {
-      void window.electronAPI.laps.getFolder().then(p => setLabel(p ? p.replace(/^.*Mobile Documents\/com~apple~CloudDocs/, 'iCloud Drive') : null));
+      void window.electronAPI.laps.getFolder().then(p => setInfo(p ? { name: p.replace(/^.*Mobile Documents\/com~apple~CloudDocs/, 'iCloud Drive') } : null));
     }
-    // 言語を替えたときに書き直すほどのものではない
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  return label;
+  if (!info) return null;
+  return 'name' in info ? info.name : t('この iPhone', 'This iPhone');
 }

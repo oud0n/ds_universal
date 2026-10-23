@@ -37,7 +37,7 @@ import { hasNative } from './native/bridge';
 import { sameCourseName } from './utils/courseNames';
 import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
-import { RecentRunsList, RunsSheet } from './components/RecentRuns';
+import { RecentRunsList, RunsSheet, notifyRunsChanged } from './components/RecentRuns';
 import { canUseRunStore, getRunStore } from './services/runStore';
 import { attachCompanionVideos, attachRunVideos, closeOpenRun, companionRuns, dropCompanion, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
 import { useResizableSplit } from './hooks/useResizableSplit';
@@ -769,6 +769,8 @@ export const App: React.FC = () => {
         (done, total) => setImporting(s => (s ? { ...s, progress: { done, total } } : s)));
       if (native) await native.finish();
       setImporting(s => (s ? { ...s, phase: 'done', results } : s));
+      // 開いている走行の一覧に、取り込んだ走行を出す (取り込みを走行の画面から始めると、画面が切り替わらず読み直されなかった)
+      notifyRunsChanged();
     } catch (e) {
       // 途中で失敗しても、書いたファイルは閉じる (書いている最中のまま残さない)
       if (native) await native.finish().catch(() => {});

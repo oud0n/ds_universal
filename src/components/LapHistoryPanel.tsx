@@ -165,7 +165,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
           {folders && folders.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <select value={selected} onChange={e => setSelected(e.target.value)} className="bg-surface-0 border border-line-3 rounded-lg px-2 py-1.5 max-w-full" aria-label={t('コース', 'Course')}>
-                {folders.map(f => <option key={f.folder} value={f.folder}>{f.courseName ? circuitLabel(f.courseName) : f.folder}</option>)}
+                {folders.map(f => <option key={f.folder} value={f.folder}>{f.courseName ? circuitLabel(f.courseName) : f.folder === 'unsorted' ? t('未分類', 'Unsorted') : f.folder}</option>)}
               </select>
               <select value={sort} onChange={e => setSort(e.target.value as SortKey)} className="bg-surface-0 border border-line-3 rounded-lg px-2 py-1.5" aria-label={t('並べ方', 'Sort')}>
                 <option value="date">{t('走った順', 'By run')}</option>
@@ -183,7 +183,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
               {top3[1] !== undefined && <span>2nd <b className="text-emerald-400 font-mono">{formatLapTime(top3[1], 3)}</b></span>}
               {top3[2] !== undefined && <span>3rd <b className="text-amber-400 font-mono">{formatLapTime(top3[2], 3)}</b></span>}
               <span>{t(`${current.rows.filter(r => !r.hidden).length} 周`, `${current.rows.filter(r => !r.hidden).length} laps`)}</span>
-              <span>{t(`${current.fileCount} 走行`, `${current.fileCount} runs`)}</span>
+              <span>{t(`${current.fileCount} 走行`, `${current.fileCount} run${current.fileCount === 1 ? '' : 's'}`)}</span>
             </div>
           )}
         </div>

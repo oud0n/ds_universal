@@ -1,7 +1,7 @@
 import { sameCourseName } from '../utils/courseNames';
 import React, { useMemo, useState } from 'react';
 import { BarChart2, Bluetooth, ChevronRight, Cloud, EyeOff, FolderOpen, GitCompare, Loader2, Timer, Trophy, Video, X } from 'lucide-react';
-import { useT } from '../utils/i18n';
+import { circuitLabel, useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { formatLapTime } from '../services/liveLapTimer';
 import { RunRow, fmtDate, useRuns } from '../components/RecentRuns';
@@ -64,7 +64,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
     const m = new Map<string, { label: string; count: number }>();
     for (const r of runs ?? []) {
       const cur = m.get(r.folder);
-      m.set(r.folder, { label: r.courseName ?? (r.folder === 'unsorted' ? t('未分類', 'Unsorted') : r.folder), count: (cur?.count ?? 0) + 1 });
+      m.set(r.folder, { label: r.courseName ?? r.folder, count: (cur?.count ?? 0) + 1 });
     }
     return [...m.entries()];
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -113,7 +113,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
               onClick={() => { setFolder(f); setShown(PAGE); setSelectedKey(null); }}
               className={`px-3 py-1.5 rounded-full text-xs whitespace-nowrap border cursor-pointer ${folder === f ? 'bg-sky-600 border-sky-500 text-white' : 'bg-surface-3 border-line-2 text-slate-300'}`}
             >
-              {label} <span className="opacity-70">{count}</span>
+              {f === 'unsorted' && label === 'unsorted' ? t('未分類', 'Unsorted') : f !== null ? circuitLabel(label) : label} <span className="opacity-70">{count}</span>
             </button>
           ))}
         </div>
@@ -162,7 +162,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
                   className="w-full text-left px-3 py-2 rounded-lg border border-dashed border-line-2 text-xs text-slate-500 cursor-pointer hover:bg-surface-2"
                   data-testid="library-empty-runs-fold"
                 >
-                  {t(`周も動画もない走行 ${g.items.filter(isEmptyRun).length} 件をたたむ`, `Hide ${g.items.filter(isEmptyRun).length} runs without laps or videos`)}
+                  {t(`周も動画もない走行 ${g.items.filter(isEmptyRun).length} 件をたたむ`, `Hide ${g.items.filter(isEmptyRun).length} run${g.items.filter(isEmptyRun).length === 1 ? '' : 's'} without laps or videos`)}
                 </button>
               )}
               {!showEmpty.has(g.day) && g.items.some(isEmptyRun) && (
@@ -171,7 +171,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
                   className="w-full text-left px-3 py-2 rounded-lg border border-dashed border-line-2 text-xs text-slate-500 cursor-pointer hover:bg-surface-2"
                   data-testid="library-empty-runs"
                 >
-                  {t(`周も動画もない走行 ${g.items.filter(isEmptyRun).length} 件 (表示する)`, `${g.items.filter(isEmptyRun).length} runs without laps or videos (show)`)}
+                  {t(`周も動画もない走行 ${g.items.filter(isEmptyRun).length} 件 (表示する)`, `${g.items.filter(isEmptyRun).length} run${g.items.filter(isEmptyRun).length === 1 ? '' : 's'} without laps or videos (show)`)}
                 </button>
               )}
             </div>
@@ -273,7 +273,7 @@ const RunDetail: React.FC<{
     <div className="flex-1 min-h-0 flex flex-col" data-testid="run-detail">
       <div className="px-4 py-3 border-b border-line-2 flex items-start gap-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold text-slate-100">{fmtDate(run.startMs, ja)} {run.courseName ?? (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</div>
+          <div className="text-sm font-bold text-slate-100">{fmtDate(run.startMs, ja)} {run.courseName != null ? circuitLabel(run.courseName) : (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</div>
           <div className="text-xs text-slate-400 mt-0.5">
             {run.pending
               ? t('☁️ iCloud にだけあるので、開くと周を数えます', '☁️ Only in iCloud; laps are counted when opened')

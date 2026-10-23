@@ -18,8 +18,10 @@ export function folderForCircuitName(circuitName: string | undefined): string | 
   if (!circuitName) return null;
   const name = circuitName.endsWith(USER_SUFFIX) ? circuitName.slice(0, -USER_SUFFIX.length) : circuitName;
   const own = userCircuitStorage.getAllCircuits().find(c => c.name === name);
-  if (own) return courseFolder(own.name, own.folder);
   const preset = CIRCUIT_PRESETS.find(p => p.name === name);
+  // 内蔵のコースを直した自分のコース (同じ名前で、保存フォルダ名を決めていないもの) は、内蔵のコースのフォルダ (ID) を使う。
+  // 走行は内蔵のコースの ID のフォルダに入るので、コーナーの名前だけ名前から作ったフォルダ (sodegaura_forest_raceway など) に分かれていた (BUG-34)
+  if (own) return courseFolder(own.name, own.folder, own.folder ? undefined : preset?.id);
   return preset ? courseFolder(preset.name, preset.folder, preset.id) : null;
 }
 

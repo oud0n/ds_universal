@@ -359,10 +359,11 @@ export const DataTab: React.FC<DataTabProps> = ({
 
       {/* 比較スロット (Car 1〜4) の選択状態バー */}
       <div className="bg-surface-2 border border-line-2 rounded-xl p-3 shadow-md">
-        <div className="text-xs font-bold text-slate-300 mb-2 flex items-center justify-between">
+        {/* 狭い幅では、見出しと説明を 2 行に分ける (横に並べると 1 つの文のように読めた) */}
+        <div className="text-xs font-bold text-slate-300 mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
           <span>{t('比較スロット割り当て (最大4台 同時比較)', 'Comparison slots (up to 4 cars)')}</span>
           <span className="text-[11px] text-slate-400 font-normal">
-            {t('下のラップ表のボタンをクリックして割り当ててください', 'Assign laps with the buttons in the lap tables below')}
+            {t('下のラップ表のボタンを押して割り当てます', 'Assign laps with the buttons in the lap tables below')}
           </span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
