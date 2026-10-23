@@ -1742,12 +1742,19 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 >
                   L{baseLap.lapNumber}
                 </button>
+                {/* 比べるは周ごとにしか合わせられないので、比べるで全体を押したら「見る」に切り替えて全体にする (押しても何も変わらず、分かりにくかった) */}
                 <button
-                  onClick={() => setSeekbarScope('session')}
+                  onClick={() => {
+                    if (isCompare) { setWin({ mode: 'cameras' }); setShowSyncTools(false); }
+                    setSeekbarScope('session');
+                  }}
                   className={`px-2 py-0.5 font-bold transition-colors cursor-pointer ${
                     !isLapMode ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
                   }`}
-                  title={t('セッション全体の絶対時間に同期', 'Sync to the absolute time of the whole session')}
+                  title={isCompare
+                    ? t('比べるは周ごとに合わせます。押すと「見る」に切り替えて全体を出します', 'Compare works lap by lap. Click to switch to Watch and show the whole session')
+                    : t('セッション全体の絶対時間に同期', 'Sync to the absolute time of the whole session')}
+                  data-testid="video-scope-session"
                 >
                   {t('全体', 'All')}
                 </button>
