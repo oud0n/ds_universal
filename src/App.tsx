@@ -33,6 +33,8 @@ import { LoggerTab } from './components/LoggerTab';
 import { LapTimerScreen, type ReplayLog } from './components/LapTimerScreen';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
 import { DonateModal } from './components/DonateModal';
+import { TipModal } from './components/TipModal';
+import { tipsAvailable } from './services/tips';
 import { hasNative } from './native/bridge';
 import { sameCourseName } from './utils/courseNames';
 import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
@@ -253,8 +255,12 @@ export const App: React.FC = () => {
   const [isCircuitEditorOpen, setIsCircuitEditorOpen] = useState(false);
   const [isDonateModalOpen, setIsDonateModalOpen] = useState(false);
   // iPhone・Android のアプリでは、外の寄付のページ (Buy Me a Coffee) への案内を出さない
-  // (App Store・Google Play の決まりで、開発者への投げ銭はアプリ内課金を通す必要がある。docs/app_store.md)
-  const canDonate = !hasNative();
+  // (App Store・Google Play の決まりで、開発者への投げ銭はアプリ内課金を通す必要がある。docs/app_store.md)。
+  // アプリがアプリ内課金に対応していれば、ガソリンの投げ銭 (TipModal) を出す
+  const inApp = hasNative();
+  const [tipsOk, setTipsOk] = useState(false);
+  useEffect(() => { if (inApp) void tipsAvailable().then(setTipsOk, () => setTipsOk(false)); }, [inApp]);
+  const canDonate = !inApp || tipsOk;
   // 過去の走行 (保管場所。iPhone のアプリ・デスクトップ版): 全部の一覧を出しているか・開いている途中か
   const [runsSheetOpen, setRunsSheetOpen] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
@@ -2347,10 +2353,14 @@ export const App: React.FC = () => {
           onClose={closeImport}
         />
       )}
+      {inApp ? (
+        <TipModal isOpen={isDonateModalOpen} onClose={() => setIsDonateModalOpen(false)} />
+      ) : (
       <DonateModal
         isOpen={isDonateModalOpen}
         onClose={() => setIsDonateModalOpen(false)}
       />
+      )}
     </div>
   );
 };
