@@ -18,6 +18,11 @@ export interface PlaybackTarget {
   outOfRange: boolean;
   /** 再生の速さの倍率 (既定 1)。走行比較の、距離の対応の傾き */
   rate?: number;
+  /**
+   * false なら、音を出していても時計の元にしない。走行比較の Car 2〜4 (時間で合わせると周の終わりで止まり、App の時計まで止めてしまう)。
+   * 時計の元にするのは Car 1 だけ
+   */
+  clockEligible?: boolean;
 }
 
 // ずれを詰め始める大きさと、詰め終える大きさ (行ったり来たりしないよう、間をあける)。
@@ -153,7 +158,7 @@ export class PlaybackController {
     this.entries.forEach((entry, key) => {
       const t = targets.get(key);
       const el = entry.el;
-      const eligible = clockMasterEnabled && appTime !== undefined && isPlaying && !!t && !t.outOfRange && t.rate === undefined && !el.muted
+      const eligible = clockMasterEnabled && appTime !== undefined && isPlaying && !!t && !t.outOfRange && t.rate === undefined && t.clockEligible !== false && !el.muted
         && performance.now() >= entry.masterBlockedUntil
         && t.localTime >= 0 && !(t.durationSec > 0 && t.localTime > t.durationSec);
       entry.appOffset = eligible ? t!.localTime - appTime! : null;
