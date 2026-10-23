@@ -135,15 +135,17 @@ Info.plist の `ITSAppUsesNonExemptEncryption = false`（HTTPS などの標準�
 ## 審査の担当者への説明（App Review Information の「メモ」）
 
 サインインは要らない。デジスパイス（Bluetooth の GPS ロガー）は審査の担当者が持っていないので、見本の走行ログと、iPhone の GPS で試す手順を書く。
+見本の走行ログは、持ち主の 2026-08-15 の袖ヶ浦の走行（12 周、NMEA の位置と速度だけ。全部の点がサーキットの中心から 280 m 以内）を `public/demo/sodegaura_20260815.nmea` に置いた（持ち主が公開を了承。動画は出さない）。
 
 ```
 LapLoupe analyses track-day logs from GPS loggers. No account or sign-in is needed.
 
 How to review without a logger:
-1. Download the sample log in Safari: <見本のファイルの URL>
+1. Download the sample log in Safari: https://oud0n.github.io/ds_universal/demo/sodegaura_20260815.nmea
    (Safari saves it to Files > Downloads.)
 2. Open LapLoupe, tap "Runs" (走行) at the bottom, then "Choose files" (ファイルを選ぶ) and pick the downloaded file.
 3. The run opens in "Analysis" (解析): lap times, speed graph and track map. Tap a lap to compare.
+   It is a real 12-lap session at Sodegaura Forest Raceway recorded with a DigSpice logger (NMEA, position and speed only).
 4. "Timer" (タイマー) is a live lap timer. Without a DigSpice logger, open the menu and choose the iPhone's GPS; laps are counted when you cross a circuit's timing line, so at your location it will only show speed.
 
 Bluetooth is used only to connect to GPS loggers and sensors the user registers. Location is used only for the lap timer with the iPhone's GPS. All data stays on the device or in a folder the user chooses (iCloud Drive); there is no server.
