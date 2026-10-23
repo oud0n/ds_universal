@@ -33,3 +33,5 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.oud0n.dsuniversal
         TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_FILE: DSUniversal/Info.plist
+        # アプリのアイコン (Assets.xcassets/AppIcon。build/icon-ios.svg から作った 1024 の透明のない PNG。角は iOS が丸める)
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
