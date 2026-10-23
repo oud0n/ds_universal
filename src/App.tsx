@@ -33,6 +33,7 @@ import { LoggerTab } from './components/LoggerTab';
 import { LapTimerScreen, type ReplayLog } from './components/LapTimerScreen';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
 import { DonateModal } from './components/DonateModal';
+import { hasNative } from './native/bridge';
 import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
 import { RecentRunsList, RunsSheet } from './components/RecentRuns';
@@ -250,6 +251,9 @@ export const App: React.FC = () => {
   // モーダル
   const [isCircuitEditorOpen, setIsCircuitEditorOpen] = useState(false);
   const [isDonateModalOpen, setIsDonateModalOpen] = useState(false);
+  // iPhone・Android のアプリでは、外の寄付のページ (Buy Me a Coffee) への案内を出さない
+  // (App Store・Google Play の決まりで、開発者への投げ銭はアプリ内課金を通す必要がある。docs/app_store.md)
+  const canDonate = !hasNative();
   // 過去の走行 (保管場所。iPhone のアプリ・デスクトップ版): 全部の一覧を出しているか・開いている途中か
   const [runsSheetOpen, setRunsSheetOpen] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
@@ -1733,7 +1737,7 @@ export const App: React.FC = () => {
         screen={currentTab}
         badges={{ data: sessions.length }}
         onOpenFile={openRunsOrFiles}
-        onOpenDonate={() => setIsDonateModalOpen(true)}
+        onOpenDonate={canDonate ? () => setIsDonateModalOpen(true) : undefined}
         compact={isCompact}
         dataOpen={dataDrawerOpen}
         onToggleData={() => setDataDrawer(o => !o)}
@@ -2221,7 +2225,7 @@ export const App: React.FC = () => {
             busy={runBusy}
           />
         )}
-        {currentTab === 'settings' && <SettingsScreen plan={plan} onOpenDonate={() => setIsDonateModalOpen(true)} />}
+        {currentTab === 'settings' && <SettingsScreen plan={plan} onOpenDonate={canDonate ? () => setIsDonateModalOpen(true) : undefined} />}
 
         {/* ラップタイマー。iPhone のアプリではタブの 1 つ (測っていない間はタブバーの上に収める)、ほかでは画面いっぱいに重ねる。
             ほかの画面へ行くと閉じる (Bluetooth・画面のロック止め・向きの固定も外れる。作る順番の 4 で、測るのを画面の外へ出す) */}
