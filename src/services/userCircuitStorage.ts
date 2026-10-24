@@ -646,6 +646,25 @@ class UserCircuitStorage {
     return this.circuits.length + this.edited.length;
   }
 
+  /** コースフォルダー一括設置で読み込んだコースデータのファイルの数 (.cln・.pth・.sci) */
+  public getImportedFileCount(): number {
+    return this.files.length;
+  }
+
+  /**
+   * コースフォルダー一括設置で読み込んだコースデータを外す (内蔵のコースに戻す)。
+   * コース編集で保存したコースは残す。保管場所の digspice/ のコースデータは、そのまま使う
+   */
+  public async clearImported(): Promise<{ saved: boolean; saveError?: string }> {
+    await this.ready.catch(() => undefined);
+    const { CIRCUIT_PRESETS } = await import('./circuitDatabase');
+    this.files = [];
+    const r = pairCourseFiles(this.storageFiles, CIRCUIT_PRESETS);
+    this.circuits = r.circuits;
+    this.loose = r.loose;
+    return this.persist();
+  }
+
   public async clear(): Promise<void> {
     this.files = [];
     this.circuits = [];
