@@ -9,7 +9,7 @@
 - **Web はアプリに入れる**（`laploupe://app/`。BundledWeb.swift）。電波がなくても起動でき、審査を通った版の画面がそのまま動く。審査の決まり 2.5.2（審査のあとに中身を変える）の心配もなくなる。
 - **価格は無料**。広告なし。最初の申請はアプリ内課金なし。
 - **寄付**: アプリの中では、外の寄付のページ (Buy Me a Coffee) への案内を出さない (審査の決まり 3.1.1。`App.tsx` の canDonate)。次の版で、アプリ内課金の投げ銭 (消耗型「ガソリン 1L / 5L / 10L」、製品 ID `io.github.oud0n.dsuniversal.tip.gas1` など。App Store Connect に下書きを作成済み) を足す。要るもの: 有料アプリ契約 (銀行口座・税の書類)、Small Business Program、Swift の StoreKit の処理、購入の画面のスクリーンショット。説明に「投げ銭で、ガソリンが届いたり機能が増えたりはしない」と書く。
-- **申請するビルド**: 1.0.2 (5)（Web 入り・寄付の案内なし）。
+- **申請するビルド**: 1.0.3 (10)（Web 入り・アプリ内課金の投げ銭あり。2026-10-24 に TestFlight へ送信。1.0.2 (5) の申請は取り下げた）。
 - **配る国**: EU の国々は外す（EU の決まりで、個人の開発者は住所・電話番号・メールの公開を求められるため）。出すなら「取引業者ではない」の申告を検討する。
 - **販売元の名前**: 個人の登録なので、本名（Yoshihiro Takagi）が出る。
 
@@ -175,6 +175,7 @@ The app shows the same web-based analysis as our free desktop/browser versions, 
 ### 日本語
 
 - 動画を画面いっぱいに出すボタンと、音を消すボタンを付けました。
+- コーナーの編集で、走行の線をなぞると、その範囲を 1 つのコーナーにできるようにしました。
 - 比べる相手の動画の同期も、走行ごとに保存するようにしました。
 - コース編集で直したコースとコーナーの名前を、保管場所のフォルダに保存し、iPhone と Mac で共有できるようにしました。
 - 47 のコースにセクター線を入れました。
@@ -185,6 +186,7 @@ The app shows the same web-based analysis as our free desktop/browser versions, 
 ### English
 
 - Added a full-screen button and a mute button for video playback.
+- In corner editing, drag along the line to make that stretch one corner.
 - Video sync for compared runs is now saved with each run.
 - Courses edited in the course editor and corner names are saved in your storage folder and shared between iPhone and Mac.
 - Added sector lines to 47 courses.
