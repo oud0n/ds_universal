@@ -27,13 +27,14 @@ export const CornerEditPanel: React.FC<{
   const btn = 'p-1.5 rounded border border-line-3 text-slate-300 hover:bg-surface-4 disabled:opacity-30 cursor-pointer';
   return (
     <div className="absolute top-2 right-2 bottom-2 w-[min(14rem,48%)] bg-surface-1/95 border border-line-2 rounded-lg shadow-xl flex flex-col text-xs" data-testid="corner-edit-panel">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-line-2">
+      <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-line-2">
         <span className="font-bold text-slate-100 flex-1">{t('コーナーの編集', 'Edit corners')}</span>
         <button onClick={onRedetect} className={btn} title={t('この周から見つけ直す (近い所の名前は残す)', 'Detect again from this lap (keeps names nearby)')} aria-label={t('見つけ直す', 'Detect again')}>
           <RotateCcw size={13} />
         </button>
       </div>
-      <p className="px-3 py-1.5 text-[11px] text-slate-500 border-b border-line-2">
+      {/* 高さの低い画面 (スマートフォンの横向き) では説明を出さない (一覧と保存のボタンが隠れないように) */}
+      <p className="shrink-0 px-3 py-1.5 text-[11px] text-slate-500 border-b border-line-2 [@media(max-height:500px)]:hidden">
         {t('名前は自由に (「1」「ヘアピン」など)。走行の線をなぞると、その範囲が 1 つのコーナーになります (中のコーナーは置き換え)。押すと、そこにコーナーを足します。', 'Name corners freely ("1", "Hairpin"...). Drag along the line to make that stretch one corner (replaces the corners inside). Tap to add a corner there.')}
       </p>
       <ol className="flex-1 min-h-0 overflow-y-auto divide-y divide-line-2" data-testid="corner-edit-list">
@@ -72,8 +73,8 @@ export const CornerEditPanel: React.FC<{
           </li>
         ))}
       </ol>
-      {error && <p className="px-3 py-1 text-[11px] text-red-500">{error}</p>}
-      <div className="flex items-center gap-2 px-3 py-2 border-t border-line-2">
+      {error && <p className="shrink-0 px-3 py-1 text-[11px] text-red-500">{error}</p>}
+      <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-t border-line-2">
         <button onClick={onCancel} className="flex-1 inline-flex items-center justify-center gap-1 py-1.5 rounded border border-line-3 text-slate-300 hover:bg-surface-4 cursor-pointer">
           <X size={13} />{t('やめる', 'Cancel')}
         </button>

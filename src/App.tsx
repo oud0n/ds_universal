@@ -41,7 +41,7 @@ import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
 import { RecentRunsList, RunsSheet, notifyRunsChanged } from './components/RecentRuns';
 import { canUseRunStore, getRunStore } from './services/runStore';
-import { attachCompanionVideos, attachRunVideos, closeOpenRun, companionRuns, dropCompanion, listRuns, scheduleRunSave, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
+import { attachCompanionVideos, attachRunVideos, closeOpenRun, companionRuns, dropCompanion, flushOpenRuns, listRuns, scheduleRunSave, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
 import { runStem } from './services/lapIndex';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLapTimer, canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
@@ -1030,6 +1030,8 @@ export const App: React.FC = () => {
         // 同じコースのログは残す (比べる相手にできるように。開いた走行が Car 1)
         const removed = latestRef.current.sessions.filter(x => !added.some(a => a.id === x.id) && !sameCourseName(x.circuitName, main.circuitName));
         if (removed.length) {
+          // 今開いている走行の書きかけ (直前に動かした同期など) を、そのログを外す前に書く
+          flushOpenRuns();
           const ids = removedIds;
           for (const x of removed) ids.add(x.id);
           for (const id of ids) polylineRequestRef.current.delete(id);
