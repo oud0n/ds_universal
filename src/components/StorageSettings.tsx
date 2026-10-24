@@ -81,7 +81,7 @@ export const StorageSettings: React.FC = () => {
         {desktop && (
           <button onClick={() => void pickDesktop()} className={btn(false)} data-testid="storage-pick-folder">
             <FolderOpen size={16} className="shrink-0" />
-            <span className="truncate">{folderPath ? t(`${folderPath} (変える)`, `${folderPath} (change)`) : t('フォルダを選ぶ', 'Choose a folder')}</span>
+            <span className="truncate" title={folderPath ?? undefined}>{folderPath ? t(`${folderPath} (変える)`, `${folderPath} (change)`) : t('フォルダを選ぶ', 'Choose a folder')}</span>
           </button>
         )}
       </div>
