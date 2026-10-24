@@ -4,6 +4,7 @@ import { useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { buyTip, loadTips, tipLiters } from '../services/tips';
 import type { IapProduct } from '../native/contract';
+import { onNative } from '../native/bridge';
 
 /**
  * 投げ銭 (iPhone のアプリ。アプリ内課金のガソリン 1L・5L・10L)。
@@ -28,6 +29,14 @@ export const TipModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ i
       e => { if (!cancelled) { setProducts([]); setError(e instanceof Error ? e.message : String(e)); } }
     );
     return () => { cancelled = true; };
+  }, [isOpen]);
+
+  // 承認待ち (保護者の承認など) だった購入が通ったら、お礼に変える。ネイティブは Transaction.updates で受け取って知らせる
+  useEffect(() => {
+    if (!isOpen) return;
+    return onNative('iap.purchased', ({ productId }) => {
+      setResult(r => (r && r.status === 'pending' ? { liters: tipLiters(productId), status: 'purchased' } : r));
+    });
   }, [isOpen]);
 
   if (!isOpen) return null;
