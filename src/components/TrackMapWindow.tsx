@@ -868,7 +868,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
           {canEditCorners && !cornerDraft && (
             <button
               onClick={startCornerEdit}
-              title={t('コーナーの名前を付ける・まとめる・分ける (コースのフォルダの corners.json に保存)', 'Name, merge or split corners (saved to corners.json in the course folder)')}
+              title={t('コーナーの名前を付ける・まとめる・分ける (保管場所の course/Corner/ に保存)', 'Name, merge or split corners (saved to course/Corner/ in your storage)')}
               className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border border-line-3 text-slate-400 hover:text-slate-200"
               data-testid="corner-edit"
             >

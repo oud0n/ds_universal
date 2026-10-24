@@ -41,7 +41,8 @@ import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
 import { RecentRunsList, RunsSheet, notifyRunsChanged } from './components/RecentRuns';
 import { canUseRunStore, getRunStore } from './services/runStore';
-import { attachCompanionVideos, attachRunVideos, closeOpenRun, companionRuns, dropCompanion, scheduleRunSave, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
+import { attachCompanionVideos, attachRunVideos, closeOpenRun, companionRuns, dropCompanion, listRuns, scheduleRunSave, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
+import { runStem } from './services/lapIndex';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLapTimer, canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
 import { bleLoggerLink } from './services/bleLoggerLink';
@@ -242,8 +243,9 @@ export const App: React.FC = () => {
   const [userCircuitCount, setUserCircuitCountState] = useState(0);
   // コースフォルダー一括設置で読み込んだファイルの数 (外すボタンを出すか)
   const [importedCourseFiles, setImportedCourseFiles] = useState(0);
-  const setUserCircuitCount = (n: number) => {
-    setUserCircuitCountState(n);
+  // 一括設置のボタンの数は、一括設置で読み込んだコースだけ (保管場所の digspice/・course/、コース編集のものは数えない)
+  const setUserCircuitCount = (_n: number) => {
+    setUserCircuitCountState(userCircuitStorage.getImportedCourseCount());
     setImportedCourseFiles(userCircuitStorage.getImportedFileCount());
   };
   // コースフォルダー一括設置で読み込んだコースデータを外す (内蔵のコースに戻す)。コース編集で保存したコースは残す
@@ -971,6 +973,16 @@ export const App: React.FC = () => {
       runOpeningRef.current = false;
       setRunBusy(false);
     }
+  };
+
+  /** 保管場所の走行を、道で開く (ラップタイムの記録から)。走行の一覧に無ければ、ファイルとして読み込む */
+  const openRunByPath = async (run: { folder: string; file: string }, file: File) => {
+    const store = await getRunStore().catch(() => null);
+    const items = store ? await listRuns(store).catch(() => [] as RunItem[]) : [];
+    const dir = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
+    const item = items.find(r => r.folder === run.folder && dir(r.file) === dir(run.file) && runStem(r.file) === runStem(run.file));
+    if (item) await openRun(item);
+    else { await loadFiles([file]); navStore.go('analysis'); }
   };
 
   // 過去の走行を開く: ログを読み込み、同じフォルダの動画と同期をそろえる (runOpener.ts)
@@ -2211,7 +2223,7 @@ export const App: React.FC = () => {
           <Freeze active={currentTab === 'data' || dataDrawerOpen}>
           <DataTab
             sessions={sessions}
-            onOpenLapRun={file => { setDataDrawer(false); void loadFiles([file]).then(() => navStore.go('analysis')); }}
+            onOpenLapRun={(file, run) => { setDataDrawer(false); void openRunByPath(run, file); }}
             selectedCars={selectedCars}
             onSelectCarSlot={handleSelectCarSlot}
             onClearCarSlot={slotIndex => setSelectedCars(prev => prev.filter(c => c.slot !== slotIndex))}

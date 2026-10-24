@@ -88,7 +88,8 @@ export const VideoTile: React.FC<VideoTileProps> = ({
   // メーターを重ねる四角と、小窓が映像に重なる幅を測る
   useEffect(() => {
     const video = videoRef.current, host = hostRef.current;
-    if (!video || !host) return;
+    // 動画が無くなったら、前の動画の四角を使い続けない
+    if (!video || !host) { setBox(null); return; }
     const update = () => {
       const vr = video.getBoundingClientRect(), hr = host.getBoundingClientRect();
       if (vr.width === 0 || vr.height === 0) return;
@@ -142,6 +143,9 @@ export const VideoTile: React.FC<VideoTileProps> = ({
           onLoadedData={onSeeked}
           onLoadedMetadata={onSeeked}
           src={src}
+          // 保管場所の動画 (lapfile://) も書き出しの絵に描けるように (付けないと絵が汚れて録れず、音も消える)。
+          // デスクトップ版・iPhone のアプリとも、Access-Control-Allow-Origin: * で返している
+          crossOrigin="anonymous"
           muted={muted}
           playsInline
           className="max-h-full max-w-full object-contain"
@@ -155,7 +159,8 @@ export const VideoTile: React.FC<VideoTileProps> = ({
           width={canvasPx.w}
           height={canvasPx.h}
           style={box ? { left: box.left, top: box.top, width: box.width, height: box.height } : undefined}
-          className={`absolute ${box ? '' : 'inset-0 w-full h-full'} pointer-events-none z-[15]`}
+          // 動画の無い枠では、メーターを 16:9 のまま枠に収める (伸び縮みさせない)
+          className={`absolute ${box ? '' : 'inset-0 w-full h-full object-contain'} pointer-events-none z-[15]`}
         />
       )}
       {src && position?.outOfRange && (
