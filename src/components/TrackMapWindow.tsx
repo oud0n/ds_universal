@@ -876,6 +876,21 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     setPanOffset({ x: 0, y: 0 });
   };
 
+  // 違うコースになったら、コース全体を表示し直し、直しかけのコーナーの編集はやめる
+  // (前のコースで動かした位置のままだと中央からずれ、前のコースのコーナーを新しいコースに保存してしまうため)
+  const courseKeyRef = useRef(course.folder ?? circuitName);
+  useEffect(() => {
+    const key = course.folder ?? circuitName;
+    if (courseKeyRef.current === key) return;
+    courseKeyRef.current = key;
+    handleReset();
+    setCornerDraft(null);
+    setSelectedCorner(null);
+    spanRef.current = null;
+    setCornerSpan(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course.folder, circuitName]);
+
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
