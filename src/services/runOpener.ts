@@ -201,6 +201,19 @@ function rowContent(run: OpenRun, prev: RunRow | null): Pick<RunRow, 'parts' | '
 
 const contentKey = (c: Pick<RunRow, 'parts' | 'videos'>) => JSON.stringify(c);
 
+/**
+ * 開いたときの中身。戻したログの時計の補正は、ログに入るのが少しあと (画面の状態が変わってから) なので、
+ * runs.json の値が入ったものとして覚える (入ったときに「変わった」とみなして書かないように)
+ */
+function baselineOf(content: Pick<RunRow, 'parts' | 'videos'> | null, row: RunRow | null): string | null {
+  if (!content) return null;
+  const parts = { ...content.parts };
+  for (const [n, p] of Object.entries(row?.parts ?? {})) {
+    if (parts[n] && typeof p.clockOffsetSec === 'number' && Number.isFinite(p.clockOffsetSec) && Math.abs(p.clockOffsetSec) <= 3600) parts[n] = { ...parts[n], clockOffsetSec: p.clockOffsetSec };
+  }
+  return contentKey({ ...content, parts });
+}
+
 /** 走行の動画と同期を runs.json に書く (中身が変わったときだけ) */
 async function saveRun(run: OpenRun): Promise<void> {
   const content = rowContent(run, run.item.entry);
@@ -337,7 +350,7 @@ async function attachRunVideosNow(opts: {
   // runs.json から開いたときは、今の中身を「書いたもの」とする (開いただけでは書かない)。
   // runs.json に無い動画を付けたときは書く (付けたことを覚える)
   const content = rowContent(run, row);
-  run.baseline = opts.fromRuns || mine.size === 0 ? (content ? contentKey(content) : null) : null;
+  run.baseline = opts.fromRuns || mine.size === 0 ? baselineOf(content, row) : null;
   if (run.baseline === null) scheduleSave();
   return mine.size;
 }
@@ -398,7 +411,7 @@ async function attachCompanionVideosNow(opts: {
   if (opts.fromRuns) restoreRowVideos(run, row, opts.setClockOffset);
   const content = rowContent(run, row);
   // 比べる相手の走行は、runs.json に無い動画を付けても書かない (Car 1 として開いたときに書く)。変えたら書く
-  run.baseline = content ? contentKey(content) : null;
+  run.baseline = baselineOf(content, row);
   companions.set(runPath(item), run);
   return mine.size;
 }
