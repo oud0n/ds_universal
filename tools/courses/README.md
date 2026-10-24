@@ -15,7 +15,7 @@ node ov.mjs line <id> <x1> <y1> <x2> <y2>      # 写真の画素で計測線を�
 node ov.mjs pitline <id> 30                    # 写真で決められないとき: ピットロードの中ほどに仮の線
 TARGET=<公式の長さm> node loops.mjs <id>       # 計測線を通る 1 周の候補（長さの近い順）
 ./fin.sh <id> <公式の長さm> <CW|CCW> [候補の番号] [区切り]   # 1 周を取り出し、セクター線を置いて view_<id>.svg.png を描く
-node add_courses.mjs ../../courses <id>...     # courses/ に .cln・.sci と index.json の項目を書く（名前とメモは中の META）
+node add_courses.mjs ../../courses <id>...     # courses/ControlLine/ に .cln・courses/Sector/ に .sci と、index.json の項目を書く（名前とメモは中の META）
 ```
 
 - `EXCL="short|kart"` を付けると、名前が合う道（短いコース・カートコースなど）を外して 1 周を探す。
