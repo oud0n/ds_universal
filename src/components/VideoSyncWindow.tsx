@@ -51,6 +51,7 @@ import { RunFolderVideos } from './RunFolderVideos';
 import { SKIP_SEC, Skip10Icon } from './Skip10Icon';
 import { useWheelScrollX } from '../hooks/useWheelScrollX';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { companionSessionsOfVideo } from '../services/runOpener';
 
 /** 動画の音を消したか (この端末に覚えておく) */
 const VIDEO_MUTED_KEY = 'ds_video_muted';
@@ -655,9 +656,11 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const gpsStartTime = baseSession?.points[0]?.timestamp ? new Date(baseSession.points[0].timestamp) : null;
   // 合わせる動画が、比べる相手 (Car 2〜4) の走行のものか。合わせる道具は Car 1 のログで表すので、その動画は合わせられない
   // (別の日の走行だと、何十日もずれて出て、±9h補正などで同期を壊すため)。その走行を Car 1 にして合わせる
-  const syncOtherCar = activeTrack?.matchedSessionId && activeTrack.matchedSessionId !== baseSession?.id
+  // 動画が出すログが決まっていない (どの部分か分からない) ときも、比べる相手の走行の動画 (道で見分ける) なら同じ扱い。slot が null なら何番の車か分からない
+  const companionIds = activeTrack?.remote ? companionSessionsOfVideo(activeTrack.remote.path) : null;
+  const syncOtherCar: { slot: number | null } | null = (activeTrack?.matchedSessionId && activeTrack.matchedSessionId !== baseSession?.id
     ? selectedCars.find(c => c.slot !== 0 && c.sessionId === activeTrack.matchedSessionId) ?? null
-    : null;
+    : null) ?? (companionIds ? selectedCars.find(c => c.slot !== 0 && companionIds.includes(c.sessionId)) ?? { slot: null } : null);
   // 合わせる道具を出すか (画面いっぱいのときは出さない)
   const syncTools = showSyncTools && !syncOtherCar && !fullView;
   const isLargeOffset = activeTrack && !syncOtherCar ? Math.abs(activeTrack.syncOffsetSec) > 3600 : false;
@@ -1446,8 +1449,11 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       {/* 動画の時刻が大きくずれている (タイムゾーンの違いなど) ときは、直すボタンが見えるよう閉じていても出す */}
       {showSyncTools && syncOtherCar && !fullView && (
         <div className="bg-amber-500/10 border-b border-amber-500/30 px-3 py-2 text-xs text-amber-300 shrink-0" data-testid="video-sync-other-car">
-          {t(`この動画は比べる相手 (Car ${syncOtherCar.slot + 1}) の走行のものです。合わせるときは、その走行を Car 1 にして開いてください。`,
-            `This video belongs to the compared run (Car ${syncOtherCar.slot + 1}). To sync it, open that run as Car 1.`)}
+          {syncOtherCar.slot !== null
+            ? t(`この動画は比べる相手 (Car ${syncOtherCar.slot + 1}) の走行のものです。合わせるときは、その走行を Car 1 にして開いてください。`,
+              `This video belongs to the compared run (Car ${syncOtherCar.slot + 1}). To sync it, open that run as Car 1.`)
+            : t('この動画は比べる相手の走行のものです。合わせるときは、その走行を Car 1 にして開いてください。',
+              'This video belongs to a compared run. To sync it, open that run as Car 1.')}
         </div>
       )}
       {activeTrack && (syncTools || (isLargeOffset && !fullView)) && (

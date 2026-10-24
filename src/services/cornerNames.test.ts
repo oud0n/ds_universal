@@ -102,5 +102,10 @@ describe('コーナーの名前', () => {
     expect(added!.list.map(c => c.name)).toEqual(['C1', 'C5', 'C2', 'C3', 'C4']);
     // 短すぎる範囲は作らない
     expect(applySpanCorner(named, geo, mid, mid + 1)).toBeNull();
+    // 周の始めと終わりをまたいだ (ほぼ 1 周の) 範囲は作らない
+    expect(applySpanCorner(named, geo, geo.s.length - 4, 3)).toBeNull();
+    // 消したあとに足しても、今ある名前と重ならない
+    const gap = [named[0], named[1], { ...named[3], name: 'C4' }];
+    expect(applySpanCorner(gap, geo, mid - 10, mid + 10)!.list.map(c => c.name)).toContain('C3');
   });
 });
