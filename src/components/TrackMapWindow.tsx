@@ -839,6 +839,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       if (!cancelled && span.a !== span.b && cornerDraft && baseGeo) {
         const r = applySpanCorner(cornerDraft, baseGeo, span.a, span.b);
         if (r) { setCornerDraft(r.list); setSelectedCorner(r.index); }
+        // 動かした量が小さい (縮小して見ている) と、離したあとの click でコーナーをもう 1 つ足してしまうため
+        downAtRef.current = null;
       }
     }
     if (panningRef.current && isAdjustingMap) store(offsetKey, mapOffset);
