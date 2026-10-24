@@ -64,6 +64,8 @@ export function rowVideoFromTrack(track: VideoTrack, pins: SyncPin[], runSession
   let clock: RunClock | undefined;
   const c = track.clock;
   const logPart = partOf(c.logId);
+  // 前の行の時刻・ピンの知らない項目は残す (この先の版で足した項目を消さない)
+  const keepClock = prev?.clock ? (({ source: _s, logPart: _l, offsetSec: _o, utcMs: _u, ...r }) => r)(prev.clock) : {};
   if (logPart !== null) {
     clock = { source: c.source, logPart, offsetSec: round3(c.offsetSec), utcMs };
   } else if (c.logId) {
@@ -79,7 +81,7 @@ export function rowVideoFromTrack(track: VideoTrack, pins: SyncPin[], runSession
     const pinPart = partOf(p.sessionId);
     if (pinPart !== null) {
       const start = sessionStartUtcMs(runSessions[pinPart - 1]);
-      rowPins.push({ name: p.name, logPart: pinPart, logTimeSec: round3(p.sessionTimeSec), videoTimeSec: round3(p.videoTimeSec), utcMs: start === null ? null : Math.round(start + p.sessionTimeSec * 1000), createdAt: p.createdAt });
+      rowPins.push({ name: p.name, logPart: pinPart, logTimeSec: round3(p.sessionTimeSec), videoTimeSec: round3(p.videoTimeSec), utcMs: start === null ? null : Math.round(start + p.sessionTimeSec * 1000), ...(p.createdAt ? { createdAt: p.createdAt } : {}) });
       continue;
     }
     // ほかのログ (Car 1 など) の時刻で打ったピン: 世界の時刻を通して、その走行のログの時刻に直す
@@ -88,11 +90,16 @@ export function rowVideoFromTrack(track: VideoTrack, pins: SyncPin[], runSession
     const ownStart = sessionStartUtcMs(own);
     if (baseStart === null || ownStart === null) {
       // 基準のログが分からない古いピンは、その走行のログで打ったものとみなす
-      if (!p.sessionId && own) rowPins.push({ name: p.name, logPart: ownPart, logTimeSec: round3(p.sessionTimeSec), videoTimeSec: round3(p.videoTimeSec), createdAt: p.createdAt });
+      if (!p.sessionId && own) rowPins.push({ name: p.name, logPart: ownPart, logTimeSec: round3(p.sessionTimeSec), videoTimeSec: round3(p.videoTimeSec), ...(p.createdAt ? { createdAt: p.createdAt } : {}) });
       continue;
     }
     const at = baseStart + p.sessionTimeSec * 1000;
-    rowPins.push({ name: p.name, logPart: ownPart, logTimeSec: round3((at - ownStart) / 1000), videoTimeSec: round3(p.videoTimeSec), utcMs: Math.round(at), createdAt: p.createdAt });
+    rowPins.push({ name: p.name, logPart: ownPart, logTimeSec: round3((at - ownStart) / 1000), videoTimeSec: round3(p.videoTimeSec), utcMs: Math.round(at), ...(p.createdAt ? { createdAt: p.createdAt } : {}) });
+  }
+  if (clock) clock = { ...keepClock, ...clock };
+  for (const [i, rp] of rowPins.entries()) {
+    const old = prev?.pins?.find(o => o.name === rp.name && Math.abs(o.videoTimeSec - rp.videoTimeSec) < 0.001);
+    if (old) rowPins[i] = { ...old, ...rp };
   }
   const { clock: _c, pins: _p, part: _pt, chosen: _ch, ...rest } = prev ?? { name: track.fileName };
   return {

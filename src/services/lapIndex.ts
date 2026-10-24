@@ -63,7 +63,15 @@ export interface LapFileRecord {
    * 解析で開くときに一緒に読み込む。ファイルから作り直せないので、計算し直しても引き継ぐ
    */
   videos?: string[];
+  /**
+   * 記録の空きで分けた走行の残し方の版 (keepRunParts。2026-10-24 から 2)。.nmea の控えでこれが違うものは数え直す
+   * (前は .nmea だけ短い切れ端を捨てず、分けた番号 part がずれていたため)
+   */
+  split?: number;
 }
+
+/** 記録の空きで分けた走行の残し方の版 (LapFileRecord.split) */
+export const SPLIT_RULE = 2;
 
 /** 非表示にした周 (ファイルと時刻で見分ける。計算し直して周の番号が変わっても引き継ぐため) */
 export interface HiddenLap {
@@ -257,7 +265,9 @@ export async function reconcileFolder(
     // 前の控えは、同じ道 → 日付のフォルダへ移す前の名前 → 同じ走行のもう一方の形式 (.bon4 で数えていた走行を .nmea で数え直すとき) の順に探す
     const prevRec = prev?.files[name] ?? prev?.files[name.slice(name.lastIndexOf('/') + 1)] ?? (prev ? sameRunRecord(prev.files, name) : undefined);
     const old = sameCourse ? prevRec : undefined;
-    if (old && old.size === f.size && old.mtimeMs === f.mtimeMs) {
+    // .nmea を前の分け方で数えた控えは数え直す (隠した周の印は、始まりの時刻で引き継ぐ)
+    const sameSplit = !/\.nmea$/i.test(name) || old?.split === SPLIT_RULE;
+    if (old && old.size === f.size && old.mtimeMs === f.mtimeMs && sameSplit) {
       next[name] = old;
       continue;
     }
@@ -273,7 +283,7 @@ export async function reconcileFolder(
     const keep = videos?.length ? { videos } : {};
     try {
       const { startMs, laps } = compute(name, await read(f.path), course);
-      next[name] = { size: f.size, mtimeMs: f.mtimeMs, startMs, laps, ...keep };
+      next[name] = { size: f.size, mtimeMs: f.mtimeMs, startMs, laps, ...keep, split: SPLIT_RULE };
     } catch {
       // 読めなかったら、前の控えがあればそのまま残す (隠した周の印を消さない。大きさが違うままなので、次に開いたときに読み直す)。
       // 前の控えが無ければ、周なしで覚えておく (壊れたファイルを毎回読み直さないように。ファイルが変われば読み直す)

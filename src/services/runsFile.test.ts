@@ -103,4 +103,17 @@ describe('runs.json (2 版)', () => {
     const store = { readTextStrict: async () => text, readText: async () => text, writeText: async () => { throw new Error('must not write'); } } as unknown as RunStore;
     await expect(updateRun(store, 'f', 'a.nmea', p => ({ ...p }))).rejects.toThrow();
   });
+
+  it('読めない書いた時刻の行は、いちばん古いものとみなす', () => {
+    const f = parseRunsFile(JSON.stringify({ version: 1, runs: { 'd/a.bon4': { updatedAt: '', videos: ['X.MP4'] }, 'd/a.nmea': { updatedAt: '2026-10-01T00:00:00Z', videos: ['Y.MP4'] } } }));
+    expect(f.runs['d/a'].videos).toEqual([{ name: 'Y.MP4' }]);
+  });
+
+  it('1 版の行のほかの項目は残し、読めない同期は legacy に残す', () => {
+    const f = parseRunsFile(JSON.stringify({ version: 1, runs: { 'a.nmea': { updatedAt: '2026-10-01T00:00:00Z', videos: ['A.MP4'], sync: 'broken', memo: 'x' } } }));
+    const row = f.runs.a;
+    expect(row.memo).toBe('x');
+    expect(row.legacy).toMatchObject({ sync: 'broken' });
+    expect(row.videos).toEqual([{ name: 'A.MP4' }]);
+  });
 });

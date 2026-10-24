@@ -89,7 +89,9 @@ export function newRunId(): string {
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 const SOURCES: ClockSource[] = ['gps', 'manual', 'creation'];
-const newer = (a: RunRow | undefined, b: RunRow) => !a || Date.parse(b.updatedAt) > Date.parse(a.updatedAt);
+/** 書いた時刻 (読めない時刻は、いちばん古いものとみなす) */
+const stamp = (s: string) => { const t = Date.parse(s); return Number.isFinite(t) ? t : -Infinity; };
+const newer = (a: RunRow | undefined, b: RunRow) => !a || stamp(b.updatedAt) > stamp(a.updatedAt);
 
 /** 2 版の行を確かめる (おかしな値は落とす。知らない項目は残す) */
 function cleanRow(e: Record<string, unknown>): RunRow | null {
@@ -188,7 +190,10 @@ export function rowFromV1(file: string, e: Record<string, unknown>): RunRow {
       }
       return out;
     });
-    return { updatedAt, ...(Object.keys(parts).length ? { parts } : {}), videos };
+    // 1 版の行のほかの項目は残す。同期が読めない形だったときは、元の行を legacy に残す (捨てない)
+    const { updatedAt: _u, videos: _v, sync: _s, ...rest } = e;
+    const unreadable = e.sync !== undefined && !sync;
+    return { ...rest, updatedAt, ...(Object.keys(parts).length ? { parts } : {}), videos, ...(unreadable ? { legacy: e } : {}) };
   } catch {
     return { updatedAt, legacy: e };
   }
@@ -211,7 +216,7 @@ export function parseRunsFile(text: string | null): RunsFile {
     if (v.version === 1) {
       const runs: Record<string, RunRow> = {};
       for (const [file, e] of Object.entries(v.runs)) {
-        if (!isObj(e) || typeof e.updatedAt !== 'string') continue;
+        if (!isObj(e)) continue;
         const key = runKey(file);
         const row = rowFromV1(file, e);
         // 同じ走行の 2 行 (.nmea と .bon4) は、新しいほうを使う (外した動画が、古い行から戻らないように)
