@@ -5,7 +5,8 @@
  */
 
 import { canUseRunStore, getRunStore } from './runStore';
-import { userCircuitStorage, type CourseFile } from './userCircuitStorage';
+import { userCircuitStorage, type CourseFile, type UserCircuitItem } from './userCircuitStorage';
+import { COURSE_INDEX, courseFileKey, itemFromCourseFiles, markEditedCourseDeleted, mergeEditedCourses, parseCourseIndex, writeEditedCourse } from './courseFolderSync';
 
 // digspice/ (デジスパイスのフォルダをそのまま置いたもの) と course/ (LapLoupe のコースフォルダ。同じ形)
 const COURSE_FILE = /^(digspice|course)\/.+\.(cln|pth|sci)$/i;
@@ -15,7 +16,14 @@ export async function loadStorageCourses(): Promise<number> {
   if (!canUseRunStore()) return 0;
   const store = await getRunStore().catch(() => null);
   if (!store) return 0;
-  const list = (await store.listAll().catch(() => [])).filter(f => COURSE_FILE.test(f.path) && f.size < 4 * 1024 * 1024);
+  // コース編集で保存したコース (course/courses.json に載っているもの) を、端末の中のコースと合わせる
+  const indexed = await syncEditedCourses(store).catch(() => new Set<string>());
+  // 保存・削除したら course/ に書く
+  userCircuitStorage.onEditedChanged = e => {
+    if (e.saved) void writeEditedCourse(store, e.saved).catch(() => undefined);
+    if (e.deletedName) void markEditedCourseDeleted(store, e.deletedName).catch(() => undefined);
+  };
+  const list = (await store.listAll().catch(() => [])).filter(f => COURSE_FILE.test(f.path) && f.size < 4 * 1024 * 1024 && !indexed.has(f.path));
   const decoder = new TextDecoder();
   const files: CourseFile[] = [];
   for (const f of list) {
@@ -27,4 +35,33 @@ export async function loadStorageCourses(): Promise<number> {
   }
   await userCircuitStorage.setStorageCourseFiles(files);
   return files.length;
+}
+
+/** course/courses.json のコースと、端末の中のコース編集で保存したコースを合わせる。courses.json に載っているファイルの道を返す */
+async function syncEditedCourses(store: NonNullable<Awaited<ReturnType<typeof getRunStore>>>): Promise<Set<string>> {
+  const idx = parseCourseIndex(await store.readText(COURSE_INDEX).catch(() => null));
+  const files = new Set<string>();
+  const remote: Array<{ entry: (typeof idx.courses)[string]; item: UserCircuitItem | null }> = [];
+  for (const e of Object.values(idx.courses)) {
+    const cln = `course/ControlLine/${e.file}.cln`, sci = `course/Sector/${e.file}.sci`;
+    files.add(cln);
+    files.add(sci);
+    let item: UserCircuitItem | null = null;
+    if (!e.deleted) {
+      try {
+        const clnText = await store.readText(cln);
+        if (clnText) item = itemFromCourseFiles(e, clnText, await store.readText(sci).catch(() => null));
+      } catch { /* 読めないコースは端末の中のものを使う */ }
+    }
+    remote.push({ entry: e, item });
+  }
+  await userCircuitStorage.ready.catch(() => undefined);
+  const { edited, upload } = mergeEditedCourses(userCircuitStorage.getEditedCircuits(), remote);
+  await userCircuitStorage.setSyncedEdited(edited);
+  for (const c of upload) {
+    await writeEditedCourse(store, c.updatedAt ? c : { ...c, updatedAt: new Date(0).toISOString() }).catch(() => undefined);
+    files.add(`course/ControlLine/${courseFileKey(c)}.cln`);
+    files.add(`course/Sector/${courseFileKey(c)}.sci`);
+  }
+  return files;
 }
