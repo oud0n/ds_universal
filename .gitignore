@@ -46,3 +46,5 @@ tools/courses/view_*
 
 # 画面の通しの試験の結果 (スクリーンショット)
 e2e/out/
+tools/courses/sheet_*
+tools/courses/sectors_batch.json
