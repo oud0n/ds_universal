@@ -417,6 +417,10 @@ function loadLapFolder() {
 }
 /** 控えとして読み書きしてよいファイルの名前と、読む大きさの上限 */
 const LAP_TEXT_NAMES = new Set(['laptimes.json', 'runs.json', 'corners.json', 'corners.json.bak']);
+// 保管場所の course/ (デジスパイスのコースフォルダにならった形。2026-10-24): コーナー (Corner/<フォルダ>.json と .bak)・
+// コース編集で直したコースの計測線 (ControlLine/*.cln)・セクター線 (Sector/*.sci)・その名前などの一覧 (courses.json)
+const COURSE_TEXT = /^course\/(Corner\/[a-z0-9_]+\.json(\.bak)?|ControlLine\/[^/\\]+\.cln|Sector\/[^/\\]+\.sci|courses\.json)$/;
+const lapTextAllowed = (rel, full) => LAP_TEXT_NAMES.has(path.basename(full)) || COURSE_TEXT.test(String(rel).replace(/\\/g, '/'));
 const MAX_LAP_TEXT_BYTES = 20 * 1024 * 1024;
 /**
  * 保管場所からの道を、保管場所の中の実際の場所にする (外へ出る道は断る)。
@@ -439,10 +443,18 @@ async function lapPath(rel) {
   try {
     real = await fs.promises.realpath(full);
   } catch {
-    try {
-      real = path.join(await fs.promises.realpath(path.dirname(full)), path.basename(full));
-    } catch {
-      return null;
+    // まだ無いフォルダの中 (course/Corner/ を初めて書くときなど) は、いちばん近くのある親フォルダで確かめる
+    let dir = path.dirname(full);
+    const rest = [path.basename(full)];
+    for (;;) {
+      try {
+        real = path.join(await fs.promises.realpath(dir), ...rest);
+        break;
+      } catch {
+        if (!dir.startsWith(prefix)) return null;
+        rest.unshift(path.basename(dir));
+        dir = path.dirname(dir);
+      }
     }
   }
   return real.startsWith(prefix) ? real : null;
@@ -484,14 +496,14 @@ ipcMain.handle('laps-list', async () => {
           continue;
         }
         // デジスパイスのコースフォルダと同じ形の digspice/ (Circuit/・ControlLine/・Sector/ と 海外/ などの下) は、コースデータだけ深く見る
-        if (f.isDirectory() && dir.name.toLowerCase() === 'digspice') {
+        if (f.isDirectory() && (dir.name.toLowerCase() === 'digspice' || dir.name === 'course')) {
           const walk = async (rel, depth) => {
             let entries = [];
             try { entries = await fs.promises.readdir(path.join(root, rel), { withFileTypes: true }); } catch { return; }
             for (const g of entries) {
               if (g.name.startsWith('.')) continue;
               if (g.isDirectory() && depth < 3) await walk(`${rel}/${g.name}`, depth + 1);
-              else if (g.isFile() && /\.(cln|pth|sci)$/i.test(g.name)) {
+              else if (g.isFile() && /\.(cln|pth|sci|json)$/i.test(g.name)) {
                 const st = await fs.promises.stat(path.join(root, rel, g.name));
                 files.push({ path: `${rel}/${g.name}`, size: st.size, mtimeMs: Math.round(st.mtimeMs) });
               }
@@ -525,7 +537,7 @@ ipcMain.handle('laps-read', async (_event, rel) => {
 ipcMain.handle('laps-read-text', async (_event, rel) => {
   const full = await lapPath(rel);
   // iCloud がぶつかったときに作る runs.json の写し (runs 2.json など) も読める (書くのは runs.json だけ)
-  if (!full || !(LAP_TEXT_NAMES.has(path.basename(full)) || /^runs[ _-]+\(?\d+\)?\.json$/i.test(path.basename(full)))) return { success: false, error: 'not allowed' };
+  if (!full || !(lapTextAllowed(rel, full) || /^runs[ _-]+\(?\d+\)?\.json$/i.test(path.basename(full)))) return { success: false, error: 'not allowed' };
   try {
     const st = await fs.promises.stat(full);
     if (st.size > MAX_LAP_TEXT_BYTES) return { success: false, error: 'too large' };
@@ -544,8 +556,10 @@ ipcMain.handle('laps-read-text', async (_event, rel) => {
 });
 ipcMain.handle('laps-write-text', async (_event, rel, text) => {
   const full = await lapPath(rel);
-  if (!full || !LAP_TEXT_NAMES.has(path.basename(full)) || typeof text !== 'string' || text.length > MAX_LAP_TEXT_BYTES) return { success: false, error: 'not allowed' };
+  if (!full || !lapTextAllowed(rel, full) || typeof text !== 'string' || text.length > MAX_LAP_TEXT_BYTES) return { success: false, error: 'not allowed' };
   try {
+    // course/Corner/ などのフォルダがまだ無ければ作る
+    await fs.promises.mkdir(path.dirname(full), { recursive: true });
     // 一時ファイルに書いてから入れ替える (途中で止まっても、前の控えが残る)
     const tmp = `${full}.tmp`;
     await fs.promises.writeFile(tmp, text, 'utf8');
