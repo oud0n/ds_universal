@@ -307,7 +307,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   return (
     <div
       className={`${embedded && !measuring ? 'absolute inset-0 z-[30]' : 'fixed inset-0 z-[90]'} bg-surface-0 text-fg flex flex-col select-none`}
-      style={embedded && !measuring ? { paddingTop: 'env(safe-area-inset-top)', paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' } : { paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)', paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' }}
+      // タブに収めたときは、左右の余白はアプリの外枠 (App.tsx) が取っている
+      style={embedded && !measuring ? { paddingTop: 'env(safe-area-inset-top)' } : { paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)', paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' }}
       data-testid="lap-timer"
     >
       {/* 上の段: 出どころの状態・コース・声・メニュー・閉じる */}

@@ -74,7 +74,9 @@ function userCircuitPreset(u: UserCircuitEntry): CircuitPreset {
     sectors: u.sectors,
     pathPolylines: u.polylines,
     ...(u.nameEn ? { nameEn: u.nameEn } : {}),
-    ...(u.folder ? { folder: u.folder } : {}),
+    // 保存フォルダ名を決めていない古い自分のコースが内蔵のコースと同じ名前なら、内蔵のコースのフォルダ (ID) に記録する。
+    // コーナーの名前 (courseCorners.ts) と同じフォルダにそろえる (BUG-34)
+    ...(u.folder ? { folder: u.folder } : (() => { const p = CIRCUIT_PRESETS.find(c => c.name === u.name); return p ? { folder: p.folder ?? p.id } : {}; })()),
     ...(u.finishLine ? { finishLine: u.finishLine } : {})
   };
 }
