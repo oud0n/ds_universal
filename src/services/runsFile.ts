@@ -95,8 +95,8 @@ const newer = (a: RunRow | undefined, b: RunRow) => !a || stamp(b.updatedAt) > s
 
 /** 2 版の行を確かめる (おかしな値は落とす。知らない項目は残す) */
 function cleanRow(e: Record<string, unknown>): RunRow | null {
-  if (typeof e.updatedAt !== 'string') return null;
-  const row: RunRow = { ...e, updatedAt: e.updatedAt };
+  // 書いた時刻の無い行も捨てない (いちばん古いものとして残す。この先の版や手で直した行を消さないため)
+  const row: RunRow = { ...e, updatedAt: typeof e.updatedAt === 'string' ? e.updatedAt : new Date(0).toISOString() };
   if (e.id !== undefined && typeof e.id !== 'string') delete row.id;
   if (e.name !== undefined && typeof e.name !== 'string') delete row.name;
   if (e.note !== undefined && typeof e.note !== 'string') delete row.note;

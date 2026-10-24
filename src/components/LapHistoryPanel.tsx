@@ -147,7 +147,8 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-stretch sm:items-center justify-center sm:p-4" role="dialog" aria-label={t('ラップタイムの記録', 'Lap time records')}>
       <div className="bg-surface-2 border border-line-2 sm:rounded-2xl w-full max-w-3xl sm:max-h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-200">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-line-2 bg-surface-1">
+        {/* スマートフォンでは画面いっぱいに出すので、上の切り欠き・時計の下から始める */}
+        <div className="flex items-center gap-2 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:pt-3 border-b border-line-2 bg-surface-1">
           <h3 className="text-sm font-bold flex-1">{t('ラップタイムの記録', 'Lap time records')}</h3>
           <button onClick={() => { void load(store); }} disabled={busy !== null} className="p-1.5 rounded-lg text-slate-400 hover:text-fg disabled:opacity-40" title={t('読み直す', 'Reload')} aria-label={t('読み直す', 'Reload')}><RefreshCw size={15} /></button>
           <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-fg" aria-label={t('閉じる', 'Close')}><X size={18} /></button>

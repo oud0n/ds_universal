@@ -23,7 +23,8 @@ export async function loadStorageCourses(): Promise<number> {
     if (e.saved) void writeEditedCourse(store, e.saved).catch(() => undefined);
     if (e.deletedName) void markEditedCourseDeleted(store, e.deletedName).catch(() => undefined);
   };
-  const list = (await store.listAll().catch(() => [])).filter(f => COURSE_FILE.test(f.path) && f.size < 4 * 1024 * 1024 && !indexed.has(f.path));
+  const list = (await store.listAll().catch(() => [])).filter(f => COURSE_FILE.test(f.path) && f.size < 4 * 1024 * 1024 && !indexed.has(f.path)
+    && !(indexed === ALL_EDITED && /^course\/(ControlLine|Sector)\//.test(f.path)));
   const decoder = new TextDecoder();
   const files: CourseFile[] = [];
   for (const f of list) {
@@ -37,9 +38,15 @@ export async function loadStorageCourses(): Promise<number> {
   return files.length;
 }
 
+/** 一覧が読めないときの印: course/ の計測線・セクター線は、どれがコース編集のものか分からないので、読み込んだコースデータとしては使わない */
+const ALL_EDITED = new Set<string>(['*']);
+
 /** course/courses.json のコースと、端末の中のコース編集で保存したコースを合わせる。courses.json に載っているファイルの道を返す */
 async function syncEditedCourses(store: NonNullable<Awaited<ReturnType<typeof getRunStore>>>): Promise<Set<string>> {
-  const idx = parseCourseIndex(await store.readText(COURSE_INDEX).catch(() => null));
+  // 読めない (無いのではなく。iCloud にだけある・ほかのアプリが開いている) ときは合わせない (空とみなすと、端末の中の古いコースで上書きするため)
+  let idxText: string | null;
+  try { idxText = await store.readTextStrict(COURSE_INDEX); } catch { return ALL_EDITED; }
+  const idx = parseCourseIndex(idxText);
   const files = new Set<string>();
   const remote: Array<{ entry: (typeof idx.courses)[string]; item: UserCircuitItem | null }> = [];
   for (const e of Object.values(idx.courses)) {

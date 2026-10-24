@@ -28,7 +28,21 @@ final class WebDownloads: NSObject, WKNavigationDelegate, WKDownloadDelegate, WK
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, preferences: WKWebpagePreferences,
                  decisionHandler: @escaping @MainActor (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
         // <a download> で押されたものは、ダウンロードとして受け取る
-        decisionHandler(navigationAction.shouldPerformDownload ? .download : .allow, preferences)
+        if navigationAction.shouldPerformDownload {
+            decisionHandler(.download, preferences)
+            return
+        }
+        // アプリの画面 (laploupe://app/) から、ほかのページへ移らない。リンクの先は Safari で開く
+        // (ほかのページがアプリの中で開くと、ネイティブの窓口 (保管場所・Bluetooth・課金) を使えてしまうため)
+        let url = navigationAction.request.url
+        let isMain = navigationAction.targetFrame?.isMainFrame ?? true
+        let scheme = url?.scheme ?? ""
+        if isMain, !WebSource.isAppPage(url), !["about", "blob", "data"].contains(scheme) {
+            if let url, ["http", "https", "mailto"].contains(scheme) { UIApplication.shared.open(url) }
+            decisionHandler(.cancel, preferences)
+            return
+        }
+        decisionHandler(.allow, preferences)
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,

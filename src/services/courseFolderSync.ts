@@ -109,6 +109,9 @@ async function updateIndex(store: RunStore, change: (idx: CourseIndex) => void):
 
 /** コースを course/ に書く */
 export async function writeEditedCourse(store: RunStore, item: UserCircuitItem): Promise<void> {
+  // 一覧 (courses.json) が読めない (iCloud からまだ落ちてきていないなど) ときは、計測線・セクター線も書かない
+  // (読めない一覧を空とみなして書くと、ほかの端末で直した新しいコースのファイルを、古い中身で上書きするため)
+  await store.readTextStrict(COURSE_INDEX);
   const file = courseFileKey(item);
   const { cln, sci } = courseFiles(item);
   await store.writeText(`course/ControlLine/${file}.cln`, cln);
