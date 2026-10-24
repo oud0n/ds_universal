@@ -1,5 +1,7 @@
 /**
- * コースのコーナーの名前を、保管場所のコースのフォルダ (corners.json) から読み書きする (PLAN-27)。
+ * コースのコーナーの名前を、保管場所の course/Corner/<コースのフォルダ名>.json から読み書きする (PLAN-27)。
+ * 2026-10-24 から、デジスパイスのコースフォルダにならった course/ (Circuit/・ControlLine/・Sector/・Corner/) に置く。
+ * 前の置き場所 (<コースのフォルダ>/corners.json) にしか無ければ、それを読んで新しい置き場所へ写す (前のファイルは消さない)。
  * 保管場所がない (ブラウザ版・選んでいない) ときは何もしない (今までどおり見つけた順に C1…)。
  */
 
@@ -32,7 +34,9 @@ const changed = () => listeners.forEach(f => f());
 /** この起動の中で自動で作ろうとしたフォルダ (書けなくても何度も試さない) */
 const autoTried = new Set<string>();
 
-const path = (folder: string) => `${folder}/${CORNERS_FILE}`;
+const path = (folder: string) => `course/Corner/${folder}.json`;
+/** 前の置き場所 (走行と同じコースのフォルダ。1.0.2 まで) */
+const oldPath = (folder: string) => `${folder}/${CORNERS_FILE}`;
 
 export function loadCourseCorners(folder: string): Promise<CornerFile | null> {
   let p = cache.get(folder);
@@ -41,7 +45,17 @@ export function loadCourseCorners(folder: string): Promise<CornerFile | null> {
       if (!canUseRunStore()) return null;
       const store = await getRunStore();
       if (!store) return null;
-      return parseCornerFile(await store.readText(path(folder)).catch(() => null));
+      const text = await store.readText(path(folder)).catch(() => null);
+      if (text !== null) return parseCornerFile(text);
+      // 前の置き場所にあれば、新しい置き場所へ写す (写せなくても、読んだものは使う)
+      const old = await store.readText(oldPath(folder)).catch(() => null);
+      const file = parseCornerFile(old);
+      if (file && old) {
+        try {
+          if ((await store.readTextStrict(path(folder))) === null) await store.writeText(path(folder), old);
+        } catch { /* 写せないときは次に開いたときにもう一度 */ }
+      }
+      return file;
     })();
     cache.set(folder, p);
     // 無かった (読めなかった) ときは覚えない。あとで置かれた・iCloud から落ちてきたファイルを、次に開いたときに読む
@@ -50,11 +64,11 @@ export function loadCourseCorners(folder: string): Promise<CornerFile | null> {
   return p;
 }
 
-/** 書く。前の中身があれば corners.json.bak に 1 つ残す */
+/** 書く。前の中身があれば course/Corner/<フォルダ名>.json.bak に 1 つ残す */
 export async function saveCourseCorners(folder: string, file: CornerFile): Promise<void> {
   const store = await getRunStore();
   if (!store) throw new Error('no storage folder');
-  const before = await store.readText(path(folder)).catch(() => null);
+  const before = (await store.readText(path(folder)).catch(() => null)) ?? (await store.readText(oldPath(folder)).catch(() => null));
   if (before) await store.writeText(`${path(folder)}.bak`, before);
   await store.writeText(path(folder), serializeCornerFile(file));
   cache.set(folder, Promise.resolve(file));
@@ -76,6 +90,7 @@ export async function ensureAutoCorners(folder: string, geo: LapGeometry, found:
   // ユーザーの名前を C1… で上書きしてしまうため
   try {
     if ((await store.readTextStrict(path(folder))) !== null) return;
+    if ((await store.readTextStrict(oldPath(folder))) !== null) return;
   } catch {
     return;
   }

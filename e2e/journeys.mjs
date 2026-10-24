@@ -364,19 +364,20 @@ export const journeys = [
     }
   },
   {
-    name: 'コーナーの名前: 走行を開くと corners.json ができ、コースマップで名前を付け・まとめて保存すると、コーナー別の表にも出る',
+    name: 'コーナーの名前: 走行を開くと course/Corner/<コース>.json ができ、コースマップで名前を付け・まとめて保存すると、コーナー別の表にも出る',
     target: 'electron',
     async run(p) {
       const root = await p.ev(`window.electronAPI.laps.getFolder()`);
       check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
-      const file = path.join(root, 'nikko', 'corners.json');
-      // 前の試験で作ったものを消してから (自動で作られることから確かめる。試験用の写しの中だけ)
-      for (const f of [file, `${file}.bak`]) fs.rmSync(f, { force: true });
+      const file = path.join(root, 'course', 'Corner', 'nikko.json');
+      // 前の試験で作ったもの (前の置き場所 nikko/corners.json も) を消してから (自動で作られることから確かめる。試験用の写しの中だけ)
+      const old = path.join(root, 'nikko', 'corners.json');
+      for (const f of [file, `${file}.bak`, old, `${old}.bak`]) fs.rmSync(f, { force: true });
       await p.goto(`${APP}`);
       await openRun(p, '8/30', 'run-open-analysis');
       await p.waitFor(`document.querySelector('[data-testid="corner-edit"]')`, 15000, 'コーナーの編集のボタン');
       await sleep(1500);
-      check(fs.existsSync(file), 'corners.json が自動でできていない');
+      check(fs.existsSync(file), 'course/Corner/nikko.json が自動でできていない');
       const auto = JSON.parse(fs.readFileSync(file, 'utf8'));
       check(auto.auto === true && auto.corners.length >= 3, `自動の中身が違う: ${JSON.stringify(auto).slice(0, 200)}`);
       const n0 = auto.corners.length;
