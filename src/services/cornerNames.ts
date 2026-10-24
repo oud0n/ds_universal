@@ -225,3 +225,47 @@ export function insertCorner(list: NamedCorner[], corner: NamedCorner, geo: LapG
   }
   return [...list.slice(0, k), corner, ...list.slice(k)];
 }
+
+/**
+ * 周 geo の点 a〜b (地図でなぞった範囲) を 1 つのコーナーにする。頂点は範囲の中でいちばん曲がりのきつい所、
+ * 向きは範囲全体の曲がりの向き。短すぎる (spanMinM より短い) ときは null
+ */
+export function cornerFromSpan(geo: LapGeometry, a: number, b: number, name: string, spanMinM = 10): NamedCorner | null {
+  const n = geo.s.length;
+  const i0 = Math.max(0, Math.min(a, b)), i1 = Math.min(n - 1, Math.max(a, b));
+  if (i1 <= i0 || geo.s[i1] - geo.s[i0] < spanMinM) return null;
+  let apex = i0, heading = 0;
+  for (let i = i0; i <= i1; i++) {
+    if (Math.abs(geo.curvature[i]) > Math.abs(geo.curvature[apex])) apex = i;
+    if (i > i0) heading += ((geo.curvature[i] + geo.curvature[i - 1]) / 2) * (geo.s[i] - geo.s[i - 1]);
+  }
+  return { name, direction: heading >= 0 ? 'R' : 'L', entry: at(geo, i0), apex: at(geo, apex), exit: at(geo, i1) };
+}
+
+/**
+ * なぞった範囲 a〜b を 1 つのコーナーにして、一覧に入れる。頂点がその範囲に入る前のコーナーは置き換える
+ * (複合コーナーを 1 つにまとめる・まとめられたものを分けて作り直すため)。
+ * 名前は、置き換えたのが 1 つならその名前、複数なら「最初-最後」、無ければ C<数>。作れなければ null
+ */
+export function applySpanCorner(list: NamedCorner[], geo: LapGeometry, a: number, b: number): { list: NamedCorner[]; index: number } | null {
+  const i0 = Math.min(a, b), i1 = Math.max(a, b);
+  const placed = placeCorners(geo, list);
+  const inside = placed.map((p, k) => (p && p.apexIndex >= i0 && p.apexIndex <= i1 ? k : -1)).filter(k => k >= 0);
+  const name = inside.length === 1 ? list[inside[0]].name
+    : inside.length > 1 ? `${list[inside[0]].name}-${list[inside[inside.length - 1]].name}`
+    : `C${list.length + 1}`;
+  const corner = cornerFromSpan(geo, i0, i1, name);
+  if (!corner) return null;
+  // 前後のコーナーが範囲にかかっていれば、範囲の外まで縮める (走る順に置くとき、前後が重ならないように)
+  const n = geo.s.length;
+  const rest = list.flatMap((c, k) => {
+    if (inside.includes(k)) return [];
+    const p = placed[k];
+    if (!p) return [c];
+    if (p.apexIndex > i1 && p.startIndex <= i1) return [{ ...c, entry: at(geo, Math.min(n - 1, i1 + 1)) }];
+    if (p.apexIndex < i0 && p.endIndex >= i0) return [{ ...c, exit: at(geo, Math.max(0, i0 - 1)) }];
+    return [c];
+  });
+  const next = insertCorner(rest, corner, geo);
+  return { list: next, index: next.indexOf(corner) };
+}

@@ -13,7 +13,8 @@ type PointerHandler = (e: React.PointerEvent<HTMLCanvasElement>) => void;
 export function usePinchPointers(opts: {
   onDown: PointerHandler;
   onMove: PointerHandler;
-  onUp: () => void;
+  /** cancelled: 2 本目の指が触れた・取り消された (ドラッグの結果を使わない) */
+  onUp: (cancelled?: boolean) => void;
   onPinch: (scale: number, centerX: number, centerY: number) => void;
 }) {
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -26,6 +27,8 @@ export function usePinchPointers(opts: {
     if (e) latest.current.onDown(e);
   };
   const lastDistance = useRef<number | null>(null);
+  // ピンチをした (最後の指が離れたときの onUp も取り消し扱い)
+  const wasPinch = useRef(false);
   // 呼ぶたびに最新の処理を使う (state を読む処理が古くならないように)
   const latest = useRef(opts);
   latest.current = opts;
@@ -39,20 +42,21 @@ export function usePinchPointers(opts: {
   const end = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!pointers.current.has(e.pointerId)) return;
     flushPending();
-    release(e);
+    release(e, false);
   };
   // 取り消されたとき (ブラウザがジェスチャーとして引き取った・ポインターのキャプチャが外れたなど)。
   // まだ始めていない操作は捨てる。キャプチャが外れたまま残ると、次の操作がピンチと誤るので必ず消す
   const cancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!pointers.current.has(e.pointerId)) return;
     if (pointers.current.size === 1) pendingDown.current = null;
-    release(e);
+    release(e, true);
   };
-  const release = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const release = (e: React.PointerEvent<HTMLCanvasElement>, cancelled: boolean) => {
     pointers.current.delete(e.pointerId);
     // 指が 2 本以上残るときは、残った指の組で間隔を測り直す (3 本目の指が離れたときに倍率が跳ばないように)
     lastDistance.current = pointers.current.size >= 2 ? pinchState().distance : null;
-    if (pointers.current.size === 0) latest.current.onUp();
+    if (pointers.current.size === 0) latest.current.onUp(cancelled || wasPinch.current);
+    if (pointers.current.size === 0) wasPinch.current = false;
   };
 
   return {
@@ -69,7 +73,8 @@ export function usePinchPointers(opts: {
       } else if (pointers.current.size === 2) {
         // 2 本目の指: ドラッグをやめてピンチを始める (1 本目の指の操作はまだ始めていなければ捨てる)
         pendingDown.current = null;
-        latest.current.onUp();
+        latest.current.onUp(true);
+        wasPinch.current = true;
         lastDistance.current = pinchState().distance;
       }
     },

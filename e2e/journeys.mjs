@@ -427,7 +427,9 @@ export const journeys = [
           const d = amber.reduce((m, a) => Math.min(m, Math.hypot(a.x - h.x, a.y - h.y)), Infinity);
           if (d > bestD) { bestD = d; best = h; }
         }
-        return best;
+        // なぞる試しの始まり: その点から 50〜90 px 離れた線の上
+        const from = best && hits.find(h => { const d = Math.hypot(h.x - best.x, h.y - best.y); return d > 50 && d < 90; });
+        return best && { x: best.x, y: best.y, from };
       })()`);
       check(spot, '地図の上に走行の線が見つからない');
       for (const type of ['mousePressed', 'mouseReleased']) await p.send('Input.dispatchMouseEvent', { type, x: spot.x, y: spot.y, button: 'left', clickCount: 1 });
@@ -435,6 +437,21 @@ export const journeys = [
       const rows = await p.ev(`document.querySelectorAll('[data-testid="corner-edit-row"]').length`);
       // 札の上を押したときは選ぶだけ (数は増えない)。そうでなければ 1 つ増える
       check(rows === saved.corners.length + 1, `地図を押してもコーナーが足されない (${rows} 個、元 ${saved.corners.length} 個)`);
+      // 走行の線をなぞる: 足したコーナー (頂点が spot) を含む範囲が 1 つのコーナーになり、中のコーナーは置き換わる
+      if (spot.from) {
+        const steps = 12;
+        await p.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: spot.from.x, y: spot.from.y, button: 'left', clickCount: 1 });
+        for (let k = 1; k <= steps; k++) {
+          const t = k / steps;
+          await p.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: spot.from.x + (spot.x - spot.from.x) * t * 1.15, y: spot.from.y + (spot.y - spot.from.y) * t * 1.15, button: 'left', buttons: 1 });
+          await sleep(20);
+        }
+        await p.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: spot.from.x + (spot.x - spot.from.x) * 1.15, y: spot.from.y + (spot.y - spot.from.y) * 1.15, button: 'left', clickCount: 1 });
+        await sleep(400);
+        const after = await p.ev(`({ rows: document.querySelectorAll('[data-testid="corner-edit-row"]').length, picked: [...document.querySelectorAll('[data-testid="corner-edit-row"]')].some(r => r.className.includes('bg-amber-500')) })`);
+        check(after.rows <= rows, `なぞっても、中のコーナーが置き換わらない (${after.rows} 個、なぞる前 ${rows} 個)`);
+        check(after.picked, 'なぞって作ったコーナーが選ばれていない');
+      } else p.notes.push('なぞる試しの線の点が見つからなかったので、なぞる操作は確かめていない');
       await p.ev(`[...document.querySelectorAll('[data-testid="corner-edit-panel"] button')].find(b => /やめる|Cancel/.test(b.innerText)).click()`);
     }
   },
