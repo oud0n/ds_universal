@@ -265,7 +265,11 @@ export const App: React.FC = () => {
   const [runsSheetOpen, setRunsSheetOpen] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
   /** 取り込みの確認 (ログを開いたとき、走行の保管場所があれば。2026-10-21、PLAN-24) */
+  // 複数のファイルを一度に取り込むとき、何番目のシートか (「2/3」)。並んだ数と、出した数
+  const importCountRef = useRef({ queued: 0, shown: 0 });
+  const [importTotal, setImportTotal] = useState(0);
   const [importing, setImporting] = useState<{
+    index?: number;
     plan: ImportPlan;
     name: string;
     bytes: Uint8Array;
@@ -735,9 +739,12 @@ export const App: React.FC = () => {
       return false;
     }
     if (plan.parts.length === 0 || plan.parts.every(p => p.already)) return false;
+    importCountRef.current.queued++;
+    setImportTotal(importCountRef.current.queued);
     const shown = importQueueRef.current.then(() => new Promise<void>(resolve => {
       importDoneRef.current = resolve;
-      setImporting({ plan, name, bytes: new Uint8Array(buffer), phase: 'confirm' });
+      const index = ++importCountRef.current.shown;
+      setImporting({ index, plan, name, bytes: new Uint8Array(buffer), phase: 'confirm' });
     }));
     importQueueRef.current = shown;
     await shown;
@@ -746,6 +753,8 @@ export const App: React.FC = () => {
 
   const closeImport = () => {
     setImporting(null);
+    // 並んだものを全部出し終えたら、数え直す
+    if (importCountRef.current.shown >= importCountRef.current.queued) { importCountRef.current = { queued: 0, shown: 0 }; setImportTotal(0); }
     importDoneRef.current?.();
     importDoneRef.current = null;
   };
@@ -969,6 +978,7 @@ export const App: React.FC = () => {
       setRunsSheetOpen(false);
       navStore.go('analysis');
       if (added.length === 0) return;
+      const removedIds = new Set<string>();
       // 開いた走行を Car 1 にする (いちばん速い周)。前に開いていた走行が Car 1 のままだと、解析と動画が別の走行になる。
       // Car 2〜4 は、同じコースのものだけ残す (違うコースと比べても意味がないため。比べるときは「Car 2 として足す」)
       {
@@ -983,9 +993,25 @@ export const App: React.FC = () => {
         setIsPlaying(false);
         setClockBase('lap');
         setCurrentTimeSec(0);
+        // 違うコースのログは「走行とコース」から外す (日光を開いたあとに袖ヶ浦を開いたら、袖ヶ浦だけにする)。
+        // 同じコースのログは残す (比べる相手にできるように。開いた走行が Car 1)
+        const removed = latestRef.current.sessions.filter(x => !added.some(a => a.id === x.id) && !sameCourseName(x.circuitName, main.circuitName));
+        if (removed.length) {
+          const ids = removedIds;
+          for (const x of removed) ids.add(x.id);
+          for (const id of ids) polylineRequestRef.current.delete(id);
+          setConvertSessionId(prev => (ids.has(prev) ? '' : prev));
+          setSessions(prev => prev.filter(x => !ids.has(x.id)));
+          setSelectedCars(prev => prev.filter(c => !ids.has(c.sessionId)));
+          for (const [path, list] of [...runSessionsRef.current.entries()]) {
+            const rest = list.filter(id => !ids.has(id));
+            if (rest.length) runSessionsRef.current.set(path, rest);
+            else { runSessionsRef.current.delete(path); runItemsRef.current.delete(path); }
+          }
+        }
       }
       const sessionsNow = () => {
-        const cur = latestRef.current.sessions;
+        const cur = latestRef.current.sessions.filter(x => !removedIds.has(x.id));
         return [...cur, ...added.filter(a => !cur.some(c => c.id === a.id))];
       };
       const cand = await videoCandidates(store, item);
@@ -2347,6 +2373,7 @@ export const App: React.FC = () => {
       {importing && (
         <ImportSheet
           plan={importing.plan}
+          position={importTotal > 1 && importing.index ? { index: importing.index, total: importTotal } : undefined}
           phase={importing.phase}
           progress={importing.progress}
           results={importing.results}
