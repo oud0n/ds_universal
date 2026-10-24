@@ -38,6 +38,13 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
     // MARK: - Web から
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        // アプリの画面 (いちばん外の枠) からの呼び出しだけ受ける (ほかのページ・中の枠から保管場所などを使わせない)
+        let origin = message.frameInfo.securityOrigin
+        let originURL = URL(string: "\(origin.protocol)://\(origin.host)\(origin.port > 0 ? ":\(origin.port)" : "")/")
+        guard message.frameInfo.isMainFrame, WebSource.isAppPage(originURL) else {
+            NSLog("[native] アプリの画面でないところからの呼び出しを断った: \(origin.protocol)://\(origin.host)")
+            return
+        }
         guard let text = message.body as? String,
               let data = text.data(using: .utf8),
               let req = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

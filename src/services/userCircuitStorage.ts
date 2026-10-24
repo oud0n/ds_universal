@@ -669,6 +669,12 @@ class UserCircuitStorage {
     return this.files.length;
   }
 
+  /** コースフォルダー一括設置で読み込んだコースの数 (保管場所の digspice/・course/ のもの、コース編集で保存したものは数えない) */
+  public getImportedCourseCount(): number {
+    const imported = new Set(this.files.filter(f => /\.cln$/i.test(f.path)).map(f => f.path.toLowerCase()));
+    return this.circuits.filter(c => imported.has(c.sources.cln.toLowerCase())).length;
+  }
+
   /**
    * コースフォルダー一括設置で読み込んだコースデータを外す (内蔵のコースに戻す)。
    * コース編集で保存したコースは残す。保管場所の digspice/ のコースデータは、そのまま使う

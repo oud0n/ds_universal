@@ -653,7 +653,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   };
 
   const gpsStartTime = baseSession?.points[0]?.timestamp ? new Date(baseSession.points[0].timestamp) : null;
-  const isLargeOffset = activeTrack ? Math.abs(activeTrack.syncOffsetSec) > 3600 : false;
+  // 合わせる動画が、比べる相手 (Car 2〜4) の走行のものか。合わせる道具は Car 1 のログで表すので、その動画は合わせられない
+  // (別の日の走行だと、何十日もずれて出て、±9h補正などで同期を壊すため)。その走行を Car 1 にして合わせる
+  const syncOtherCar = activeTrack?.matchedSessionId && activeTrack.matchedSessionId !== baseSession?.id
+    ? selectedCars.find(c => c.slot !== 0 && c.sessionId === activeTrack.matchedSessionId) ?? null
+    : null;
+  // 合わせる道具を出すか (画面いっぱいのときは出さない)
+  const syncTools = showSyncTools && !syncOtherCar && !fullView;
+  const isLargeOffset = activeTrack && !syncOtherCar ? Math.abs(activeTrack.syncOffsetSec) > 3600 : false;
 
 
   // 速度ウィンドウのセッション (Car 1) に対応する動画トラックを自動選択
@@ -678,10 +685,11 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // 走行比較で、Car 1 が周の終わりに来たら周の始めに戻す (動画同期のタブはセッション全体の時刻で進むため。グラフ画面は App が戻す)
   // 見るで周 (L◯) を選んでいるときも同じ (周の終わりを過ぎても再生が続き、時刻が周の長さを超えていた)
   useEffect(() => {
-    if (!(isCompare || seekbarScope === 'lap') || isGraphEmbedded || !baseLap || !isVisible || isAnyExporting) return;
+    // 合わせる (同期の調整) では戻さない (周の外へ動かす・ピンへ飛ぶ・動画の始まりへ飛ぶ、が効かなくなるため)
+    if (!(isCompare || seekbarScope === 'lap') || showSyncTools || isGraphEmbedded || !baseLap || !isVisible || isAnyExporting) return;
     if (isPlaying && renderSessionTime > baseLap.endTime) seekTo(baseLap.startTime);
     else if (renderSessionTime < baseLap.startTime - 0.5 || renderSessionTime > baseLap.endTime + 0.5) seekTo(baseLap.startTime);
-  }, [isCompare, seekbarScope, renderSessionTime, baseLap?.startTime, baseLap?.endTime, isPlaying, isVisible]);
+  }, [isCompare, seekbarScope, showSyncTools, renderSessionTime, baseLap?.startTime, baseLap?.endTime, isPlaying, isVisible]);
 
   // 動画を App の時刻に合わせる (PlaybackController)。見えていないウインドウ・書き出し中は合わせない (書き出しは動画を自分で動かす)
   useEffect(() => {
@@ -989,9 +997,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     });
 
     exportControllerRef.current = controller;
+    // 再生しながら録る書き出しも、画面が隠れると録れなくなるので、やめて知らせる (枠の並びの書き出しと同じ)
+    stageAbortRef.current = () => controller.cancel();
 
     const finish = () => {
       exportControllerRef.current = null;
+      stageAbortRef.current = null;
       setIsExporting(false);
       setExportProgress(null);
       videoViewStore.set({ isExporting: false });
@@ -1378,7 +1389,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           {/* スマートフォンでは、ここで 2 段目にする (上の段: 同期の調整・ログ・モード・メーターの表示) */}
           {phoneToolbar && !landscapePhone && <div className="order-2 basis-full h-0" aria-hidden />}
           {/* 手動キーフレーム同期 (ピン留め) ボタン (動画の画面では「合わせる」のときだけ) */}
-          {activeTrack && (isGraphEmbedded || showSyncTools) && (
+          {activeTrack && (isGraphEmbedded || syncTools) && (
             <button
               onClick={() => setShowPinModal(true)}
               className={`flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-4 text-xs text-amber-300 border border-amber-500/40 transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
@@ -1433,7 +1444,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
       {/* 2. タイムゾーン設定 & 再同期専用バー (フラットデザイン) */}
       {/* 動画の時刻が大きくずれている (タイムゾーンの違いなど) ときは、直すボタンが見えるよう閉じていても出す */}
-      {activeTrack && (showSyncTools || isLargeOffset) && (
+      {showSyncTools && syncOtherCar && !fullView && (
+        <div className="bg-amber-500/10 border-b border-amber-500/30 px-3 py-2 text-xs text-amber-300 shrink-0" data-testid="video-sync-other-car">
+          {t(`この動画は比べる相手 (Car ${syncOtherCar.slot + 1}) の走行のものです。合わせるときは、その走行を Car 1 にして開いてください。`,
+            `This video belongs to the compared run (Car ${syncOtherCar.slot + 1}). To sync it, open that run as Car 1.`)}
+        </div>
+      )}
+      {activeTrack && (syncTools || (isLargeOffset && !fullView)) && (
         <div className="bg-surface-1 border-b border-line-1 px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0 select-none">
           <div className="flex flex-wrap items-center gap-2.5">
             {/* 動画に合わせるログ (動画と時間の重なるログが 2 つ以上のとき。記録の細かい順) LATER-12 */}
@@ -1774,7 +1791,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       )}
 
       {/* 5. マスタータイムライン マルチトラックインスペクター (NLE風) */}
-      {showSyncTools && (() => {
+      {syncTools && (() => {
         const effectiveSessionTime = isGraphEmbedded && baseLap ? (baseLap.startTime + currentTimeSec) : currentTimeSec;
         return (
           <MasterTimelineTrackBar
@@ -1972,7 +1989,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
         {/* 同期オフセット微調整 & ピン選択。スマートフォンでは「同期の調整」を開いたときだけ出す (場所を取るため) */}
         {/* ずれの数字・コマ送り・ピン (動画の画面では「合わせる」のときだけ。グラフ解析に埋め込んだときは今までどおり) */}
-        {activeTrack && (showSyncTools || (isGraphEmbedded && !isCompactLayout)) && (
+        {activeTrack && (syncTools || (isGraphEmbedded && !isCompactLayout)) && (
           <div className="flex flex-wrap items-center gap-2 text-xs bg-surface-3 px-3 py-1 rounded border border-line-2">
             {/* 登録済みピンのクイックジャンプドロップダウン */}
             {pins.length > 0 && (
@@ -2334,9 +2351,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
             <button
               onClick={() => {
-                if (exportControllerRef.current) {
-                  exportControllerRef.current.cancel();
-                }
+                // 枠の並びの書き出しで、録り始める前 (準備中) にやめたときも止める
+                if (stageAbortRef.current) stageAbortRef.current();
+                else if (exportControllerRef.current) exportControllerRef.current.cancel();
               }}
               className="px-4 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 cursor-pointer transition-colors"
             >

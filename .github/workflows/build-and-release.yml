@@ -95,6 +95,8 @@ jobs:
             export CSC_KEYCHAIN="$KC"
             echo "Developer ID で署名します"
           else
+            # タグ (リリース) で証明書が無いときは止める (署名なしのものをリリースに上げない)
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then echo "::error::リリースのタグなのに、署名の証明書 (MAC_CERT_P12_BASE64) がありません"; exit 1; fi
             export CSC_IDENTITY_AUTO_DISCOVERY=false
             echo "証明書がないので、署名しません"
           fi

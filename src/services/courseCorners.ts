@@ -40,7 +40,8 @@ const path = (folder: string) => `course/Corner/${folder}.json`;
  * アプリに入っているコーナー (リポジトリの courses/Corner/<コースの ID>.json。2026-10-24)。
  * 保管場所にそのコースのファイルが無いとき (と、保管場所の無いブラウザ版) に使う。名前を直して保存すると、保管場所に書く
  */
-const bundledTexts = import.meta.glob('../../courses/Corner/*.json', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+// コースの ID の名前のファイルだけを入れる (手で作った写し「… copy.json」などを、アプリに入れないように)
+const bundledTexts = import.meta.glob(['../../courses/Corner/[a-z0-9]*.json', '!../../courses/Corner/* *'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 const bundled = new Map<string, string>();
 for (const [p, text] of Object.entries(bundledTexts)) {
   const m = /\/([a-z0-9][a-z0-9_]*)\.json$/.exec(p);
@@ -62,10 +63,17 @@ export function loadCourseCorners(folder: string): Promise<CornerFile | null> {
       const store = await getRunStore();
       if (!store) return bundledCorners(folder);
       const text = await store.readText(path(folder)).catch(() => null);
-      if (text !== null) return parseCornerFile(text);
+      const inBox = bundledCorners(folder);
+      if (text !== null) {
+        const f = parseCornerFile(text);
+        // 自動で作っただけ (C1… のまま、名前を付けていない) なら、アプリに入っているコーナーを使う
+        return f?.auto && inBox ? inBox : f;
+      }
       // 前の置き場所にあれば、新しい置き場所へ写す (写せなくても、読んだものは使う)
       const old = await store.readText(oldPath(folder)).catch(() => null);
       const file = parseCornerFile(old);
+      // 前の置き場所のものも、自動で作っただけなら、アプリに入っているものを使う (写さない)
+      if (file?.auto && inBox) return inBox;
       if (file && old) {
         try {
           if ((await store.readTextStrict(path(folder))) === null) await store.writeText(path(folder), old);
