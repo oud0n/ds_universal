@@ -1581,8 +1581,6 @@ export const App: React.FC = () => {
   return (
     <div
       className="relative flex flex-col h-dvh w-screen overflow-hidden bg-surface-0 text-slate-100"
-      // iPhone を横にしたとき、左右の切り欠き・角の丸みに画面が隠れないよう、左右に余白を取る (縦・パソコンでは 0)
-      style={{ paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' }}
       // ファイルは、どの画面に落としても読み込む (受け口のない所に落とすと、ブラウザ・Electron がそのファイルを開いてアプリの画面から離れてしまう)。
       // 動画同期・ログ変換の受け口が受け取ったもの (preventDefault 済み) は、ここでは読まない。
       // リンク・文字を落としたときも、ブラウザがそちらへ移らないよう止める (入力欄に落とす文字はそのまま)
@@ -1763,7 +1761,11 @@ export const App: React.FC = () => {
       />}
 
       {/* メインコンテンツ */}
-      <main className={`relative flex-1 overflow-hidden ${isCompact ? 'p-2' : 'p-3'}`}>
+      {/* iPhone を横にしたとき、左右の切り欠き・角に中身が隠れないよう、左右の余白を広げる (背景は端まで。縦・パソコンでは今までどおり) */}
+      <main
+        className={`relative flex-1 overflow-hidden ${isCompact ? 'p-2' : 'p-3'}`}
+        style={{ paddingLeft: `max(${isCompact ? '0.5rem' : '0.75rem'}, env(safe-area-inset-left))`, paddingRight: `max(${isCompact ? '0.5rem' : '0.75rem'}, env(safe-area-inset-right))` }}
+      >
         {/* ログを読み込む前のグラフ解析: 読み込み方を案内する (何もない画面で、どうすればよいか分からないため) */}
         {currentTab === 'analysis' && sessions.length === 0 && (
           // 後ろの空のグラフ・コース図は隠す (動画・変換の画面と同じ見た目にする)
