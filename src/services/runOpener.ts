@@ -285,6 +285,16 @@ export function scheduleRunSave(): void {
 }
 
 /**
+ * その動画 (道) が、比べる相手の走行の動画なら、その走行のログの ID。Car 1 の走行の動画・どの走行のものでもなければ null
+ * (動画が出すログが決まっていないときも、比べる相手の動画を Car 1 の道具で合わせないように)
+ */
+export function companionSessionsOfVideo(path: string): string[] | null {
+  if (current?.paths.has(path)) return null;
+  for (const run of companions.values()) if (run.paths.has(path)) return run.sessionIds;
+  return null;
+}
+
+/**
  * 書きかけをすぐ書く (ログを「走行とコース」から外す前に。外したあとでは、その走行のログが見つからず書けないため)。
  * 中身は呼んだときに取っておくので、書くのを待つ間にログを外してよい
  */
