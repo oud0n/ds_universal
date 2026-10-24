@@ -18,7 +18,7 @@ export const BottomTabBar: React.FC<{
   const landscape = useLandscape();
   const t = useT();
   return (
-    <nav className={`shrink-0 flex border-t pb-[env(safe-area-inset-bottom)] ${dark ? 'bg-black border-white/15' : 'bg-surface-1 border-line-1'}`} data-testid="bottom-tabs">
+    <nav className={`shrink-0 flex border-t pb-[env(safe-area-inset-bottom)] ${dark ? 'bg-black border-white/15' : 'bg-surface-1 border-line-1'}`} style={{ paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' }} data-testid="bottom-tabs">
       {items.map(id => {
         const { Icon } = SCREEN_META[id];
         const short = screenLabel(id, true);
