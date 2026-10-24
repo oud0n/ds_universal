@@ -1,6 +1,6 @@
 # 走行の情報・解析用のセッションの保存（設計の案）
 
-2026-10-20。PLAN-18（解析用のセッションの保存）と PLAN-19（ラップタイマーの走行の管理）の続き。まだ作っていない。
+2026-10-20。PLAN-18（解析用のセッションの保存）と PLAN-19（ラップタイマーの走行の管理）の続き。runs.json は 2026-10-24 に 2 版にした（docs/run_storage_v2.md。下の runs.json の例は 1 版のころの案）。走行は runs.json の行の `id`（変わらない印）と行の名前（日付のフォルダ/拡張子なしの名前）で指す。
 
 ## ねらい
 
@@ -73,10 +73,10 @@
   "createdAt": "2026-10-24T05:00:00Z",
   "course": { "folder": "sodegaura", "hash": "518f49c64580247e" },
   "cars": [
-    { "slot": 1, "run": "sodegaura/20261024100000.bon4", "lap": 10, "size": 972564, "mtimeMs": 1792731000000 },
-    { "slot": 2, "run": "sodegaura/20260918092608.bon4", "lap": 11, "size": 972564, "mtimeMs": 1789000000000 }
+    { "slot": 1, "id": "r_mvlyxbes0410z2", "run": "sodegaura/20261024/20261024100000", "lap": 10 },
+    { "slot": 2, "id": "r_mvm0c2kq7p1d4x", "run": "sodegaura/20260918/20260918092608", "lap": 11 }
   ],
-  "video": { "main": { "run": "sodegaura/20261024100000.bon4", "name": "GX010001.MP4" } }
+  "video": { "main": { "id": "r_mvlyxbes0410z2", "name": "GX010001.MP4" } }
 }
 ```
 

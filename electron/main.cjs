@@ -507,14 +507,21 @@ ipcMain.handle('laps-read', async (_event, rel) => {
 });
 ipcMain.handle('laps-read-text', async (_event, rel) => {
   const full = await lapPath(rel);
-  if (!full || !LAP_TEXT_NAMES.has(path.basename(full))) return { success: false, error: 'not allowed' };
+  // iCloud がぶつかったときに作る runs.json の写し (runs 2.json など) も読める (書くのは runs.json だけ)
+  if (!full || !(LAP_TEXT_NAMES.has(path.basename(full)) || /^runs[ _-]+\(?\d+\)?\.json$/i.test(path.basename(full)))) return { success: false, error: 'not allowed' };
   try {
     const st = await fs.promises.stat(full);
     if (st.size > MAX_LAP_TEXT_BYTES) return { success: false, error: 'too large' };
     return { success: true, text: await fs.promises.readFile(full, 'utf8') };
   } catch (err) {
-    // 無いときだけ null。読めないとき (ほかのアプリが開いているなど) は失敗を返す (無いとみなして書くと、ほかの走行の行を消すため)
-    if (err && err.code === 'ENOENT') return { success: true, text: null };
+    // 無いときだけ null。読めないとき (ほかのアプリが開いているなど) は失敗を返す (無いとみなして書くと、ほかの走行の行を消すため)。
+    // iCloud Drive にだけあって、この Mac にまだ落ちてきていないファイル (.runs.json.icloud) も、読めないとみなす
+    // (無いとみなして新しく作ると、iCloud がぶつかったときの写しを作り、前の中身が使われなくなるため)
+    if (err && err.code === 'ENOENT') {
+      const placeholder = path.join(path.dirname(full), `.${path.basename(full)}.icloud`);
+      if (await fs.promises.stat(placeholder).then(() => true, () => false)) return { success: false, error: 'only in iCloud' };
+      return { success: true, text: null };
+    }
     return { success: false, error: err?.message ?? 'read failed' };
   }
 });

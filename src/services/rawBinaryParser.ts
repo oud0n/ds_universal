@@ -368,12 +368,18 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
     if (g && r.timeSec - g[g.length - 1].timeSec < SESSION_GAP_SEC) g.push(r);
     else groups.push([r]);
   }
-  const span = (g: RawPoint[]) => g[g.length - 1].timeSec - g[0].timeSec;
-  let kept = groups.filter(g => g.length >= 2 && span(g) >= MIN_SESSION_SEC);
-  // どれも短いときは、いちばん長いものだけを読む
-  if (kept.length === 0) kept = [groups.reduce((a, b) => (span(b) > span(a) || (span(b) === span(a) && b.length > a.length) ? b : a))];
+  return keepRunParts(groups, r => r.timeSec).map(toSession);
+}
 
-  return kept.map(toSession);
+/**
+ * 記録の空きで分けた走行のうち、残すもの (2 点以上・10 秒以上。どれも短いときは、いちばん長いものだけ)。
+ * .bon4・.nmea の読み込みと周の控え (lapIndex) で同じ決まりを使い、分けた走行の番号 (part・_1/_2) をそろえる
+ */
+export function keepRunParts<T>(groups: T[][], timeSec: (p: T) => number): T[][] {
+  const span = (g: T[]) => timeSec(g[g.length - 1]) - timeSec(g[0]);
+  const kept = groups.filter(g => g.length >= 2 && span(g) >= MIN_SESSION_SEC);
+  if (kept.length || groups.length === 0) return kept;
+  return [groups.reduce((a, b) => (span(b) > span(a) || (span(b) === span(a) && b.length > a.length) ? b : a))];
 }
 
 // 区切った走行の点列を、先頭を 0 秒とした TelemetryPoint にして解析値を付ける

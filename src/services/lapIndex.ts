@@ -12,7 +12,7 @@
  */
 
 import type { ControlLine, Sector, TelemetryPoint } from '../types/telemetry';
-import { parseDigispiceRawBinary, SESSION_GAP_SEC } from './rawBinaryParser';
+import { keepRunParts, parseDigispiceRawBinary, SESSION_GAP_SEC } from './rawBinaryParser';
 import { parseNmea } from './nmeaParser';
 import { extractLaps } from './lapCalculator';
 
@@ -150,7 +150,7 @@ export function lapsFromNmea(name: string, bytes: Uint8Array, course: LapCourse)
     if (cur && p.time - cur[cur.length - 1].time < SESSION_GAP_SEC) cur.push(p);
     else parts.push([p]);
   }
-  return lapsFromParts(parts, course);
+  return lapsFromParts(keepRunParts(parts, p => p.time), course);
 }
 
 /** 走行のファイルから周を数える (.nmea か .bon4) */

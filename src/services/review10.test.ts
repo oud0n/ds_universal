@@ -55,10 +55,10 @@ describe('runs.json の書き換え', () => {
       writeText: async (_p: string, t: string) => { await sleep(5); text = t; }
     } as unknown as RunStore;
     await Promise.all([
-      updateRun(store, 'sodegaura', '20260815/a.nmea', { videos: ['A.MP4'] }),
-      updateRun(store, 'sodegaura', '20260918/b.nmea', { videos: ['B.MP4'] })
+      updateRun(store, 'sodegaura', '20260815/a.nmea', prev => ({ ...prev, videos: [{ name: 'A.MP4' }] })),
+      updateRun(store, 'sodegaura', '20260918/b.nmea', prev => ({ ...prev, videos: [{ name: 'B.MP4' }] }))
     ]);
     const runs = parseRunsFile(text).runs;
-    expect(Object.keys(runs).sort()).toEqual(['20260815/a.nmea', '20260918/b.nmea']);
+    expect(Object.keys(runs).sort()).toEqual(['20260815/a', '20260918/b']);
   });
 });
