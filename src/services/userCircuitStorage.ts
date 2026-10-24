@@ -24,6 +24,8 @@ export interface UserCircuitItem {
   folder?: string;
   /** ゴールの線 (スタートとゴールが別のコース。コース編集で付けたもの) */
   finishLine?: ControlLine;
+  /** コース編集で保存した時刻 (端末の間で合わせるとき、新しいほうを使う。2026-10-24 から) */
+  updatedAt?: string;
 }
 
 // コントロールラインと組み合わせられなかったコース図。内蔵のコースのコース図として使う
@@ -535,11 +537,25 @@ class UserCircuitStorage {
       sources: { cln: 'edited' },
       // 英語名・フォルダ名は、渡されなければ前に保存したものを引き継ぐ
       ...(extra.nameEn && extra.folder ? { nameEn: extra.nameEn, folder: extra.folder } : prev?.nameEn && prev.folder ? { nameEn: prev.nameEn, folder: prev.folder } : {}),
-      ...(extra.finishLine ? { finishLine: { ...extra.finishLine, name: 'Finish Line' } } : {})
+      ...(extra.finishLine ? { finishLine: { ...extra.finishLine, name: 'Finish Line' } } : {}),
+      updatedAt: new Date().toISOString()
     };
     // 新しく保存したものを最後に置く (同じ場所に複数あるときは、後に保存したものを使う)
     this.edited = [...this.edited.filter(c => c.name !== name), item];
-    return this.persist();
+    const r = await this.persist();
+    // 保管場所の course/ にも書く (ほかの端末でも使えるように。courseFolderSync.ts)
+    this.onEditedChanged?.({ saved: item });
+    return r;
+  }
+
+  /** コース編集で保存・削除したとき (保管場所の course/ に書く。storageCourses.ts が入れる) */
+  public onEditedChanged?: (e: { saved?: UserCircuitItem; deletedName?: string }) => void;
+
+  /** 保管場所の course/ と合わせた、コース編集で保存したコースを使う */
+  public async setSyncedEdited(edited: UserCircuitItem[]): Promise<void> {
+    await this.ready.catch(() => undefined);
+    this.edited = edited;
+    await this.persist();
   }
 
   /** コース編集で保存したコース */
@@ -565,7 +581,9 @@ class UserCircuitStorage {
   public async deleteEditedCircuit(name: string): Promise<{ saved: boolean; saveError?: string }> {
     await this.ready.catch(() => undefined);
     this.edited = this.edited.filter(c => c.name !== name);
-    return this.persist();
+    const r = await this.persist();
+    this.onEditedChanged?.({ deletedName: name });
+    return r;
   }
 
   /**
