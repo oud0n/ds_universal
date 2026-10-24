@@ -678,10 +678,11 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // 走行比較で、Car 1 が周の終わりに来たら周の始めに戻す (動画同期のタブはセッション全体の時刻で進むため。グラフ画面は App が戻す)
   // 見るで周 (L◯) を選んでいるときも同じ (周の終わりを過ぎても再生が続き、時刻が周の長さを超えていた)
   useEffect(() => {
-    if (!(isCompare || seekbarScope === 'lap') || isGraphEmbedded || !baseLap || !isVisible || isAnyExporting) return;
+    // 合わせる (同期の調整) では戻さない (周の外へ動かす・ピンへ飛ぶ・動画の始まりへ飛ぶ、が効かなくなるため)
+    if (!(isCompare || seekbarScope === 'lap') || showSyncTools || isGraphEmbedded || !baseLap || !isVisible || isAnyExporting) return;
     if (isPlaying && renderSessionTime > baseLap.endTime) seekTo(baseLap.startTime);
     else if (renderSessionTime < baseLap.startTime - 0.5 || renderSessionTime > baseLap.endTime + 0.5) seekTo(baseLap.startTime);
-  }, [isCompare, seekbarScope, renderSessionTime, baseLap?.startTime, baseLap?.endTime, isPlaying, isVisible]);
+  }, [isCompare, seekbarScope, showSyncTools, renderSessionTime, baseLap?.startTime, baseLap?.endTime, isPlaying, isVisible]);
 
   // 動画を App の時刻に合わせる (PlaybackController)。見えていないウインドウ・書き出し中は合わせない (書き出しは動画を自分で動かす)
   useEffect(() => {
@@ -989,9 +990,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     });
 
     exportControllerRef.current = controller;
+    // 再生しながら録る書き出しも、画面が隠れると録れなくなるので、やめて知らせる (枠の並びの書き出しと同じ)
+    stageAbortRef.current = () => controller.cancel();
 
     const finish = () => {
       exportControllerRef.current = null;
+      stageAbortRef.current = null;
       setIsExporting(false);
       setExportProgress(null);
       videoViewStore.set({ isExporting: false });

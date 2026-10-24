@@ -40,7 +40,8 @@ const path = (folder: string) => `course/Corner/${folder}.json`;
  * アプリに入っているコーナー (リポジトリの courses/Corner/<コースの ID>.json。2026-10-24)。
  * 保管場所にそのコースのファイルが無いとき (と、保管場所の無いブラウザ版) に使う。名前を直して保存すると、保管場所に書く
  */
-const bundledTexts = import.meta.glob('../../courses/Corner/*.json', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+// コースの ID の名前のファイルだけを入れる (手で作った写し「… copy.json」などを、アプリに入れないように)
+const bundledTexts = import.meta.glob(['../../courses/Corner/[a-z0-9]*.json', '!../../courses/Corner/* *'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 const bundled = new Map<string, string>();
 for (const [p, text] of Object.entries(bundledTexts)) {
   const m = /\/([a-z0-9][a-z0-9_]*)\.json$/.exec(p);

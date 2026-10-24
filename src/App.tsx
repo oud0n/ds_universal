@@ -1012,6 +1012,8 @@ export const App: React.FC = () => {
         setIsPlaying(false);
         setClockBase('lap');
         setCurrentTimeSec(0);
+        // 距離も周の始めに (前の走行の距離のままだと、距離のグラフ・地図の車・速さの表示が、開いた直後だけ前の位置を出していた)
+        setCurrentDistanceKm(0);
         // 違うコースのログは「走行とコース」から外す (日光を開いたあとに袖ヶ浦を開いたら、袖ヶ浦だけにする)。
         // 同じコースのログは残す (比べる相手にできるように。開いた走行が Car 1)
         const removed = latestRef.current.sessions.filter(x => !added.some(a => a.id === x.id) && !sameCourseName(x.circuitName, main.circuitName));

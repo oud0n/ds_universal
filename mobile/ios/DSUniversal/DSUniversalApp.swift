@@ -49,8 +49,12 @@ struct WebContainer: UIViewRepresentable {
             // アプリに入れた Web を初めて開くときは、前の読み込み元の保存を先に写してから開く (WebMigration.swift)
             let migration = WebMigration(schemeHandler: context.coordinator.bundledWeb)
             Task { @MainActor in
+                // 写すのに時間がかかっても (大きなラップタイマーの控えなど)、15 秒で画面を開く (写すのは裏で続け、終わらなければ次に起動したときにもう一度)
+                var opened = false
+                let open = { if !opened { opened = true; webView.load(URLRequest(url: start)) } }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 15) { open() }
                 await migration.runIfNeeded()
-                webView.load(URLRequest(url: start))
+                open()
             }
         } else {
             webView.load(URLRequest(url: start, cachePolicy: .reloadIgnoringLocalCacheData))
@@ -72,5 +76,14 @@ enum WebSource {
             return BundledWebSchemeHandler.startURL
         }
         return URL(string: "https://oud0n.github.io/ds_universal/")!
+    }
+
+    /// アプリの画面として開いてよいページか (アプリに入れた Web と、開発中に読む DSWebURL のページ)。
+    /// ほかのページ (リンクの先など) はアプリの中で開かず、Safari で開く。ネイティブの窓口も、このページからの呼び出しだけ受ける
+    static func isAppPage(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        if url.scheme == BundledWebSchemeHandler.scheme { return true }
+        let start = startURL
+        return url.scheme == start.scheme && url.host == start.host && url.port == start.port
     }
 }
