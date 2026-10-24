@@ -239,7 +239,23 @@ export const App: React.FC = () => {
     setIdleCourse(c);
   };
   // 登録済みのユーザーコースの数 (データ管理タブの表示用)。保存済みのデータは起動後に非同期で読み込むので、読み込み後に更新する
-  const [userCircuitCount, setUserCircuitCount] = useState(0);
+  const [userCircuitCount, setUserCircuitCountState] = useState(0);
+  // コースフォルダー一括設置で読み込んだファイルの数 (外すボタンを出すか)
+  const [importedCourseFiles, setImportedCourseFiles] = useState(0);
+  const setUserCircuitCount = (n: number) => {
+    setUserCircuitCountState(n);
+    setImportedCourseFiles(userCircuitStorage.getImportedFileCount());
+  };
+  // コースフォルダー一括設置で読み込んだコースデータを外す (内蔵のコースに戻す)。コース編集で保存したコースは残す
+  const clearCircuitFolder = async () => {
+    if (!window.confirm(tr(
+      'コースフォルダ一括設置で読み込んだコースデータを外して、内蔵のコースに戻しますか？\n\nコース編集で保存したコースは残ります。保管場所の digspice/ フォルダのコース図は、引き続き使います。読み込み中のログは、開き直すと内蔵のコースで数え直します。',
+      'Remove the course data installed from a folder and go back to the built-in courses?\n\nCourses you saved in the course editor are kept. Track maps in the digspice/ folder of your storage are still used. Logs that are open are recounted with the built-in courses when you open them again.'
+    ))) return;
+    const r = await userCircuitStorage.clearImported();
+    setUserCircuitCount(userCircuitStorage.getCircuitCount());
+    if (!r.saved) alert(tr(`外しましたが、保存できませんでした: ${r.saveError ?? ''}`, `Removed, but it could not be saved: ${r.saveError ?? ''}`));
+  };
   useEffect(() => {
     userCircuitStorage.ready.then(() => setUserCircuitCount(userCircuitStorage.getCircuitCount()));
     // 保管場所の digspice/ (デジスパイスと同じ形のフォルダ) のコースデータも使う (内蔵のコースと同じコースは、コース図だけ)
@@ -2222,6 +2238,7 @@ export const App: React.FC = () => {
             onLoadPthFile={() => pthInputRef.current?.click()}
             onLoadClnFile={() => clnInputRef.current?.click()}
             onLoadCircuitFolder={() => folderInputRef.current?.click()}
+            onClearCircuitFolder={importedCourseFiles > 0 ? () => void clearCircuitFolder() : undefined}
             onOpenFile={() => fileInputRef.current?.click()}
             gFilterLevel={gFilterLevel}
             onChangeGFilterLevel={handleChangeGFilterLevel}
