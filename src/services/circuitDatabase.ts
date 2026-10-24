@@ -46,8 +46,9 @@ export const ALL_CIRCUITS: CircuitPreset[] = CIRCUIT_PRESETS;
  * 計測線で最も多く周回を区切れたコースを選ぶ
  */
 export function findMatchingCircuit(lat: number, lon: number, points?: TelemetryPoint[]): CircuitPreset | undefined {
-  // 1. ユーザー設置データを確認 (近くに複数あるときは、計測線を実際に通過しているコースを優先する)
-  const found = userCircuitStorage.findNearCircuit(lat, lon, 15000, points);
+  // 1. ユーザー設置データを確認 (近くに複数あるときは、計測線を実際に通過しているコースを優先する)。
+  // 内蔵のコースと同じコースの、読み込んだコースデータ (デジスパイスのフォルダなど) は使わない (コース図だけ使う)
+  const found = userCircuitStorage.findNearCircuit(lat, lon, 15000, points, isShadowedByPreset);
   const userMatch = found?.circuit;
   // 走行データがあって、近くのユーザーコースの計測線をどれも通過していないときは、すぐには使わない。
   // 内蔵のコースの計測線を通過していればそちらを、どちらも通過していなければ、計測線がログの近く (1 km 以内) にあるときだけ使う
@@ -61,6 +62,16 @@ export function findMatchingCircuit(lat: number, lon: number, points?: Telemetry
 }
 
 type UserCircuitEntry = ReturnType<typeof userCircuitStorage.getAllCircuits>[number];
+
+/**
+ * 内蔵のコースと同じコースの、読み込んだコースデータか (デジスパイスのフォルダなどから。コース編集で保存したものは含めない)。
+ * 読み込むと、近くの内蔵のコースの名前が付く (pairCourseFiles)。そういうコースは、計測線・セクター・記録のフォルダ・コーナーの名前は
+ * 内蔵のコースのものを使い、コース図だけを使う (内蔵のコースのコース図として。findUserPolylines)。
+ * 前は読み込んだコースが内蔵のコースより優先され、デジスパイスにセクター線の無いコース (袖ヶ浦など) でセクタータイムが出なかった
+ */
+export function isShadowedByPreset(u: UserCircuitEntry): boolean {
+  return !u.id.startsWith('edited:') && CIRCUIT_PRESETS.some(p => p.name === u.name && !!p.controlLine);
+}
 
 /** 自分のコースを、内蔵のコースと同じ形にする (名前の終わりに「(ユーザー設置)」を付ける) */
 function userCircuitPreset(u: UserCircuitEntry): CircuitPreset {
@@ -83,7 +94,7 @@ function userCircuitPreset(u: UserCircuitEntry): CircuitPreset {
 
 /** 計測線のある自分のコースの一覧 (ラップタイマーのコースを選ぶ画面に、内蔵のコースと並べて出す) */
 export function userCircuitPresets(): CircuitPreset[] {
-  return userCircuitStorage.getAllCircuits().filter(u => !!u.controlLine).map(userCircuitPreset);
+  return userCircuitStorage.getAllCircuits().filter(u => !!u.controlLine && !isShadowedByPreset(u)).map(userCircuitPreset);
 }
 
 /** 内蔵のコースから検索 (近くに複数あるときは、計測線を実際に通過しているコースを優先する) */
