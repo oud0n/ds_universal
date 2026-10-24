@@ -121,7 +121,7 @@ export async function electronRunStore(): Promise<RunStore | null> {
     async listAll() {
       const r = await api.list();
       if (!r.success || !r.files) throw fail(r.error);
-      return r.files.map(f => ({ ...f, local: true }));
+      return r.files.map(f => ({ ...f, local: f.local ?? true }));
     },
     list: () => store.listAll(),
     async read(path) {
@@ -143,10 +143,12 @@ export async function electronRunStore(): Promise<RunStore | null> {
       if (!r.success) throw fail(r.error);
     },
     videoUrl: lapFileUrl,
-    async fileStatus() {
-      return { local: true, downloading: false };
+    async fileStatus(path) {
+      return api.fileStatus ? api.fileStatus(path) : { local: true, downloading: false };
     },
-    async startDownload() {}
+    async startDownload(path) {
+      await api.startDownload?.(path);
+    }
   };
   return store;
 }

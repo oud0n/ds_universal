@@ -502,7 +502,13 @@ class UserCircuitStorage {
       return { saved: false, saveError: '保存済みのコースを読み込めなかったため、消さないよう保存していません (アプリを開き直してください)' };
     }
     try {
-      await dbPut(DB_KEY, { files: this.files, circuits: this.circuits, loose: this.loose, edited: this.edited } satisfies StoredData);
+      // 保管場所の digspice/・course/ のコースデータは保存しない (開くたびに読む。保管場所から消した・保管場所を変えたあとも残らないように)
+      let { circuits, loose } = this;
+      if (this.storageFiles.length) {
+        const { CIRCUIT_PRESETS } = await import('./circuitDatabase');
+        ({ circuits, loose } = pairCourseFiles(this.files, CIRCUIT_PRESETS));
+      }
+      await dbPut(DB_KEY, { files: this.files, circuits, loose, edited: this.edited } satisfies StoredData);
       return { saved: true };
     } catch (e) {
       console.warn('[UserCircuit] 保存に失敗:', e);

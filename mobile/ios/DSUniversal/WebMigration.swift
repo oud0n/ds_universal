@@ -12,6 +12,7 @@ import WebKit
 @MainActor
 final class WebMigration: NSObject, WKNavigationDelegate {
     static let doneKey = "webMigration.fromPages.v1"
+    static let emptyTriesKey = "webMigrationEmptyTries"
     /// 前の読み込み元 (保存は読み込み元ごとに分かれるので、この読み込み元のページの中から読む)
     private static let oldOriginURL = URL(string: "https://oud0n.github.io/ds_universal/")!
     private static let newOriginURL = URL(string: "laploupe://app/__migrate.html")!
@@ -26,34 +27,42 @@ final class WebMigration: NSObject, WKNavigationDelegate {
         self.schemeHandler = schemeHandler
     }
 
-    /// 要るときだけ写す。終わったら (写せなくても) 戻る
-    func runIfNeeded() async {
-        guard !UserDefaults.standard.bool(forKey: Self.doneKey) else { return }
+    /// 要るときだけ写す。終わったら (写せなくても) 戻る。写したら true
+    @discardableResult
+    func runIfNeeded() async -> Bool {
+        guard !UserDefaults.standard.bool(forKey: Self.doneKey) else { return false }
         // 前の読み込み元 (github.io) の保存が無ければ、写すものは無い (初めて入れた人。起動を待たせない)
         let records = await WKWebsiteDataStore.default().dataRecords(ofTypes: [WKWebsiteDataTypeLocalStorage, WKWebsiteDataTypeIndexedDBDatabases])
         guard records.contains(where: { $0.displayName.contains("github.io") }) else {
             DebugLog.write("web migration: nothing to copy (no github.io data)")
             UserDefaults.standard.set(true, forKey: Self.doneKey)
-            return
+            return false
         }
         DebugLog.write("web migration: start")
         guard let dump = await readOld() else {
             DebugLog.write("web migration: could not read the old origin; retry next launch")
-            return
+            return false
         }
         // 保存があるのに何も読めなかったときは、終わった印を付けない (次に起動したときにもう一度。印を付けると二度と写さないため)
+        // ただし 3 回続けて空なら、中身の無い保存とみなして終える (起動のたびに読みに行かないように)
         if dump.hasPrefix("{\"ls\":{},\"idb\":[]") {
-            DebugLog.write("web migration: old origin read as empty although data exists; retry next launch")
+            let tries = UserDefaults.standard.integer(forKey: Self.emptyTriesKey) + 1
+            UserDefaults.standard.set(tries, forKey: Self.emptyTriesKey)
+            DebugLog.write("web migration: old origin read as empty although data exists (\(tries)/3)")
+            if tries >= 3 { UserDefaults.standard.set(true, forKey: Self.doneKey) }
             webView = nil
-            return
+            return false
         }
+        var copied = false
         if let result = await writeNew(dump) {
             DebugLog.write("web migration: done \(result)")
             UserDefaults.standard.set(true, forKey: Self.doneKey)
+            copied = true
         } else {
             DebugLog.write("web migration: write failed; retry next launch")
         }
         webView = nil
+        return copied
     }
 
     private func makeWebView() -> WKWebView {
