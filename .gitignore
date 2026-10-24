@@ -54,3 +54,4 @@ tools/courses/result_*
 tools/courses/final_*.json
 tools/courses/sb_*.json
 tools/courses/sectors_final.json
+courses/Corner/*.bak

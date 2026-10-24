@@ -21,7 +21,8 @@
     "electron:dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "dist": "npm run build && electron-builder --publish never",
     "dist:win": "npm run build && electron-builder --win --publish never",
-    "dist:mac": "npm run build && electron-builder --mac --publish never"
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:mac:preview": "npm run build && electron-builder --mac dir --publish never && node scripts/preview-mac.cjs"
   },
   "repository": {
     "type": "git",
