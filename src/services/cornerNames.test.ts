@@ -100,6 +100,9 @@ describe('コーナーの名前', () => {
     const mid = Math.round((p0.endIndex + placed[1]!.startIndex) / 2);
     const added = applySpanCorner(named, geo, mid - 10, mid + 10);
     expect(added!.list.map(c => c.name)).toEqual(['C1', 'C5', 'C2', 'C3', 'C4']);
+    // 頂点のすぐ手前までなぞったとき: そのコーナーを置き換え、名前を引き継ぐ
+    const edge = applySpanCorner(named, geo, p0.startIndex - 20, p0.apexIndex - 1);
+    expect(edge!.list.map(c => c.name)).toEqual(['C1', 'C2', 'C3', 'C4']);
     // 短すぎる範囲は作らない
     expect(applySpanCorner(named, geo, mid, mid + 1)).toBeNull();
     // 周の始めと終わりをまたいだ (ほぼ 1 周の) 範囲は作らない
