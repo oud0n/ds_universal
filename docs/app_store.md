@@ -175,15 +175,19 @@ The app shows the same web-based analysis as our free desktop/browser versions, 
 ### 日本語
 
 - 動画を画面いっぱいに出すボタンと、音を消すボタンを付けました。
-- 別のサーキットの走行を開くと、前のサーキットのログを外すようにしました。同じサーキットの走行は残り、比べる相手にできます。
+- 比べる相手の動画の同期も、走行ごとに保存するようにしました。
+- コース編集で直したコースとコーナーの名前を、保管場所のフォルダに保存し、iPhone と Mac で共有できるようにしました。
+- 47 のコースにセクター線を入れました。
+- 別のサーキットの走行を開くと、前のサーキットのログを外すようにしました。
 - ガソリン代の投げ銭（1L・5L・10L）を付けました。投げ銭をしても機能は変わりません。
-- 横向きで画面の左右が切り欠きに隠れていたのを直しました。
-- 朝 9 時より前の走行の日付が前の日になるなど、細かな不具合を直しました。
+- 横向きで画面の左右が切り欠きに隠れていたのを直しました。そのほか細かな不具合を直しました。
 
 ### English
 
 - Added a full-screen button and a mute button for video playback.
-- Opening a run at a different circuit now removes the previous circuit's logs. Runs at the same circuit stay so you can compare them.
+- Video sync for compared runs is now saved with each run.
+- Courses edited in the course editor and corner names are saved in your storage folder and shared between iPhone and Mac.
+- Added sector lines to 47 courses.
+- Opening a run at a different circuit now removes the previous circuit's logs.
 - Added fuel tips (1 L, 5 L, 10 L). Tipping does not unlock anything.
-- Fixed the left and right edges being hidden behind the notch in landscape.
-- Fixed small issues, such as runs before 9:00 showing the previous day.
+- Fixed the left and right edges being hidden behind the notch in landscape, and other small issues.
