@@ -12,7 +12,7 @@ import { getTileImage, MapBackground, TILE_ATTRIBUTION, tilesForView } from '../
 import { useLapGeometries } from '../hooks/useLapGeometries';
 import { computeCorrectedLineDelta, computeLineDelta } from '../services/drivingAnalysis';
 import { cornerLabel, useNamedCorners, type NamedCornerOnLap } from '../hooks/useNamedCorners';
-import { applySpanCorner, carryNames, cornerAt, freeCornerName, cornersFromDetection, insertCorner, mergeCorners, newCornerFile, placeCorners, splitCorner, type NamedCorner } from '../services/cornerNames';
+import { applySpanCorner, carryNames, cornersFromDetection, mergeCorners, newCornerFile, placeCorners, splitCorner, tapSpan, type NamedCorner } from '../services/cornerNames';
 import { saveCourseCorners } from '../services/courseCorners';
 import { canUseRunStore } from '../services/runStore';
 import { CornerEditPanel } from './CornerEditPanel';
@@ -215,10 +215,18 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       if (d < bestD) { bestD = d; best = i; }
     });
     if (best < 0) { setSelectedCorner(null); return; }
-    const added = cornerAt(baseGeo, best, freeCornerName(cornerDraft));
-    const next = insertCorner(cornerDraft, added, baseGeo);
-    setCornerDraft(next);
-    setSelectedCorner(next.indexOf(added));
+    // 前後のコーナーに重ねない範囲で足す (重なると、走る順に置くときに前後のコーナーが置けなくなるため)。
+    // 押した所がもうコーナーの中なら、そのコーナーを選ぶ
+    const span = tapSpan(cornerDraft, baseGeo, best);
+    if (!span) {
+      const k = placeCorners(baseGeo, cornerDraft).findIndex(p => !!p && p.startIndex <= best && best <= p.endIndex);
+      setSelectedCorner(k >= 0 ? k : null);
+      return;
+    }
+    const r = applySpanCorner(cornerDraft, baseGeo, span.a, span.b);
+    if (!r) return;
+    setCornerDraft(r.list);
+    setSelectedCorner(r.index);
   };
   const lineDeltas = useMemo(() => {
     if (colorMode !== 'line' || analysed.length < 2) return [];

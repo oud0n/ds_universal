@@ -245,6 +245,24 @@ export function cornerFromSpan(geo: LapGeometry, a: number, b: number, name: str
 }
 
 /**
+ * 周 geo の点 index を押してコーナーを足すときの範囲。前後 spanM で、前後のコーナーの頂点にはかからない。
+ * 押した所がもうコーナーの中なら null (そのコーナーを選ぶ)
+ */
+export function tapSpan(list: NamedCorner[], geo: LapGeometry, index: number, spanM = 40): { a: number; b: number } | null {
+  const placed = placeCorners(geo, list).filter((p): p is PlacedCorner => !!p);
+  if (placed.some(p => p.startIndex <= index && index <= p.endIndex)) return null;
+  const n = geo.s.length;
+  let a = index, b = index;
+  while (a > 0 && geo.s[index] - geo.s[a - 1] <= spanM) a--;
+  while (b < n - 1 && geo.s[b + 1] - geo.s[index] <= spanM) b++;
+  for (const p of placed) {
+    if (p.apexIndex < index) a = Math.max(a, p.apexIndex + 1);
+    if (p.apexIndex > index) b = Math.min(b, p.apexIndex - 1);
+  }
+  return { a, b };
+}
+
+/**
  * なぞった範囲 a〜b を 1 つのコーナーにして、一覧に入れる。頂点がその範囲に入る前のコーナーは置き換える
  * (複合コーナーを 1 つにまとめる・まとめられたものを分けて作り直すため)。
  * 名前は、置き換えたのが 1 つならその名前、複数なら「最初-最後」、無ければ C<数>。作れなければ null
@@ -264,8 +282,9 @@ export function applySpanCorner(list: NamedCorner[], geo: LapGeometry, a: number
     if (inside.includes(k)) return [];
     const p = placed[k];
     if (!p) return [c];
-    if (p.apexIndex > i1 && p.startIndex <= i1) return [{ ...c, entry: at(geo, Math.min(n - 1, i1 + 1)) }];
-    if (p.apexIndex < i0 && p.endIndex >= i0) return [{ ...c, exit: at(geo, Math.max(0, i0 - 1)) }];
+    // 縮めると入口が頂点に届く (長さが無くなる) ものは外す (周の上に置けなくなるため)
+    if (p.apexIndex > i1 && p.startIndex <= i1) return i1 + 1 >= p.apexIndex ? [] : [{ ...c, entry: at(geo, Math.min(n - 1, i1 + 1)) }];
+    if (p.apexIndex < i0 && p.endIndex >= i0) return i0 - 1 <= p.apexIndex ? [] : [{ ...c, exit: at(geo, Math.max(0, i0 - 1)) }];
     return [c];
   });
   const next = insertCorner(rest, corner, geo);
