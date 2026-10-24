@@ -70,7 +70,10 @@ export const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy
         </div>
         <div className="flex items-center gap-3 mt-1 text-xs">
           {!run.pending && run.courseName === null ? (
-            <span className="text-slate-500">{t('コース未設定', 'No course')}</span>
+            // 知らない場所の走行は、ここでは周を数えない (開くと計測線を自動で置いて数える。BUG-35 の (2))
+            <span className="text-slate-500" title={t('開くと、計測線を自動で置いて周を数えます', 'Laps are counted with an automatic timing line when you open it')}>
+              {t('コース未設定 (開くと周を数えます)', 'No course (laps counted when opened)')}
+            </span>
           ) : run.pending ? (
             <span className="text-slate-500" title={t('iCloud にだけあるので、開くと落としてきて周を数えます', 'Only in iCloud. Laps are counted after it downloads when you open it')}>
               {t('☁️ 未集計', '☁️ Not counted')}
