@@ -270,7 +270,8 @@ export function tapSpan(list: NamedCorner[], geo: LapGeometry, index: number, sp
 export function applySpanCorner(list: NamedCorner[], geo: LapGeometry, a: number, b: number): { list: NamedCorner[]; index: number } | null {
   const i0 = Math.min(a, b), i1 = Math.max(a, b);
   const placed = placeCorners(geo, list);
-  const inside = placed.map((p, k) => (p && p.apexIndex >= i0 && p.apexIndex <= i1 ? k : -1)).filter(k => k >= 0);
+  // 頂点が範囲の中 (と、すぐ外の 1 点。縮めると長さが無くなるため) のコーナーを置き換える
+  const inside = placed.map((p, k) => (p && p.apexIndex >= i0 - 1 && p.apexIndex <= i1 + 1 ? k : -1)).filter(k => k >= 0);
   const name = inside.length === 1 ? list[inside[0]].name
     : inside.length > 1 ? `${list[inside[0]].name}-${list[inside[inside.length - 1]].name}`
     : freeCornerName(list);
@@ -282,9 +283,8 @@ export function applySpanCorner(list: NamedCorner[], geo: LapGeometry, a: number
     if (inside.includes(k)) return [];
     const p = placed[k];
     if (!p) return [c];
-    // 縮めると入口が頂点に届く (長さが無くなる) ものは外す (周の上に置けなくなるため)
-    if (p.apexIndex > i1 && p.startIndex <= i1) return i1 + 1 >= p.apexIndex ? [] : [{ ...c, entry: at(geo, Math.min(n - 1, i1 + 1)) }];
-    if (p.apexIndex < i0 && p.endIndex >= i0) return i0 - 1 <= p.apexIndex ? [] : [{ ...c, exit: at(geo, Math.max(0, i0 - 1)) }];
+    if (p.apexIndex > i1 && p.startIndex <= i1) return [{ ...c, entry: at(geo, Math.min(n - 1, i1 + 1)) }];
+    if (p.apexIndex < i0 && p.endIndex >= i0) return [{ ...c, exit: at(geo, Math.max(0, i0 - 1)) }];
     return [c];
   });
   const next = insertCorner(rest, corner, geo);

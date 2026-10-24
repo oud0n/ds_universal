@@ -162,6 +162,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     setSelectedCorner(null);
     setCornerError('');
     setShowCorners(true);
+    // 地図の位置調整は、編集中はボタンを出さないので外す (なぞる操作が地図の位置を動かさないように)
+    setIsAdjustingMap(false);
   };
   const saveCornerEdit = async () => {
     if (!cornerDraft || !course.folder) return;
@@ -908,8 +910,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       <div className={`touch-toolbar flex flex-wrap items-center justify-between gap-x-2 gap-y-1 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0 ${compact ? 'px-2 py-1' : 'px-3 py-1.5'}`}>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
 
-          {/* カラーモード切替 */}
-          <div className="flex items-center bg-surface-1 rounded p-0.5 border border-line-3">
+          {/* カラーモード切替。コーナーの編集中は出さない (ボタンが折り返して、スマートフォンでは地図が狭くなるため。下の 2 つも同じ) */}
+          <div className={`flex items-center bg-surface-1 rounded p-0.5 border border-line-3 ${cornerDraft ? 'hidden' : ''}`}>
             <button
               onClick={() => setColorMode('car')}
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
@@ -947,7 +949,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
           <button
             onClick={() => setShowCorners(v => !v)}
             title={t('コーナー番号の表示切替', 'Show or hide corner numbers')}
-            className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-all ${
+            className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-all ${cornerDraft ? 'hidden' : ''} ${
               showCorners ? 'border-amber-500/50 text-amber-300' : 'border-line-3 text-slate-500 hover:text-slate-300'
             }`}
           >
@@ -975,7 +977,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
             <option value="photo">{compact ? '' : t('背景: ', 'Background: ')}{t('航空写真', 'Aerial photo')}</option>
             <option value="standard">{compact ? '' : t('背景: ', 'Background: ')}{t('地図', 'Map')}</option>
           </select>
-          {background !== 'none' && (
+          {background !== 'none' && !cornerDraft && (
             <button
               onClick={() => setIsAdjustingMap(v => !v)}
               aria-pressed={isAdjustingMap}
