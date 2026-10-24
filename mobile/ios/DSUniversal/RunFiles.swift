@@ -164,7 +164,8 @@ enum RunFiles {
 
     /// ログ・控えを読む (動画などの大きなファイルは読まない)。iCloud から落ちてきていなければ、落ちてくるのを待つ
     static func read(_ rel: String) throws -> Data {
-        let allowed = ["bon4", "nmea", "json", "csv"]
+        // pth・cln・sci: 保管場所の digspice/ のコースデータ (デジスパイスと同じ形。storageCourses.ts)
+        let allowed = ["bon4", "nmea", "json", "csv", "pth", "cln", "sci"]
         return try withRoot { root in
             guard let url = resolve(rel, in: root), allowed.contains(url.pathExtension.lowercased()) else {
                 throw NativeError(.notFound, "no file")

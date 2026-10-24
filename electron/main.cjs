@@ -483,6 +483,23 @@ ipcMain.handle('laps-list', async () => {
           }
           continue;
         }
+        // デジスパイスのコースフォルダと同じ形の digspice/ (Circuit/・ControlLine/・Sector/ と 海外/ などの下) は、コースデータだけ深く見る
+        if (f.isDirectory() && dir.name.toLowerCase() === 'digspice') {
+          const walk = async (rel, depth) => {
+            let entries = [];
+            try { entries = await fs.promises.readdir(path.join(root, rel), { withFileTypes: true }); } catch { return; }
+            for (const g of entries) {
+              if (g.name.startsWith('.')) continue;
+              if (g.isDirectory() && depth < 3) await walk(`${rel}/${g.name}`, depth + 1);
+              else if (g.isFile() && /\.(cln|pth|sci)$/i.test(g.name)) {
+                const st = await fs.promises.stat(path.join(root, rel, g.name));
+                files.push({ path: `${rel}/${g.name}`, size: st.size, mtimeMs: Math.round(st.mtimeMs) });
+              }
+            }
+          };
+          await walk(`${dir.name}/${f.name}`, 1);
+          continue;
+        }
         if (!f.isFile()) continue;
         const st = await fs.promises.stat(path.join(root, dir.name, f.name));
         files.push({ path: `${dir.name}/${f.name}`, size: st.size, mtimeMs: Math.round(st.mtimeMs) });

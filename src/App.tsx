@@ -63,6 +63,7 @@ import { SplitResizer } from './components/SplitResizer';
 import { interpolatePoint } from './utils/telemetrySearch';
 import { ImportSheet } from './components/import/ImportSheet';
 import { planImport, type ImportPlan } from './services/import/importPlan';
+import { loadStorageCourses } from './services/storageCourses';
 import { applyPlan, type PartResult } from './services/import/importApply';
 import { electronWriter, nativeWriter } from './services/import/importWriters';
 import { LOG_EXTENSIONS } from './services/logLoader';
@@ -241,6 +242,8 @@ export const App: React.FC = () => {
   const [userCircuitCount, setUserCircuitCount] = useState(0);
   useEffect(() => {
     userCircuitStorage.ready.then(() => setUserCircuitCount(userCircuitStorage.getCircuitCount()));
+    // 保管場所の digspice/ (デジスパイスと同じ形のフォルダ) のコースデータも使う (内蔵のコースと同じコースは、コース図だけ)
+    void loadStorageCourses().then(n => { if (n) setUserCircuitCount(userCircuitStorage.getCircuitCount()); }).catch(() => undefined);
   }, []);
   // コース図の取得の受付番号 (セッションごと)。後から別のコース図を設定したセッションに、古い取得結果を上書きしない
   const polylineRequestRef = useRef(new Map<string, number>());
