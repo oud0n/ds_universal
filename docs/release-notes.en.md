@@ -28,6 +28,7 @@
 - Runs before 9:00 in the morning (Japan time) showed the previous day in Convert and in the video run inspector.
 - Runs without a course no longer show "0 laps" in Runs; they show "No course (laps counted when opened)".
 - When you import several files at once, the import sheet shows which file it is ("2/3").
+- A compared run's (Car 2–4) video did not show in Compare when it had the same file name as Car 1's video (e.g. GoPro GX010017.MP4).
 - If the screen was hidden while exporting the video layout, a cut-short video was saved; the export now stops and tells you.
 - Runs timed with an old own course without a storage folder name could go to a different folder from its corner names.
 - iPhone app: in landscape, the left and right edges were hidden behind the notch; pinch zoom is disabled.
