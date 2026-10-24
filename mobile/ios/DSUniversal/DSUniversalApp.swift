@@ -28,7 +28,18 @@ struct WebContainer: UIViewRepresentable {
         config.setURLSchemeHandler(context.coordinator.lapFiles, forURLScheme: RunFiles.scheme)
         // アプリに入れた Web を laploupe://app/ で返す (BundledWeb.swift)
         config.setURLSchemeHandler(context.coordinator.bundledWeb, forURLScheme: BundledWebSchemeHandler.scheme)
+        // 画面のピンチでの拡大・縮小を止める (アプリの中だけ。地図・グラフの 2 本指の拡大は、画面の側で処理するので使える)。
+        // ブラウザ版は、見えにくい人が拡大できるよう止めない
+        let noZoom = WKUserScript(source: """
+            (function () {
+              var m = document.querySelector('meta[name=viewport]');
+              if (!m) { m = document.createElement('meta'); m.name = 'viewport'; document.head.appendChild(m); }
+              m.content = 'width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no';
+            })();
+            """, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        config.userContentController.addUserScript(noZoom)
         let webView = WKWebView(frame: .zero, configuration: config)
+        webView.scrollView.pinchGestureRecognizer?.isEnabled = false
         webView.isInspectable = true
         context.coordinator.attach(to: webView)
         // 入口のページは、起動のたびに取り直す (GitHub Pages は 10 分覚えさせるので、出し直した版が起動し直しても出ないことがあった)。
