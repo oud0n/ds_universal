@@ -169,6 +169,7 @@ The app shows the same web-based analysis as our free desktop/browser versions, 
 - 審査用のスクリーンショット: 投げ銭の画面 (3 つの金額が並んだ状態) を撮って、3 つの項目それぞれに入れる。
 - 審査のメモ (項目ごと): `A voluntary tip to support the developer. It does not unlock any content or features; every feature of the app is free. Open Settings (gear icon, top right) > "Support" (開発支援) to see the tip options.`
 - 最初の課金は、バージョン 1.0.3 のページの「アプリ内購入およびサブスクリプション」に 3 つを足して、一緒に提出する。
+- 表示名 (2026-10-24 に API で入力): 日本語「ガソリン 1L / 5L / 10L 分の投げ銭」、説明「開発を応援する投げ銭です。ガソリンが届いたり、機能が増えたりはしません。」。英語 (en-US)「Fuel 1L / 5L / 10L tip」、説明「A tip to support development. It unlocks nothing.」(英語の説明は 55 文字まで)。審査のメモ・審査用のスクリーンショットも入れて、3 つとも「提出準備完了」。
 
 ## 1.0.3 の「このバージョンの新機能」(下書き。2026-10-24)
 
