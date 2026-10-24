@@ -133,15 +133,21 @@ function stemMs(stem: string): number | null {
  * 日付のフォルダを作る前の置き方 (<サーキット>/ の直下) の両方を見る
  */
 export function sameRunExists(existing: ReadonlySet<string>, base: string, startMs: number): boolean {
+  return findSameRun(existing, base, startMs) !== null;
+}
+
+/** 保管場所にある同じ走行 (拡張子を除いた道)。同じ名前か、同じコースで始まりが 10 秒以内。無ければ null */
+export function findSameRun(existing: ReadonlySet<string>, base: string, startMs: number): string | null {
+  if (existing.has(base)) return base;
   const circuit = base.slice(0, base.indexOf('/') + 1);
   for (const e of existing) {
     if (!e.startsWith(circuit)) continue;
     const rest = e.slice(circuit.length);
     if (!/^(\d{8}\/)?[^/]+$/.test(rest)) continue;
     const t = stemMs(rest.slice(rest.lastIndexOf('/') + 1));
-    if (t !== null && Math.abs(t - startMs) <= 10_000) return true;
+    if (t !== null && Math.abs(t - startMs) <= 10_000) return e;
   }
-  return false;
+  return null;
 }
 
 /** 速さの折れ線 (n 点に間引く) */

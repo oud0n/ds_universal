@@ -63,7 +63,7 @@ import { PlayBar } from './components/PlayBar';
 import { SplitResizer } from './components/SplitResizer';
 import { interpolatePoint } from './utils/telemetrySearch';
 import { ImportSheet } from './components/import/ImportSheet';
-import { planImport, type ImportPlan } from './services/import/importPlan';
+import { findSameRun, planImport, type ImportPlan } from './services/import/importPlan';
 import { loadStorageCourses } from './services/storageCourses';
 import { applyPlan, type PartResult } from './services/import/importApply';
 import { electronWriter, nativeWriter } from './services/import/importWriters';
@@ -721,7 +721,7 @@ export const App: React.FC = () => {
       if (!isVideoFileName(file.name)) {
         try {
           // 保管場所があれば、走行ごとに分けて取り込むかを先に聞く (取り込まずに開くこともできる)
-          if (await offerImport(file.name, await file.arrayBuffer())) continue;
+          if (await offerImport(file.name, await file.arrayBuffer(), files.length === 1)) continue;
           await loadFileData(file.name, await file.arrayBuffer());
         } catch (err: any) {
           alert(tr(`ファイル ${file.name} の読み込みに失敗しました: ${err.message}`, `Could not load ${file.name}: ${err.message}`));
@@ -747,17 +747,27 @@ export const App: React.FC = () => {
    * ログを保管場所に取り込むかを聞く (確認のシートを出し、閉じるまで待つ)。保管場所がない・分けられない・全部取り込み済みなら
    * 聞かずに false (そのまま開く)。true なら、開くかどうかはシートの中で決まった
    */
-  const offerImport = async (name: string, buffer: ArrayBuffer): Promise<boolean> => {
+  const offerImport = async (name: string, buffer: ArrayBuffer, openExisting = false): Promise<boolean> => {
     const ext = name.split('.').pop()?.toLowerCase() ?? '';
     if (!LOG_EXTENSIONS.includes(ext) || !canUseRunStore()) return false;
     let plan: ImportPlan;
+    let existing: Set<string>;
     try {
       const store = await getRunStore();
       if (!store) return false;
-      const existing = new Set((await store.list()).filter(f => /\.(nmea|bon4)$/i.test(f.path)).map(f => f.path.replace(/\.[^./]+$/, '')));
+      existing = new Set((await store.list()).filter(f => /\.(nmea|bon4)$/i.test(f.path)).map(f => f.path.replace(/\.[^./]+$/, '')));
       plan = planImport(await parseLogBuffer(name, buffer.slice(0), tr), name, existing);
     } catch {
       return false;
+    }
+    // 保管場所にもうある走行 1 つなら、走行の画面から開くのと同じ形で開く (違うコースのログを外す・同じ走行を 2 回読み込まない)
+    // (ファイルを 1 つだけ開いたとき。ロガーから落としたときは今までどおり)
+    if (openExisting && plan.parts.length === 1 && plan.parts[0].already) {
+      const same = findSameRun(existing, plan.parts[0].base, plan.parts[0].startMs);
+      const store = same ? await getRunStore().catch(() => null) : null;
+      const items = store ? await listRuns(store).catch(() => [] as RunItem[]) : [];
+      const item = items.find(r => `${r.folder}/${r.file}`.replace(/\.[^./]+$/, '') === same);
+      if (item) { await openRun(item); return true; }
     }
     if (plan.parts.length === 0 || plan.parts.every(p => p.already)) return false;
     importCountRef.current.queued++;

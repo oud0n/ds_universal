@@ -56,13 +56,28 @@ export function findMatchingCircuit(lat: number, lon: number, points?: Telemetry
   // (近くにあるだけの別のコースを使うと周回が区切れず、内蔵のコースや仮の計測線も使われなくなるため)
   const preset = findMatchingPreset(lat, lon, points);
   const presetCrossed = !!(points && preset?.controlLine && countGateCrossings(points, preset.controlLine) > 0);
-  const useUser = userMatch && (found!.crossings !== 0 || (!presetCrossed && !!points && passesNearControlLine(points, userMatch.controlLine)));
+  // 走行データが無い (取り込みで場所だけを見るときなど) ときは、近い方を使う
+  // (15 km 以内にあるだけの自分のコースを内蔵のコースより先に使うと、袖ヶ浦のログが近くの新東京サーキットになり、場所が分からなくなっていた)
+  const nearer = !points && preset ? userNearerThanPreset(lat, lon, userMatch, preset) : true;
+  const useUser = userMatch && nearer && (found!.crossings !== 0 || (!presetCrossed && !!points && passesNearControlLine(points, userMatch.controlLine)));
   if (userMatch && useUser) return userCircuitPreset(userMatch);
 
   return preset;
 }
 
 type UserCircuitEntry = ReturnType<typeof userCircuitStorage.getAllCircuits>[number];
+
+/** 自分のコースの計測線が、内蔵のコースの中心より近いか (同じ距離なら自分のコース) */
+function userNearerThanPreset(lat: number, lon: number, u: UserCircuitEntry | undefined, preset: CircuitPreset): boolean {
+  if (!u) return false;
+  const d = (a: number, b: number) => Math.hypot((a - lat) * 111320, (b - lon) * 111320 * Math.cos((lat * Math.PI) / 180));
+  const l = u.controlLine;
+  const pl = preset.controlLine;
+  const presetD = pl ? d((pl.latA + pl.latB) / 2, (pl.lonA + pl.lonB) / 2) : d(preset.centerLat, preset.centerLon);
+  const userD = d((l.latA + l.latB) / 2, (l.lonA + l.lonB) / 2);
+  // コース編集で直した内蔵のコース (同じ場所。計測線を少し動かしただけ) は、近ければ自分のものを使う
+  return userD <= presetD || (u.id.startsWith('edited:') && userD < 2000);
+}
 
 /**
  * 内蔵のコースと同じコースの、読み込んだコースデータか (デジスパイスのフォルダなどから。コース編集で保存したものは含めない)。

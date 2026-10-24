@@ -108,7 +108,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
           data-testid="library-storage"
         >
           <FolderOpen size={14} className="shrink-0 text-slate-400" />
-          <span className="truncate flex-1 text-left">{storageLabel}</span>
+          <span className="truncate flex-1 text-left" title={storageLabel}>{storageLabel}</span>
           <ChevronRight size={14} className="text-slate-500 shrink-0" />
         </button>
       )}
