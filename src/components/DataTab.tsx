@@ -41,6 +41,8 @@ interface DataTabProps {
   baseSlot?: number;
   // 登録済みのユーザーコースの数
   userCircuitCount: number;
+  /** コースフォルダー一括設置で読み込んだコースデータを外す (読み込んだものがあるときだけ) */
+  onClearCircuitFolder?: () => void;
   onRemoveSession: (sessionId: string) => void;
   onOpenInConvert: (sessionId: string) => void;
   onEditSessionName: (sessionId: string, newName: string) => void;
@@ -213,6 +215,7 @@ export const DataTab: React.FC<DataTabProps> = ({
   onSetAlignLapLength,
   baseSlot,
   userCircuitCount,
+  onClearCircuitFolder,
   onRemoveSession,
   onOpenInConvert,
   onEditSessionName,
@@ -312,6 +315,18 @@ export const DataTab: React.FC<DataTabProps> = ({
                   {userCircuitCount}
                 </span>
               )}
+            </button>
+          )}
+          {/* 一括設置したコースデータを外す (内蔵のコースに戻す) */}
+          {onClearCircuitFolder && (
+            <button
+              onClick={onClearCircuitFolder}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-3 hover:bg-surface-4 border border-line-3 text-xs text-slate-300 font-medium transition-colors"
+              title={t('コースフォルダ一括設置で読み込んだコースデータを外して、内蔵のコースに戻す', 'Remove the course data installed from a folder and go back to the built-in courses')}
+              data-testid="clear-course-folder"
+            >
+              <X size={13} />
+              {t('一括設置を外す', 'Remove installed courses')}
             </button>
           )}
 
