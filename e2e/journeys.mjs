@@ -8,7 +8,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const APP = 'http://localhost:5183/';
+// 開発サーバーの場所 (別の口で動かしているときは E2E_APP で替える)
+export const APP = process.env.E2E_APP ?? 'http://localhost:5183/';
 /** スマートフォンの試験で読み込むログ (読むだけ。E2E_SAMPLE_NMEA で替えられる) */
 const SAMPLE_NMEA = process.env.E2E_SAMPLE_NMEA ?? `${os.homedir()}/Library/Mobile Documents/com~apple~CloudDocs/LapLoupe/nikko/20260830/20260830095701.nmea`;
 
@@ -67,7 +68,7 @@ async function seekRatio(p, ratio) {
 
 export const journeys = [
   {
-    name: '走行を開くと Car 1 になる (別のコースの Car は外れる)',
+    name: '走行を開くと Car 1 になる (別のコースの Car とログは外れ、同じコースのログは残る)',
     target: 'electron',
     async run(p) {
       await p.goto(APP);
@@ -80,7 +81,15 @@ export const journeys = [
       const c1 = s.sessions.find(x => x.id === s.cars.find(c => c.slot === 0).sessionId).circuitName;
       check(others.every(n => n === c1), `別のコースの Car が残っている: ${others.join(', ')}`);
       check(s.screen === 'video', `動画を見るで開いたのに画面が ${s.screen}`);
+      // 違うコースのログ (TC2000) は走行とコースから外れる
+      check(s.sessions.every(x => x.circuitName === c1), `別のコースのログが残っている: ${s.sessions.map(x => x.circuitName).join(', ')}`);
       await checkVideoSync(p, '日光を開いた直後');
+      // 同じコースの走行を続けて開くと、両方残り、あとから開いた方が Car 1
+      await openRun(p, '9/18', 'run-open-analysis');
+      await openRun(p, '8/15', 'run-open-analysis');
+      const s2 = await p.state();
+      check(s2.sessions.length === 2 && s2.sessions.every(x => /Sodegaura/.test(x.circuitName)), `袖ヶ浦の 2 つのログだけになっていない: ${s2.sessions.map(x => x.sessionName).join(', ')}`);
+      check((await car1Name(p))?.includes('20260815'), `あとから開いた 8/15 が Car 1 でない: ${await car1Name(p)}`);
     }
   },
   {
@@ -116,30 +125,31 @@ export const journeys = [
     target: 'electron',
     async run(p) {
       await p.goto(APP);
-      await openRun(p, '10/12', 'run-open-analysis');
+      // 違うコースの走行は開くと外れるので、同じコース (袖ヶ浦) の 2 つの走行で試す
+      await openRun(p, '9/18', 'run-open-analysis');
       await openRun(p, '8/15', 'run-open-video');
       check((await car1Name(p))?.includes('20260815'), '8/15 が Car 1 でない');
       await p.click('nav-analysis');
       await sleep(800);
       await p.click('toggle-data-drawer');
       await p.waitFor(`document.querySelector('[data-testid="data-drawer"]')`, 3000);
-      // TC2000 の走行の周の表で、Car 1 (1 の印) を押す
+      // 9/18 の走行の周の表で、Car 1 (1 の印) を押す
       const ok = await p.ev(`(()=>{
         const drawer=document.querySelector('[data-testid="data-drawer"]');
         const isCar1=x=>(x.title||'').startsWith('Car 1');
-        const blocks=[...drawer.querySelectorAll('*')].filter(e=>e.innerText && e.innerText.includes('コース2000 (TC2000)') && e.innerText.includes('ラップタイム') && [...e.querySelectorAll('button')].some(isCar1));
+        const blocks=[...drawer.querySelectorAll('*')].filter(e=>e.innerText && e.innerText.includes('20260918') && !e.innerText.includes('20260815') && e.innerText.includes('ラップタイム') && [...e.querySelectorAll('button')].some(isCar1));
         const block=blocks.sort((a,b)=>a.innerText.length-b.innerText.length)[0];
         const btn=block && [...block.querySelectorAll('button')].find(isCar1);
         if(!btn) return false; btn.click(); return true })()`);
-      check(ok, 'TC2000 の周の Car 1 の印が見つからない');
+      check(ok, '9/18 の周の Car 1 の印が見つからない');
       await sleep(1500);
-      check((await car1Name(p))?.includes('20261012'), `Car 1 が TC2000 にならない: ${await car1Name(p)}`);
+      check((await car1Name(p))?.includes('20260918'), `Car 1 が 9/18 にならない: ${await car1Name(p)}`);
       await p.click('data-drawer-close');
       await p.click('nav-video');
       await sleep(6000);
       const src = await p.ev(`decodeURIComponent(document.querySelector('video')?.currentSrc ?? '')`);
-      check(src.includes('tsukuba2000'), `動画が TC2000 のものにならない: ${src}`);
-      await checkVideoSync(p, 'Car 1 を TC2000 に替えて動画へ');
+      check(src.includes('GX010017'), `動画が 9/18 のものにならない: ${src}`);
+      await checkVideoSync(p, 'Car 1 を 9/18 に替えて動画へ');
     }
   },
   {

@@ -169,3 +169,21 @@ The app shows the same web-based analysis as our free desktop/browser versions, 
 - 審査用のスクリーンショット: 投げ銭の画面 (3 つの金額が並んだ状態) を撮って、3 つの項目それぞれに入れる。
 - 審査のメモ (項目ごと): `A voluntary tip to support the developer. It does not unlock any content or features; every feature of the app is free. Open Settings (gear icon, top right) > "Support" (開発支援) to see the tip options.`
 - 最初の課金は、バージョン 1.0.3 のページの「アプリ内購入およびサブスクリプション」に 3 つを足して、一緒に提出する。
+
+## 1.0.3 の「このバージョンの新機能」(下書き。2026-10-24)
+
+### 日本語
+
+- 動画を画面いっぱいに出すボタンと、音を消すボタンを付けました。
+- 別のサーキットの走行を開くと、前のサーキットのログを外すようにしました。同じサーキットの走行は残り、比べる相手にできます。
+- ガソリン代の投げ銭（1L・5L・10L）を付けました。投げ銭をしても機能は変わりません。
+- 横向きで画面の左右が切り欠きに隠れていたのを直しました。
+- 朝 9 時より前の走行の日付が前の日になるなど、細かな不具合を直しました。
+
+### English
+
+- Added a full-screen button and a mute button for video playback.
+- Opening a run at a different circuit now removes the previous circuit's logs. Runs at the same circuit stay so you can compare them.
+- Added fuel tips (1 L, 5 L, 10 L). Tipping does not unlock anything.
+- Fixed the left and right edges being hidden behind the notch in landscape.
+- Fixed small issues, such as runs before 9:00 showing the previous day.

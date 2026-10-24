@@ -9,6 +9,9 @@
 **Added**
 
 - **Video**: a mute / unmute button in the playback bar. The choice is remembered on this device.
+- **Video**: a full-screen button in the playback bar (hides the top toolbar and shows only the video and the playback bar).
+- **Runs**: opening a run at a different circuit removes the previous circuit's logs from "Runs & course" (open Nikko, then Sodegaura, and only Sodegaura is left). Runs at the same circuit stay as before, and the run you opened last becomes Car 1.
+- **iPhone app**: fuel tips (in-app purchase: 1 L, 5 L, 10 L). Tipping does not unlock anything.
 
 **Fixes**
 
@@ -21,6 +24,14 @@
 - Lap timer: your own courses are listed in the course picker.
 - Playback stops when the app goes to the background, so the video no longer jumps back when you return.
 - The video toolbar wraps instead of hiding buttons; card borders are visible in the high-contrast theme.
+- The "same course" check treated different circuits whose names differ only outside the brackets (e.g. two "… (East)" layouts), and unsorted runs, as the same course.
+- Runs before 9:00 in the morning (Japan time) showed the previous day in Convert and in the video run inspector.
+- Runs without a course no longer show "0 laps" in Runs; they show "No course (laps counted when opened)".
+- When you import several files at once, the import sheet shows which file it is ("2/3").
+- If the screen was hidden while exporting the video layout, a cut-short video was saved; the export now stops and tells you.
+- Runs timed with an old own course without a storage folder name could go to a different folder from its corner names.
+- iPhone app: in landscape, the left and right edges were hidden behind the notch; pinch zoom is disabled.
+- iPhone app: the screens are bundled in the app, so it starts without a connection (the previous version's saved data is copied once on first launch, including the preview page's data).
 
 ## v1.0.2
 
