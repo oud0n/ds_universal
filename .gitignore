@@ -48,3 +48,9 @@ tools/courses/view_*
 e2e/out/
 tools/courses/sheet_*
 tools/courses/sectors_batch.json
+tools/courses/cands_*.json
+tools/courses/candsview_*
+tools/courses/result_*
+tools/courses/final_*.json
+tools/courses/sb_*.json
+tools/courses/sectors_final.json
