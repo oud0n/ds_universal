@@ -16,9 +16,9 @@ circuits/
 *.cln
 *.sci
 # アプリ独自のコースデータ (同梱する)
-!courses/*.pth
-!courses/*.cln
-!courses/*.sci
+!courses/**/*.pth
+!courses/**/*.cln
+!courses/**/*.sci
 
 # Node.js
 node_modules/
