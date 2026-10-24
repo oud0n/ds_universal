@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildLapGeometry, detectCorners, originOf, type LapGeometry } from './drivingAnalysis';
-import { applySpanCorner, carryNames, cornersFromDetection, mergeCorners, newCornerFile, parseCornerFile, placeCorners, serializeCornerFile, splitCorner } from './cornerNames';
+import { applySpanCorner, carryNames, tapSpan, cornersFromDetection, mergeCorners, newCornerFile, parseCornerFile, placeCorners, serializeCornerFile, splitCorner } from './cornerNames';
 import type { Lap } from '../types/telemetry';
 
 /** 長方形に近いコース (直線 300 m と、半径 40 m の 90 度の角 4 つ。時計回り) を 10 Hz・100 km/h で 1 周 */
@@ -107,5 +107,19 @@ describe('コーナーの名前', () => {
     // 消したあとに足しても、今ある名前と重ならない
     const gap = [named[0], named[1], { ...named[3], name: 'C4' }];
     expect(applySpanCorner(gap, geo, mid - 10, mid + 10)!.list.map(c => c.name)).toContain('C3');
+  });
+  it('押して足すコーナーは、前後のコーナーの頂点にかからず、どのコーナーも置けなくならない', () => {
+    const geo = geoOf(rectLap());
+    const named = cornersFromDetection(geo, detectCorners(geo));
+    const placed = placeCorners(geo, named);
+    // コーナーの中を押したときは足さない
+    expect(tapSpan(named, geo, placed[1]!.apexIndex)).toBeNull();
+    // C1 の出口のすぐ後ろ (40 m 以内) を押す
+    const near = placed[0]!.endIndex + 3;
+    const span = tapSpan(named, geo, near)!;
+    expect(span.a).toBeGreaterThan(placed[0]!.apexIndex);
+    const r = applySpanCorner(named, geo, span.a, span.b)!;
+    expect(r.list.length).toBe(5);
+    expect(placeCorners(geo, r.list).every(p => p !== null)).toBe(true);
   });
 });

@@ -3,6 +3,7 @@ import { FolderOpen, Smartphone } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { callNative, hasNative } from '../native/bridge';
 import type { StorageInfo } from '../native/contract';
+import { storageFolderChanged } from '../services/storageCourses';
 
 /**
  * 保管場所 (走行のファイルを置くフォルダ)。2026-10-21 に、ラップタイマーのメニューから設定の画面へ移した (PLAN-24 の 3)。
@@ -36,6 +37,8 @@ export const StorageSettings: React.FC = () => {
           ? { ok: false, text: t(`フォルダへ移せませんでした: ${r.error}`, `Could not move to the folder: ${r.error}`) }
           : { ok: true, text: t(`フォルダへ ${r.copied + (r.moved ?? 0)} 個のファイルを移しました`, `Moved ${r.copied + (r.moved ?? 0)} files to the folder`) });
       }
+      // 新しい保管場所のコースデータ・コーナーの名前を読み直す (ファイルを移したあとで)
+      void storageFolderChanged();
     } catch (e) {
       // フォルダを選ぶのをやめたときは何も出さない
       const msg = e instanceof Error ? e.message : (e as { message?: string })?.message ?? String(e);
@@ -48,7 +51,7 @@ export const StorageSettings: React.FC = () => {
   const pickDesktop = async () => {
     try {
       const p = await window.electronAPI?.laps?.pickFolder();
-      if (p) setFolderPath(p);
+      if (p) { setFolderPath(p); void storageFolderChanged(); }
     } catch (e) {
       setNote({ ok: false, text: t(`フォルダを選べませんでした: ${e instanceof Error ? e.message : String(e)}`, `Could not choose the folder: ${e instanceof Error ? e.message : String(e)}`) });
     }

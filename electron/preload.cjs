@@ -26,7 +26,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     read: (p) => ipcRenderer.invoke('laps-read', p),
     readText: (p) => ipcRenderer.invoke('laps-read-text', p),
     writeText: (p, text) => ipcRenderer.invoke('laps-write-text', p, text),
-    writeFile: (p, data) => ipcRenderer.invoke('laps-write-file', p, data)
+    writeFile: (p, data) => ipcRenderer.invoke('laps-write-file', p, data),
+    fileStatus: (p) => ipcRenderer.invoke('laps-file-status', p),
+    startDownload: (p) => ipcRenderer.invoke('laps-start-download', p)
   },
   isElectron: true
 });

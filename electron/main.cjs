@@ -482,6 +482,10 @@ ipcMain.handle('laps-list', async () => {
     for (const dir of await fs.promises.readdir(root, { withFileTypes: true })) {
       if (!dir.isDirectory() || dir.name.startsWith('.')) continue;
       for (const f of await fs.promises.readdir(path.join(root, dir.name), { withFileTypes: true })) {
+        if (f.isFile() && icloudPlaceholder(f.name)) {
+          files.push(await placeholderEntry(dir.name, path.join(root, dir.name), f.name));
+          continue;
+        }
         if (f.name.startsWith('.')) continue;
         // 日付のフォルダ (YYYYMMDD。2026-10-20 から、1 日の走行と動画をまとめる) の中も 1 段だけ見る
         if (f.isDirectory() && /^\d{8}$/.test(f.name)) {
@@ -489,6 +493,10 @@ ipcMain.handle('laps-list', async () => {
           let inner = [];
           try { inner = await fs.promises.readdir(path.join(root, dir.name, f.name), { withFileTypes: true }); } catch { continue; }
           for (const g of inner) {
+            if (g.isFile() && icloudPlaceholder(g.name)) {
+              files.push(await placeholderEntry(`${dir.name}/${f.name}`, path.join(root, dir.name, f.name), g.name));
+              continue;
+            }
             if (!g.isFile() || g.name.startsWith('.')) continue;
             const st = await fs.promises.stat(path.join(root, dir.name, f.name, g.name));
             files.push({ path: `${dir.name}/${f.name}/${g.name}`, size: st.size, mtimeMs: Math.round(st.mtimeMs) });
@@ -533,6 +541,30 @@ ipcMain.handle('laps-read', async (_event, rel) => {
   } catch (err) {
     return { success: false, error: err.message };
   }
+});
+// iCloud Drive にだけあって、この Mac にまだ落ちてきていないファイル (.<名前>.icloud)。
+// 一覧では、元の名前で「この Mac に無い」(local: false) として出す (出さないと、消した走行とみなされ、ラップの控え・隠した周の印が消えるため)
+function icloudPlaceholder(name) {
+  const m = /^\.(.+)\.icloud$/.exec(name);
+  return m && !m[1].startsWith('.') ? m[1] : null;
+}
+async function placeholderEntry(relDir, absDir, name) {
+  const st = await fs.promises.stat(path.join(absDir, name));
+  return { path: `${relDir}/${icloudPlaceholder(name)}`, size: 0, mtimeMs: Math.round(st.mtimeMs), local: false };
+}
+ipcMain.handle('laps-file-status', async (_event, rel) => {
+  const full = await lapPath(rel);
+  if (!full) return { local: false, downloading: false };
+  if (await fs.promises.stat(full).then(() => true, () => false)) return { local: true, downloading: false };
+  const placeholder = path.join(path.dirname(full), `.${path.basename(full)}.icloud`);
+  return { local: false, downloading: await fs.promises.stat(placeholder).then(() => true, () => false) };
+});
+ipcMain.handle('laps-start-download', async (_event, rel) => {
+  const full = await lapPath(rel);
+  if (!full || process.platform !== 'darwin') return { success: false };
+  // iCloud Drive から落とす (brctl は macOS に入っている)
+  await new Promise(resolve => require('child_process').execFile('/usr/bin/brctl', ['download', full], () => resolve(undefined)));
+  return { success: true };
 });
 ipcMain.handle('laps-read-text', async (_event, rel) => {
   const full = await lapPath(rel);

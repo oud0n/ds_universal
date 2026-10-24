@@ -24,6 +24,12 @@ export const CornerEditPanel: React.FC<{
   error?: string;
 }> = ({ draft, missing, selected, onSelect, onRename, onMerge, onSplit, onDelete, onRedetect, onSave, onCancel, saving, error }) => {
   const t = useT();
+  // 選んだコーナー (地図でなぞって作った・押したもの) の行を見える所へ
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    if (selected === null) return;
+    scrollRef.current?.querySelector('[data-picked]')?.scrollIntoView({ block: 'nearest' });
+  }, [selected, draft.length]);
   const btn = 'p-1.5 rounded border border-line-3 text-slate-300 hover:bg-surface-4 disabled:opacity-30 cursor-pointer';
   return (
     <div className="absolute top-2 right-2 bottom-2 w-[min(14rem,48%)] bg-surface-1/95 border border-line-2 rounded-lg shadow-xl flex flex-col text-xs" data-testid="corner-edit-panel">
@@ -33,17 +39,19 @@ export const CornerEditPanel: React.FC<{
           <RotateCcw size={13} />
         </button>
       </div>
-      {/* 高さの低い画面 (スマートフォンの横向き) では説明を出さない (一覧と保存のボタンが隠れないように) */}
-      <p className="shrink-0 px-3 py-1.5 text-[11px] text-slate-500 border-b border-line-2 [@media(max-height:500px)]:hidden">
+      {/* 説明は一覧と一緒に流れる (地図の低いスマートフォンで、一覧が 1 行も見えなくならないように)。高さの低い画面 (横向き) では出さない */}
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
+      <p className="px-3 py-1.5 text-[11px] text-slate-500 border-b border-line-2 [@media(max-height:500px)]:hidden">
         {t('名前は自由に (「1」「ヘアピン」など)。走行の線をなぞると、その範囲が 1 つのコーナーになります (中のコーナーは置き換え)。押すと、そこにコーナーを足します。', 'Name corners freely ("1", "Hairpin"...). Drag along the line to make that stretch one corner (replaces the corners inside). Tap to add a corner there.')}
       </p>
-      <ol className="flex-1 min-h-0 overflow-y-auto divide-y divide-line-2" data-testid="corner-edit-list">
+      <ol className="divide-y divide-line-2" data-testid="corner-edit-list">
         {draft.map((c, k) => (
           <li
             key={k}
             onClick={() => onSelect(k === selected ? null : k)}
             className={`px-3 py-1.5 cursor-pointer ${k === selected ? 'bg-amber-500/10' : ''}`}
             data-testid="corner-edit-row"
+            data-picked={k === selected || undefined}
           >
             <div className="flex items-center gap-2">
               <span className={`w-4 text-[10px] ${c.direction === 'R' ? 'text-sky-400' : 'text-amber-400'}`}>{c.direction === 'R' ? t('右', 'R') : t('左', 'L')}</span>
@@ -73,6 +81,7 @@ export const CornerEditPanel: React.FC<{
           </li>
         ))}
       </ol>
+      </div>
       {error && <p className="shrink-0 px-3 py-1 text-[11px] text-red-500">{error}</p>}
       <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-t border-line-2">
         <button onClick={onCancel} className="flex-1 inline-flex items-center justify-center gap-1 py-1.5 rounded border border-line-3 text-slate-300 hover:bg-surface-4 cursor-pointer">

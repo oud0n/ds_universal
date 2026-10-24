@@ -53,8 +53,9 @@ struct WebContainer: UIViewRepresentable {
                 var opened = false
                 let open = { if !opened { opened = true; webView.load(URLRequest(url: start)) } }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 15) { open() }
-                await migration.runIfNeeded()
-                open()
+                let copied = await migration.runIfNeeded()
+                // 15 秒で先に開いたあとで写し終えたときは、写したもの (設定・自分のコースなど) を読むよう開き直す
+                if opened && copied { webView.reload() } else { open() }
             }
         } else {
             webView.load(URLRequest(url: start, cachePolicy: .reloadIgnoringLocalCacheData))

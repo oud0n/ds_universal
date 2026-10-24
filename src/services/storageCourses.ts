@@ -5,17 +5,29 @@
  */
 
 import { canUseRunStore, getRunStore } from './runStore';
+import { clearCourseCornersCache } from './courseCorners';
 import { userCircuitStorage, type CourseFile, type UserCircuitItem } from './userCircuitStorage';
 import { COURSE_INDEX, courseFileKey, itemFromCourseFiles, markEditedCourseDeleted, mergeEditedCourses, parseCourseIndex, writeEditedCourse } from './courseFolderSync';
 
 // digspice/ (デジスパイスのフォルダをそのまま置いたもの) と course/ (LapLoupe のコースフォルダ。同じ形)
 const COURSE_FILE = /^(digspice|course)\/.+\.(cln|pth|sci)$/i;
 
+/** 保管場所を選んだ・変えたとき: その保管場所のコースデータ・コーナーの名前を読み直す */
+export async function storageFolderChanged(): Promise<void> {
+  clearCourseCornersCache();
+  await loadStorageCourses().catch(() => 0);
+}
+
 /** 保管場所の digspice/ のコースデータを読み直す。読んだファイルの数 (保管場所が無ければ 0) */
 export async function loadStorageCourses(): Promise<number> {
   if (!canUseRunStore()) return 0;
   const store = await getRunStore().catch(() => null);
-  if (!store) return 0;
+  if (!store) {
+    // 保管場所が無くなった (外した) ときは、前の保管場所のコースデータを使わない
+    userCircuitStorage.onEditedChanged = undefined;
+    await userCircuitStorage.setStorageCourseFiles([]);
+    return 0;
+  }
   // コース編集で保存したコース (course/courses.json に載っているもの) を、端末の中のコースと合わせる
   const indexed = await syncEditedCourses(store).catch(() => new Set<string>());
   // 保存・削除したら course/ に書く
@@ -53,11 +65,14 @@ async function syncEditedCourses(store: NonNullable<Awaited<ReturnType<typeof ge
     const cln = `course/ControlLine/${e.file}.cln`, sci = `course/Sector/${e.file}.sci`;
     files.add(cln);
     files.add(sci);
+    // ほかの鍵へ移したコースの前のファイル: 使わない
+    if (e.moved) continue;
     let item: UserCircuitItem | null = null;
     if (!e.deleted) {
       try {
-        const clnText = await store.readText(cln);
-        if (clnText) item = itemFromCourseFiles(e, clnText, await store.readText(sci).catch(() => null));
+        // セクター線も、読めない (iCloud にだけある) ときは読めたことにしない (セクターの無いコースとして端末に覚え、あとで直したときに消してしまうため)
+        const clnText = await store.readTextStrict(cln);
+        if (clnText) item = itemFromCourseFiles(e, clnText, await store.readTextStrict(sci));
       } catch { /* 読めないコースは端末の中のものを使う */ }
     }
     remote.push({ entry: e, item });
