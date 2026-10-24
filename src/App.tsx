@@ -1085,7 +1085,8 @@ export const App: React.FC = () => {
     void (async () => {
       const store = await getRunStore();
       if (!store) return;
-      const added = latestRef.current.sessions.filter(x => entry[1].includes(x.id));
+      // その走行のログ (読み込んだ順 = 分かれた走行の番号の順)
+      const added = entry[1].map(sid => latestRef.current.sessions.find(x => x.id === sid)).filter((x): x is Session => !!x);
       const cand = await videoCandidates(store, item);
       if (attachedRunRef.current !== entry[0]) return;
       await attachRunVideos({
@@ -1121,9 +1122,11 @@ export const App: React.FC = () => {
         const item = runItemsRef.current.get(p);
         if (!item || p === attachedRunRef.current) continue;
         const cand = await videoCandidates(store, item);
+        // その走行のログ (読み込んだ順 = 分かれた走行の番号の順)
+        const runSessions = ids.map(id => latestRef.current.sessions.find(x => x.id === id)).filter((x): x is Session => !!x);
         await attachCompanionVideos({
-          item, runSessions: latestRef.current.sessions.filter(x => ids.includes(x.id)), videos: cand.local, fromRuns: cand.fromRuns,
-          sessions: () => latestRef.current.sessions, setClockOffset: setSessionClockOffset
+          store, item, runSessions, videos: cand.local, fromRuns: cand.fromRuns,
+          sessions: () => latestRef.current.sessions, circuitName: () => runSessions[0]?.circuitName ?? '', setClockOffset: setSessionClockOffset
         });
       }
     }).catch(e => console.warn('[run] 比べる走行の動画を読めない:', e));
