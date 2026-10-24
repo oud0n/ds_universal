@@ -4,7 +4,7 @@
 
 [Back to the README](../README.en.md)
 
-## Next version (unreleased)
+## v1.0.3
 
 **Added**
 
@@ -48,6 +48,9 @@
 - Runs timed with an old own course without a storage folder name could go to a different folder from its corner names.
 - iPhone app: in landscape, the left and right edges were hidden behind the notch; pinch zoom is disabled.
 - iPhone app: the screens are bundled in the app, so it starts without a connection (the previous version's saved data is copied once on first launch, including the preview page's data).
+- With DigSpice course data in your storage (New Tokyo Circuit etc.), a log from a nearby built-in circuit (Sodegaura etc.) was imported as an unknown place into unsorted/.
+- Opening a log file that is already in your storage with Open file now opens it like a run from Runs (it used to be added next to another circuit's logs).
+- Desktop: runs that are only in iCloud (not yet downloaded to this Mac) could disappear from the list, and their lap cache and hidden-lap marks could be lost.
 
 ## v1.0.2
 
