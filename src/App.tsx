@@ -786,6 +786,15 @@ export const App: React.FC = () => {
     closeImport();
     if (!cur) return;
     const b = cur.bytes;
+    // 取り込んだ走行が 1 つなら、走行の画面から開くのと同じ形で開く (違うコースのログを外す・同じ走行を 2 回読み込まない)
+    const done = cur.results?.filter(r => !r.error) ?? [];
+    if (done.length === 1) {
+      const base = done[0].base;
+      const store = await getRunStore().catch(() => null);
+      const items = store ? await listRuns(store).catch(() => [] as RunItem[]) : [];
+      const item = items.find(r => `${r.folder}/${r.file}`.replace(/\.[^./]+$/, '') === base);
+      if (item) { await openRun(item); return; }
+    }
     await loadFileData(cur.name, b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
     navStore.go('analysis');
   };
@@ -2239,6 +2248,8 @@ export const App: React.FC = () => {
               navStore.go('convert');
             }}
             onRemoveSession={id => {
+              // 開いている走行の書きかけ (直前に動かした同期など) を、そのログを外す前に書く
+              flushOpenRuns();
               polylineRequestRef.current.delete(id);
               setConvertSessionId(prev => (prev === id ? '' : prev));
               setSessions(prev => prev.filter(s => s.id !== id));

@@ -223,7 +223,8 @@ function snapshotOf(run: OpenRun): RunSnapshot {
 function rowContent(run: OpenRun, prev: RunRow | null, snap: RunSnapshot = snapshotOf(run)): Pick<RunRow, 'parts' | 'videos'> | null {
   const { all, tracks, pins } = snap;
   const runSessions = runSessionsOf(run, all);
-  if (!runSessions.length) return null;
+  // その走行のログが 1 つでも外されていたら書かない (残ったログの番号が詰まり、2 番目のログの同期を 1 番目として書いてしまうため)
+  if (!runSessions.length || runSessions.length !== run.sessionIds.length) return null;
   const opened = new Set(tracks.map(t => t.fileName));
   const videos = [
     ...tracks.map(t => rowVideoFromTrack(t, pins.filter(p => p.trackId === t.id), runSessions, all, prev?.videos?.find(v => v.name === t.fileName))),
@@ -397,10 +398,14 @@ async function attachRunVideosNow(opts: {
   // 同じ動画 (同じ道) がもう開いていれば足さない (名前では見分けない。GoPro の名前は、ほかのフォルダの動画と同じことがある)
   const openPaths = new Set(videoSyncManager.getTracks().filter(t => t.remote).map(t => t.remote!.path));
   const add = videos.filter(v => !openPaths.has(v.path));
-  const tracks = add.length ? await videoSyncManager.addVideoFiles(add, opts.sessions()) : [];
-  // runs.json にない候補は、照合してこの走行に合ったものだけ残す (同じ日の別の走行の動画を外す)
-  if (!opts.fromRuns) {
-    for (const t of tracks) if (!t.matchedSessionId || !ids.has(t.matchedSessionId)) videoSyncManager.removeTrack(t.id);
+  if (add.length) await videoSyncManager.addVideoFiles(add, opts.sessions());
+  // runs.json にない候補は、照合してこの走行に合ったものだけ残す (同じ日の別の走行の動画を外す)。
+  // 見るのは今回足した動画だけ (addVideoFiles は開いている動画を全部返す。比べる相手の動画まで外すと、その走行の行から動画が消えるため)
+  if (!opts.fromRuns && add.length) {
+    const addPaths = new Set(add.map(v => v.path));
+    for (const t of videoSyncManager.getTracks()) {
+      if (t.remote && addPaths.has(t.remote.path) && (!t.matchedSessionId || !ids.has(t.matchedSessionId))) videoSyncManager.removeTrack(t.id);
+    }
   }
   // この走行の動画: 今回の候補の道で開いているもの
   const mine = new Set(videoSyncManager.getTracks()

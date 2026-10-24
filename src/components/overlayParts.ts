@@ -81,9 +81,10 @@ export function hasTimedLaps(session: Session): boolean {
   return session.laps.some(l => !l.isWholeSession);
 }
 
-/** その時刻を走っている周 */
+/** その時刻を走っている周 (周の境目ちょうどは、あとの周) */
 function lapAt(session: Session, t: number): Lap | undefined {
-  return session.laps.find(l => !l.isWholeSession && t >= l.startTime && t <= l.endTime);
+  const laps = session.laps.filter(l => !l.isWholeSession && t >= l.startTime && t <= l.endTime);
+  return laps.length > 1 ? laps.reduce((a, b) => (b.startTime > a.startTime ? b : a)) : laps[0];
 }
 
 /** 基準の周 (そのログのベストラップ) */

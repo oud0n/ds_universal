@@ -295,7 +295,8 @@ export function drawTelemetryOverlayOnCanvas(
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  const currentLap = baseSession?.laps.find(l => effectiveTime >= l.startTime && effectiveTime <= l.endTime);
+  // 周の境目ちょうどは、あとの周
+  const currentLap = baseSession?.laps.filter(l => effectiveTime >= l.startTime && effectiveTime <= l.endTime).sort((a, b) => Number(!!a.isWholeSession) - Number(!!b.isWholeSession) || b.startTime - a.startTime)[0];
   let lapLabel = currentLap ? `Lap ${currentLap.lapNumber}` : (baseLap ? `Lap ${baseLap.lapNumber}` : 'Out / In Lap');
   let lapDisplayTime = currentLap ? (effectiveTime - currentLap.startTime) : (baseLap ? (effectiveTime - baseLap.startTime) : effectiveTime);
   if (holdLap && effectiveTime > holdLap.endTime) {
@@ -411,7 +412,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   }, []);
   // ほかの画面へ移ったら戻す
   useEffect(() => { if (!isVisible && fullView) exitFullView(); });
-  useEscapeKey(fullView && isVisible && !nativeFullRef.current, exitFullView);
+  // 画面全体の表示を頼めなかったとき (断られた) も Esc で戻れるよう、いつも受ける (画面全体のときは二重に戻すだけ)
+  useEscapeKey(fullView && isVisible, exitFullView);
 
   const [isDragging, setIsDragging] = useState<boolean>(false);
   // 動画の移動 (seek) が終わった回数。移動中に来た時刻に合わせ直すため、変わったら動画をもう一度合わせる

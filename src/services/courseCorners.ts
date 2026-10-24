@@ -36,6 +36,13 @@ const autoTried = new Set<string>();
 
 const path = (folder: string) => `course/Corner/${folder}.json`;
 
+/** 保管場所を変えたとき: 覚えたコーナーを捨てて、読み直させる */
+export function clearCourseCornersCache(): void {
+  cache.clear();
+  autoTried.clear();
+  changed();
+}
+
 /**
  * アプリに入っているコーナー (リポジトリの courses/Corner/<コースの ID>.json。2026-10-24)。
  * 保管場所にそのコースのファイルが無いとき (と、保管場所の無いブラウザ版) に使う。名前を直して保存すると、保管場所に書く
@@ -58,11 +65,15 @@ const oldPath = (folder: string) => `${folder}/${CORNERS_FILE}`;
 export function loadCourseCorners(folder: string): Promise<CornerFile | null> {
   let p = cache.get(folder);
   if (!p) {
+    // 保管場所のファイルを読めなかったので、アプリに入っているもの (か無し) を返した: 覚えない
+    // (あとで保管場所を選んだ・iCloud から落ちてきたファイルを、次に開いたときに読む)
+    let fallback = false;
     p = (async () => {
       if (!canUseRunStore()) return bundledCorners(folder);
       const store = await getRunStore();
-      if (!store) return bundledCorners(folder);
-      const text = await store.readText(path(folder)).catch(() => null);
+      if (!store) { fallback = true; return bundledCorners(folder); }
+      let text: string | null;
+      try { text = await store.readTextStrict(path(folder)); } catch { fallback = true; return bundledCorners(folder); }
       const inBox = bundledCorners(folder);
       if (text !== null) {
         const f = parseCornerFile(text);
@@ -84,7 +95,7 @@ export function loadCourseCorners(folder: string): Promise<CornerFile | null> {
     })();
     cache.set(folder, p);
     // 無かった (読めなかった) ときは覚えない。あとで置かれた・iCloud から落ちてきたファイルを、次に開いたときに読む
-    void p.then(file => { if (file === null && cache.get(folder) === p) cache.delete(folder); });
+    void p.then(file => { if ((file === null || fallback) && cache.get(folder) === p) cache.delete(folder); });
   }
   return p;
 }
@@ -93,7 +104,8 @@ export function loadCourseCorners(folder: string): Promise<CornerFile | null> {
 export async function saveCourseCorners(folder: string, file: CornerFile): Promise<void> {
   const store = await getRunStore();
   if (!store) throw new Error('no storage folder');
-  const before = (await store.readText(path(folder)).catch(() => null)) ?? (await store.readText(oldPath(folder)).catch(() => null));
+  // 前の中身が読めない (iCloud にだけある) ときは書かない (控えを残さずに上書きしないように)
+  const before = (await store.readTextStrict(path(folder))) ?? (await store.readText(oldPath(folder)).catch(() => null));
   if (before) await store.writeText(`${path(folder)}.bak`, before);
   await store.writeText(path(folder), serializeCornerFile(file));
   cache.set(folder, Promise.resolve(file));

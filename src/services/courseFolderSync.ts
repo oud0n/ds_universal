@@ -26,6 +26,8 @@ export interface CourseIndexEntry {
   finishLine?: ControlLine;
   updatedAt: string;
   deleted?: boolean;
+  /** 鍵 (ファイル名) を変えて、ほかの鍵へ移した。このファイルは使わない (読み込んだコースデータとしても使わない) */
+  moved?: string;
   [key: string]: unknown;
 }
 
@@ -117,8 +119,8 @@ export async function writeEditedCourse(store: RunStore, item: UserCircuitItem):
   await store.writeText(`course/ControlLine/${file}.cln`, cln);
   await store.writeText(`course/Sector/${file}.sci`, sci);
   await updateIndex(store, idx => {
-    // 同じ名前の前の行 (鍵が変わったとき) は外す
-    for (const [k, e] of Object.entries(idx.courses)) if (e.name === item.name && k !== file) delete idx.courses[k];
+    // 同じ名前の前の行 (鍵が変わったとき) は、移した印にする (前のファイルが、読み込んだコースデータとして 2 つ目のコースにならないように)
+    for (const [k, e] of Object.entries(idx.courses)) if (e.name === item.name && k !== file && !e.moved) idx.courses[k] = { name: e.name, file: e.file, updatedAt: new Date().toISOString(), moved: file };
     const prev = idx.courses[file];
     idx.courses[file] = {
       ...prev,
@@ -138,7 +140,7 @@ export async function writeEditedCourse(store: RunStore, item: UserCircuitItem):
 /** 消したことを course/courses.json に書く (ほかの端末でも消す。ファイルは残す) */
 export async function markEditedCourseDeleted(store: RunStore, name: string): Promise<void> {
   await updateIndex(store, idx => {
-    for (const e of Object.values(idx.courses)) if (e.name === name) { e.deleted = true; e.updatedAt = new Date().toISOString(); }
+    for (const e of Object.values(idx.courses)) if (e.name === name && !e.moved) { e.deleted = true; e.updatedAt = new Date().toISOString(); }
   });
 }
 
