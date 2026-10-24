@@ -183,9 +183,10 @@ async function saveCurrent(): Promise<void> {
   if (tracks.length === 0 && run.keptNames.length === 0 && !run.hasSaved) return;
   const key = run.circuitName() || 'default';
   const pins = videoViewStore.getPins(key).filter(p => tracks.some(t => t.id === p.trackId));
-  const sync = JSON.parse(videoSyncManager.exportProjectJson(run.sessions().filter(s => run.sessionIds.has(s.id)), run.circuitName(), pins)) as SyncProjectData;
+  // この走行の動画だけを書く (比べる相手の走行の動画が同じファイル名でも混ぜない)
+  const sync = JSON.parse(videoSyncManager.exportProjectJson(run.sessions().filter(s => run.sessionIds.has(s.id)), run.circuitName(), pins, new Set(tracks.map(t => t.id)))) as SyncProjectData;
   const opened = new Set(tracks.map(t => t.fileName));
-  sync.videos = [...sync.videos.filter(v => opened.has(v.fileName)), ...run.kept.filter(v => !opened.has(v.fileName))];
+  sync.videos = [...sync.videos, ...run.kept.filter(v => !opened.has(v.fileName))];
   const videos = [...new Set([...opened, ...run.keptNames])];
   const ok = await updateRun(run.store, run.item.folder, run.item.file, { videos, sync }).then(() => true, () => false);
   if (ok) run.hasSaved = videos.length > 0;
@@ -345,10 +346,14 @@ async function attachCompanionVideosNow(opts: {
   const openPaths = new Set(before.filter(t => t.remote).map(t => t.remote!.path));
   const openNames = new Set(before.map(t => t.fileName));
   const mine = new Set(videos.filter(v => openPaths.has(v.path)).map(v => v.path));
-  const add = videos.filter(v => !openPaths.has(v.path) && !openNames.has(v.name));
+  const add = videos.filter(v => !openPaths.has(v.path));
   if (add.length) {
-    const names = new Set(add.map(v => v.name));
+    // 開いている動画と同じファイル名の動画 (GoPro は別の日・別のカメラでも名前が重なる) は、名前で同期を戻すと
+    // 開いている方の同期を書き換えてしまう。その動画は、足したあとに道 (path) で見つけて同期を戻す (BUG-35 の (6))
+    const clash = new Set(add.filter(v => openNames.has(v.name)).map(v => v.path));
+    const names = new Set(add.filter(v => !clash.has(v.path)).map(v => v.name));
     const sync = item.entry?.sync;
+    let syncOk = false;
     if (opts.fromRuns && sync) {
       try {
         restoreSync({
@@ -356,13 +361,19 @@ async function attachCompanionVideosNow(opts: {
           videos: sync.videos.filter(v => names.has(v.fileName)),
           pins: (sync.pins ?? []).filter(p => p.trackFileName !== null && names.has(p.trackFileName))
         }, opts.sessions(), opts.setClockOffset);
+        syncOk = true;
       } catch { /* 壊れた同期は使わない */ }
     }
     await videoSyncManager.addVideoFiles(add, opts.sessions());
     const addPaths = new Set(add.map(v => v.path));
     for (const t of videoSyncManager.getTracks()) {
+      // 同期だけ戻した、まだつないでいない枠 (同じ名前の動画は、ここで作っていないので消さない)
       if (!t.objectUrl && names.has(t.fileName)) { videoSyncManager.removeTrack(t.id); continue; }
       if (!t.remote || !addPaths.has(t.remote.path)) continue;
+      if (clash.has(t.remote.path) && syncOk && sync) {
+        const saved = sync.videos.find(v => v.fileName === t.fileName);
+        if (saved) videoSyncManager.restoreTrackSync(t.id, saved, opts.sessions());
+      }
       // runs.json にない候補は、照合してこの走行に合ったものだけ残す
       if (!opts.fromRuns && (!t.matchedSessionId || !ids.has(t.matchedSessionId))) { videoSyncManager.removeTrack(t.id); continue; }
       mine.add(t.remote.path);
