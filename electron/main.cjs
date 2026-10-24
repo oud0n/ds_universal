@@ -417,6 +417,10 @@ function loadLapFolder() {
 }
 /** 控えとして読み書きしてよいファイルの名前と、読む大きさの上限 */
 const LAP_TEXT_NAMES = new Set(['laptimes.json', 'runs.json', 'corners.json', 'corners.json.bak']);
+// 保管場所の course/ (デジスパイスのコースフォルダにならった形。2026-10-24): コーナー (Corner/<フォルダ>.json と .bak)・
+// コース編集で直したコースの計測線 (ControlLine/*.cln)・セクター線 (Sector/*.sci)・その名前などの一覧 (courses.json)
+const COURSE_TEXT = /^course\/(Corner\/[a-z0-9_]+\.json(\.bak)?|ControlLine\/[^/\\]+\.cln|Sector\/[^/\\]+\.sci|courses\.json)$/;
+const lapTextAllowed = (rel, full) => LAP_TEXT_NAMES.has(path.basename(full)) || COURSE_TEXT.test(String(rel).replace(/\\/g, '/'));
 const MAX_LAP_TEXT_BYTES = 20 * 1024 * 1024;
 /**
  * 保管場所からの道を、保管場所の中の実際の場所にする (外へ出る道は断る)。
@@ -439,10 +443,18 @@ async function lapPath(rel) {
   try {
     real = await fs.promises.realpath(full);
   } catch {
-    try {
-      real = path.join(await fs.promises.realpath(path.dirname(full)), path.basename(full));
-    } catch {
-      return null;
+    // まだ無いフォルダの中 (course/Corner/ を初めて書くときなど) は、いちばん近くのある親フォルダで確かめる
+    let dir = path.dirname(full);
+    const rest = [path.basename(full)];
+    for (;;) {
+      try {
+        real = path.join(await fs.promises.realpath(dir), ...rest);
+        break;
+      } catch {
+        if (!dir.startsWith(prefix)) return null;
+        rest.unshift(path.basename(dir));
+        dir = path.dirname(dir);
+      }
     }
   }
   return real.startsWith(prefix) ? real : null;
@@ -470,6 +482,10 @@ ipcMain.handle('laps-list', async () => {
     for (const dir of await fs.promises.readdir(root, { withFileTypes: true })) {
       if (!dir.isDirectory() || dir.name.startsWith('.')) continue;
       for (const f of await fs.promises.readdir(path.join(root, dir.name), { withFileTypes: true })) {
+        if (f.isFile() && icloudPlaceholder(f.name)) {
+          files.push(await placeholderEntry(dir.name, path.join(root, dir.name), f.name));
+          continue;
+        }
         if (f.name.startsWith('.')) continue;
         // 日付のフォルダ (YYYYMMDD。2026-10-20 から、1 日の走行と動画をまとめる) の中も 1 段だけ見る
         if (f.isDirectory() && /^\d{8}$/.test(f.name)) {
@@ -477,10 +493,31 @@ ipcMain.handle('laps-list', async () => {
           let inner = [];
           try { inner = await fs.promises.readdir(path.join(root, dir.name, f.name), { withFileTypes: true }); } catch { continue; }
           for (const g of inner) {
+            if (g.isFile() && icloudPlaceholder(g.name)) {
+              files.push(await placeholderEntry(`${dir.name}/${f.name}`, path.join(root, dir.name, f.name), g.name));
+              continue;
+            }
             if (!g.isFile() || g.name.startsWith('.')) continue;
             const st = await fs.promises.stat(path.join(root, dir.name, f.name, g.name));
             files.push({ path: `${dir.name}/${f.name}/${g.name}`, size: st.size, mtimeMs: Math.round(st.mtimeMs) });
           }
+          continue;
+        }
+        // デジスパイスのコースフォルダと同じ形の digspice/ (Circuit/・ControlLine/・Sector/ と 海外/ などの下) は、コースデータだけ深く見る
+        if (f.isDirectory() && (dir.name.toLowerCase() === 'digspice' || dir.name === 'course')) {
+          const walk = async (rel, depth) => {
+            let entries = [];
+            try { entries = await fs.promises.readdir(path.join(root, rel), { withFileTypes: true }); } catch { return; }
+            for (const g of entries) {
+              if (g.name.startsWith('.')) continue;
+              if (g.isDirectory() && depth < 3) await walk(`${rel}/${g.name}`, depth + 1);
+              else if (g.isFile() && /\.(cln|pth|sci|json)$/i.test(g.name)) {
+                const st = await fs.promises.stat(path.join(root, rel, g.name));
+                files.push({ path: `${rel}/${g.name}`, size: st.size, mtimeMs: Math.round(st.mtimeMs) });
+              }
+            }
+          };
+          await walk(`${dir.name}/${f.name}`, 1);
           continue;
         }
         if (!f.isFile()) continue;
@@ -505,23 +542,56 @@ ipcMain.handle('laps-read', async (_event, rel) => {
     return { success: false, error: err.message };
   }
 });
+// iCloud Drive にだけあって、この Mac にまだ落ちてきていないファイル (.<名前>.icloud)。
+// 一覧では、元の名前で「この Mac に無い」(local: false) として出す (出さないと、消した走行とみなされ、ラップの控え・隠した周の印が消えるため)
+function icloudPlaceholder(name) {
+  const m = /^\.(.+)\.icloud$/.exec(name);
+  return m && !m[1].startsWith('.') ? m[1] : null;
+}
+async function placeholderEntry(relDir, absDir, name) {
+  const st = await fs.promises.stat(path.join(absDir, name));
+  return { path: `${relDir}/${icloudPlaceholder(name)}`, size: 0, mtimeMs: Math.round(st.mtimeMs), local: false };
+}
+ipcMain.handle('laps-file-status', async (_event, rel) => {
+  const full = await lapPath(rel);
+  if (!full) return { local: false, downloading: false };
+  if (await fs.promises.stat(full).then(() => true, () => false)) return { local: true, downloading: false };
+  const placeholder = path.join(path.dirname(full), `.${path.basename(full)}.icloud`);
+  return { local: false, downloading: await fs.promises.stat(placeholder).then(() => true, () => false) };
+});
+ipcMain.handle('laps-start-download', async (_event, rel) => {
+  const full = await lapPath(rel);
+  if (!full || process.platform !== 'darwin') return { success: false };
+  // iCloud Drive から落とす (brctl は macOS に入っている)
+  await new Promise(resolve => require('child_process').execFile('/usr/bin/brctl', ['download', full], () => resolve(undefined)));
+  return { success: true };
+});
 ipcMain.handle('laps-read-text', async (_event, rel) => {
   const full = await lapPath(rel);
-  if (!full || !LAP_TEXT_NAMES.has(path.basename(full))) return { success: false, error: 'not allowed' };
+  // iCloud がぶつかったときに作る runs.json の写し (runs 2.json など) も読める (書くのは runs.json だけ)
+  if (!full || !(lapTextAllowed(rel, full) || /^runs[ _-]+\(?\d+\)?\.json$/i.test(path.basename(full)))) return { success: false, error: 'not allowed' };
   try {
     const st = await fs.promises.stat(full);
     if (st.size > MAX_LAP_TEXT_BYTES) return { success: false, error: 'too large' };
     return { success: true, text: await fs.promises.readFile(full, 'utf8') };
   } catch (err) {
-    // 無いときだけ null。読めないとき (ほかのアプリが開いているなど) は失敗を返す (無いとみなして書くと、ほかの走行の行を消すため)
-    if (err && err.code === 'ENOENT') return { success: true, text: null };
+    // 無いときだけ null。読めないとき (ほかのアプリが開いているなど) は失敗を返す (無いとみなして書くと、ほかの走行の行を消すため)。
+    // iCloud Drive にだけあって、この Mac にまだ落ちてきていないファイル (.runs.json.icloud) も、読めないとみなす
+    // (無いとみなして新しく作ると、iCloud がぶつかったときの写しを作り、前の中身が使われなくなるため)
+    if (err && err.code === 'ENOENT') {
+      const placeholder = path.join(path.dirname(full), `.${path.basename(full)}.icloud`);
+      if (await fs.promises.stat(placeholder).then(() => true, () => false)) return { success: false, error: 'only in iCloud' };
+      return { success: true, text: null };
+    }
     return { success: false, error: err?.message ?? 'read failed' };
   }
 });
 ipcMain.handle('laps-write-text', async (_event, rel, text) => {
   const full = await lapPath(rel);
-  if (!full || !LAP_TEXT_NAMES.has(path.basename(full)) || typeof text !== 'string' || text.length > MAX_LAP_TEXT_BYTES) return { success: false, error: 'not allowed' };
+  if (!full || !lapTextAllowed(rel, full) || typeof text !== 'string' || text.length > MAX_LAP_TEXT_BYTES) return { success: false, error: 'not allowed' };
   try {
+    // course/Corner/ などのフォルダがまだ無ければ作る
+    await fs.promises.mkdir(path.dirname(full), { recursive: true });
     // 一時ファイルに書いてから入れ替える (途中で止まっても、前の控えが残る)
     const tmp = `${full}.tmp`;
     await fs.promises.writeFile(tmp, text, 'utf8');

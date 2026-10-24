@@ -16,9 +16,9 @@ circuits/
 *.cln
 *.sci
 # アプリ独自のコースデータ (同梱する)
-!courses/*.pth
-!courses/*.cln
-!courses/*.sci
+!courses/**/*.pth
+!courses/**/*.cln
+!courses/**/*.sci
 
 # Node.js
 node_modules/
@@ -46,3 +46,12 @@ tools/courses/view_*
 
 # 画面の通しの試験の結果 (スクリーンショット)
 e2e/out/
+tools/courses/sheet_*
+tools/courses/sectors_batch.json
+tools/courses/cands_*.json
+tools/courses/candsview_*
+tools/courses/result_*
+tools/courses/final_*.json
+tools/courses/sb_*.json
+tools/courses/sectors_final.json
+courses/Corner/*.bak

@@ -6,7 +6,7 @@ import {
   Clock, Gauge, Plus, Trash2, CheckCircle2, ChevronRight,
   Globe, AlertTriangle, Zap, Layers, ChevronLeft,
   Columns, PictureInPicture, MapPin, Download, X,
-  ArrowLeftRight, VolumeX, Maximize2, ListChecks
+  ArrowLeftRight, Volume2, VolumeX, Maximize2, ListChecks, Maximize, Minimize
 } from 'lucide-react';
 import { Session, TelemetryPoint, SelectedCarSlot, Lap } from '../types/telemetry';
 import { getAddVideoGpsLog, setAddVideoGpsLog } from '../services/videoPrefs';
@@ -44,12 +44,17 @@ import { formatMinSec } from '../utils/timeFormat';
 import { tr, useT } from '../utils/i18n';
 import { fileAccept, isIOS, isWebKitBrowser } from '../utils/device';
 import { setClockMaster } from '../services/clockMaster';
+import { sameCourseName } from '../utils/courseNames';
 import { useCompactLayout, useLandscape } from '../hooks/useCompactLayout';
 import { EmptyLoadPrompt } from './EmptyLoadPrompt';
 import { RunFolderVideos } from './RunFolderVideos';
 import { SKIP_SEC, Skip10Icon } from './Skip10Icon';
 import { useWheelScrollX } from '../hooks/useWheelScrollX';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { companionSessionsOfVideo } from '../services/runOpener';
+
+/** 動画の音を消したか (この端末に覚えておく) */
+const VIDEO_MUTED_KEY = 'ds_video_muted';
 
 export type { PipPosition };
 
@@ -290,7 +295,8 @@ export function drawTelemetryOverlayOnCanvas(
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  const currentLap = baseSession?.laps.find(l => effectiveTime >= l.startTime && effectiveTime <= l.endTime);
+  // 周の境目ちょうどは、あとの周
+  const currentLap = baseSession?.laps.filter(l => effectiveTime >= l.startTime && effectiveTime <= l.endTime).sort((a, b) => Number(!!a.isWholeSession) - Number(!!b.isWholeSession) || b.startTime - a.startTime)[0];
   let lapLabel = currentLap ? `Lap ${currentLap.lapNumber}` : (baseLap ? `Lap ${baseLap.lapNumber}` : 'Out / In Lap');
   let lapDisplayTime = currentLap ? (effectiveTime - currentLap.startTime) : (baseLap ? (effectiveTime - baseLap.startTime) : effectiveTime);
   if (holdLap && effectiveTime > holdLap.endTime) {
@@ -364,6 +370,50 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // シークバースコープ ('lap': 速度ウィンドウ選択中ラップ時間, 'session': セッション全体時間)
   // 動画同期タブはセッション全体の時刻で再生するので、はじめはセッション全体にする (周の表示は周の外に出ると端に止まる)
   const [seekbarScope, setSeekbarScope] = useState<'lap' | 'session'>(isGraphEmbedded ? 'lap' : 'session');
+  // 利用者が音を消したか (動画の再生の段のボタン)。この端末に覚えておく
+  const [userMuted, setUserMuted] = useState<boolean>(() => {
+    try { return localStorage.getItem(VIDEO_MUTED_KEY) === '1'; } catch { return false; }
+  });
+  const toggleUserMuted = () => {
+    setUserMuted(m => {
+      const next = !m;
+      try { localStorage.setItem(VIDEO_MUTED_KEY, next ? '1' : '0'); } catch { /* 保存できなくても、今だけ切り替える */ }
+      return next;
+    });
+  };
+
+  // 動画を画面いっぱいに出す (上のボタンの段を隠し、動画と再生の段だけにする)。
+  // パソコン・ブラウザは画面全体 (Fullscreen API)、iPhone のアプリは使えないので、アプリの画面いっぱいに重ねる
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [fullView, setFullView] = useState(false);
+  const nativeFullRef = useRef(false);
+  const exitFullView = () => {
+    setFullView(false);
+    if (nativeFullRef.current && document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    nativeFullRef.current = false;
+  };
+  const toggleFullView = () => {
+    if (fullView) { exitFullView(); return; }
+    setFullView(true);
+    const el = rootRef.current;
+    if (document.fullscreenEnabled && el?.requestFullscreen) {
+      nativeFullRef.current = true;
+      void el.requestFullscreen().catch(() => { nativeFullRef.current = false; });
+    }
+  };
+  useEffect(() => {
+    // Esc などで画面全体の表示が外れたら、こちらも戻す
+    const onChange = () => { if (!document.fullscreenElement && nativeFullRef.current) { nativeFullRef.current = false; setFullView(false); } };
+    document.addEventListener('fullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      if (nativeFullRef.current && document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    };
+  }, []);
+  // ほかの画面へ移ったら戻す
+  useEffect(() => { if (!isVisible && fullView) exitFullView(); });
+  // 画面全体の表示を頼めなかったとき (断られた) も Esc で戻れるよう、いつも受ける (画面全体のときは二重に戻すだけ)
+  useEscapeKey(fullView && isVisible, exitFullView);
 
   const [isDragging, setIsDragging] = useState<boolean>(false);
   // 動画の移動 (seek) が終わった回数。移動中に来た時刻に合わせ直すため、変わったら動画をもう一度合わせる
@@ -411,6 +461,26 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     if (stageStartTimerRef.current !== null) clearTimeout(stageStartTimerRef.current);
   }, []);
 
+  // 枠の並びの書き出しをやめる (書き出しを始めると入る)
+  const stageAbortRef = useRef<(() => void) | null>(null);
+  // 枠の並びの書き出しは、画面に映したものをその場で録る。画面が隠れると (アプリの切り替え・画面のロック) 録れなくなり、
+  // 隠れている間は再生も止まるので、途中までの動画を保存しないよう、書き出しをやめて知らせる
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState !== 'hidden' || !stageAbortRef.current) return;
+      stageAbortRef.current();
+      const showNotice = () => {
+        if (document.visibilityState !== 'visible') return;
+        document.removeEventListener('visibilitychange', showNotice);
+        window.alert(t('画面が隠れたので、書き出しをやめました。書き出している間は、画面を出したままにしてください。',
+          'The export was stopped because the screen was hidden. Keep the screen on while exporting.'));
+      };
+      document.addEventListener('visibilitychange', showNotice);
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [t]);
+
   const pipRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
@@ -421,7 +491,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const baseSession = sessions.find(s => s.id === speedSessionId) || sessions[0];
   // ラップの欄で比べる周: 'best' (そのログのベスト) か、Car の枠 (0〜3) で選んだ周
   // 同じコースの周だけ比べられる (コースの名前が同じ Car の周)
-  const sameCourse = (s: Session | undefined) => !!s && !!baseSession && s.circuitName === baseSession.circuitName;
+  const sameCourse = (s: Session | undefined) => !!s && !!baseSession && sameCourseName(s.circuitName, baseSession.circuitName);
   const refCar = selectedCars.find(c => win.lapRef !== 'best' && c.slot === win.lapRef);
   const refSession = refCar ? sessions.find(s => s.id === refCar.sessionId) : undefined;
   const refLapPicked = sameCourse(refSession) ? refSession!.laps.find(l => l.lapNumber === refCar!.lapNumber && !l.isWholeSession) : undefined;
@@ -586,7 +656,16 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   };
 
   const gpsStartTime = baseSession?.points[0]?.timestamp ? new Date(baseSession.points[0].timestamp) : null;
-  const isLargeOffset = activeTrack ? Math.abs(activeTrack.syncOffsetSec) > 3600 : false;
+  // 合わせる動画が、比べる相手 (Car 2〜4) の走行のものか。合わせる道具は Car 1 のログで表すので、その動画は合わせられない
+  // (別の日の走行だと、何十日もずれて出て、±9h補正などで同期を壊すため)。その走行を Car 1 にして合わせる
+  // 動画が出すログが決まっていない (どの部分か分からない) ときも、比べる相手の走行の動画 (道で見分ける) なら同じ扱い。slot が null なら何番の車か分からない
+  const companionIds = activeTrack?.remote ? companionSessionsOfVideo(activeTrack.remote.path) : null;
+  const syncOtherCar: { slot: number | null } | null = (activeTrack?.matchedSessionId && activeTrack.matchedSessionId !== baseSession?.id
+    ? selectedCars.find(c => c.slot !== 0 && c.sessionId === activeTrack.matchedSessionId) ?? null
+    : null) ?? (companionIds ? selectedCars.find(c => c.slot !== 0 && companionIds.includes(c.sessionId)) ?? { slot: null } : null);
+  // 合わせる道具を出すか (画面いっぱいのときは出さない)
+  const syncTools = showSyncTools && !syncOtherCar && !fullView;
+  const isLargeOffset = activeTrack && !syncOtherCar ? Math.abs(activeTrack.syncOffsetSec) > 3600 : false;
 
 
   // 速度ウィンドウのセッション (Car 1) に対応する動画トラックを自動選択
@@ -609,11 +688,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const shownCount = isCompactLayout ? tileCount : win.layout === 'single' ? Math.min(1, tileCount) : win.layout === 'pip' ? Math.min(2, tileCount) : tileCount;
 
   // 走行比較で、Car 1 が周の終わりに来たら周の始めに戻す (動画同期のタブはセッション全体の時刻で進むため。グラフ画面は App が戻す)
+  // 見るで周 (L◯) を選んでいるときも同じ (周の終わりを過ぎても再生が続き、時刻が周の長さを超えていた)
   useEffect(() => {
-    if (!isCompare || isGraphEmbedded || !baseLap || !isVisible || isAnyExporting) return;
+    // 合わせる (同期の調整) では戻さない (周の外へ動かす・ピンへ飛ぶ・動画の始まりへ飛ぶ、が効かなくなるため)
+    if (!(isCompare || seekbarScope === 'lap') || showSyncTools || isGraphEmbedded || !baseLap || !isVisible || isAnyExporting) return;
     if (isPlaying && renderSessionTime > baseLap.endTime) seekTo(baseLap.startTime);
     else if (renderSessionTime < baseLap.startTime - 0.5 || renderSessionTime > baseLap.endTime + 0.5) seekTo(baseLap.startTime);
-  }, [isCompare, renderSessionTime, baseLap?.startTime, baseLap?.endTime, isPlaying, isVisible]);
+  }, [isCompare, seekbarScope, showSyncTools, renderSessionTime, baseLap?.startTime, baseLap?.endTime, isPlaying, isVisible]);
 
   // 動画を App の時刻に合わせる (PlaybackController)。見えていないウインドウ・書き出し中は合わせない (書き出しは動画を自分で動かす)
   useEffect(() => {
@@ -730,6 +811,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     seekTo(isGraphEmbedded && baseLap ? start - baseLap.startTime : start);
     const stopPlayback = () => { if (stageRef.current.isPlaying) togglePlayRef.current(); };
     const finish = () => {
+      stageAbortRef.current = null;
       stageRecordingRef.current = false;
       exportControllerRef.current = null;
       stopPlayback();
@@ -737,6 +819,15 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       setIsExporting(false);
       setExportProgress(null);
       videoViewStore.set({ isExporting: false });
+    };
+    stageAbortRef.current = () => {
+      if (stageStartTimerRef.current !== null) {
+        clearTimeout(stageStartTimerRef.current);
+        stageStartTimerRef.current = null;
+        finish();
+      } else {
+        exportControllerRef.current?.cancel();
+      }
     };
     // 枠の動画が開始の位置へ移るのを待ってから、再生して録り始める
     stageStartTimerRef.current = window.setTimeout(() => {
@@ -911,9 +1002,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     });
 
     exportControllerRef.current = controller;
+    // 再生しながら録る書き出しも、画面が隠れると録れなくなるので、やめて知らせる (枠の並びの書き出しと同じ)
+    stageAbortRef.current = () => controller.cancel();
 
     const finish = () => {
       exportControllerRef.current = null;
+      stageAbortRef.current = null;
       setIsExporting(false);
       setExportProgress(null);
       videoViewStore.set({ isExporting: false });
@@ -1044,19 +1138,28 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   return (
     // 枠が狭くて全部の段が入らないときは、動画を潰さずにウインドウの中をスクロールさせる
-    <div className={`relative flex flex-col h-full bg-surface-0 text-slate-200 select-none font-sans ${isGraphEmbedded ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'}`}>
+    <div
+      ref={rootRef}
+      className={fullView
+        ? 'fixed inset-0 z-[80] flex flex-col bg-black text-slate-200 select-none font-sans overflow-hidden'
+        : `relative flex flex-col h-full bg-surface-0 text-slate-200 select-none font-sans ${isGraphEmbedded ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'}`}
+      // 画面いっぱいのときは、iPhone の切り欠き・角・ホームの線に隠れないよう余白を取る
+      style={fullView ? { padding: 'env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)' } : undefined}
+      data-testid="video-window"
+      data-fullview={fullView ? '1' : undefined}
+    >
       {showRuns && (
         <RunsInspector sessions={sessions} media={media} onChooseLog={onChooseLog} onClose={() => setShowRuns(false)} visible={isVisible} />
       )}
       {/* 1. 上部コントロールバー (フラットデザイン) */}
       {/* グラフ解析に埋め込んだ狭い枠では、右側のボタンが切れないよう横にスクロールできるようにする */}
-      {/* ボタンの文字は折り返さない。入りきらないときは横にスクロールし、広い画面でだけ文字を出すボタンもある */}
+      {/* ボタンの文字は折り返さない。入りきらないときは段を折り返す (横にスクロールさせると、右端のボタンがあることに気づけなかった)。広い画面でだけ文字を出すボタンもある */}
       {/* スマートフォンでは、横にスクロールさせず折り返し、押しやすいよう大きくする (2026-10-20) */}
       <div
         ref={toolbarScrollRef}
-        className={phoneToolbar
+        className={fullView ? 'hidden' : phoneToolbar
           ? 'bg-surface-1 border-b border-line-1 px-2 py-1.5 flex flex-wrap items-center gap-1 shrink-0 [&_button]:whitespace-nowrap [&_button]:shrink-0 [&_button]:min-h-9 [&_button]:text-xs [&_select]:min-h-9 [&_select]:text-sm [&_svg]:w-4 [&_svg]:h-4'
-          : 'h-11 bg-surface-1 border-b border-line-1 px-3 flex items-center justify-between gap-2 shrink-0 overflow-x-auto overflow-y-hidden [&_button]:whitespace-nowrap [&_button]:shrink-0'}
+          : 'min-h-11 bg-surface-1 border-b border-line-1 px-3 py-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 shrink-0 [&_button]:whitespace-nowrap [&_button]:shrink-0'}
         data-testid="video-toolbar"
       >
         <div className={phoneToolbar ? 'contents' : 'flex items-center gap-2.5 shrink-0'}>
@@ -1094,7 +1197,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           {!isGraphEmbedded && (media.length > 0 || baseSession) && (
             <div className={`flex items-center rounded border border-line-3 bg-surface-3 overflow-hidden shrink-0 ${phoneToolbar ? 'order-1' : ''}`} role="tablist" data-testid="video-modes">
               {([
-                ['watch', t('見る', 'Watch'), !isCompare && !showSyncTools, () => { setWin({ mode: 'cameras' }); setShowSyncTools(false); }, media.length > 0],
+                // 動画がなくても、比べるからは見るへ戻れるようにする (戻る手段がなくなっていた)
+                ['watch', t('見る', 'Watch'), !isCompare && !showSyncTools, () => { setWin({ mode: 'cameras' }); setShowSyncTools(false); }, media.length > 0 || isCompare],
                 ['compare', t('比べる', 'Compare'), isCompare, () => {
                   if (!hasCompareCar && autoCompareLap && baseSession) onPickCompareLap?.(baseSession.id, autoCompareLap.lapNumber);
                   setWin({ mode: 'compare', focus: null });
@@ -1216,7 +1320,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               ))}
               {cameras.length < Math.min(MAX_CAMERAS, media.length) && (
                 <button
-                  onClick={() => videoViewStore.setCamera(cameras.length, media.find(x => !cameraIds.includes(x.id))?.id ?? null)}
+                  onClick={() => {
+                    // 足すカメラは、今の時刻を映している動画を先に選ぶ (別の日の動画を選ぶと、何も映らない枠になっていた)
+                    const rest = media.filter(x => !cameraIds.includes(x.id));
+                    const pick = rest.find(x => !positionInMedia(x, renderSessionTime).outOfRange) ?? rest[0];
+                    videoViewStore.setCamera(cameras.length, pick?.id ?? null);
+                  }}
                   className="flex items-center gap-0.5 px-1.5 py-1 rounded bg-surface-3 hover:bg-surface-5 text-[10px] text-slate-300 border border-line-3 cursor-pointer"
                   title={t('カメラの枠を足す', 'Add a camera view')}
                 >
@@ -1237,7 +1346,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           )}
 
           {/* 並べ方 (枠が 2 つ以上のとき) */}
-          {tileCount > 1 && (
+          {/* 枠の並び。スマートフォンでは向きで決まる (縦の比べるは上下に 2 つ、ほかは 1 つずつ・横に送る) ので出さない (押しても変わらなかった) */}
+          {tileCount > 1 && !isCompactLayout && (
             <div className={`flex items-center rounded border border-line-3 bg-surface-3 overflow-hidden ${phoneToolbar ? 'order-3' : ''}`}>
               {([
                 ['single', t('単一', 'Single'), t('メインだけを出す', 'Main only'), null],
@@ -1284,7 +1394,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           {/* スマートフォンでは、ここで 2 段目にする (上の段: 同期の調整・ログ・モード・メーターの表示) */}
           {phoneToolbar && !landscapePhone && <div className="order-2 basis-full h-0" aria-hidden />}
           {/* 手動キーフレーム同期 (ピン留め) ボタン (動画の画面では「合わせる」のときだけ) */}
-          {activeTrack && (isGraphEmbedded || showSyncTools) && (
+          {activeTrack && (isGraphEmbedded || syncTools) && (
             <button
               onClick={() => setShowPinModal(true)}
               className={`flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-4 text-xs text-amber-300 border border-amber-500/40 transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
@@ -1339,7 +1449,16 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
       {/* 2. タイムゾーン設定 & 再同期専用バー (フラットデザイン) */}
       {/* 動画の時刻が大きくずれている (タイムゾーンの違いなど) ときは、直すボタンが見えるよう閉じていても出す */}
-      {activeTrack && (showSyncTools || isLargeOffset) && (
+      {showSyncTools && syncOtherCar && !fullView && (
+        <div className="bg-amber-500/10 border-b border-amber-500/30 px-3 py-2 text-xs text-amber-300 shrink-0" data-testid="video-sync-other-car">
+          {syncOtherCar.slot !== null
+            ? t(`この動画は比べる相手 (Car ${syncOtherCar.slot + 1}) の走行のものです。合わせるときは、その走行を Car 1 にして開いてください。`,
+              `This video belongs to the compared run (Car ${syncOtherCar.slot + 1}). To sync it, open that run as Car 1.`)
+            : t('この動画は比べる相手の走行のものです。合わせるときは、その走行を Car 1 にして開いてください。',
+              'This video belongs to a compared run. To sync it, open that run as Car 1.')}
+        </div>
+      )}
+      {activeTrack && (syncTools || (isLargeOffset && !fullView)) && (
         <div className="bg-surface-1 border-b border-line-1 px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0 select-none">
           <div className="flex flex-wrap items-center gap-2.5">
             {/* 動画に合わせるログ (動画と時間の重なるログが 2 つ以上のとき。記録の細かい順) LATER-12 */}
@@ -1480,7 +1599,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 const x = tiles[i];
                 const isMain = i === 0;
                 // 音を出すのは、大きく出している枠 (なければメイン) だけ
-                const sound = !muteAll && (win.focus !== null ? i === win.focus : isMain);
+                const sound = !muteAll && !userMuted && (win.focus !== null ? i === win.focus : isMain);
                 return (
                   <VideoTile
                     key={`tile-${i}`}
@@ -1680,7 +1799,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       )}
 
       {/* 5. マスタータイムライン マルチトラックインスペクター (NLE風) */}
-      {showSyncTools && (() => {
+      {syncTools && (() => {
         const effectiveSessionTime = isGraphEmbedded && baseLap ? (baseLap.startTime + currentTimeSec) : currentTimeSec;
         return (
           <MasterTimelineTrackBar
@@ -1790,7 +1909,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   }
                 }
               }}
-              className="flex-1 h-1 bg-slate-700 rounded appearance-none cursor-pointer accent-red-500"
+              // つまみを掴みやすいよう、押せる高さを取る (h-1 だと 4 px で、指でもマウスでも掴みにくかった。解析の再生の段と同じ)
+              className={`flex-1 min-w-0 cursor-pointer accent-red-500 ${isCompactLayout ? 'h-6' : 'h-4'}`}
             />
 
             {/* 終了時刻表示 */}
@@ -1844,12 +1964,40 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               <option key={v} value={String(v)}>{v}x</option>
             ))}
           </select>
+
+          {/* 音を消す・出す (グラフ解析に埋め込んだときは、もともと音を出さない) */}
+          {!muteAll && (
+            <button
+              onClick={toggleUserMuted}
+              className={`p-1 rounded border border-line-2 transition-colors cursor-pointer ml-1 ${userMuted ? 'bg-surface-3 text-slate-500 hover:bg-surface-4' : 'bg-surface-3 text-slate-300 hover:bg-surface-4'}`}
+              title={userMuted ? t('音を出す', 'Unmute') : t('音を消す', 'Mute')}
+              aria-label={userMuted ? t('音を出す', 'Unmute') : t('音を消す', 'Mute')}
+              aria-pressed={userMuted}
+              data-testid="video-mute"
+            >
+              {userMuted ? <VolumeX size={isCompactLayout ? 18 : 15} /> : <Volume2 size={isCompactLayout ? 18 : 15} />}
+            </button>
+          )}
+
+          {/* 画面いっぱいに出す・戻す (グラフ解析に埋め込んだときは出さない) */}
+          {!isGraphEmbedded && (
+            <button
+              onClick={toggleFullView}
+              className="p-1 rounded border border-line-2 bg-surface-3 text-slate-300 hover:bg-surface-4 transition-colors cursor-pointer ml-1"
+              title={fullView ? t('元の大きさに戻す', 'Exit full screen') : t('画面いっぱいに出す', 'Full screen')}
+              aria-label={fullView ? t('元の大きさに戻す', 'Exit full screen') : t('画面いっぱいに出す', 'Full screen')}
+              aria-pressed={fullView}
+              data-testid="video-fullscreen"
+            >
+              {fullView ? <Minimize size={isCompactLayout ? 18 : 15} /> : <Maximize size={isCompactLayout ? 18 : 15} />}
+            </button>
+          )}
         </div>
         )}
 
         {/* 同期オフセット微調整 & ピン選択。スマートフォンでは「同期の調整」を開いたときだけ出す (場所を取るため) */}
         {/* ずれの数字・コマ送り・ピン (動画の画面では「合わせる」のときだけ。グラフ解析に埋め込んだときは今までどおり) */}
-        {activeTrack && (showSyncTools || (isGraphEmbedded && !isCompactLayout)) && (
+        {activeTrack && (syncTools || (isGraphEmbedded && !isCompactLayout)) && (
           <div className="flex flex-wrap items-center gap-2 text-xs bg-surface-3 px-3 py-1 rounded border border-line-2">
             {/* 登録済みピンのクイックジャンプドロップダウン */}
             {pins.length > 0 && (
@@ -2023,7 +2171,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             </div>
 
             <p className="text-xs text-slate-400 leading-relaxed">
-              {t('車載動画にメーター（速度・Gフォース・ラップタイム）を合成し、MP4動画としてエクスポートします。', 'Composites gauges (speed, G-force, lap time) onto the onboard video and exports it as MP4.')}
+              {t('メーター（速度・Gフォース・ラップタイム）を描いて書き出します。車載動画に重ねるか、メーターだけにするかを選べます。', 'Draws gauges (speed, G-force, lap time) and exports them with or without the onboard video.')}
             </p>
 
             {/* 書き出し範囲選択 */}
@@ -2085,8 +2233,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   className="w-full bg-surface-1 border border-line-3 text-xs px-2 py-1 rounded outline-none text-slate-200 cursor-pointer"
                   data-testid="export-method"
                 >
-                  <option value="overlay-png">{t('メーターだけ・背景は透明 (PNG の連番の ZIP。Premiere・DaVinci・After Effects 向け)', 'Meters only, transparent (PNG sequence ZIP; Premiere, DaVinci, After Effects)')}</option>
-                  {webmAlphaOk && <option value="overlay-webm">{t('メーターだけ・背景は透明 (WebM。小さいが、読めるソフトが限られる)', 'Meters only, transparent (WebM; small, limited editor support)')}</option>}
+                  <option value="overlay-png">{t('メーターだけ・背景は透明 (PNG の連番の ZIP。Premiere・DaVinci・After Effects 向け)', 'Gauges only, transparent (PNG sequence ZIP; Premiere, DaVinci, After Effects)')}</option>
+                  {webmAlphaOk && <option value="overlay-webm">{t('メーターだけ・背景は透明 (WebM。小さいが、読めるソフトが限られる)', 'Gauges only, transparent (WebM; small, limited editor support)')}</option>}
                   <option value="encode" disabled={!activeTrack?.file || !canUseEncodeExport()}>{t('動画にメーターを焼き込む (エンコード)', 'Burn meters into the video (encode)')}</option>
                   <option value="record" disabled={!activeTrack}>{t('動画にメーターを焼き込む (再生しながら録る・これまでの方式)', 'Burn meters into the video (record while playing, previous method)')}</option>
                 </select>
@@ -2211,9 +2359,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
             <button
               onClick={() => {
-                if (exportControllerRef.current) {
-                  exportControllerRef.current.cancel();
-                }
+                // 枠の並びの書き出しで、録り始める前 (準備中) にやめたときも止める
+                if (stageAbortRef.current) stageAbortRef.current();
+                else if (exportControllerRef.current) exportControllerRef.current.cancel();
               }}
               className="px-4 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 cursor-pointer transition-colors"
             >

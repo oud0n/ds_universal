@@ -15,13 +15,16 @@ node ov.mjs line <id> <x1> <y1> <x2> <y2>      # 写真の画素で計測線を�
 node ov.mjs pitline <id> 30                    # 写真で決められないとき: ピットロードの中ほどに仮の線
 TARGET=<公式の長さm> node loops.mjs <id>       # 計測線を通る 1 周の候補（長さの近い順）
 ./fin.sh <id> <公式の長さm> <CW|CCW> [候補の番号] [区切り]   # 1 周を取り出し、セクター線を置いて view_<id>.svg.png を描く
-node add_courses.mjs ../../courses <id>...     # courses/ に .cln・.sci と index.json の項目を書く（名前とメモは中の META）
+node add_courses.mjs ../../courses <id>...     # courses/ControlLine/ に .cln・courses/Sector/ に .sci と、index.json の項目を書く（名前とメモは中の META）
 ```
 
 - `EXCL="short|kart"` を付けると、名前が合う道（短いコース・カートコースなど）を外して 1 周を探す。
 - 区切りは既定で 3 等分（`0.3333333,0.6666667`）。距離（m）でも指定できる。等分の位置の近くに並行する直線があるときは、±8% の範囲でずらす。
 - 走る向き（CW / CCW）を間違えても、アプリが周回の計算でセクターを並べ直す。
 - セクター線を入れないコースは、`add_courses.mjs` の META に `noSectors`（理由）を書く（.sci を書かず、`index.json` に `sci` を入れない）。
+- セクター線の無いコースにまとめて置く: `node sectors_batch.mjs [id...]`（2026-10-24）。計測線を通るいちばん長い周を 3 等分し、ほかの路面にかからない長さの線にする。結果は `sectors_batch.json` と `view_<id>.svg`（確かめ用の図）。courses/ には書かないので、図を見て正しいものだけ入れる。
+  - 1 周の候補を航空写真に重ねて見る: `CANDS=1 node sectors_batch.mjs <id>` のあと `node cands_view.mjs <id>`（`candsview_<id>.svg.png`。候補は、分かれ道で 60 度より急に曲がらない周を先に、長い順）。番号を選ぶときは `PICK=<番号>`。作ったセクター線を写真で見る: `node cands_view.mjs <id> result`。
+  - レイアウトを替えて走るコース: `COMMON=1`（1 周として考えられる周＝いちばん長い周の 7 割以上の周のどれもが通る道の上にだけ置く。`COMMONMIN=0.9` で割合、`COMMONTOP=9` で「急に曲がらない順の上位 9 周」に替える）。
 
 ## 航空写真
 

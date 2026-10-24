@@ -139,7 +139,11 @@ export function groupVideoTracksByChapter<T extends VideoTrack>(tracks: T[]): {
       return;
     }
 
-    const key = `${info.brand}_${info.sessionId}`;
+    // 保管場所の動画は、同じフォルダのものだけを 1 つの撮影のチャプターとみなす。
+    // GoPro の名前 (GX010017 など) は別の日・別のカメラでも重なるので、比べる相手の走行の同じ名前の動画を、
+    // 開いている走行の動画のチャプターと取り違えないように (BUG-35 の (6))
+    const dir = track.remote ? track.remote.path.slice(0, Math.max(0, track.remote.path.lastIndexOf('/'))) : '';
+    const key = `${info.brand}_${info.sessionId}${dir ? `@${dir}` : ''}`;
     if (!groupMap.has(key)) {
       groupMap.set(key, {
         brand: info.brand,

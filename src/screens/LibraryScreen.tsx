@@ -1,10 +1,12 @@
+import { sameCourseName } from '../utils/courseNames';
 import React, { useMemo, useState } from 'react';
 import { BarChart2, Bluetooth, ChevronRight, Cloud, EyeOff, FolderOpen, GitCompare, Loader2, Timer, Trophy, Video, X } from 'lucide-react';
-import { useT } from '../utils/i18n';
+import { circuitLabel, useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { formatLapTime } from '../services/liveLapTimer';
 import { RunRow, fmtDate, useRuns } from '../components/RecentRuns';
 import { LapHistoryPanel } from '../components/LapHistoryPanel';
+import { runStem } from '../services/lapIndex';
 import { useStorageLabel } from '../components/StorageSettings';
 import { baseName, setRunLapHidden, type RunItem } from '../services/runOpener';
 import { navStore } from '../app/navStore';
@@ -47,11 +49,17 @@ function dayKey(ms: number | null): string {
  * 保管場所の 1 行 / サーキットで絞る / 日付ごとの走行 / 下に「ファイルを選ぶ」「ラップタイムの記録」。
  * 行を押すと走行の詳細 (周の一覧・動画・解析で開く・動画を見る)
  */
+/** 同じ走行のファイルか (日付のフォルダが同じで、拡張子 .nmea / .bon4 を除いた名前が同じ) */
+const sameRunFile = (a: string, b: string) => {
+  const dir = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
+  return dir(a) === dir(b) && runStem(a) === runStem(b);
+};
+
 export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVideo, onAddAsCar2, car1Course = null, car1Run = null, onPickFiles, onOpenFile, busy, canTime = false }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const { store, runs, error, noFolder, reload } = useRuns(active);
-  const storageLabel = useStorageLabel();
+  const storageLabel = useStorageLabel(active);
   const [folder, setFolder] = useState<string | null>(null);
   const [shown, setShown] = useState(PAGE);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -63,7 +71,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
     const m = new Map<string, { label: string; count: number }>();
     for (const r of runs ?? []) {
       const cur = m.get(r.folder);
-      m.set(r.folder, { label: r.courseName ?? (r.folder === 'unsorted' ? t('未分類', 'Unsorted') : r.folder), count: (cur?.count ?? 0) + 1 });
+      m.set(r.folder, { label: r.courseName ?? r.folder, count: (cur?.count ?? 0) + 1 });
     }
     return [...m.entries()];
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -85,7 +93,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
     if (!day) return t('日時が分からない走行', 'Unknown date');
     const [y, m, d] = day.split('-').map(Number);
     const w = (ja ? ['日', '月', '火', '水', '木', '金', '土'] : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'])[new Date(y, m - 1, d).getDay()];
-    return ja ? `${y}年${m}月${d}日 (${w})` : `${w}, ${y}-${m}-${d}`;
+    return ja ? `${y}年${m}月${d}日 (${w})` : `${w}, ${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
   };
 
   const select = (r: RunItem) => setSelectedKey(`${r.folder}/${r.file}`);
@@ -100,7 +108,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
           data-testid="library-storage"
         >
           <FolderOpen size={14} className="shrink-0 text-slate-400" />
-          <span className="truncate flex-1 text-left">{storageLabel}</span>
+          <span className="truncate flex-1 text-left" title={storageLabel}>{storageLabel}</span>
           <ChevronRight size={14} className="text-slate-500 shrink-0" />
         </button>
       )}
@@ -112,7 +120,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
               onClick={() => { setFolder(f); setShown(PAGE); setSelectedKey(null); }}
               className={`px-3 py-1.5 rounded-full text-xs whitespace-nowrap border cursor-pointer ${folder === f ? 'bg-sky-600 border-sky-500 text-white' : 'bg-surface-3 border-line-2 text-slate-300'}`}
             >
-              {label} <span className="opacity-70">{count}</span>
+              {f === 'unsorted' && label === 'unsorted' ? t('未分類', 'Unsorted') : f !== null ? circuitLabel(label) : label} <span className="opacity-70">{count}</span>
             </button>
           ))}
         </div>
@@ -161,7 +169,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
                   className="w-full text-left px-3 py-2 rounded-lg border border-dashed border-line-2 text-xs text-slate-500 cursor-pointer hover:bg-surface-2"
                   data-testid="library-empty-runs-fold"
                 >
-                  {t(`周も動画もない走行 ${g.items.filter(isEmptyRun).length} 件をたたむ`, `Hide ${g.items.filter(isEmptyRun).length} runs without laps or videos`)}
+                  {t(`周も動画もない走行 ${g.items.filter(isEmptyRun).length} 件をたたむ`, `Hide ${g.items.filter(isEmptyRun).length} run${g.items.filter(isEmptyRun).length === 1 ? '' : 's'} without laps or videos`)}
                 </button>
               )}
               {!showEmpty.has(g.day) && g.items.some(isEmptyRun) && (
@@ -170,7 +178,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
                   className="w-full text-left px-3 py-2 rounded-lg border border-dashed border-line-2 text-xs text-slate-500 cursor-pointer hover:bg-surface-2"
                   data-testid="library-empty-runs"
                 >
-                  {t(`周も動画もない走行 ${g.items.filter(isEmptyRun).length} 件 (表示する)`, `${g.items.filter(isEmptyRun).length} runs without laps or videos (show)`)}
+                  {t(`周も動画もない走行 ${g.items.filter(isEmptyRun).length} 件 (表示する)`, `${g.items.filter(isEmptyRun).length} run${g.items.filter(isEmptyRun).length === 1 ? '' : 's'} without laps or videos (show)`)}
                 </button>
               )}
             </div>
@@ -210,7 +218,11 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
       onOpen={() => { setSelectedKey(null); onOpen(selected); }}
       onOpenVideo={() => { setSelectedKey(null); onOpenVideo(selected); }}
       onAddAsCar2={onAddAsCar2 ? () => { setSelectedKey(null); onAddAsCar2(selected); } : undefined}
-      otherCourse={!!onAddAsCar2 && !!car1Course && selected.courseName !== car1Course}
+      // 同じコースか: Car 1 と同じフォルダ (コースごとのフォルダ) の走行か、コースの名前が同じコースを指すとき。
+      // 未分類のフォルダはいろいろなコースの走行が入るので、フォルダが同じでも同じコースとはみなさない
+      otherCourse={!!onAddAsCar2 && !!car1Course
+        && !(car1Run !== null && selected.folder !== 'unsorted' && car1Run.slice(0, car1Run.indexOf('/')) === selected.folder)
+        && !sameCourseName(selected.courseName, car1Course)}
       isCar1={car1Run === `${selected.folder}/${selected.file}`}
       onToggleLap={async (lap, hide) => { await setRunLapHidden(store, selected, lap, hide); reload(); }}
       onClose={wide ? undefined : () => setSelectedKey(null)}
@@ -232,7 +244,12 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
           {detail && <div className="absolute inset-0 z-[35] bg-surface-0 flex flex-col">{detail}</div>}
         </>
       )}
-      {historyOpen && <LapHistoryPanel onClose={() => setHistoryOpen(false)} onOpenRun={file => { setHistoryOpen(false); onOpenFile(file); }} />}
+      {historyOpen && <LapHistoryPanel onClose={() => setHistoryOpen(false)} onOpenRun={(file, run) => {
+        setHistoryOpen(false);
+        // 走行の一覧にある走行なら、走行の画面から開くのと同じに開く (Car 1 にする・動画と同期もそろえる)
+        const item = runs?.find(r => r.folder === run.folder && sameRunFile(r.file, run.file));
+        if (item) onOpen(item); else onOpenFile(file);
+      }} />}
     </div>
   );
 };
@@ -269,12 +286,14 @@ const RunDetail: React.FC<{
     <div className="flex-1 min-h-0 flex flex-col" data-testid="run-detail">
       <div className="px-4 py-3 border-b border-line-2 flex items-start gap-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold text-slate-100">{fmtDate(run.startMs, ja)} {run.courseName ?? (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</div>
+          <div className="text-sm font-bold text-slate-100">{fmtDate(run.startMs, ja)} {run.courseName != null ? circuitLabel(run.courseName) : (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</div>
           <div className="text-xs text-slate-400 mt-0.5">
             {run.pending
               ? t('☁️ iCloud にだけあるので、開くと周を数えます', '☁️ Only in iCloud; laps are counted when opened')
-              : <>{t('ベスト', 'Best')} <span className="font-mono font-bold text-fuchsia-400">{best !== null ? formatLapTime(best) : '--'}</span> ・ {t(`${visible.length} 周`, `${visible.length} laps`)}</>}
-            {run.videos.length > 0 && <> ・ <Video size={11} className="inline" /> {run.videos.length}{run.synced ? t(' (同期済み)', ' (synced)') : ''}</>}
+              : run.courseName === null && run.laps.length === 0
+              ? t('コース未設定。開くと、計測線を自動で置いて周を数えます', 'No course. Laps are counted with an automatic timing line when you open it')
+              : <>{t('ベスト', 'Best')} <span className="font-mono font-bold text-fuchsia-400">{best !== null ? formatLapTime(best) : '--'}</span>{t(' ・ ', ' · ')}{t(`${visible.length} 周`, `${visible.length} lap${(visible.length) === 1 ? '' : 's'}`)}</>}
+            {run.videos.length > 0 && <>{t(' ・ ', ' · ')}<Video size={11} className="inline" /> {run.videos.length}{run.synced ? t(' (同期済み)', ' (synced)') : ''}</>}
           </div>
         </div>
         {onClose && (
@@ -327,7 +346,7 @@ const RunDetail: React.FC<{
       </div>
       {onAddAsCar2 && visible.length > 0 && (
         <div className="shrink-0 px-4 pt-3 border-t border-line-2">
-          <button onClick={onAddAsCar2} disabled={busy || otherCourse || isCar1} title={isCar1 ? t('開いている走行 (Car 1) です', 'This run is Car 1') : otherCourse ? t('同じコースの走行だけ比べられます', 'Only runs on the same course can be compared') : undefined} className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl border-2 border-sky-500 text-sky-500 font-bold text-sm cursor-pointer disabled:opacity-40" data-testid="run-add-car2">
+          <button onClick={onAddAsCar2} disabled={busy || otherCourse || isCar1} title={isCar1 ? t('開いている走行 (Car 1) です', 'This run is Car 1') : otherCourse ? t('同じコースの走行だけ比べられます', 'Only runs on the same course can be compared') : undefined} className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl border-2 border-sky-500 text-sky-500 font-bold text-sm cursor-pointer disabled:cursor-not-allowed disabled:border-line-3 disabled:text-slate-400" data-testid="run-add-car2">
             <GitCompare size={16} />{isCar1
               ? t('開いている走行 (Car 1) です', 'This run is Car 1')
               : otherCourse
@@ -340,7 +359,7 @@ const RunDetail: React.FC<{
         <button onClick={onOpen} disabled={busy} className="flex-1 inline-flex items-center justify-center gap-1.5 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm cursor-pointer disabled:opacity-50" data-testid="run-open-analysis">
           <BarChart2 size={16} />{t('解析で開く', 'Open in Analysis')}
         </button>
-        <button onClick={onOpenVideo} disabled={busy || videos.length === 0} className="flex-1 inline-flex items-center justify-center gap-1.5 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm cursor-pointer disabled:opacity-40" data-testid="run-open-video">
+        <button onClick={onOpenVideo} disabled={busy || videos.length === 0} className="flex-1 inline-flex items-center justify-center gap-1.5 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm cursor-pointer disabled:cursor-not-allowed disabled:bg-surface-4 disabled:text-slate-400 disabled:hover:bg-surface-4" data-testid="run-open-video">
           <Video size={16} />{t('動画を見る', 'Watch video')}
         </button>
       </div>

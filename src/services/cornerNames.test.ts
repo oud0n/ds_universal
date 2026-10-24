@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildLapGeometry, detectCorners, originOf, type LapGeometry } from './drivingAnalysis';
-import { carryNames, cornersFromDetection, mergeCorners, newCornerFile, parseCornerFile, placeCorners, serializeCornerFile, splitCorner } from './cornerNames';
+import { applySpanCorner, carryNames, tapSpan, cornersFromDetection, mergeCorners, newCornerFile, parseCornerFile, placeCorners, serializeCornerFile, splitCorner } from './cornerNames';
 import type { Lap } from '../types/telemetry';
 
 /** 長方形に近いコース (直線 300 m と、半径 40 m の 90 度の角 4 つ。時計回り) を 10 Hz・100 km/h で 1 周 */
@@ -80,5 +80,49 @@ describe('コーナーの名前', () => {
     expect(parseCornerFile('{"version":2,"corners":[]}')).toBeNull();
     expect(parseCornerFile('{"version":1,"corners":[{"name":"1"}]}')).toBeNull();
     expect(parseCornerFile('not json')).toBeNull();
+  });
+  it('なぞった範囲を 1 つのコーナーにする (中のコーナーは置き換え、前後は範囲の外に縮める)', () => {
+    const geo = geoOf(rectLap());
+    const named = cornersFromDetection(geo, detectCorners(geo));
+    const placed = placeCorners(geo, named);
+    // C2 と C3 をまたいでなぞる
+    const r = applySpanCorner(named, geo, placed[1]!.startIndex, placed[2]!.endIndex);
+    expect(r).not.toBeNull();
+    expect(r!.list.map(c => c.name)).toEqual(['C1', 'C2-C3', 'C4']);
+    expect(r!.index).toBe(1);
+    expect(r!.list[1].direction).toBe('R');
+    expect(placeCorners(geo, r!.list).every(p => p !== null)).toBe(true);
+    // C1 の後ろ半分だけをなぞる: C1 は置き換え、名前は C1 のまま
+    const p0 = placed[0]!;
+    const half = applySpanCorner(named, geo, p0.apexIndex - 2, p0.endIndex);
+    expect(half!.list.map(c => c.name)).toEqual(['C1', 'C2', 'C3', 'C4']);
+    // 直線の途中 (中にコーナーなし) は新しい名前で、走る順に入る
+    const mid = Math.round((p0.endIndex + placed[1]!.startIndex) / 2);
+    const added = applySpanCorner(named, geo, mid - 10, mid + 10);
+    expect(added!.list.map(c => c.name)).toEqual(['C1', 'C5', 'C2', 'C3', 'C4']);
+    // 頂点のすぐ手前までなぞったとき: そのコーナーを置き換え、名前を引き継ぐ
+    const edge = applySpanCorner(named, geo, p0.startIndex - 20, p0.apexIndex - 1);
+    expect(edge!.list.map(c => c.name)).toEqual(['C1', 'C2', 'C3', 'C4']);
+    // 短すぎる範囲は作らない
+    expect(applySpanCorner(named, geo, mid, mid + 1)).toBeNull();
+    // 周の始めと終わりをまたいだ (ほぼ 1 周の) 範囲は作らない
+    expect(applySpanCorner(named, geo, geo.s.length - 4, 3)).toBeNull();
+    // 消したあとに足しても、今ある名前と重ならない
+    const gap = [named[0], named[1], { ...named[3], name: 'C4' }];
+    expect(applySpanCorner(gap, geo, mid - 10, mid + 10)!.list.map(c => c.name)).toContain('C3');
+  });
+  it('押して足すコーナーは、前後のコーナーの頂点にかからず、どのコーナーも置けなくならない', () => {
+    const geo = geoOf(rectLap());
+    const named = cornersFromDetection(geo, detectCorners(geo));
+    const placed = placeCorners(geo, named);
+    // コーナーの中を押したときは足さない
+    expect(tapSpan(named, geo, placed[1]!.apexIndex)).toBeNull();
+    // C1 の出口のすぐ後ろ (40 m 以内) を押す
+    const near = placed[0]!.endIndex + 3;
+    const span = tapSpan(named, geo, near)!;
+    expect(span.a).toBeGreaterThan(placed[0]!.apexIndex);
+    const r = applySpanCorner(named, geo, span.a, span.b)!;
+    expect(r.list.length).toBe(5);
+    expect(placeCorners(geo, r.list).every(p => p !== null)).toBe(true);
   });
 });

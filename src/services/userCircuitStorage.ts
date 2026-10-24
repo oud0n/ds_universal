@@ -24,6 +24,8 @@ export interface UserCircuitItem {
   folder?: string;
   /** ゴールの線 (スタートとゴールが別のコース。コース編集で付けたもの) */
   finishLine?: ControlLine;
+  /** コース編集で保存した時刻 (端末の間で合わせるとき、新しいほうを使う。2026-10-24 から) */
+  updatedAt?: string;
 }
 
 // コントロールラインと組み合わせられなかったコース図。内蔵のコースのコース図として使う
@@ -366,6 +368,8 @@ interface StoredData {
 
 class UserCircuitStorage {
   private files: CourseFile[] = [];
+  /** 保管場所の digspice/ にあるコースデータ (開くたびに読む。保存しない)。storageCourses.ts */
+  private storageFiles: CourseFile[] = [];
   private circuits: UserCircuitItem[] = [];
   private loose: LoosePolyline[] = [];
   private edited: UserCircuitItem[] = [];
@@ -449,7 +453,8 @@ class UserCircuitStorage {
     };
     const newPaths = new Set(files.map(f => norm(f.path)));
     const all = [...this.files.filter(f => !files.some(n => sameFile(f, n))), ...files];
-    const r = pairCourseFiles(all, CIRCUIT_PRESETS);
+    // 組み合わせには、保管場所の digspice/ のコースデータも入れる (同じファイルは読み込んだほうを使う)
+    const r = pairCourseFiles([...all, ...this.storageFiles.filter(f => !all.some(n => sameFile(f, n)))], CIRCUIT_PRESETS);
     // 読み込めなかったファイルは残さない (次の読み込みのたびに失敗として出さないように)
     const failedPaths = new Set(r.failed.map(f => f.path));
     this.files = all.filter(f => !failedPaths.has(f.path));
@@ -471,13 +476,39 @@ class UserCircuitStorage {
     };
   }
 
+  /**
+   * 保管場所の digspice/ にあるコースデータ (デジスパイスと同じ形のフォルダ) を使う。保存はしない (開くたびに読む)。
+   * 内蔵のコースと同じコースのものは、コース図だけが使われる (circuitDatabase.ts の isShadowedByPreset)
+   */
+  public async setStorageCourseFiles(files: CourseFile[]): Promise<void> {
+    await this.ready.catch(() => undefined);
+    const { CIRCUIT_PRESETS } = await import('./circuitDatabase');
+    const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+    const sameFile = (a: CourseFile, b: CourseFile) => {
+      const pa = norm(a.path);
+      const pb = norm(b.path);
+      if (pa === pb || pa.endsWith('/' + pb) || pb.endsWith('/' + pa)) return true;
+      return pa.split('/').pop() === pb.split('/').pop() && a.text === b.text;
+    };
+    this.storageFiles = files;
+    const r = pairCourseFiles([...this.files, ...files.filter(f => !this.files.some(n => sameFile(f, n)))], CIRCUIT_PRESETS);
+    this.circuits = r.circuits;
+    this.loose = r.loose;
+  }
+
   /** 今の内容を保存する */
   private async persist(): Promise<{ saved: boolean; saveError?: string }> {
     if (this.loadFailed) {
       return { saved: false, saveError: '保存済みのコースを読み込めなかったため、消さないよう保存していません (アプリを開き直してください)' };
     }
     try {
-      await dbPut(DB_KEY, { files: this.files, circuits: this.circuits, loose: this.loose, edited: this.edited } satisfies StoredData);
+      // 保管場所の digspice/・course/ のコースデータは保存しない (開くたびに読む。保管場所から消した・保管場所を変えたあとも残らないように)
+      let { circuits, loose } = this;
+      if (this.storageFiles.length) {
+        const { CIRCUIT_PRESETS } = await import('./circuitDatabase');
+        ({ circuits, loose } = pairCourseFiles(this.files, CIRCUIT_PRESETS));
+      }
+      await dbPut(DB_KEY, { files: this.files, circuits, loose, edited: this.edited } satisfies StoredData);
       return { saved: true };
     } catch (e) {
       console.warn('[UserCircuit] 保存に失敗:', e);
@@ -512,11 +543,25 @@ class UserCircuitStorage {
       sources: { cln: 'edited' },
       // 英語名・フォルダ名は、渡されなければ前に保存したものを引き継ぐ
       ...(extra.nameEn && extra.folder ? { nameEn: extra.nameEn, folder: extra.folder } : prev?.nameEn && prev.folder ? { nameEn: prev.nameEn, folder: prev.folder } : {}),
-      ...(extra.finishLine ? { finishLine: { ...extra.finishLine, name: 'Finish Line' } } : {})
+      ...(extra.finishLine ? { finishLine: { ...extra.finishLine, name: 'Finish Line' } } : {}),
+      updatedAt: new Date().toISOString()
     };
     // 新しく保存したものを最後に置く (同じ場所に複数あるときは、後に保存したものを使う)
     this.edited = [...this.edited.filter(c => c.name !== name), item];
-    return this.persist();
+    const r = await this.persist();
+    // 保管場所の course/ にも書く (ほかの端末でも使えるように。courseFolderSync.ts)
+    this.onEditedChanged?.({ saved: item });
+    return r;
+  }
+
+  /** コース編集で保存・削除したとき (保管場所の course/ に書く。storageCourses.ts が入れる) */
+  public onEditedChanged?: (e: { saved?: UserCircuitItem; deletedName?: string }) => void;
+
+  /** 保管場所の course/ と合わせた、コース編集で保存したコースを使う */
+  public async setSyncedEdited(edited: UserCircuitItem[]): Promise<void> {
+    await this.ready.catch(() => undefined);
+    this.edited = edited;
+    await this.persist();
   }
 
   /** コース編集で保存したコース */
@@ -542,7 +587,9 @@ class UserCircuitStorage {
   public async deleteEditedCircuit(name: string): Promise<{ saved: boolean; saveError?: string }> {
     await this.ready.catch(() => undefined);
     this.edited = this.edited.filter(c => c.name !== name);
-    return this.persist();
+    const r = await this.persist();
+    this.onEditedChanged?.({ deletedName: name });
+    return r;
   }
 
   /**
@@ -554,9 +601,12 @@ class UserCircuitStorage {
     lat: number,
     lon: number,
     maxDistMeters = 15000,
-    points?: TelemetryPoint[]
+    points?: TelemetryPoint[],
+    /** 候補から外すコース (内蔵のコースと同じコースの、読み込んだコースデータなど) */
+    exclude?: (c: UserCircuitItem) => boolean
   ): { circuit: UserCircuitItem; crossings: number } | null {
     const near = [...this.edited, ...this.circuits]
+      .filter(c => !exclude?.(c))
       .map(c => ({ c, d: distM(lat, lon, lineMid(c.controlLine).lat, lineMid(c.controlLine).lon) }))
       .filter(x => x.d < maxDistMeters)
       .sort((a, b) => a.d - b.d);
@@ -618,6 +668,31 @@ class UserCircuitStorage {
 
   public getCircuitCount(): number {
     return this.circuits.length + this.edited.length;
+  }
+
+  /** コースフォルダー一括設置で読み込んだコースデータのファイルの数 (.cln・.pth・.sci) */
+  public getImportedFileCount(): number {
+    return this.files.length;
+  }
+
+  /** コースフォルダー一括設置で読み込んだコースの数 (保管場所の digspice/・course/ のもの、コース編集で保存したものは数えない) */
+  public getImportedCourseCount(): number {
+    const imported = new Set(this.files.filter(f => /\.cln$/i.test(f.path)).map(f => f.path.toLowerCase()));
+    return this.circuits.filter(c => imported.has(c.sources.cln.toLowerCase())).length;
+  }
+
+  /**
+   * コースフォルダー一括設置で読み込んだコースデータを外す (内蔵のコースに戻す)。
+   * コース編集で保存したコースは残す。保管場所の digspice/ のコースデータは、そのまま使う
+   */
+  public async clearImported(): Promise<{ saved: boolean; saveError?: string }> {
+    await this.ready.catch(() => undefined);
+    const { CIRCUIT_PRESETS } = await import('./circuitDatabase');
+    this.files = [];
+    const r = pairCourseFiles(this.storageFiles, CIRCUIT_PRESETS);
+    this.circuits = r.circuits;
+    this.loose = r.loose;
+    return this.persist();
   }
 
   public async clear(): Promise<void> {

@@ -77,11 +77,13 @@ export const BleStatusPill: React.FC<{ onClick?: () => void }> = ({ onClick }) =
       type="button"
       onClick={onClick}
       data-testid="ble-status-pill"
-      className={`flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-full border whitespace-nowrap ${STATUS_CLASS[snap.status]}`}
+      // 狭い画面では、機器の名前を縮めて省く (縮まないと、右の ⚙ が画面の外へ押し出されていた)
+      className={`flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-full border whitespace-nowrap min-w-0 overflow-hidden ${STATUS_CLASS[snap.status]}`}
     >
-      <Bluetooth size={12} />
-      <span className="font-sans font-bold">{loggerModel(snap.registered?.name)}</span>
-      <span>{snap.status === 'fixing' ? `${snap.rateHz} Hz` : label(snap.status, snap.rateHz)}</span>
+      <Bluetooth size={12} className="shrink-0" />
+      {/* とても狭い画面では、機器の名前を出さず、つなぎの状態だけにする (英語の「Not connected」が途中で切れていた) */}
+      <span className="font-sans font-bold truncate min-w-0 max-[440px]:hidden">{loggerModel(snap.registered?.name)}</span>
+      <span className="truncate min-w-0">{snap.status === 'fixing' ? `${snap.rateHz} Hz` : label(snap.status, snap.rateHz)}</span>
     </button>
   );
 };

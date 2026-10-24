@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExtern
 import { X, Volume2, VolumeX, Menu, MapPin, Bluetooth, Smartphone, PlayCircle, Save, BarChart3, Trash2, Play, Square } from 'lucide-react';
 import { useLoggerLink, useStatusLabel } from './BleLoggerCard';
 import { formatDelta, formatLapTime } from '../services/liveLapTimer';
-import { CIRCUIT_PRESETS } from '../services/circuitDatabase';
+import { CIRCUIT_PRESETS, userCircuitPresets } from '../services/circuitDatabase';
 import { triggerFileDownload } from '../services/nmeaExporter';
 import { downloadBlob } from '../services/telemetryVideoExporter';
 import { LapHistoryPanel } from './LapHistoryPanel';
@@ -248,8 +248,10 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
 
   const nearbyCourses = useMemo(() => {
     const p = snap.lastPos;
-    const list = presetsWithLine.map(c => ({ c, d: p ? distanceKm(p.latitude, p.longitude, c.centerLat, c.centerLon) : Infinity }));
-    return list.sort((a, b) => a.d - b.d || a.c.name.localeCompare(b.c.name));
+    // 自分で作ったコースも並べる (内蔵のコースだけだと、自分のコースを選べなかった)
+    const list = [...userCircuitPresets(), ...presetsWithLine].map(c => ({ c, d: p ? distanceKm(p.latitude, p.longitude, c.centerLat, c.centerLon) : Infinity }));
+    // 位置が分からないときは、出している名前 (英語の表示なら英語名) の順
+    return list.sort((a, b) => a.d - b.d || circuitLabel(a.c.name).localeCompare(circuitLabel(b.c.name)));
     // 開いたときの位置で並べる
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coursePicker]);
@@ -386,7 +388,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               {savedRun && (
                 <div className="mt-3 inline-flex items-center gap-3 px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/40 text-sm" data-testid="lap-timer-saved">
                   <span className="text-emerald-500 font-bold">
-                    {t(`${savedRun.laps} 周の走行を保存しました`, `Saved a run with ${savedRun.laps} laps`)}
+                    {t(`${savedRun.laps} 周の走行を保存しました`, `Saved a run with ${savedRun.laps} lap${(savedRun.laps) === 1 ? '' : 's'}`)}
                     {savedRun.best !== null ? ` (${t('ベスト', 'best')} ${formatLapTime(savedRun.best, 2)})` : ''}
                   </span>
                   {hasNative() && (
@@ -400,7 +402,9 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           ) : !course ? (
             <div className="text-center space-y-3">
               <div className="text-2xl font-bold">{t('コースを決めています', 'Finding the course')}</div>
-              <div className="text-slate-400 text-sm">{t('測位が届くと、近くのコースを選びます。違うときは上のコースを押して選んでください。', 'The nearest course is chosen when GPS arrives. Tap the course above to change it.')}</div>
+              <div className="text-slate-400 text-sm">{measuring
+                ? t('測位が届くと、近くのコースを選びます。違うときは、測定を終えてから上のコースを押して選んでください。', 'The nearest course is chosen when GPS arrives. To change it, stop measuring and tap the course above.')
+                : t('測位が届くと、近くのコースを選びます。違うときは上のコースを押して選んでください。', 'The nearest course is chosen when GPS arrives. Tap the course above to change it.')}</div>
             </div>
           ) : flashing ? (
             <>
@@ -554,7 +558,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
                         {recording && <span className="text-red-500 text-[10px] whitespace-nowrap">{t('記録中', 'Recording')}</span>}
                       </div>
                       <div className="text-[11px] text-slate-400 font-mono">
-                        {t(`${r.lapCount} 周`, `${r.lapCount} laps`)}{r.bestLapSec !== null ? ` · ${t('ベスト', 'best')} ${formatLapTime(r.bestLapSec, 3)}` : ''}{` · ${Math.round(r.fixCount / 20 / 60) || '<1'} min`}
+                        {t(`${r.lapCount} 周`, `${r.lapCount} lap${(r.lapCount) === 1 ? '' : 's'}`)}{r.bestLapSec !== null ? ` · ${t('ベスト', 'best')} ${formatLapTime(r.bestLapSec, 3)}` : ''}{` · ${Math.round(r.fixCount / 20 / 60) || '<1'} min`}
                       </div>
                       <div className="flex gap-1 mt-1.5">
                         <button onClick={() => { void runAction(r, 'open'); }} className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded bg-surface-3 text-xs"><BarChart3 size={12} />{t('解析', 'Analyse')}</button>

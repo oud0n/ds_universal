@@ -7,7 +7,8 @@ import courseIndex from '../../courses/index.json';
 
 // 内蔵のコース (独自に作成したデータ)。リポジトリの courses/ に、デジスパイスと同じ形式のファイルで置いて同梱する
 // - index.json: コースの一覧 (名前・中心の座標・ファイル名・作り方のメモ)
-// - <id>.cln: 計測線、<id>.sci: セクター線 (公式の .sci と同じく、フィニッシュ (計測線) は含まない)
+// - ControlLine/<id>.cln: 計測線、Sector/<id>.sci: セクター線 (公式の .sci と同じく、フィニッシュ (計測線) は含まない)。
+//   デジスパイスのコースフォルダ (Circuit/・ControlLine/・Sector/) と同じ並び。index.json の cln・sci は courses/ からの道
 // 作り方と出典は courses/README.md。修正の依頼はファイルごとに Issue / PR で受け付ける
 // 出典: © OpenStreetMap contributors (Open Database License 1.0, https://www.openstreetmap.org/copyright)
 //       国土地理院 シームレス空中写真 (https://maps.gsi.go.jp/development/ichiran.html)
@@ -21,7 +22,7 @@ interface CourseIndexEntry {
   cln?: string;
   sci?: string;
 }
-const courseFiles = import.meta.glob('../../courses/*.{cln,sci}', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+const courseFiles = import.meta.glob('../../courses/**/*.{cln,sci}', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 const courseFile = (name: string) => courseFiles[`../../courses/${name}`];
 
 export const CIRCUIT_PRESETS: CircuitPreset[] = (courseIndex as unknown as CourseIndexEntry[]).map(c => {
@@ -46,32 +47,70 @@ export const ALL_CIRCUITS: CircuitPreset[] = CIRCUIT_PRESETS;
  * 計測線で最も多く周回を区切れたコースを選ぶ
  */
 export function findMatchingCircuit(lat: number, lon: number, points?: TelemetryPoint[]): CircuitPreset | undefined {
-  // 1. ユーザー設置データを確認 (近くに複数あるときは、計測線を実際に通過しているコースを優先する)
-  const found = userCircuitStorage.findNearCircuit(lat, lon, 15000, points);
+  // 1. ユーザー設置データを確認 (近くに複数あるときは、計測線を実際に通過しているコースを優先する)。
+  // 内蔵のコースと同じコースの、読み込んだコースデータ (デジスパイスのフォルダなど) は使わない (コース図だけ使う)
+  const found = userCircuitStorage.findNearCircuit(lat, lon, 15000, points, isShadowedByPreset);
   const userMatch = found?.circuit;
   // 走行データがあって、近くのユーザーコースの計測線をどれも通過していないときは、すぐには使わない。
   // 内蔵のコースの計測線を通過していればそちらを、どちらも通過していなければ、計測線がログの近く (1 km 以内) にあるときだけ使う
   // (近くにあるだけの別のコースを使うと周回が区切れず、内蔵のコースや仮の計測線も使われなくなるため)
   const preset = findMatchingPreset(lat, lon, points);
   const presetCrossed = !!(points && preset?.controlLine && countGateCrossings(points, preset.controlLine) > 0);
-  const useUser = userMatch && (found!.crossings !== 0 || (!presetCrossed && !!points && passesNearControlLine(points, userMatch.controlLine)));
-  if (userMatch && useUser) {
-    return {
-      id: `user:${userMatch.id}`,
-      name: `${userMatch.name} (ユーザー設置)`,
-      country: 'JP',
-      centerLat: (userMatch.controlLine.latA + userMatch.controlLine.latB) / 2,
-      centerLon: (userMatch.controlLine.lonA + userMatch.controlLine.lonB) / 2,
-      controlLine: userMatch.controlLine,
-      sectors: userMatch.sectors,
-      pathPolylines: userMatch.polylines,
-      ...(userMatch.nameEn ? { nameEn: userMatch.nameEn } : {}),
-      ...(userMatch.folder ? { folder: userMatch.folder } : {}),
-      ...(userMatch.finishLine ? { finishLine: userMatch.finishLine } : {})
-    };
-  }
+  // 走行データが無い (取り込みで場所だけを見るときなど) ときは、近い方を使う
+  // (15 km 以内にあるだけの自分のコースを内蔵のコースより先に使うと、袖ヶ浦のログが近くの新東京サーキットになり、場所が分からなくなっていた)
+  const nearer = !points && preset ? userNearerThanPreset(lat, lon, userMatch, preset) : true;
+  const useUser = userMatch && nearer && (found!.crossings !== 0 || (!presetCrossed && !!points && passesNearControlLine(points, userMatch.controlLine)));
+  if (userMatch && useUser) return userCircuitPreset(userMatch);
 
   return preset;
+}
+
+type UserCircuitEntry = ReturnType<typeof userCircuitStorage.getAllCircuits>[number];
+
+/** 自分のコースの計測線が、内蔵のコースの中心より近いか (同じ距離なら自分のコース) */
+function userNearerThanPreset(lat: number, lon: number, u: UserCircuitEntry | undefined, preset: CircuitPreset): boolean {
+  if (!u) return false;
+  const d = (a: number, b: number) => Math.hypot((a - lat) * 111320, (b - lon) * 111320 * Math.cos((lat * Math.PI) / 180));
+  const l = u.controlLine;
+  const pl = preset.controlLine;
+  const presetD = pl ? d((pl.latA + pl.latB) / 2, (pl.lonA + pl.lonB) / 2) : d(preset.centerLat, preset.centerLon);
+  const userD = d((l.latA + l.latB) / 2, (l.lonA + l.lonB) / 2);
+  // コース編集で直した内蔵のコース (同じ場所。計測線を少し動かしただけ) は、近ければ自分のものを使う
+  return userD <= presetD || (u.id.startsWith('edited:') && userD < 2000);
+}
+
+/**
+ * 内蔵のコースと同じコースの、読み込んだコースデータか (デジスパイスのフォルダなどから。コース編集で保存したものは含めない)。
+ * 読み込むと、近くの内蔵のコースの名前が付く (pairCourseFiles)。そういうコースは、計測線・セクター・記録のフォルダ・コーナーの名前は
+ * 内蔵のコースのものを使い、コース図だけを使う (内蔵のコースのコース図として。findUserPolylines)。
+ * 前は読み込んだコースが内蔵のコースより優先され、デジスパイスにセクター線の無いコース (袖ヶ浦など) でセクタータイムが出なかった
+ */
+export function isShadowedByPreset(u: UserCircuitEntry): boolean {
+  return !u.id.startsWith('edited:') && CIRCUIT_PRESETS.some(p => p.name === u.name && !!p.controlLine);
+}
+
+/** 自分のコースを、内蔵のコースと同じ形にする (名前の終わりに「(ユーザー設置)」を付ける) */
+function userCircuitPreset(u: UserCircuitEntry): CircuitPreset {
+  return {
+    id: `user:${u.id}`,
+    name: `${u.name} (ユーザー設置)`,
+    country: 'JP',
+    centerLat: (u.controlLine.latA + u.controlLine.latB) / 2,
+    centerLon: (u.controlLine.lonA + u.controlLine.lonB) / 2,
+    controlLine: u.controlLine,
+    sectors: u.sectors,
+    pathPolylines: u.polylines,
+    ...(u.nameEn ? { nameEn: u.nameEn } : {}),
+    // 保存フォルダ名を決めていない古い自分のコースが内蔵のコースと同じ名前なら、内蔵のコースのフォルダ (ID) に記録する。
+    // コーナーの名前 (courseCorners.ts) と同じフォルダにそろえる (BUG-34)
+    ...(u.folder ? { folder: u.folder } : (() => { const p = CIRCUIT_PRESETS.find(c => c.name === u.name); return p ? { folder: p.folder ?? p.id } : {}; })()),
+    ...(u.finishLine ? { finishLine: u.finishLine } : {})
+  };
+}
+
+/** 計測線のある自分のコースの一覧 (ラップタイマーのコースを選ぶ画面に、内蔵のコースと並べて出す) */
+export function userCircuitPresets(): CircuitPreset[] {
+  return userCircuitStorage.getAllCircuits().filter(u => !!u.controlLine && !isShadowedByPreset(u)).map(userCircuitPreset);
 }
 
 /** 内蔵のコースから検索 (近くに複数あるときは、計測線を実際に通過しているコースを優先する) */

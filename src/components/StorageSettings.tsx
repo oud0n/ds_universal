@@ -3,6 +3,7 @@ import { FolderOpen, Smartphone } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { callNative, hasNative } from '../native/bridge';
 import type { StorageInfo } from '../native/contract';
+import { storageFolderChanged } from '../services/storageCourses';
 
 /**
  * 保管場所 (走行のファイルを置くフォルダ)。2026-10-21 に、ラップタイマーのメニューから設定の画面へ移した (PLAN-24 の 3)。
@@ -36,6 +37,8 @@ export const StorageSettings: React.FC = () => {
           ? { ok: false, text: t(`フォルダへ移せませんでした: ${r.error}`, `Could not move to the folder: ${r.error}`) }
           : { ok: true, text: t(`フォルダへ ${r.copied + (r.moved ?? 0)} 個のファイルを移しました`, `Moved ${r.copied + (r.moved ?? 0)} files to the folder`) });
       }
+      // 新しい保管場所のコースデータ・コーナーの名前を読み直す (ファイルを移したあとで)
+      void storageFolderChanged();
     } catch (e) {
       // フォルダを選ぶのをやめたときは何も出さない
       const msg = e instanceof Error ? e.message : (e as { message?: string })?.message ?? String(e);
@@ -48,7 +51,7 @@ export const StorageSettings: React.FC = () => {
   const pickDesktop = async () => {
     try {
       const p = await window.electronAPI?.laps?.pickFolder();
-      if (p) setFolderPath(p);
+      if (p) { setFolderPath(p); void storageFolderChanged(); }
     } catch (e) {
       setNote({ ok: false, text: t(`フォルダを選べませんでした: ${e instanceof Error ? e.message : String(e)}`, `Could not choose the folder: ${e instanceof Error ? e.message : String(e)}`) });
     }
@@ -78,7 +81,7 @@ export const StorageSettings: React.FC = () => {
         {desktop && (
           <button onClick={() => void pickDesktop()} className={btn(false)} data-testid="storage-pick-folder">
             <FolderOpen size={16} className="shrink-0" />
-            <span className="truncate">{folderPath ? t(`${folderPath} (変える)`, `${folderPath} (change)`) : t('フォルダを選ぶ', 'Choose a folder')}</span>
+            <span className="truncate" title={folderPath ?? undefined}>{folderPath ? t(`${folderPath} (変える)`, `${folderPath} (change)`) : t('フォルダを選ぶ', 'Choose a folder')}</span>
           </button>
         )}
       </div>
@@ -94,21 +97,22 @@ export const StorageSettings: React.FC = () => {
   );
 };
 
-/** 保管場所の 1 行の説明 (走行の画面の上に出す) */
-export function useStorageLabel(): string | null {
+/** 保管場所の 1 行の説明 (走行の画面の上に出す)。active が true になるたびに読み直す (設定で保管場所を替えて戻ったとき) */
+export function useStorageLabel(active = true): string | null {
   const t = useT();
-  const [label, setLabel] = useState<string | null>(null);
+  // 読んだもの。「この iPhone」は出すときに言葉にする (言語を替えても日本語のまま残っていた)
+  const [info, setInfo] = useState<{ device: true } | { name: string } | null>(null);
   useEffect(() => {
+    if (!active) return;
     if (hasNative()) {
       callNative('system.storageInfo', {}).then(
-        i => setLabel(i.kind === 'folder' && i.folderName ? i.folderName : t('この iPhone', 'This iPhone')),
-        () => setLabel(null)
+        i => setInfo(i.kind === 'folder' && i.folderName ? { name: i.folderName } : { device: true }),
+        () => setInfo(null)
       );
     } else if (window.electronAPI?.laps) {
-      void window.electronAPI.laps.getFolder().then(p => setLabel(p ? p.replace(/^.*Mobile Documents\/com~apple~CloudDocs/, 'iCloud Drive') : null));
+      void window.electronAPI.laps.getFolder().then(p => setInfo(p ? { name: p.replace(/^.*Mobile Documents\/com~apple~CloudDocs/, 'iCloud Drive') } : null));
     }
-    // 言語を替えたときに書き直すほどのものではない
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  return label;
+  }, [active]);
+  if (!info) return null;
+  return 'name' in info ? info.name : t('この iPhone', 'This iPhone');
 }

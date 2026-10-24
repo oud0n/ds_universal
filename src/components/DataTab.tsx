@@ -29,7 +29,7 @@ import { circuitLabel, useLang, useT } from '../utils/i18n';
 interface DataTabProps {
   sessions: Session[];
   /** ラップタイムの記録から、走行のファイル (.bon4) を解析で開く (デスクトップ版) */
-  onOpenLapRun?: (file: File) => void;
+  onOpenLapRun?: (file: File, run: { folder: string; file: string }) => void;
   selectedCars: SelectedCarSlot[];
   onSelectCarSlot: (slotIndex: number, sessionId: string, lapNumber: number) => void;
   // スロットの割り当てを解除する
@@ -41,6 +41,8 @@ interface DataTabProps {
   baseSlot?: number;
   // 登録済みのユーザーコースの数
   userCircuitCount: number;
+  /** コースフォルダー一括設置で読み込んだコースデータを外す (読み込んだものがあるときだけ) */
+  onClearCircuitFolder?: () => void;
   onRemoveSession: (sessionId: string) => void;
   onOpenInConvert: (sessionId: string) => void;
   onEditSessionName: (sessionId: string, newName: string) => void;
@@ -213,6 +215,7 @@ export const DataTab: React.FC<DataTabProps> = ({
   onSetAlignLapLength,
   baseSlot,
   userCircuitCount,
+  onClearCircuitFolder,
   onRemoveSession,
   onOpenInConvert,
   onEditSessionName,
@@ -282,8 +285,8 @@ export const DataTab: React.FC<DataTabProps> = ({
               // やめたときは、選んだ表示を戻す (次に同じコースを選んでも変化が起きるように)
               if (!onSelectCircuitPreset(e.target.value)) e.target.value = '';
             }}
-            // 選択肢の名前が長いと、選択肢に合わせて広がって画面からはみ出すので、幅を枠に収める
-            className="w-full sm:w-auto max-w-full min-w-0 truncate bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg px-3 py-2 outline-none focus:border-red-500 transition-colors"
+            // 選択肢の名前が長いと、選択肢に合わせて広がって枠からはみ出すので、どの幅でも枠いっぱいにする (パソコンでもはみ出していた)
+            className="w-full max-w-full min-w-0 truncate bg-surface-0 border border-line-3 text-xs text-slate-200 rounded-lg px-3 py-2 outline-none focus:border-red-500 transition-colors"
           >
             <option value="">{t('-- サーキットプリセット選択 --', '-- Select a circuit preset --')}</option>
             {/* 国内と海外に分ける (数が多いので) */}
@@ -312,6 +315,18 @@ export const DataTab: React.FC<DataTabProps> = ({
                   {userCircuitCount}
                 </span>
               )}
+            </button>
+          )}
+          {/* 一括設置したコースデータを外す (内蔵のコースに戻す) */}
+          {onClearCircuitFolder && (
+            <button
+              onClick={onClearCircuitFolder}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-3 hover:bg-surface-4 border border-line-3 text-xs text-slate-300 font-medium transition-colors"
+              title={t('コースフォルダ一括設置で読み込んだコースデータを外して、内蔵のコースに戻す', 'Remove the course data installed from a folder and go back to the built-in courses')}
+              data-testid="clear-course-folder"
+            >
+              <X size={13} />
+              {t('一括設置を外す', 'Remove installed courses')}
             </button>
           )}
 
@@ -355,17 +370,19 @@ export const DataTab: React.FC<DataTabProps> = ({
           )}
         </div>
       </div>
-      {lapHistoryOpen && <LapHistoryPanel onClose={() => setLapHistoryOpen(false)} onOpenRun={onOpenLapRun && (f => { setLapHistoryOpen(false); onOpenLapRun(f); })} />}
+      {lapHistoryOpen && <LapHistoryPanel onClose={() => setLapHistoryOpen(false)} onOpenRun={onOpenLapRun && ((f, run) => { setLapHistoryOpen(false); onOpenLapRun(f, run); })} />}
 
       {/* 比較スロット (Car 1〜4) の選択状態バー */}
-      <div className="bg-surface-2 border border-line-2 rounded-xl p-3 shadow-md">
-        <div className="text-xs font-bold text-slate-300 mb-2 flex items-center justify-between">
+      <div className="bg-surface-2 border border-line-2 rounded-xl p-3 shadow-md @container">
+        {/* 狭い幅では、見出しと説明を 2 行に分ける (横に並べると 1 つの文のように読めた) */}
+        <div className="text-xs font-bold text-slate-300 mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
           <span>{t('比較スロット割り当て (最大4台 同時比較)', 'Comparison slots (up to 4 cars)')}</span>
           <span className="text-[11px] text-slate-400 font-normal">
-            {t('下のラップ表のボタンをクリックして割り当ててください', 'Assign laps with the buttons in the lap tables below')}
+            {t('下のラップ表のボタンを押して割り当てます', 'Assign laps with the buttons in the lap tables below')}
           </span>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+        {/* 列の数は、画面の幅ではなくこの枠の幅で決める (引き出しの中では、画面が広くても 4 列に詰め込まれて切れていた) */}
+        <div className="grid grid-cols-1 @md:grid-cols-2 @5xl:grid-cols-4 gap-2">
           {slotColors.map(slot => {
             const assigned = selectedCars.find(c => c.slot === slot.slot);
             return (
@@ -510,7 +527,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                   {session.circuitName ? circuitLabel(session.circuitName, lang) : t('一般コース', 'Unknown course')}
                 </span>
                 <span className="text-xs text-slate-400 font-mono">
-                  {session.samplingRate}Hz | {t(`計${session.laps.length}周`, `${session.laps.length} laps`)} | {session.totalDistance.toFixed(2)}km
+                  {session.samplingRate}Hz | {t(`計${session.laps.length}周`, `${session.laps.length} lap${(session.laps.length) === 1 ? '' : 's'}`)} | {session.totalDistance.toFixed(2)}km
                 </span>
                 {onSetClockOffset && (
                   <ClockOffsetControl session={session} onSet={onSetClockOffset} onEstimate={onEstimateClockOffset} />

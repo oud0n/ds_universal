@@ -406,7 +406,13 @@ final class SystemModule {
             // 大きさで比べて写すと、選んだフォルダで直した名前・同期を、アプリの中に残った古い中身で毎回戻してしまうため
             // 選んだフォルダにもうあるときは、中身がまったく同じときだけアプリの中から消す。違えば残す
             // (中身を比べずに消すと、この iPhone で付けた動画・コーナーの名前を失う。2026-10-22 のレビュー)
-            if name == "runs.json" || name == "corners.json" || name == "corners.json.bak" {
+            // コース編集で保存したコースの計測線・セクター線は、選んだフォルダにもう一覧 (course/courses.json) があれば写さない
+            // (一覧に載らないファイルが、読み込んだコースデータとして 2 つ目のコースになるため。端末の中のコースは、開いたときに一覧と合わせて書く)
+            if (rel.hasPrefix("course/ControlLine/") || rel.hasPrefix("course/Sector/")) && Self.destSize(dest.appendingPathComponent("course/courses.json")) != nil && Self.destSize(target) == nil {
+                r.skipped += 1
+                continue
+            }
+            if name == "runs.json" || name == "corners.json" || name == "corners.json.bak" || rel.hasPrefix("course/") {
                 if Self.destSize(target) != nil {
                     let same = fm.fileExists(atPath: target.path) && fm.contentsEqual(atPath: file.path, andPath: target.path)
                     if same && done(file, rel) { r.moved += 1 } else { r.skipped += 1 }

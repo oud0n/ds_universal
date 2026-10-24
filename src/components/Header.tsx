@@ -74,7 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   if (compact) {
     return (
-      <header data-testid="app-header" className="touch-toolbar relative bg-surface-1 border-b border-line-1 text-slate-200 px-2 py-1 pt-[max(0.25rem,env(safe-area-inset-top))] flex items-center justify-between gap-2 select-none">
+      <header data-testid="app-header" style={{ paddingLeft: 'max(0.5rem, env(safe-area-inset-left))', paddingRight: 'max(0.5rem, env(safe-area-inset-right))' }} className="touch-toolbar relative bg-surface-1 border-b border-line-1 text-slate-200 px-2 py-1 pt-[max(0.25rem,env(safe-area-inset-top))] flex items-center justify-between gap-2 select-none">
         {secondary && screen !== 'settings' ? (
           <button onClick={() => navStore.back()} className="flex items-center gap-1 text-sm text-slate-200 px-1 py-1.5 rounded" data-testid="nav-back">
             <ChevronLeft size={18} />
@@ -95,7 +95,7 @@ export const Header: React.FC<HeaderProps> = ({
         {dataButton}
 
         {/* 右: つなぎの状態と ⚙ (状態を真ん中に置くと、名前の長さで位置がずれて見えるため右に寄せる) */}
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center justify-end gap-2 min-w-0 flex-1">
           {plan.available.has('logger') && canUseLoggerBle && <BleStatusPill onClick={() => go('logger')} />}
           {/* 設定の画面でも同じ場所に出す (消すと左の印の位置がずれるため)。設定の画面では押した状態 */}
           <button
@@ -112,7 +112,7 @@ export const Header: React.FC<HeaderProps> = ({
     );
   }
   return (
-    <header data-testid="app-header" className="bg-surface-1 border-b border-line-1 text-slate-200 px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] flex items-center justify-between select-none">
+    <header data-testid="app-header" style={{ paddingLeft: 'max(1rem, env(safe-area-inset-left))', paddingRight: 'max(1rem, env(safe-area-inset-right))' }} className="bg-surface-1 border-b border-line-1 text-slate-200 px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] flex items-center justify-between select-none">
       {/* タブ切り替え (ブラウザ版。デスクトップ版・iPad は左のサイドバー) */}
       {/* ウインドウが狭いときは、タブの名前を隠してアイコンだけにする (名前が 2 行に折り返さないように) */}
       {/* バーの高さは、どの画面でも同じに (中身の高さを 30px にそろえる。画面ごとの部品で伸び縮みしないように) */}

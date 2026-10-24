@@ -68,6 +68,8 @@ jobs:
           APPLE_API_ISSUER_VALUE: ${{ secrets.APPLE_API_ISSUER }}
           NOTARIZE: ${{ startsWith(github.ref, 'refs/tags/') || inputs.notarize == true }}
         run: |
+          # 途中で失敗しても、鍵の入ったファイルを残さない
+          trap 'rm -f "$RUNNER_TEMP/pem.pem" "$RUNNER_TEMP/in.p12" "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/AuthKey.p8"' EXIT
           if [ -n "$MAC_CERT_P12_BASE64" ]; then
             # キーチェーンアクセスが書き出した .p12 は古い暗号 (RC2) で、CI の OpenSSL 3 は -legacy でないと読めない。
             # どの macOS の security でも読める形 (3DES・SHA1) に入れ直してから使う
@@ -93,6 +95,8 @@ jobs:
             export CSC_KEYCHAIN="$KC"
             echo "Developer ID で署名します"
           else
+            # タグ (リリース) で証明書が無いときは止める (署名なしのものをリリースに上げない)
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then echo "::error::リリースのタグなのに、署名の証明書 (MAC_CERT_P12_BASE64) がありません"; exit 1; fi
             export CSC_IDENTITY_AUTO_DISCOVERY=false
             echo "証明書がないので、署名しません"
           fi
@@ -105,12 +109,20 @@ jobs:
           fi
           ${{ matrix.target_cmd }}
 
+      # タグ (リリース) のときは、署名か公証が通っていなければ止める (署名なし・公証なしのものをリリースに上げない)
       - name: Check macOS signature
         if: matrix.os == 'macos-latest'
+        env:
+          HAS_CERT: ${{ secrets.MAC_CERT_P12_BASE64 != '' }}
         run: |
           APP=$(ls -d release/mac-arm64/*.app)
           codesign -dv --verbose=2 "$APP" 2>&1 | grep -E 'Authority|TeamIdentifier' || true
-          spctl -a -vv -t exec "$APP" 2>&1 || true
+          if [[ "$GITHUB_REF" == refs/tags/* ]] && [ "$HAS_CERT" = "true" ]; then
+            codesign --verify --deep --strict "$APP"
+            spctl -a -vv -t exec "$APP"
+          else
+            spctl -a -vv -t exec "$APP" 2>&1 || true
+          fi
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4

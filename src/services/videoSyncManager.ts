@@ -579,12 +579,13 @@ class VideoSyncManager {
   }
 
   // 同期プロジェクト JSON エクスポート
-  public exportProjectJson(sessions: Session[], circuitName: string, pins: SyncPin[] = []): string {
+  /** onlyTracks: この動画だけ書く (走行の runs.json に、その走行の動画だけを書くとき。同じ名前のほかの走行の動画を混ぜない) */
+  public exportProjectJson(sessions: Session[], circuitName: string, pins: SyncPin[] = [], onlyTracks?: Set<string>): string {
     const data: SyncProjectData = {
       version: '2.0',
       savedAt: new Date().toISOString(),
       circuitName,
-      videos: this.videos.map(v => ({
+      videos: this.videos.filter(v => !onlyTracks || onlyTracks.has(v.id)).map(v => ({
         fileName: v.fileName,
         fileSize: v.fileSize,
         durationSec: v.durationSec,
@@ -624,6 +625,49 @@ class VideoSyncManager {
    * 同期プロジェクト JSON インポート & 復元。1.0 の形は 2.0 に読み替える。
    * clockOffsets: 保存したときの時計の補正 (今読み込んでいるログの分)。App で入れる
    */
+  private applyVideoData(target: VideoTrack, vData: SyncProjectData['videos'][number], sessions: Session[]): void {
+    target.matchedSessionId = vData.matchedSessionId;
+    target.clock = { ...vData.clock };
+    target.isSessionChosenManually = vData.sessionChosenManually || undefined;
+    if (vData.videoTimezone) target.videoTimezone = vData.videoTimezone;
+    if (vData.gpsTimezone) target.gpsTimezone = vData.gpsTimezone;
+    target.isAutoMatched = false;
+    this.remapTrack(target, sessions);
+  }
+
+  /**
+   * 保存した同期を、名前でなく決まった 1 本の動画 (trackId) に戻す。
+   * 比べる相手の走行の動画が、開いている動画と同じファイル名のとき (GoPro の GX010015.MP4 など) に使う。
+   * 名前で戻す importProjectJson だと、開いている方の動画の同期を書き換えてしまうため (BUG-35 の (6))。
+   * 先に importProjectJson で、その同期のログの一覧 (sessions) を覚えさせておくこと。値がおかしければ何もしない
+   */
+  public restoreTrackSync(trackId: string, vData: SyncProjectData['videos'][number], sessions: Session[]): boolean {
+    return this.restoreTracksSync([{ trackId, vData }], sessions) > 0;
+  }
+
+  /**
+   * いくつかの動画の同期を、まとめて戻す (restoreTrackSync の複数版)。全部を戻してから、チャプターの時刻をそろえる。
+   * 1 本ずつそろえると、まだ戻していないチャプター (動画の GPS など、強い時刻) に、戻したチャプターの時刻が上書きされるため
+   */
+  public restoreTracksSync(list: Array<{ trackId: string; vData: SyncProjectData['videos'][number] }>, sessions: Session[]): number {
+    let n = 0;
+    for (const { trackId, vData } of list) {
+      const target = this.videos.find(v => v.id === trackId);
+      const c = vData?.clock;
+      const ok = !!target && !!c && ['gps', 'manual', 'creation'].includes(c.source) && (c.logId === null || typeof c.logId === 'string') &&
+        Number.isFinite(c.offsetSec) && Math.abs(c.offsetSec) <= 366 * 24 * 3600 && (c.utcMs === null || Number.isFinite(c.utcMs)) &&
+        (vData.matchedSessionId === null || typeof vData.matchedSessionId === 'string');
+      if (!ok || !target) continue;
+      this.applyVideoData(target, vData, sessions);
+      n++;
+    }
+    if (n) {
+      this.updateChapterGroupOffsets();
+      this.notify();
+    }
+    return n;
+  }
+
   public importProjectJson(jsonText: string, sessions: Session[] = []): { data: SyncProjectData; clockOffsets: RestoredClockOffsets } {
     const parsed = JSON.parse(jsonText);
     if (!parsed || (parsed.version !== '1.0' && parsed.version !== '2.0') || !Array.isArray(parsed.videos)) {
@@ -690,13 +734,7 @@ class VideoSyncManager {
         this.videos.push(t);
         return t;
       })();
-      target.matchedSessionId = vData.matchedSessionId;
-      target.clock = { ...vData.clock };
-      target.isSessionChosenManually = vData.sessionChosenManually || undefined;
-      if (vData.videoTimezone) target.videoTimezone = vData.videoTimezone;
-      if (vData.gpsTimezone) target.gpsTimezone = vData.gpsTimezone;
-      target.isAutoMatched = false;
-      this.remapTrack(target, sessions);
+      this.applyVideoData(target, vData, sessions);
     }
 
     this.updateChapterGroupOffsets();

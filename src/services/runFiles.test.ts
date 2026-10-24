@@ -24,8 +24,8 @@ describe('runFiles', () => {
     const points = parseDigispiceRawBinary(file, buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)).flatMap(p => p.points);
     const fixes: LiveFix[] = points.map(p => ({ tMs: new Date(p.timestamp!).getTime(), latitude: p.latitude, longitude: p.longitude, speedKmh: p.speed, altitude: p.altitude, valid: true }));
     const coursesDir = path.resolve(__dirname, '../../courses');
-    const cl = parseCln(fs.readFileSync(path.join(coursesDir, 'sodegaura.cln'), 'utf8'), 'x');
-    const sci = parseSci(fs.readFileSync(path.join(coursesDir, 'sodegaura.sci'), 'utf8'), 's');
+    const cl = parseCln(fs.readFileSync(path.join(coursesDir, 'ControlLine', 'sodegaura.cln'), 'utf8'), 'x');
+    const sci = parseSci(fs.readFileSync(path.join(coursesDir, 'Sector', 'sodegaura.sci'), 'utf8'), 's');
     const lapTimes = (pts: typeof points) => extractLaps(pts, cl, sci).laps.filter(l => !l.isWholeSession && !l.isPartialLap).map(l => l.lapTime.toFixed(2));
     const original = lapTimes(points);
     expect(original.length).toBeGreaterThan(0);

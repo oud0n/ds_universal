@@ -7,6 +7,7 @@
 //      (<試験用>/lap-folder.json に {"folder": "<保管場所の写し>"}。本物の保管場所は使わない: 周を隠すなどで書き換えるため)
 //   3. 画面のない Chrome を --remote-debugging-port=9222 で
 //   4. node e2e/run.mjs [--only 名前の一部] [--electron 9333] [--chrome 9222]
+//      (開発サーバーが 5183 でないときは E2E_APP=http://localhost:5184/ を付ける)
 //
 // 失敗した場面は、e2e/out/ にスクリーンショットを残す。
 
@@ -14,7 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Page } from './cdp.mjs';
-import { journeys } from './journeys.mjs';
+import { journeys, APP } from './journeys.mjs';
 
 const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : def; };
@@ -32,7 +33,7 @@ for (const [i, j] of list.entries()) {
   const t0 = Date.now();
   try {
     p = j.target === 'electron'
-      ? await Page.connect(electronPort, { urlPart: 'localhost:5183', outDir, label })
+      ? await Page.connect(electronPort, { urlPart: new URL(APP).host, outDir, label })
       : await Page.connect(chromePort, { newTab: true, outDir, label });
     await j.run(p);
     const errs = p.errors.filter(e => !/Electron Security Warning|Download the React DevTools/.test(e));

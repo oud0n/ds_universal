@@ -106,7 +106,11 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
         console.warn('メモリ情報・本体設定の自動取得スキップ:', e);
       }
     } catch (err: any) {
-      alert(`${tr('デジスパイスIV 接続エラー', 'DigSpice IV connection error')}:\n${err.message}`);
+      // 機器を選ばなかった・見つからなかったとき (つないでいない) は、分かる言葉で出す
+      const notFound = err?.name === 'NotFoundError' || /No port selected|no port/i.test(String(err?.message ?? ''));
+      alert(notFound
+        ? tr('デジスパイスIV が見つかりませんでした。USB ケーブルでつないで、電源を入れてから押してください。', 'No DigSpice IV was found. Connect it with a USB cable, turn it on, then try again.')
+        : `${tr('デジスパイスIV 接続エラー', 'DigSpice IV connection error')}:\n${err.message}`);
       setIsConnected(false);
     } finally {
       setIsBusy(false);
