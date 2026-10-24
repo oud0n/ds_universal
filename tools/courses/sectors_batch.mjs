@@ -94,8 +94,28 @@ function build(c, osm) {
   }
   const usable = loops.filter(l => l.len >= 150);
   if (!usable.length) return { ok: false, reason: '計測線を通る 1 周が OpenStreetMap の道で作れない' };
-  usable.sort((a, b) => b.len - a.len);
-  const loop = usable[0];
+  // 分かれ道での曲がり方 (度)。連絡路・ショートカットを通る周は、分かれ道で急に曲がる
+  const ptsOf = l => { const out = []; for (const p of l.path) { const ch = edges[p.i].chain.map(n => nodes.get(n)); const seq = p.fwd ? ch : [...ch].reverse(); out.push(...(out.length ? seq.slice(1) : seq)); } return out; };
+  const dirAt = (pts, i, step) => { let j = i; let acc = 0; while (j + step >= 0 && j + step < pts.length && acc < 12) { acc += d2(pts[j], pts[j + step]); j += step; } return [pts[j][0] - pts[i][0], pts[j][1] - pts[i][1]]; };
+  for (const l of usable) {
+    const pts = ptsOf(l);
+    let maxTurn = 0;
+    let k = 0;
+    for (let pi = 0; pi + 1 < l.path.length; pi++) {
+      k += edges[l.path[pi].i].chain.length - 1;
+      const a1 = dirAt(pts, k, -1), b1 = dirAt(pts, k, 1);
+      const ang = Math.acos(Math.max(-1, Math.min(1, -(a1[0] * b1[0] + a1[1] * b1[1]) / ((Math.hypot(...a1) * Math.hypot(...b1)) || 1)))) * 180 / Math.PI;
+      maxTurn = Math.max(maxTurn, ang);
+    }
+    l.maxTurn = Math.round(maxTurn);
+  }
+  // 分かれ道で 60 度より急に曲がらない周を先に、その中で長いもの
+  usable.sort((a, b) => (a.maxTurn > 60) - (b.maxTurn > 60) || b.len - a.len);
+  // PICK=<番号> で選ぶ (CANDS=1 で候補の図を作る)
+  const loop = process.env.COMMON === '1' && process.env.PICK === undefined && !process.env.COMMONTOP
+    ? usable.reduce((x, y) => (y.len > x.len ? y : x))
+    : usable[+(process.env.PICK ?? 0)] ?? usable[0];
+  if (process.env.CANDS === '1') globalThis.__cands = usable.slice(0, 9).map(l => ({ len: Math.round(l.len), maxTurn: l.maxTurn, pts: ptsOf(l).map(ll) }));
   // 周の点列 (計測線の交点から)
   let pts = [];
   for (const p of loop.path) {
@@ -138,23 +158,40 @@ function build(c, osm) {
     })();
     return { d, h, a1, b1, hits, clear: Math.min(40, ownClear(d, g)) };
   };
+  // COMMON=1: レイアウトを替えて走るコース (カートコースなど) は、上位の候補の周のどれもが通る道の上にだけセクター線を置く
+  // (どのレイアウトで走っても、セクター線を通るように)。探す範囲は ±15%
+  const common = process.env.COMMON === '1';
+  let onCommon = () => true;
+  if (common) {
+    // 1 周として考えられる周 (いちばん長い周の 7 割以上の長さ) のどれもが通る道
+    const maxLen = Math.max(...usable.map(l => l.len));
+    // COMMONTOP=<数>: 長さでなく、分かれ道で急に曲がらない順の上位の周で見る (前のやり方。モーターランドSP など)
+    const top = process.env.COMMONTOP ? usable.slice(0, +process.env.COMMONTOP) : usable.filter(l => l.len >= +(process.env.COMMONMIN ?? 0.7) * maxLen);
+    const sets = top.map(l => new Set(l.path.map(p => p.i)));
+    const shared = [...sets[0]].filter(i => sets.every(st => st.has(i)));
+    const segs = shared.flatMap(i => edges[i].chain.slice(1).map((nid, k) => [nodes.get(edges[i].chain[k]), nodes.get(nid)]));
+    onCommon = d => { const g = at(d); return segs.some(sg => segDist([g.x, g.y], sg) < 1.5); };
+  }
+  const span = common ? 0.15 : 0.08;
   const gates = [];
   for (const frac of [1 / 3, 2 / 3]) {
     const d0 = frac * L;
     let best = null;
-    for (let dd = 0; dd <= 0.08 * L; dd += 3) {
+    for (let dd = 0; dd <= span * L; dd += 3) {
       for (const sgn of dd === 0 ? [1] : [1, -1]) {
+        if (!onCommon(d0 + sgn * dd)) continue;
         const g = gateAt(d0 + sgn * dd);
         if (g.hits) continue;
         const score = g.clear * 1000 - dd;
         if (!best || score > best.score) best = { ...g, score };
       }
     }
-    if (!best) return { ok: false, reason: `${Math.round(frac * 3)}/3 の位置の近くに、ほかの路面にかからない場所が無い` };
+    if (!best) return { ok: false, reason: `${Math.round(frac * 3)}/3 の位置の近くに、ほかの路面にかからない${common ? ' (どの周も通る道の上の)' : ''}場所が無い` };
     gates.push(best);
   }
   // 計測線とセクター線が近すぎない (1 周の 15% 以上離れている)
-  if (gates.some(g => g.d < 0.15 * L || g.d > 0.85 * L) || Math.abs(gates[1].d - gates[0].d) < 0.15 * L) return { ok: false, reason: 'セクター線が近すぎる' };
+  const minGap = common ? 0.1 : 0.15;
+  if (gates.some(g => g.d < minGap * L || g.d > (1 - minGap) * L) || Math.abs(gates[1].d - gates[0].d) < minGap * L) return { ok: false, reason: 'セクター線が近すぎる' };
   const out = gates.map(g => { const A1 = ll(g.a1), B1 = ll(g.b1); return { d: Math.round(g.d), hw: +g.h.toFixed(1), latA: +A1[0].toFixed(6), lonA: +A1[1].toFixed(6), latB: +B1[0].toFixed(6), lonB: +B1[1].toFixed(6) }; });
   // 確かめ用の絵
   const allPts = [...P, ...others.flat()];
@@ -168,7 +205,7 @@ function build(c, osm) {
   svg += `<line x1="${SX(A)}" y1="${SY(A)}" x2="${SX(B)}" y2="${SY(B)}" stroke="#0a0" stroke-width="5"/>`;
   for (const g of gates) svg += `<line x1="${SX(g.a1)}" y1="${SY(g.a1)}" x2="${SX(g.b1)}" y2="${SY(g.b1)}" stroke="#06f" stroke-width="5"/>`;
   fs.writeFileSync(`view_${c.id}.svg`, svg + '</svg>');
-  return { ok: true, length: Math.round(L), loops: usable.length, gates: out };
+  return { ok: true, length: Math.round(L), loops: usable.length, maxTurn: loop.maxTurn, common, gates: out };
 }
 
 const results = {};
@@ -191,6 +228,7 @@ for (const c of targets) {
   let r;
   try { r = build(c, osm); } catch (e) { r = { ok: false, reason: String(e.message) }; }
   results[c.id] = r;
-  console.log(c.id, r.ok ? `OK ${r.length} m (閉路 ${r.loops}) hw ${r.gates.map(g => g.hw).join('/')}` : `NG ${r.reason}`);
+  if (globalThis.__cands) { fs.writeFileSync(`cands_${c.id}.json`, JSON.stringify(globalThis.__cands)); globalThis.__cands = undefined; }
+  console.log(c.id, r.ok ? `OK ${r.length} m (閉路 ${r.loops}, 曲がり ${r.maxTurn}°) hw ${r.gates.map(g => g.hw).join('/')}` : `NG ${r.reason}`);
 }
 fs.writeFileSync('sectors_batch.json', JSON.stringify(results, null, 1));
