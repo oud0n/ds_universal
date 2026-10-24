@@ -236,8 +236,8 @@ const sodeLogs = sodeDir && fs.existsSync(sodeDir)
 
 describe.skipIf(sodeLogs.length === 0)('LiveLapTimer (袖ヶ浦のログを、走っているように 1 点ずつ渡す)', () => {
   const coursesDir = path.resolve(__dirname, '../../courses');
-  const cl = parseCln(fs.readFileSync(path.join(coursesDir, 'sodegaura.cln'), 'utf8'), 'Start/Finish Line')!;
-  const sci = parseSci(fs.readFileSync(path.join(coursesDir, 'sodegaura.sci'), 'utf8'), 'sodegaura');
+  const cl = parseCln(fs.readFileSync(path.join(coursesDir, 'ControlLine', 'sodegaura.cln'), 'utf8'), 'Start/Finish Line')!;
+  const sci = parseSci(fs.readFileSync(path.join(coursesDir, 'Sector', 'sodegaura.sci'), 'utf8'), 'sodegaura');
 
   for (const file of sodeLogs) {
     it(`解析の画面と同じ周のタイムになる: ${path.basename(path.dirname(file))}`, () => {

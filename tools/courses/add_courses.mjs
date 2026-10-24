@@ -47,14 +47,15 @@ for (const id of ids) {
   const lats = ring.map(p => p[0]), lons = ring.map(p => p[1]);
   const center = [+((Math.min(...lats) + Math.max(...lats)) / 2).toFixed(6), +((Math.min(...lons) + Math.max(...lons)) / 2).toFixed(6)];
   const cl = preset.cl;
-  fs.writeFileSync(`${dir}/${id}.cln`, ['1', f6(cl.latA), f6(cl.lonA), f6(cl.latB), f6(cl.lonB)].join('\r\n') + '\r\n');
-  if (!gates.length) fs.rmSync(`${dir}/${id}.sci`, { force: true }); // 前に書いた .sci が残っていれば消す (同梱されるため)
-  if (gates.length) fs.writeFileSync(`${dir}/${id}.sci`, gates.map(x => [x.latA, x.lonA, x.latB, x.lonB].map(f6).join(',') + ',1\r\n').join(''));
+  fs.mkdirSync(`${dir}/ControlLine`, { recursive: true }); fs.mkdirSync(`${dir}/Sector`, { recursive: true });
+  fs.writeFileSync(`${dir}/ControlLine/${id}.cln`, ['1', f6(cl.latA), f6(cl.lonA), f6(cl.latB), f6(cl.lonB)].join('\r\n') + '\r\n');
+  if (!gates.length) fs.rmSync(`${dir}/Sector/${id}.sci`, { force: true }); // 前に書いた .sci が残っていれば消す (同梱されるため)
+  if (gates.length) fs.writeFileSync(`${dir}/Sector/${id}.sci`, gates.map(x => [x.latA, x.lonA, x.latB, x.lonB].map(f6).join(',') + ',1\r\n').join(''));
   const line = preset.clNote === 'pit' || !m.line
     ? 'スタートラインを航空写真で確かめられなかったため、ピットロードの中ほどに置いた仮の線 (OpenStreetMap のピットロードに直交)'
     : `${m.line} (${IMAGERY[preset.country]}で確認、ピットロードまで含む)`;
   const entry = {
-    id, name: m.name, country: preset.country, center, cln: `${id}.cln`, ...(gates.length ? { sci: `${id}.sci` } : {}),
+    id, name: m.name, country: preset.country, center, cln: `ControlLine/${id}.cln`, ...(gates.length ? { sci: `Sector/${id}.sci` } : {}),
     notes: {
       controlLine: `${line}。2026-10-18 作成`,
       sectors: m.noSectors ? `${m.noSectors}。2026-10-18 作成` : `公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 ${length} m の上)。2026-10-18 作成`
