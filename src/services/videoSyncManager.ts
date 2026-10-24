@@ -642,16 +642,30 @@ class VideoSyncManager {
    * 先に importProjectJson で、その同期のログの一覧 (sessions) を覚えさせておくこと。値がおかしければ何もしない
    */
   public restoreTrackSync(trackId: string, vData: SyncProjectData['videos'][number], sessions: Session[]): boolean {
-    const target = this.videos.find(v => v.id === trackId);
-    const c = vData?.clock;
-    const ok = !!target && !!c && ['gps', 'manual', 'creation'].includes(c.source) && (c.logId === null || typeof c.logId === 'string') &&
-      Number.isFinite(c.offsetSec) && Math.abs(c.offsetSec) <= 366 * 24 * 3600 && (c.utcMs === null || Number.isFinite(c.utcMs)) &&
-      (vData.matchedSessionId === null || typeof vData.matchedSessionId === 'string');
-    if (!ok || !target) return false;
-    this.applyVideoData(target, vData, sessions);
-    this.updateChapterGroupOffsets();
-    this.notify();
-    return true;
+    return this.restoreTracksSync([{ trackId, vData }], sessions) > 0;
+  }
+
+  /**
+   * いくつかの動画の同期を、まとめて戻す (restoreTrackSync の複数版)。全部を戻してから、チャプターの時刻をそろえる。
+   * 1 本ずつそろえると、まだ戻していないチャプター (動画の GPS など、強い時刻) に、戻したチャプターの時刻が上書きされるため
+   */
+  public restoreTracksSync(list: Array<{ trackId: string; vData: SyncProjectData['videos'][number] }>, sessions: Session[]): number {
+    let n = 0;
+    for (const { trackId, vData } of list) {
+      const target = this.videos.find(v => v.id === trackId);
+      const c = vData?.clock;
+      const ok = !!target && !!c && ['gps', 'manual', 'creation'].includes(c.source) && (c.logId === null || typeof c.logId === 'string') &&
+        Number.isFinite(c.offsetSec) && Math.abs(c.offsetSec) <= 366 * 24 * 3600 && (c.utcMs === null || Number.isFinite(c.utcMs)) &&
+        (vData.matchedSessionId === null || typeof vData.matchedSessionId === 'string');
+      if (!ok || !target) continue;
+      this.applyVideoData(target, vData, sessions);
+      n++;
+    }
+    if (n) {
+      this.updateChapterGroupOffsets();
+      this.notify();
+    }
+    return n;
   }
 
   public importProjectJson(jsonText: string, sessions: Session[] = []): { data: SyncProjectData; clockOffsets: RestoredClockOffsets } {
