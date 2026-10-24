@@ -12,7 +12,7 @@ import { getTileImage, MapBackground, TILE_ATTRIBUTION, tilesForView } from '../
 import { useLapGeometries } from '../hooks/useLapGeometries';
 import { computeCorrectedLineDelta, computeLineDelta } from '../services/drivingAnalysis';
 import { cornerLabel, useNamedCorners, type NamedCornerOnLap } from '../hooks/useNamedCorners';
-import { applySpanCorner, carryNames, cornerAt, cornersFromDetection, insertCorner, mergeCorners, newCornerFile, placeCorners, splitCorner, type NamedCorner } from '../services/cornerNames';
+import { applySpanCorner, carryNames, cornerAt, freeCornerName, cornersFromDetection, insertCorner, mergeCorners, newCornerFile, placeCorners, splitCorner, type NamedCorner } from '../services/cornerNames';
 import { saveCourseCorners } from '../services/courseCorners';
 import { canUseRunStore } from '../services/runStore';
 import { CornerEditPanel } from './CornerEditPanel';
@@ -215,7 +215,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       if (d < bestD) { bestD = d; best = i; }
     });
     if (best < 0) { setSelectedCorner(null); return; }
-    const added = cornerAt(baseGeo, best, `C${cornerDraft.length + 1}`);
+    const added = cornerAt(baseGeo, best, freeCornerName(cornerDraft));
     const next = insertCorner(cornerDraft, added, baseGeo);
     setCornerDraft(next);
     setSelectedCorner(next.indexOf(added));
@@ -784,7 +784,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     // コーナーの編集中に走行の線の上から動かしたら、地図を動かさずに範囲をなぞる
     spanRef.current = null;
     if (cornerDraft && baseGeo && !isAdjustingMap) {
-      const i = nearestBasePoint(e.currentTarget, e.clientX, e.clientY, 14);
+      // タッチは押した時のイベントを後で渡されるため、currentTarget が空のことがある (canvasRef を使う)
+      const i = canvasRef.current ? nearestBasePoint(canvasRef.current, e.clientX, e.clientY, 14) : -1;
       if (i >= 0) {
         spanRef.current = { a: i, b: i };
         panningRef.current = false;
@@ -799,8 +800,9 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (spanRef.current) {
-      const i = nearestBasePoint(e.currentTarget, e.clientX, e.clientY, 60);
-      if (i >= 0 && i !== spanRef.current.b) {
+      const i = canvasRef.current ? nearestBasePoint(canvasRef.current, e.clientX, e.clientY, 60) : -1;
+      // 一度に大きく跳んだ点 (コースが並んでいる所で隣の線に移った・周の始めと終わりをまたいだ) は使わない
+      if (i >= 0 && i !== spanRef.current.b && baseGeo && Math.abs(baseGeo.s[i] - baseGeo.s[spanRef.current.b]) < 150) {
         spanRef.current = { ...spanRef.current, b: i };
         setCornerSpan(spanRef.current);
       }

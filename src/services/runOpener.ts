@@ -284,6 +284,15 @@ export function scheduleRunSave(): void {
   scheduleSave();
 }
 
+/**
+ * 書きかけをすぐ書く (ログを「走行とコース」から外す前に。外したあとでは、その走行のログが見つからず書けないため)。
+ * 中身は呼んだときに取っておくので、書くのを待つ間にログを外してよい
+ */
+export function flushOpenRuns(): void {
+  if (timer) { clearTimeout(timer); timer = null; }
+  void saveAll();
+}
+
 /** 走行を閉じた (ほかのログを開いた・消した): 書きかけを書いて、Car 1 の走行として覚えるのをやめる */
 export function closeOpenRun(): void {
   if (timer) { clearTimeout(timer); timer = null; }
