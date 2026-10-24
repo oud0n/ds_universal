@@ -5,7 +5,7 @@ import type { NamedCorner } from '../services/cornerNames';
 
 /**
  * コースマップの「コーナーの編集」(PLAN-27)。走る順のコーナーの一覧で、名前を付ける・まとめる・分ける・消す。
- * 地図を押すとコーナーを足す (地図の側でする)
+ * 地図を押すとコーナーを足す・走行の線をなぞるとその範囲を 1 つのコーナーにする (地図の側でする)
  */
 export const CornerEditPanel: React.FC<{
   draft: NamedCorner[];
@@ -34,7 +34,7 @@ export const CornerEditPanel: React.FC<{
         </button>
       </div>
       <p className="px-3 py-1.5 text-[11px] text-slate-500 border-b border-line-2">
-        {t('名前は自由に (「1」「ヘアピン」など)。地図を押すと、そこにコーナーを足します。', 'Name corners freely ("1", "Hairpin"...). Tap the map to add a corner there.')}
+        {t('名前は自由に (「1」「ヘアピン」など)。走行の線をなぞると、その範囲が 1 つのコーナーになります (中のコーナーは置き換え)。押すと、そこにコーナーを足します。', 'Name corners freely ("1", "Hairpin"...). Drag along the line to make that stretch one corner (replaces the corners inside). Tap to add a corner there.')}
       </p>
       <ol className="flex-1 min-h-0 overflow-y-auto divide-y divide-line-2" data-testid="corner-edit-list">
         {draft.map((c, k) => (

@@ -12,7 +12,7 @@ import { getTileImage, MapBackground, TILE_ATTRIBUTION, tilesForView } from '../
 import { useLapGeometries } from '../hooks/useLapGeometries';
 import { computeCorrectedLineDelta, computeLineDelta } from '../services/drivingAnalysis';
 import { cornerLabel, useNamedCorners, type NamedCornerOnLap } from '../hooks/useNamedCorners';
-import { carryNames, cornerAt, cornersFromDetection, insertCorner, mergeCorners, newCornerFile, placeCorners, splitCorner, type NamedCorner } from '../services/cornerNames';
+import { applySpanCorner, carryNames, cornerAt, cornersFromDetection, insertCorner, mergeCorners, newCornerFile, placeCorners, splitCorner, type NamedCorner } from '../services/cornerNames';
 import { saveCourseCorners } from '../services/courseCorners';
 import { canUseRunStore } from '../services/runStore';
 import { CornerEditPanel } from './CornerEditPanel';
@@ -102,6 +102,9 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   const [cornerError, setCornerError] = useState('');
   // 押した位置 (ドラッグでなく押しただけかを見る)
   const downAtRef = useRef<{ x: number; y: number } | null>(null);
+  // 編集中に走行の線の上からなぞった範囲 (基準車の点の番号。なぞっていなければ null)
+  const [cornerSpan, setCornerSpan] = useState<{ a: number; b: number } | null>(null);
+  const spanRef = useRef<{ a: number; b: number } | null>(null);
   // ラップ間の GPS の位置ずれ (平行移動) を推定して差し引く
   const [correctGpsShift, setCorrectGpsShift] = useState(true);
   const [zoom, setZoom] = useState(1.0);
@@ -173,6 +176,20 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     } finally {
       setCornerSaving(false);
     }
+  };
+  /** 画面の位置 (clientX/Y) にいちばん近い基準車の点の番号 (maxPx より遠ければ -1) */
+  const nearestBasePoint = (canvas: HTMLCanvasElement, clientX: number, clientY: number, maxPx: number) => {
+    const layout = layoutRef.current;
+    if (!layout || !baseCar) return -1;
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left, y = clientY - rect.top;
+    const { width, height, latMid, lonMid, cosLat, baseScale, pan } = layout;
+    let best = -1, bestD = maxPx;
+    baseCar.lap.points.forEach((p, i) => {
+      const d = Math.hypot(width / 2 + (p.longitude - lonMid) * cosLat * baseScale + pan.x - x, height / 2 - (p.latitude - latMid) * baseScale + pan.y - y);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    return best;
   };
   /** 編集中に地図を押したとき: 札の近くならそのコーナーを選び、走行の線の近くならコーナーを足す */
   const handleMapTap = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -735,9 +752,26 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       }
     }
 
+    // なぞっている範囲
+    if (cornerSpan && baseCar) {
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 7;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      const i0 = Math.min(cornerSpan.a, cornerSpan.b), i1 = Math.max(cornerSpan.a, cornerSpan.b);
+      for (let i = i0; i <= i1; i++) {
+        const q = baseCar.lap.points[i];
+        if (!q) continue;
+        const sp = toScreen(q.latitude, q.longitude);
+        if (i === i0) ctx.moveTo(sp.x, sp.y); else ctx.lineTo(sp.x, sp.y);
+      }
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+    }
+
     layoutRef.current = { width, height, latMid, lonMid, cosLat, baseScale, pan };
     drawCars();
-  }, [cars, controlLine, finishLine, sectors, pathPolylines, followPosition, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, selectedCorner, cornerDraft, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick, dpr, theme, lang]);
+  }, [cornerSpan, cars, controlLine, finishLine, sectors, pathPolylines, followPosition, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, selectedCorner, cornerDraft, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick, dpr, theme, lang]);
 
   // パン操作 (ドラッグ)
   // ドラッグの状態は、同じイベントの中で続けて読めるよう ref で持つ (タッチは動かしたときに押下と移動が続けて届くため)
@@ -747,6 +781,16 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   const panBaseRef = useRef<{ x: number; y: number } | null>(null);
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // コーナーの編集中に走行の線の上から動かしたら、地図を動かさずに範囲をなぞる
+    spanRef.current = null;
+    if (cornerDraft && baseGeo && !isAdjustingMap) {
+      const i = nearestBasePoint(e.currentTarget, e.clientX, e.clientY, 14);
+      if (i >= 0) {
+        spanRef.current = { a: i, b: i };
+        panningRef.current = false;
+        return;
+      }
+    }
     panningRef.current = true;
     dragFromRef.current = { x: e.clientX, y: e.clientY };
     // 表示位置の基準は、実際に動かしたときに決める (タップしただけでは追従を外さない)
@@ -754,6 +798,14 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (spanRef.current) {
+      const i = nearestBasePoint(e.currentTarget, e.clientX, e.clientY, 60);
+      if (i >= 0 && i !== spanRef.current.b) {
+        spanRef.current = { ...spanRef.current, b: i };
+        setCornerSpan(spanRef.current);
+      }
+      return;
+    }
     if (!panningRef.current) return;
     // 位置調整モードでは、前回のポインターの位置からの移動量で地図を動かす
     if (isAdjustingMap) {
@@ -777,7 +829,16 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     });
   };
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (cancelled?: boolean) => {
+    const span = spanRef.current;
+    spanRef.current = null;
+    if (span) {
+      setCornerSpan(null);
+      if (!cancelled && span.a !== span.b && cornerDraft && baseGeo) {
+        const r = applySpanCorner(cornerDraft, baseGeo, span.a, span.b);
+        if (r) { setCornerDraft(r.list); setSelectedCorner(r.index); }
+      }
+    }
     if (panningRef.current && isAdjustingMap) store(offsetKey, mapOffset);
     panningRef.current = false;
   };
