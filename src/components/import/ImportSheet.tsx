@@ -37,7 +37,9 @@ export const ImportSheet: React.FC<{
   /** 取り込んだあと、解析で開く */
   onOpenAfter?: () => void;
   onClose: () => void;
-}> = ({ plan, phase, progress, results, onToggle, onApply, onOpenOnly, onOpenAfter, onClose }) => {
+  /** 複数のファイルを一度に取り込むとき、何番目か */
+  position?: { index: number; total: number };
+}> = ({ plan, position, phase, progress, results, onToggle, onApply, onOpenOnly, onOpenAfter, onClose }) => {
   const t = useT();
   useEscapeKey(phase !== 'writing', onClose);
   const checked = plan.parts.filter(p => p.checked).length;
@@ -54,7 +56,7 @@ export const ImportSheet: React.FC<{
       <div className="bg-surface-1 border border-line-2 w-full sm:max-w-3xl sm:max-h-[86vh] sm:rounded-2xl flex flex-col overflow-hidden shadow-2xl">
         <div className="flex items-start gap-2 px-4 py-3 border-b border-line-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
           <div className="flex-1 min-w-0">
-            <h2 className="text-sm font-bold text-slate-100 truncate">{t(`取り込み: ${plan.sourceName}`, `Import: ${plan.sourceName}`)}</h2>
+            <h2 className="text-sm font-bold text-slate-100 truncate">{position && <span className="mr-1.5 font-mono text-sky-400" data-testid="import-position">{position.index}/{position.total}</span>}{t(`取り込み: ${plan.sourceName}`, `Import: ${plan.sourceName}`)}</h2>
             <p className="text-xs text-slate-400 mt-0.5">
               {t(`走行を ${plan.parts.length} つに分けました${circuits > 1 ? ` (${circuits} つのサーキット)` : ''}。取り込むものに印を付けてください。`,
                 `Split into ${plan.parts.length} part${plan.parts.length === 1 ? '' : 's'}${circuits > 1 ? ` (${circuits} circuits)` : ''}. Tick the ones to import.`)}

@@ -7,6 +7,7 @@ import { deriveRuns, runOfSession, Run } from '../../services/runs';
 import { analyseSessions } from '../../services/pairAnalysis';
 import { videoSyncManager, VideoTrack } from '../../services/videoSyncManager';
 import { useT } from '../../utils/i18n';
+import { sessionLocalDate } from '../../utils/timeFormat';
 
 /**
  * 走行の確認 (docs/video_sets_design.md の 8)。走行ごとに、ログと動画、動画の時刻の出どころ、同じ走行の判定、時計の補正を出し、
@@ -137,7 +138,7 @@ export const RunsInspector: React.FC<RunsInspectorProps> = ({ sessions, media, o
             <div key={run.id} className="border border-line-2 rounded p-2 flex flex-col sm:flex-row gap-3">
               <RunMap sessions={run.logs.map(l => l.session)} />
               <div className="flex-1 min-w-0 space-y-2">
-                <div className="text-xs font-bold text-slate-200">{first.date} {first.sessionName}</div>
+                <div className="text-xs font-bold text-slate-200">{sessionLocalDate(first)} {first.sessionName}</div>
                 <div className="space-y-1">
                   {run.logs.map((l, i) => {
                     const shownBy = vids.filter(m => m.tracks[0].matchedSessionId === l.session.id).length;

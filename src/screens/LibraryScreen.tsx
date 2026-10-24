@@ -278,6 +278,8 @@ const RunDetail: React.FC<{
           <div className="text-xs text-slate-400 mt-0.5">
             {run.pending
               ? t('☁️ iCloud にだけあるので、開くと周を数えます', '☁️ Only in iCloud; laps are counted when opened')
+              : run.courseName === null && run.laps.length === 0
+              ? t('コース未設定。開くと、計測線を自動で置いて周を数えます', 'No course. Laps are counted with an automatic timing line when you open it')
               : <>{t('ベスト', 'Best')} <span className="font-mono font-bold text-fuchsia-400">{best !== null ? formatLapTime(best) : '--'}</span>{t(' ・ ', ' · ')}{t(`${visible.length} 周`, `${visible.length} lap${(visible.length) === 1 ? '' : 's'}`)}</>}
             {run.videos.length > 0 && <>{t(' ・ ', ' · ')}<Video size={11} className="inline" /> {run.videos.length}{run.synced ? t(' (同期済み)', ' (synced)') : ''}</>}
           </div>
