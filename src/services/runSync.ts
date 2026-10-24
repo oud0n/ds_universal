@@ -118,7 +118,8 @@ export function rowVideoFromTrack(track: VideoTrack, pins: SyncPin[], runSession
 
 /** その走行のログの時計の補正 (何番目ごと)。前の行の知らない項目は残す */
 export function rowParts(runSessions: Session[], prev?: RunRow['parts']): NonNullable<RunRow['parts']> {
-  const parts: NonNullable<RunRow['parts']> = {};
+  // 今のログに無い番号の行 (分かれ方が違う端末が書いたものなど) も残す
+  const parts: NonNullable<RunRow['parts']> = { ...prev };
   runSessions.forEach((s, i) => { parts[String(i + 1)] = { ...prev?.[String(i + 1)], clockOffsetSec: s.clockOffsetSec ?? 0 }; });
   return parts;
 }

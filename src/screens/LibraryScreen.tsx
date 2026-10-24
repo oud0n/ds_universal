@@ -6,6 +6,7 @@ import { useEscapeKey } from '../hooks/useEscapeKey';
 import { formatLapTime } from '../services/liveLapTimer';
 import { RunRow, fmtDate, useRuns } from '../components/RecentRuns';
 import { LapHistoryPanel } from '../components/LapHistoryPanel';
+import { runStem } from '../services/lapIndex';
 import { useStorageLabel } from '../components/StorageSettings';
 import { baseName, setRunLapHidden, type RunItem } from '../services/runOpener';
 import { navStore } from '../app/navStore';
@@ -48,6 +49,12 @@ function dayKey(ms: number | null): string {
  * 保管場所の 1 行 / サーキットで絞る / 日付ごとの走行 / 下に「ファイルを選ぶ」「ラップタイムの記録」。
  * 行を押すと走行の詳細 (周の一覧・動画・解析で開く・動画を見る)
  */
+/** 同じ走行のファイルか (日付のフォルダが同じで、拡張子 .nmea / .bon4 を除いた名前が同じ) */
+const sameRunFile = (a: string, b: string) => {
+  const dir = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
+  return dir(a) === dir(b) && runStem(a) === runStem(b);
+};
+
 export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVideo, onAddAsCar2, car1Course = null, car1Run = null, onPickFiles, onOpenFile, busy, canTime = false }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
@@ -237,7 +244,12 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
           {detail && <div className="absolute inset-0 z-[35] bg-surface-0 flex flex-col">{detail}</div>}
         </>
       )}
-      {historyOpen && <LapHistoryPanel onClose={() => setHistoryOpen(false)} onOpenRun={file => { setHistoryOpen(false); onOpenFile(file); }} />}
+      {historyOpen && <LapHistoryPanel onClose={() => setHistoryOpen(false)} onOpenRun={(file, run) => {
+        setHistoryOpen(false);
+        // 走行の一覧にある走行なら、走行の画面から開くのと同じに開く (Car 1 にする・動画と同期もそろえる)
+        const item = runs?.find(r => r.folder === run.folder && sameRunFile(r.file, run.file));
+        if (item) onOpen(item); else onOpenFile(file);
+      }} />}
     </div>
   );
 };

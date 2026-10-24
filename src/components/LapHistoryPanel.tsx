@@ -15,7 +15,8 @@ import { useEscapeKey } from '../hooks/useEscapeKey';
 interface Props {
   onClose: () => void;
   /** 走行のファイル (.bon4) を解析で開く (無ければボタンを出さない) */
-  onOpenRun?: (file: File) => void;
+  /** 走行を解析で開く。run は保管場所の走行 (走行の画面から開くのと同じに開くため)。file はその中身 (走行として見つからないとき用) */
+  onOpenRun?: (file: File, run: { folder: string; file: string }) => void;
 }
 
 type SortKey = 'date' | 'time';
@@ -123,7 +124,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
     try {
       const bytes = await store.read(`${current.folder}/${file}`);
       // 日付のフォルダの中の走行 (20261024/xxx.bon4) も、ファイルの名前だけで開く
-      onOpenRun(new File([bytes as BlobPart], file.slice(file.lastIndexOf('/') + 1), { type: 'application/octet-stream' }));
+      onOpenRun(new File([bytes as BlobPart], file.slice(file.lastIndexOf('/') + 1), { type: 'application/octet-stream' }), { folder: current.folder, file });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
