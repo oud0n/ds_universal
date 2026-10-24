@@ -5,7 +5,7 @@
  */
 
 import { parseDtb } from './dtbParser';
-import { parseDigispiceRawBinary, SESSION_GAP_SEC } from './rawBinaryParser';
+import { keepRunParts, parseDigispiceRawBinary, SESSION_GAP_SEC } from './rawBinaryParser';
 import { parseCsv } from './csvParser';
 import { parseNmea } from './nmeaParser';
 import { inflateXrz, isAimCsv, isXrk, parseAimCsv, parseXrk } from './aimFormats';
@@ -98,7 +98,7 @@ export async function parseLogBuffer(fileName: string, buffer: ArrayBuffer, tr: 
       const parsed = parseNmea(text, fileName);
       // 分けた 2 つ目からは、時刻と距離をその走行の始めから数え直し、走り始めの日時もその走行のものにする
       // (.bon4 の分け方と同じ。続きのまま持つと、2 つ目の走行の時刻が数時間後から始まり、再生・距離がずれる)
-      parts = splitByGaps(parsed.points).map(points => {
+      parts = keepRunParts(splitByGaps(parsed.points), p => p.time ?? 0).map(points => {
         const t0 = points[0].time ?? 0, d0 = points[0].distance ?? 0;
         if (t0 === 0 && d0 === 0) return { points, samplingRate: parsed.samplingRate, startDate: parsed.startDate };
         return {

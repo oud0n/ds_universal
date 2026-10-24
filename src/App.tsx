@@ -41,7 +41,7 @@ import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
 import { RecentRunsList, RunsSheet, notifyRunsChanged } from './components/RecentRuns';
 import { canUseRunStore, getRunStore } from './services/runStore';
-import { attachCompanionVideos, attachRunVideos, closeOpenRun, companionRuns, dropCompanion, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
+import { attachCompanionVideos, attachRunVideos, closeOpenRun, companionRuns, dropCompanion, scheduleRunSave, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLapTimer, canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
 import { bleLoggerLink } from './services/bleLoggerLink';
@@ -1006,7 +1006,7 @@ export const App: React.FC = () => {
           for (const [path, list] of [...runSessionsRef.current.entries()]) {
             const rest = list.filter(id => !ids.has(id));
             if (rest.length) runSessionsRef.current.set(path, rest);
-            else { runSessionsRef.current.delete(path); runItemsRef.current.delete(path); }
+            else { runSessionsRef.current.delete(path); runItemsRef.current.delete(path); dropCompanion(path); }
           }
         }
       }
@@ -1085,7 +1085,8 @@ export const App: React.FC = () => {
     void (async () => {
       const store = await getRunStore();
       if (!store) return;
-      const added = latestRef.current.sessions.filter(x => entry[1].includes(x.id));
+      // その走行のログ (読み込んだ順 = 分かれた走行の番号の順)
+      const added = entry[1].map(sid => latestRef.current.sessions.find(x => x.id === sid)).filter((x): x is Session => !!x);
       const cand = await videoCandidates(store, item);
       if (attachedRunRef.current !== entry[0]) return;
       await attachRunVideos({
@@ -1121,9 +1122,11 @@ export const App: React.FC = () => {
         const item = runItemsRef.current.get(p);
         if (!item || p === attachedRunRef.current) continue;
         const cand = await videoCandidates(store, item);
+        // その走行のログ (読み込んだ順 = 分かれた走行の番号の順)
+        const runSessions = ids.map(id => latestRef.current.sessions.find(x => x.id === id)).filter((x): x is Session => !!x);
         await attachCompanionVideos({
-          item, runSessions: latestRef.current.sessions.filter(x => ids.includes(x.id)), videos: cand.local, fromRuns: cand.fromRuns,
-          sessions: () => latestRef.current.sessions, setClockOffset: setSessionClockOffset
+          store, item, runSessions, videos: cand.local, fromRuns: cand.fromRuns,
+          sessions: () => latestRef.current.sessions, circuitName: () => runSessions[0]?.circuitName ?? '', setClockOffset: setSessionClockOffset
         });
       }
     }).catch(e => console.warn('[run] 比べる走行の動画を読めない:', e));
@@ -1360,11 +1363,14 @@ export const App: React.FC = () => {
   // ログの時計の補正 (BUG-08)。そのログに時刻を付けた動画 (そのログで合わせた動画・そのログの GPS の動画) は一緒に動き、
   // ほかの動画は動かない (mediaClock.ts)。動画のずれを直す処理は要らない
   const setSessionClockOffset = (sessionId: string, sec: number) => {
-    const s = latestRef.current.sessions.find(x => x.id === sessionId);
-    if (!s || !Number.isFinite(sec)) return;
+    if (!Number.isFinite(sec)) return;
     const value = Number(sec.toFixed(3));
-    if (value === (s.clockOffsetSec ?? 0)) return;
+    const s = latestRef.current.sessions.find(x => x.id === sessionId);
+    if (s && value === (s.clockOffsetSec ?? 0)) return;
+    // 読み込んだばかりで、まだ画面の状態に入っていないログ (走行を開いた直後に runs.json から戻すとき) にも入れる
     setSessions(prev => prev.map(x => (x.id === sessionId ? { ...x, clockOffsetSec: value } : x)));
+    // 開いている走行の runs.json に書く (変わっていなければ書かない)
+    scheduleRunSave();
   };
 
   // 同期プロジェクトから戻した動画の照合先を、後から読み込んだログに読み替え、保存したときのログの時計の補正も戻す。
