@@ -29,9 +29,22 @@ final class WebMigration: NSObject, WKNavigationDelegate {
     /// 要るときだけ写す。終わったら (写せなくても) 戻る
     func runIfNeeded() async {
         guard !UserDefaults.standard.bool(forKey: Self.doneKey) else { return }
+        // 前の読み込み元 (github.io) の保存が無ければ、写すものは無い (初めて入れた人。起動を待たせない)
+        let records = await WKWebsiteDataStore.default().dataRecords(ofTypes: [WKWebsiteDataTypeLocalStorage, WKWebsiteDataTypeIndexedDBDatabases])
+        guard records.contains(where: { $0.displayName.contains("github.io") }) else {
+            DebugLog.write("web migration: nothing to copy (no github.io data)")
+            UserDefaults.standard.set(true, forKey: Self.doneKey)
+            return
+        }
         DebugLog.write("web migration: start")
         guard let dump = await readOld() else {
             DebugLog.write("web migration: could not read the old origin; retry next launch")
+            return
+        }
+        // 保存があるのに何も読めなかったときは、終わった印を付けない (次に起動したときにもう一度。印を付けると二度と写さないため)
+        if dump.hasPrefix("{\"ls\":{},\"idb\":[]") {
+            DebugLog.write("web migration: old origin read as empty although data exists; retry next launch")
+            webView = nil
             return
         }
         if let result = await writeNew(dump) {
@@ -144,6 +157,8 @@ final class WebMigration: NSObject, WKNavigationDelegate {
     """
 
     private static let dumpScript = codec + """
+    // 前の読み込み元のページとして開けていなければ読まない (別の読み込み元の空の保存を、写したものとみなさないように)
+    if (location.origin !== 'https://oud0n.github.io') return null;
     const ls = {};
     for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k !== null) ls[k] = localStorage.getItem(k); }
     let names = [];
@@ -179,12 +194,12 @@ final class WebMigration: NSObject, WKNavigationDelegate {
     }
     // 本番の DB と試験版の DB (頭の印を外すと同じ名前) を 1 つにまとめてから写す。
     // 別々に開くと、同じ版の DB が先にできて onupgradeneeded が来ず、試験版にしかない入れ物 (object store) を作れないため。
-    // 版は上げない (アプリは決まった版で開くので、上げると開けなくなる)
+    // 版は上げない (アプリは決まった版で開くので、上げると開けなくなる)。本番の DB があれば本番の版、無ければ試験版の版
     const merged = new Map();
     for (const x of d.idb.filter(x => !x.name.startsWith(P)).concat(d.idb.filter(x => x.name.startsWith(P)))) {
-      const name = x.name.startsWith(P) ? x.name.slice(P.length) : x.name;
-      const m = merged.get(name) ?? { name, version: 1, stores: [] };
-      m.version = Math.max(m.version, x.version || 1);
+      const preview = x.name.startsWith(P);
+      const name = preview ? x.name.slice(P.length) : x.name;
+      const m = merged.get(name) ?? { name, version: x.version || 1, stores: [] };
       for (const s of x.stores) {
         const cur = m.stores.find(t => t.name === s.name);
         if (cur) cur.records = cur.records.concat(s.records);

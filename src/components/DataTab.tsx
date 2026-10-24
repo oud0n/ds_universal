@@ -29,7 +29,7 @@ import { circuitLabel, useLang, useT } from '../utils/i18n';
 interface DataTabProps {
   sessions: Session[];
   /** ラップタイムの記録から、走行のファイル (.bon4) を解析で開く (デスクトップ版) */
-  onOpenLapRun?: (file: File) => void;
+  onOpenLapRun?: (file: File, run: { folder: string; file: string }) => void;
   selectedCars: SelectedCarSlot[];
   onSelectCarSlot: (slotIndex: number, sessionId: string, lapNumber: number) => void;
   // スロットの割り当てを解除する
@@ -370,7 +370,7 @@ export const DataTab: React.FC<DataTabProps> = ({
           )}
         </div>
       </div>
-      {lapHistoryOpen && <LapHistoryPanel onClose={() => setLapHistoryOpen(false)} onOpenRun={onOpenLapRun && (f => { setLapHistoryOpen(false); onOpenLapRun(f); })} />}
+      {lapHistoryOpen && <LapHistoryPanel onClose={() => setLapHistoryOpen(false)} onOpenRun={onOpenLapRun && ((f, run) => { setLapHistoryOpen(false); onOpenLapRun(f, run); })} />}
 
       {/* 比較スロット (Car 1〜4) の選択状態バー */}
       <div className="bg-surface-2 border border-line-2 rounded-xl p-3 shadow-md @container">

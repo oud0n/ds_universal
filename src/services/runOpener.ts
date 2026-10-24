@@ -167,6 +167,11 @@ interface OpenRun {
   paths: Set<string>;
   /** runs.json にあるが、今回は開かなかった動画 (iCloud にだけある・見つからない)。消さずに残す */
   kept: RunVideo[];
+  /**
+   * 開いたときに、この走行の動画として知っていた名前 (runs.json にあったもの・開いた動画)。
+   * 書くとき、これに無い動画が runs.json にあれば、開いている間にほかの端末が足したものなので残す (知っていて外したものは書かない)
+   */
+  known: Set<string>;
   /** 前に書いた (か、開いたときの) 中身。同じなら書かない (開いて画面を触っただけで書かない) */
   baseline: string | null;
   /**
@@ -200,17 +205,31 @@ const sessionsOf = (run: OpenRun): Session[] => {
 const runSessionsOf = (run: OpenRun, all: Session[] = sessionsOf(run)) =>
   run.sessionIds.map(id => all.find(s => s.id === id)).filter((s): s is Session => !!s);
 
-/** その走行の、今の行の中身 (動画・時計の補正)。ログが 1 つも無い (閉じた) ときは null */
-function rowContent(run: OpenRun, prev: RunRow | null): Pick<RunRow, 'parts' | 'videos'> | null {
-  const all = sessionsOf(run);
+/** その走行の今の動画・ピン・ログ (書く前に取っておく。書くのを待つ間に動画が外されても、外す前の中身で書くため) */
+interface RunSnapshot {
+  all: Session[];
+  tracks: ReturnType<typeof videoSyncManager.getTracks>;
+  pins: SyncPin[];
+}
+function snapshotOf(run: OpenRun): RunSnapshot {
+  return {
+    all: sessionsOf(run),
+    tracks: videoSyncManager.getTracks().filter(t => t.remote && run.paths.has(t.remote.path)).map(t => ({ ...t, clock: { ...t.clock } })),
+    pins: videoViewStore.getPins(run.circuitName() || 'default').slice()
+  };
+}
+
+/** その走行の、行の中身 (動画・時計の補正)。ログが 1 つも無い (閉じた) ときは null */
+function rowContent(run: OpenRun, prev: RunRow | null, snap: RunSnapshot = snapshotOf(run)): Pick<RunRow, 'parts' | 'videos'> | null {
+  const { all, tracks, pins } = snap;
   const runSessions = runSessionsOf(run, all);
   if (!runSessions.length) return null;
-  const tracks = videoSyncManager.getTracks().filter(t => t.remote && run.paths.has(t.remote.path));
-  const pins = videoViewStore.getPins(run.circuitName() || 'default');
   const opened = new Set(tracks.map(t => t.fileName));
   const videos = [
     ...tracks.map(t => rowVideoFromTrack(t, pins.filter(p => p.trackId === t.id), runSessions, all, prev?.videos?.find(v => v.name === t.fileName))),
-    ...run.kept.filter(v => !opened.has(v.name))
+    ...run.kept.filter(v => !opened.has(v.name)),
+    // 開いている間にほかの端末が足した動画 (書く直前の行にあって、開いたときには知らなかったもの)
+    ...(prev?.videos ?? []).filter(v => !opened.has(v.name) && !run.known.has(v.name) && !run.kept.some(k => k.name === v.name))
   ];
   return { parts: rowParts(runSessions, prev?.parts), videos };
 }
@@ -219,14 +238,16 @@ const contentKey = (c: Pick<RunRow, 'parts' | 'videos'>) => JSON.stringify(c);
 
 /** 走行の動画と同期を runs.json に書く (中身が変わったときだけ) */
 async function saveRun(run: OpenRun): Promise<void> {
-  const content = rowContent(run, run.item.entry);
+  // 今の中身を取っておく (書くのを待つ間に、Car 1 を替えた・比べる相手から外したなどで動画が外されても、外す前の中身で書く)
+  const snap = snapshotOf(run);
+  const content = rowContent(run, run.item.entry, snap);
   if (!content) return;
   const key = contentKey(content);
   if (key === run.baseline) return;
   try {
     const row = await updateRun(run.store, run.item.folder, run.item.file, prev => {
-      // 書く直前の行で作り直す (ほかの端末が足した項目を残す)
-      const fresh = rowContent(run, prev ?? null) ?? content;
+      // 書く直前の行で作り直す (ほかの端末が足した項目を残す)。動画・ピンは取っておいたもの
+      const fresh = rowContent(run, prev ?? null, snap) ?? content;
       return { ...prev, ...fresh };
     });
     run.baseline = key;
@@ -372,6 +393,7 @@ async function attachRunVideosNow(opts: {
     store, item, sessionIds: opts.runSessions.map(s => s.id), circuitName: opts.circuitName, sessions: opts.sessions, paths: mine,
     // runs.json にあって今回は開かなかった動画 (iCloud にだけある・見つからない) は、消さずに残す
     kept: opts.fromRuns ? (row?.videos ?? []).filter(v => !openedNames.has(v.name)) : [],
+    known: new Set([...(row?.videos ?? []).map(v => v.name), ...openedNames]),
     baseline: null,
     pendingOffsets: new Map()
   };
@@ -420,7 +442,14 @@ async function attachCompanionVideosNow(opts: {
   const ids = new Set(opts.runSessions.map(s => s.id));
   const openPaths = new Set(videoSyncManager.getTracks().filter(t => t.remote).map(t => t.remote!.path));
   const add = videos.filter(v => !openPaths.has(v.path));
-  const mine = new Set(videos.filter(v => openPaths.has(v.path)).map(v => v.path));
+  // もう開いている動画 (Car 1 の動画など) は、runs.json にこの走行の動画として書いてあるか、照合でこの走行に合ったものだけ
+  // (同じ日の別の走行の動画を、比べる相手の走行の動画として書かないように)
+  const mine = new Set(videos.filter(v => {
+    if (!openPaths.has(v.path)) return false;
+    if (opts.fromRuns) return true;
+    const t = videoSyncManager.getTracks().find(x => x.remote?.path === v.path);
+    return !!t?.matchedSessionId && ids.has(t.matchedSessionId);
+  }).map(v => v.path));
   if (add.length) {
     await videoSyncManager.addVideoFiles(add, opts.sessions());
     const addPaths = new Set(add.map(v => v.path));
@@ -436,6 +465,7 @@ async function attachCompanionVideosNow(opts: {
   const run: OpenRun = {
     store: opts.store, item, sessionIds: opts.runSessions.map(s => s.id), circuitName: opts.circuitName, sessions: opts.sessions, paths: mine,
     kept: opts.fromRuns ? (row?.videos ?? []).filter(v => !openedNames.has(v.name)) : [],
+    known: new Set([...(row?.videos ?? []).map(v => v.name), ...openedNames]),
     baseline: null,
     pendingOffsets: new Map()
   };
@@ -465,6 +495,7 @@ export async function addVideoToOpenRun(video: RemoteVideo): Promise<boolean> {
   if (!run) return false;
   await videoSyncManager.addVideoFiles([video], run.sessions());
   run.paths.add(video.path);
+  run.known.add(video.name);
   // runs.json に同期を覚えていた動画 (開いたときは iCloud にだけあったもの) は、その同期を戻す
   const saved = run.kept.find(v => v.name === video.name);
   if (saved) {
