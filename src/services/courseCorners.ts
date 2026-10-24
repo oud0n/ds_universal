@@ -35,6 +35,22 @@ const changed = () => listeners.forEach(f => f());
 const autoTried = new Set<string>();
 
 const path = (folder: string) => `course/Corner/${folder}.json`;
+
+/**
+ * アプリに入っているコーナー (リポジトリの courses/Corner/<コースの ID>.json。2026-10-24)。
+ * 保管場所にそのコースのファイルが無いとき (と、保管場所の無いブラウザ版) に使う。名前を直して保存すると、保管場所に書く
+ */
+const bundledTexts = import.meta.glob('../../courses/Corner/*.json', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+const bundled = new Map<string, string>();
+for (const [p, text] of Object.entries(bundledTexts)) {
+  const m = /\/([a-z0-9][a-z0-9_]*)\.json$/.exec(p);
+  if (m) bundled.set(m[1], text);
+}
+/** アプリに入っているコーナー (無ければ null) */
+export function bundledCorners(folder: string): CornerFile | null {
+  const text = bundled.get(folder);
+  return text ? parseCornerFile(text) : null;
+}
 /** 前の置き場所 (走行と同じコースのフォルダ。1.0.2 まで) */
 const oldPath = (folder: string) => `${folder}/${CORNERS_FILE}`;
 
@@ -42,9 +58,9 @@ export function loadCourseCorners(folder: string): Promise<CornerFile | null> {
   let p = cache.get(folder);
   if (!p) {
     p = (async () => {
-      if (!canUseRunStore()) return null;
+      if (!canUseRunStore()) return bundledCorners(folder);
       const store = await getRunStore();
-      if (!store) return null;
+      if (!store) return bundledCorners(folder);
       const text = await store.readText(path(folder)).catch(() => null);
       if (text !== null) return parseCornerFile(text);
       // 前の置き場所にあれば、新しい置き場所へ写す (写せなくても、読んだものは使う)
@@ -55,7 +71,8 @@ export function loadCourseCorners(folder: string): Promise<CornerFile | null> {
           if ((await store.readTextStrict(path(folder))) === null) await store.writeText(path(folder), old);
         } catch { /* 写せないときは次に開いたときにもう一度 */ }
       }
-      return file;
+      // 保管場所に無ければ、アプリに入っているもの
+      return file ?? bundledCorners(folder);
     })();
     cache.set(folder, p);
     // 無かった (読めなかった) ときは覚えない。あとで置かれた・iCloud から落ちてきたファイルを、次に開いたときに読む
@@ -81,6 +98,8 @@ export async function saveCourseCorners(folder: string, file: CornerFile): Promi
  */
 export async function ensureAutoCorners(folder: string, geo: LapGeometry, found: Corner[]): Promise<void> {
   if (autoTried.has(folder) || found.length === 0 || geo.lap.isWholeSession || geo.lap.isPartialLap) return;
+  // アプリに入っているコーナーのあるコースは、自動で作らない (入っているものを使う)
+  if (bundled.has(folder)) return;
   autoTried.add(folder);
   if (await loadCourseCorners(folder)) return;
   if (!canUseRunStore()) return;
