@@ -169,6 +169,11 @@ interface OpenRun {
   kept: RunVideo[];
   /** 前に書いた (か、開いたときの) 中身。同じなら書かない (開いて画面を触っただけで書かない) */
   baseline: string | null;
+  /**
+   * runs.json から戻したログの時計の補正 (ログの ID → 秒)。ログ (画面の状態) に入るのは少しあとなので、
+   * 入るまではこの値を使って中身を作る (入る前の値で作ると、入ったときに「変わった」とみなして書いてしまう・動画の時刻を誤る)
+   */
+  pendingOffsets: Map<string, { sec: number; until: number }>;
 }
 
 /** Car 1 の走行 (動画の画面で同じフォルダの動画を足す先) */
@@ -179,16 +184,27 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let subscribed = false;
 
 const runPath = (item: RunItem) => `${item.folder}/${item.file}`;
-const runSessionsOf = (run: OpenRun) => {
+/** その走行が見るログ (戻した時計の補正がまだ入っていなければ、入れたもの) */
+const sessionsOf = (run: OpenRun): Session[] => {
   const all = run.sessions();
-  return run.sessionIds.map(id => all.find(s => s.id === id)).filter((s): s is Session => !!s);
+  if (run.pendingOffsets.size === 0) return all;
+  const now = Date.now();
+  return all.map(s => {
+    const p = run.pendingOffsets.get(s.id);
+    if (!p) return s;
+    // 入った・時間が経った (利用者が直したかもしれない) ら、もう使わない
+    if ((s.clockOffsetSec ?? 0) === p.sec || now > p.until) { run.pendingOffsets.delete(s.id); return s; }
+    return { ...s, clockOffsetSec: p.sec };
+  });
 };
+const runSessionsOf = (run: OpenRun, all: Session[] = sessionsOf(run)) =>
+  run.sessionIds.map(id => all.find(s => s.id === id)).filter((s): s is Session => !!s);
 
 /** その走行の、今の行の中身 (動画・時計の補正)。ログが 1 つも無い (閉じた) ときは null */
 function rowContent(run: OpenRun, prev: RunRow | null): Pick<RunRow, 'parts' | 'videos'> | null {
-  const runSessions = runSessionsOf(run);
+  const all = sessionsOf(run);
+  const runSessions = runSessionsOf(run, all);
   if (!runSessions.length) return null;
-  const all = run.sessions();
   const tracks = videoSyncManager.getTracks().filter(t => t.remote && run.paths.has(t.remote.path));
   const pins = videoViewStore.getPins(run.circuitName() || 'default');
   const opened = new Set(tracks.map(t => t.fileName));
@@ -200,19 +216,6 @@ function rowContent(run: OpenRun, prev: RunRow | null): Pick<RunRow, 'parts' | '
 }
 
 const contentKey = (c: Pick<RunRow, 'parts' | 'videos'>) => JSON.stringify(c);
-
-/**
- * 開いたときの中身。戻したログの時計の補正は、ログに入るのが少しあと (画面の状態が変わってから) なので、
- * runs.json の値が入ったものとして覚える (入ったときに「変わった」とみなして書かないように)
- */
-function baselineOf(content: Pick<RunRow, 'parts' | 'videos'> | null, row: RunRow | null): string | null {
-  if (!content) return null;
-  const parts = { ...content.parts };
-  for (const [n, p] of Object.entries(row?.parts ?? {})) {
-    if (parts[n] && typeof p.clockOffsetSec === 'number' && Number.isFinite(p.clockOffsetSec) && Math.abs(p.clockOffsetSec) <= 3600) parts[n] = { ...parts[n], clockOffsetSec: p.clockOffsetSec };
-  }
-  return contentKey({ ...content, parts });
-}
 
 /** 走行の動画と同期を runs.json に書く (中身が変わったときだけ) */
 async function saveRun(run: OpenRun): Promise<void> {
@@ -228,6 +231,9 @@ async function saveRun(run: OpenRun): Promise<void> {
     });
     run.baseline = key;
     run.item.entry = row;
+    // 次にこの走行を開き直すとき (Car 1 を替えて戻ったときなど) の動画の候補も、書いた中身にする (外した動画が戻らないように)
+    run.item.videos = row.videos?.map(v => v.name) ?? [];
+    run.item.synced = !!row.videos?.some(v => !!v.clock);
   } catch {
     // 書けない (読めない形の runs.json など) ときは、次に変わったときにもう一度試す
   }
@@ -252,9 +258,16 @@ function ensureSubscribed(): void {
   videoViewStore.subscribe(scheduleSave);
 }
 
+/** ログの時計の補正を変えたときなど、動画・ピンのほかに走行の中身が変わったとき (App から) */
+export function scheduleRunSave(): void {
+  scheduleSave();
+}
+
 /** 走行を閉じた (ほかのログを開いた・消した): 書きかけを書いて、Car 1 の走行として覚えるのをやめる */
 export function closeOpenRun(): void {
-  if (timer) { clearTimeout(timer); timer = null; void saveAll(); }
+  if (timer) { clearTimeout(timer); timer = null; }
+  // 中身が変わっていなければ書かない (saveRun が開いたときの中身と比べる)
+  void saveAll();
   current = null;
 }
 
@@ -263,29 +276,45 @@ export function closeOpenRun(): void {
  */
 function restoreRowVideos(run: OpenRun, row: RunRow | null, setClockOffset?: (id: string, sec: number) => void): void {
   if (!row) return;
-  const runSessions = runSessionsOf(run);
-  // ログの時計の補正 (何番目ごと)
+  // ログの時計の補正 (何番目ごと)。ログに入るまでは pendingOffsets の値を使う
+  const before = runSessionsOf(run);
   for (const [n, p] of Object.entries(row.parts ?? {})) {
-    const s = runSessions[Number(n) - 1];
+    const s = before[Number(n) - 1];
     if (s && typeof p.clockOffsetSec === 'number' && Number.isFinite(p.clockOffsetSec) && Math.abs(p.clockOffsetSec) <= 3600 && (s.clockOffsetSec ?? 0) !== p.clockOffsetSec) {
+      run.pendingOffsets.set(s.id, { sec: p.clockOffsetSec, until: Date.now() + 5000 });
       setClockOffset?.(s.id, p.clockOffsetSec);
     }
   }
+  const all = sessionsOf(run);
+  const runSessions = runSessionsOf(run, all);
   const key = run.circuitName() || 'default';
-  const existing = videoViewStore.getPins(key);
-  const restoredPins: SyncPin[] = [];
+  let pins = videoViewStore.getPins(key);
+  let pinsChanged = false;
+  const trackIds = new Set(videoSyncManager.getTracks().map(t => t.id));
+  const restore: Array<{ trackId: string; vData: NonNullable<ReturnType<typeof syncVideoFromRow>> }> = [];
   for (const t of videoSyncManager.getTracks()) {
     if (!t.remote || !run.paths.has(t.remote.path)) continue;
     const v = row.videos?.find(x => x.name === t.fileName);
     if (!v) continue;
     const vData = syncVideoFromRow(v, runSessions);
-    if (vData) videoSyncManager.restoreTrackSync(t.id, vData, run.sessions());
+    if (vData) restore.push({ trackId: t.id, vData });
     for (const p of syncPinsFromRow(v, t.id, runSessions)) {
-      if (existing.some(c => c.trackId === t.id && c.name === p.name && Math.abs(c.sessionTimeSec - p.sessionTimeSec) < 0.001)) continue;
-      restoredPins.push({ ...createSyncPin(p.name, p.sessionTimeSec, p.videoTimeSec, t.id), ...(p.sessionId ? { sessionId: p.sessionId } : {}), ...(p.createdAt ? { createdAt: p.createdAt } : {}) });
+      // 前に開いたときのピン (動画の ID は開くたびに変わる) は、今の動画に付け直す (重ねて足さない)
+      const same = (c: SyncPin) => c.name === p.name && Math.abs(c.sessionTimeSec - p.sessionTimeSec) < 0.001 && Math.abs(c.videoTimeSec - p.videoTimeSec) < 0.001;
+      const mine = pins.find(c => same(c) && c.trackId === t.id);
+      if (mine) continue;
+      const stale = pins.find(c => same(c) && !trackIds.has(c.trackId));
+      if (stale) {
+        pins = pins.map(c => (c === stale ? { ...c, trackId: t.id, ...(p.sessionId ? { sessionId: p.sessionId } : {}) } : c));
+      } else {
+        pins = [...pins, { ...createSyncPin(p.name, p.sessionTimeSec, p.videoTimeSec, t.id), ...(p.sessionId ? { sessionId: p.sessionId } : {}), ...(p.createdAt ? { createdAt: p.createdAt } : {}) }];
+      }
+      pinsChanged = true;
     }
   }
-  if (restoredPins.length) videoViewStore.setPins(key, [...existing, ...restoredPins]);
+  // チャプターに分かれた動画は、全部を戻してから時刻をそろえる
+  if (restore.length) videoSyncManager.restoreTracksSync(restore, all);
+  if (pinsChanged) videoViewStore.setPins(key, pins);
 }
 
 /** 動画を付ける処理は 1 つずつ行う (続けて走行を開いたとき・相手の走行の動画を読んでいる間に、同じ動画を 2 回足さないように) */
@@ -343,14 +372,15 @@ async function attachRunVideosNow(opts: {
     store, item, sessionIds: opts.runSessions.map(s => s.id), circuitName: opts.circuitName, sessions: opts.sessions, paths: mine,
     // runs.json にあって今回は開かなかった動画 (iCloud にだけある・見つからない) は、消さずに残す
     kept: opts.fromRuns ? (row?.videos ?? []).filter(v => !openedNames.has(v.name)) : [],
-    baseline: null
+    baseline: null,
+    pendingOffsets: new Map()
   };
   if (opts.fromRuns) restoreRowVideos(run, row, opts.setClockOffset);
   current = run;
   // runs.json から開いたときは、今の中身を「書いたもの」とする (開いただけでは書かない)。
   // runs.json に無い動画を付けたときは書く (付けたことを覚える)
   const content = rowContent(run, row);
-  run.baseline = opts.fromRuns || mine.size === 0 ? baselineOf(content, row) : null;
+  run.baseline = opts.fromRuns || mine.size === 0 ? (content ? contentKey(content) : null) : null;
   if (run.baseline === null) scheduleSave();
   return mine.size;
 }
@@ -406,12 +436,13 @@ async function attachCompanionVideosNow(opts: {
   const run: OpenRun = {
     store: opts.store, item, sessionIds: opts.runSessions.map(s => s.id), circuitName: opts.circuitName, sessions: opts.sessions, paths: mine,
     kept: opts.fromRuns ? (row?.videos ?? []).filter(v => !openedNames.has(v.name)) : [],
-    baseline: null
+    baseline: null,
+    pendingOffsets: new Map()
   };
   if (opts.fromRuns) restoreRowVideos(run, row, opts.setClockOffset);
   const content = rowContent(run, row);
   // 比べる相手の走行は、runs.json に無い動画を付けても書かない (Car 1 として開いたときに書く)。変えたら書く
-  run.baseline = baselineOf(content, row);
+  run.baseline = content ? contentKey(content) : null;
   companions.set(runPath(item), run);
   return mine.size;
 }
@@ -439,7 +470,7 @@ export async function addVideoToOpenRun(video: RemoteVideo): Promise<boolean> {
   if (saved) {
     run.kept = run.kept.filter(v => v !== saved);
     const only: RunRow = { updatedAt: '', videos: [saved] };
-    const tmp: OpenRun = { ...run, paths: new Set([video.path]) };
+    const tmp: OpenRun = { ...run, paths: new Set([video.path]), pendingOffsets: run.pendingOffsets };
     restoreRowVideos(tmp, only);
   }
   scheduleSave();

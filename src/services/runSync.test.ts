@@ -65,4 +65,13 @@ describe('runs.json の行と開いている動画の読み替え', () => {
     expect(rowParts([session('a', '2026-01-01T00:00:00Z', 1.5), session('b', '2026-01-01T01:00:00Z')], { 1: { clockOffsetSec: 0, x: 1 } }))
       .toEqual({ 1: { clockOffsetSec: 1.5, x: 1 }, 2: { clockOffsetSec: 0 } });
   });
+
+  it('前の行の時刻・ピンの知らない項目は残す', () => {
+    const prev = { name: 'GX010017.MP4', extra: 1, clock: { source: 'manual' as const, logPart: 1, offsetSec: 1, utcMs: null, future: 'k' }, pins: [{ name: 'P', logPart: 1, logTimeSec: 1, videoTimeSec: 70, note: 'n' }] };
+    const pin: SyncPin = { id: 'p', name: 'P', sessionTimeSec: 100, videoTimeSec: 70, trackId: 'v1', calculatedOffsetSec: 30, sessionId: 'car2', createdAt: 'c' };
+    const v = rowVideoFromTrack(track({ source: 'manual', logId: 'car2', offsetSec: 30, utcMs: null }, 'car2'), [pin], [car2], all, prev);
+    expect(v.extra).toBe(1);
+    expect(v.clock?.future).toBe('k');
+    expect(v.pins?.[0]).toMatchObject({ note: 'n', logTimeSec: 100 });
+  });
 });

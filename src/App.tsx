@@ -41,7 +41,7 @@ import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
 import { RecentRunsList, RunsSheet, notifyRunsChanged } from './components/RecentRuns';
 import { canUseRunStore, getRunStore } from './services/runStore';
-import { attachCompanionVideos, attachRunVideos, closeOpenRun, companionRuns, dropCompanion, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
+import { attachCompanionVideos, attachRunVideos, closeOpenRun, companionRuns, dropCompanion, scheduleRunSave, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLapTimer, canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
 import { bleLoggerLink } from './services/bleLoggerLink';
@@ -1006,7 +1006,7 @@ export const App: React.FC = () => {
           for (const [path, list] of [...runSessionsRef.current.entries()]) {
             const rest = list.filter(id => !ids.has(id));
             if (rest.length) runSessionsRef.current.set(path, rest);
-            else { runSessionsRef.current.delete(path); runItemsRef.current.delete(path); }
+            else { runSessionsRef.current.delete(path); runItemsRef.current.delete(path); dropCompanion(path); }
           }
         }
       }
@@ -1363,11 +1363,14 @@ export const App: React.FC = () => {
   // ログの時計の補正 (BUG-08)。そのログに時刻を付けた動画 (そのログで合わせた動画・そのログの GPS の動画) は一緒に動き、
   // ほかの動画は動かない (mediaClock.ts)。動画のずれを直す処理は要らない
   const setSessionClockOffset = (sessionId: string, sec: number) => {
-    const s = latestRef.current.sessions.find(x => x.id === sessionId);
-    if (!s || !Number.isFinite(sec)) return;
+    if (!Number.isFinite(sec)) return;
     const value = Number(sec.toFixed(3));
-    if (value === (s.clockOffsetSec ?? 0)) return;
+    const s = latestRef.current.sessions.find(x => x.id === sessionId);
+    if (s && value === (s.clockOffsetSec ?? 0)) return;
+    // 読み込んだばかりで、まだ画面の状態に入っていないログ (走行を開いた直後に runs.json から戻すとき) にも入れる
     setSessions(prev => prev.map(x => (x.id === sessionId ? { ...x, clockOffsetSec: value } : x)));
+    // 開いている走行の runs.json に書く (変わっていなければ書かない)
+    scheduleRunSave();
   };
 
   // 同期プロジェクトから戻した動画の照合先を、後から読み込んだログに読み替え、保存したときのログの時計の補正も戻す。
