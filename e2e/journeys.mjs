@@ -428,7 +428,14 @@ export const journeys = [
           if (d > bestD) { bestD = d; best = h; }
         }
         // なぞる試しの始まり: その点から 50〜90 px 離れた線の上
-        const from = best && hits.find(h => { const d = Math.hypot(h.x - best.x, h.y - best.y); return d > 50 && d < 90; });
+        // (まっすぐ動かすので、途中も線の上にある所。ヘアピンの内側を横切ると、線の別の所に跳ぶため)
+        const onLine = (x, y) => hits.some(h => Math.hypot(h.x - x, h.y - y) < 6);
+        const from = best && hits.find(h => {
+          const d = Math.hypot(h.x - best.x, h.y - best.y);
+          if (d < 50 || d > 90) return false;
+          for (let k = 1; k < 12; k++) if (!onLine(h.x + (best.x - h.x) * k / 12, h.y + (best.y - h.y) * k / 12)) return false;
+          return true;
+        });
         return best && { x: best.x, y: best.y, from };
       })()`);
       check(spot, '地図の上に走行の線が見つからない');
