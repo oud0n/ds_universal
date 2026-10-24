@@ -6,7 +6,7 @@ import {
   Clock, Gauge, Plus, Trash2, CheckCircle2, ChevronRight,
   Globe, AlertTriangle, Zap, Layers, ChevronLeft,
   Columns, PictureInPicture, MapPin, Download, X,
-  ArrowLeftRight, Volume2, VolumeX, Maximize2, ListChecks
+  ArrowLeftRight, Volume2, VolumeX, Maximize2, ListChecks, Maximize, Minimize
 } from 'lucide-react';
 import { Session, TelemetryPoint, SelectedCarSlot, Lap } from '../types/telemetry';
 import { getAddVideoGpsLog, setAddVideoGpsLog } from '../services/videoPrefs';
@@ -380,6 +380,38 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     });
   };
 
+  // 動画を画面いっぱいに出す (上のボタンの段を隠し、動画と再生の段だけにする)。
+  // パソコン・ブラウザは画面全体 (Fullscreen API)、iPhone のアプリは使えないので、アプリの画面いっぱいに重ねる
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [fullView, setFullView] = useState(false);
+  const nativeFullRef = useRef(false);
+  const exitFullView = () => {
+    setFullView(false);
+    if (nativeFullRef.current && document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    nativeFullRef.current = false;
+  };
+  const toggleFullView = () => {
+    if (fullView) { exitFullView(); return; }
+    setFullView(true);
+    const el = rootRef.current;
+    if (document.fullscreenEnabled && el?.requestFullscreen) {
+      nativeFullRef.current = true;
+      void el.requestFullscreen().catch(() => { nativeFullRef.current = false; });
+    }
+  };
+  useEffect(() => {
+    // Esc などで画面全体の表示が外れたら、こちらも戻す
+    const onChange = () => { if (!document.fullscreenElement && nativeFullRef.current) { nativeFullRef.current = false; setFullView(false); } };
+    document.addEventListener('fullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      if (nativeFullRef.current && document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    };
+  }, []);
+  // ほかの画面へ移ったら戻す
+  useEffect(() => { if (!isVisible && fullView) exitFullView(); });
+  useEscapeKey(fullView && isVisible && !nativeFullRef.current, exitFullView);
+
   const [isDragging, setIsDragging] = useState<boolean>(false);
   // 動画の移動 (seek) が終わった回数。移動中に来た時刻に合わせ直すため、変わったら動画をもう一度合わせる
   const [, setSeekTick] = useState(0);
@@ -425,6 +457,26 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     stageRecordingRef.current = false;
     if (stageStartTimerRef.current !== null) clearTimeout(stageStartTimerRef.current);
   }, []);
+
+  // 枠の並びの書き出しをやめる (書き出しを始めると入る)
+  const stageAbortRef = useRef<(() => void) | null>(null);
+  // 枠の並びの書き出しは、画面に映したものをその場で録る。画面が隠れると (アプリの切り替え・画面のロック) 録れなくなり、
+  // 隠れている間は再生も止まるので、途中までの動画を保存しないよう、書き出しをやめて知らせる
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState !== 'hidden' || !stageAbortRef.current) return;
+      stageAbortRef.current();
+      const showNotice = () => {
+        if (document.visibilityState !== 'visible') return;
+        document.removeEventListener('visibilitychange', showNotice);
+        window.alert(t('画面が隠れたので、書き出しをやめました。書き出している間は、画面を出したままにしてください。',
+          'The export was stopped because the screen was hidden. Keep the screen on while exporting.'));
+      };
+      document.addEventListener('visibilitychange', showNotice);
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [t]);
 
   const pipRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -746,6 +798,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     seekTo(isGraphEmbedded && baseLap ? start - baseLap.startTime : start);
     const stopPlayback = () => { if (stageRef.current.isPlaying) togglePlayRef.current(); };
     const finish = () => {
+      stageAbortRef.current = null;
       stageRecordingRef.current = false;
       exportControllerRef.current = null;
       stopPlayback();
@@ -753,6 +806,15 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       setIsExporting(false);
       setExportProgress(null);
       videoViewStore.set({ isExporting: false });
+    };
+    stageAbortRef.current = () => {
+      if (stageStartTimerRef.current !== null) {
+        clearTimeout(stageStartTimerRef.current);
+        stageStartTimerRef.current = null;
+        finish();
+      } else {
+        exportControllerRef.current?.cancel();
+      }
     };
     // 枠の動画が開始の位置へ移るのを待ってから、再生して録り始める
     stageStartTimerRef.current = window.setTimeout(() => {
@@ -1060,7 +1122,16 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   return (
     // 枠が狭くて全部の段が入らないときは、動画を潰さずにウインドウの中をスクロールさせる
-    <div className={`relative flex flex-col h-full bg-surface-0 text-slate-200 select-none font-sans ${isGraphEmbedded ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'}`}>
+    <div
+      ref={rootRef}
+      className={fullView
+        ? 'fixed inset-0 z-[80] flex flex-col bg-black text-slate-200 select-none font-sans overflow-hidden'
+        : `relative flex flex-col h-full bg-surface-0 text-slate-200 select-none font-sans ${isGraphEmbedded ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'}`}
+      // 画面いっぱいのときは、iPhone の切り欠き・角・ホームの線に隠れないよう余白を取る
+      style={fullView ? { padding: 'env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)' } : undefined}
+      data-testid="video-window"
+      data-fullview={fullView ? '1' : undefined}
+    >
       {showRuns && (
         <RunsInspector sessions={sessions} media={media} onChooseLog={onChooseLog} onClose={() => setShowRuns(false)} visible={isVisible} />
       )}
@@ -1070,7 +1141,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       {/* スマートフォンでは、横にスクロールさせず折り返し、押しやすいよう大きくする (2026-10-20) */}
       <div
         ref={toolbarScrollRef}
-        className={phoneToolbar
+        className={fullView ? 'hidden' : phoneToolbar
           ? 'bg-surface-1 border-b border-line-1 px-2 py-1.5 flex flex-wrap items-center gap-1 shrink-0 [&_button]:whitespace-nowrap [&_button]:shrink-0 [&_button]:min-h-9 [&_button]:text-xs [&_select]:min-h-9 [&_select]:text-sm [&_svg]:w-4 [&_svg]:h-4'
           : 'min-h-11 bg-surface-1 border-b border-line-1 px-3 py-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 shrink-0 [&_button]:whitespace-nowrap [&_button]:shrink-0'}
         data-testid="video-toolbar"
@@ -1880,6 +1951,20 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               data-testid="video-mute"
             >
               {userMuted ? <VolumeX size={isCompactLayout ? 18 : 15} /> : <Volume2 size={isCompactLayout ? 18 : 15} />}
+            </button>
+          )}
+
+          {/* 画面いっぱいに出す・戻す (グラフ解析に埋め込んだときは出さない) */}
+          {!isGraphEmbedded && (
+            <button
+              onClick={toggleFullView}
+              className="p-1 rounded border border-line-2 bg-surface-3 text-slate-300 hover:bg-surface-4 transition-colors cursor-pointer ml-1"
+              title={fullView ? t('元の大きさに戻す', 'Exit full screen') : t('画面いっぱいに出す', 'Full screen')}
+              aria-label={fullView ? t('元の大きさに戻す', 'Exit full screen') : t('画面いっぱいに出す', 'Full screen')}
+              aria-pressed={fullView}
+              data-testid="video-fullscreen"
+            >
+              {fullView ? <Minimize size={isCompactLayout ? 18 : 15} /> : <Maximize size={isCompactLayout ? 18 : 15} />}
             </button>
           )}
         </div>

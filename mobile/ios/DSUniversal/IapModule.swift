@@ -19,9 +19,15 @@ final class IapModule {
         guard updates == nil else { return }
         updates = Task { [weak self] in
             for await result in Transaction.updates {
-                guard case .verified(let tx) = result else { continue }
-                await tx.finish()
-                self?.core.emit("iap.purchased", ["productId": tx.productID])
+                switch result {
+                case .verified(let tx):
+                    await tx.finish()
+                    self?.core.emit("iap.purchased", ["productId": tx.productID])
+                case .unverified(let tx, let error):
+                    // 確かめられなかった購入も終える (何も解放しない投げ銭なので、終えないと起動のたびに届き続けるだけ)
+                    DebugLog.write("iap: unverified transaction \(tx.productID): \(error.localizedDescription)")
+                    await tx.finish()
+                }
             }
         }
     }
@@ -63,7 +69,9 @@ final class IapModule {
                     case .success(.verified(let tx)):
                         await tx.finish()
                         done(.success(["status": "purchased"]))
-                    case .success(.unverified(_, let error)):
+                    case .success(.unverified(let tx, let error)):
+                        DebugLog.write("iap: unverified purchase \(tx.productID): \(error.localizedDescription)")
+                        await tx.finish()
                         done(.failure(NativeError(.io, "unverified purchase: \(error.localizedDescription)")))
                     case .pending:
                         // 保護者の承認待ちなど。決まったら Transaction.updates に届く (start)

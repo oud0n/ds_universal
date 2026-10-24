@@ -211,9 +211,10 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
       onOpen={() => { setSelectedKey(null); onOpen(selected); }}
       onOpenVideo={() => { setSelectedKey(null); onOpenVideo(selected); }}
       onAddAsCar2={onAddAsCar2 ? () => { setSelectedKey(null); onAddAsCar2(selected); } : undefined}
-      // 同じコースか: Car 1 と同じフォルダ (コースごとのフォルダ) の走行か、コースの名前が同じコースを指すとき
+      // 同じコースか: Car 1 と同じフォルダ (コースごとのフォルダ) の走行か、コースの名前が同じコースを指すとき。
+      // 未分類のフォルダはいろいろなコースの走行が入るので、フォルダが同じでも同じコースとはみなさない
       otherCourse={!!onAddAsCar2 && !!car1Course
-        && !(car1Run !== null && car1Run.slice(0, car1Run.indexOf('/')) === selected.folder)
+        && !(car1Run !== null && selected.folder !== 'unsorted' && car1Run.slice(0, car1Run.indexOf('/')) === selected.folder)
         && !sameCourseName(selected.courseName, car1Course)}
       isCar1={car1Run === `${selected.folder}/${selected.file}`}
       onToggleLap={async (lap, hide) => { await setRunLapHidden(store, selected, lap, hide); reload(); }}
