@@ -7,7 +7,8 @@ import courseIndex from '../../courses/index.json';
 
 // 内蔵のコース (独自に作成したデータ)。リポジトリの courses/ に、デジスパイスと同じ形式のファイルで置いて同梱する
 // - index.json: コースの一覧 (名前・中心の座標・ファイル名・作り方のメモ)
-// - <id>.cln: 計測線、<id>.sci: セクター線 (公式の .sci と同じく、フィニッシュ (計測線) は含まない)
+// - ControlLine/<id>.cln: 計測線、Sector/<id>.sci: セクター線 (公式の .sci と同じく、フィニッシュ (計測線) は含まない)。
+//   デジスパイスのコースフォルダ (Circuit/・ControlLine/・Sector/) と同じ並び。index.json の cln・sci は courses/ からの道
 // 作り方と出典は courses/README.md。修正の依頼はファイルごとに Issue / PR で受け付ける
 // 出典: © OpenStreetMap contributors (Open Database License 1.0, https://www.openstreetmap.org/copyright)
 //       国土地理院 シームレス空中写真 (https://maps.gsi.go.jp/development/ichiran.html)
@@ -21,7 +22,7 @@ interface CourseIndexEntry {
   cln?: string;
   sci?: string;
 }
-const courseFiles = import.meta.glob('../../courses/*.{cln,sci}', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+const courseFiles = import.meta.glob('../../courses/**/*.{cln,sci}', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 const courseFile = (name: string) => courseFiles[`../../courses/${name}`];
 
 export const CIRCUIT_PRESETS: CircuitPreset[] = (courseIndex as unknown as CourseIndexEntry[]).map(c => {

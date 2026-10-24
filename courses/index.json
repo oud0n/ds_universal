@@ -7,8 +7,8 @@
       35.370533,
       138.926908
     ],
-    "cln": "fsw.cln",
-    "sci": "fsw.sci",
+    "cln": "ControlLine/fsw.cln",
+    "sci": "Sector/fsw.sci",
     "notes": {
       "controlLine": "管制塔の前の路面のコントロールライン (航空写真で確認、ピットロードまで含む)。2026-10-17 に見直し (以前の線はピットの建物の端に置いており、約 300 m ずれていた)",
       "sectors": "WEC などの 3 区間に合わせた推定: S1 はヘアピン (アドバン) を抜けて 300R の手前まで、S2 はダンロップのシケインを抜けるまで (コース中心線の上で 2150 m・3050 m)。2026-10-18 作成"
@@ -22,8 +22,8 @@
       34.843668,
       136.532668
     ],
-    "cln": "suzuka.cln",
-    "sci": "suzuka.sci",
+    "cln": "ControlLine/suzuka.cln",
+    "sci": "Sector/suzuka.sci",
     "notes": {
       "controlLine": "メインストレートに架かるスタートの信号のゲートの位置 (航空写真で確認、ピットロードまで含む)。2026-10-17 に見直し (以前の線はピットの建物の端に置いており、約 290 m ずれていた)",
       "sectors": "F1 の 3 区間に合わせた推定: S1 はダンロップを抜けてデグナー 1 の手前まで、S2 はスプーンの出口まで (コース中心線の上で 2050 m・4050 m)。2026-10-18 作成"
@@ -37,8 +37,8 @@
       36.15048,
       139.92178
     ],
-    "cln": "tsukuba2000.cln",
-    "sci": "tsukuba2000.sci",
+    "cln": "ControlLine/tsukuba2000.cln",
+    "sci": "Sector/tsukuba2000.sci",
     "notes": {
       "controlLine": "国土地理院の航空写真でスタートライン付近の位置を確認し、OpenStreetMap のコース中心線に直交する線分として作成 (公式の計測位置と一致するとは限らない)",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線の上)。2026-10-18 作成"
@@ -52,8 +52,8 @@
       36.150718,
       139.924068
     ],
-    "cln": "tsukuba1000.cln",
-    "sci": "tsukuba1000.sci",
+    "cln": "ControlLine/tsukuba1000.cln",
+    "sci": "Sector/tsukuba1000.sci",
     "notes": {
       "controlLine": "国土地理院の航空写真でスタートライン付近の位置を確認し、OpenStreetMap のコース中心線に直交する線分として作成 (公式の計測位置と一致するとは限らない)",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線の上)。2026-10-18 作成"
@@ -67,8 +67,8 @@
       36.662164,
       139.86259
     ],
-    "cln": "nikko.cln",
-    "sci": "nikko.sci",
+    "cln": "ControlLine/nikko.cln",
+    "sci": "Sector/nikko.sci",
     "notes": {
       "controlLine": "管制塔から架かる計測ゲートの位置 (航空写真で確認、ピットロードまで含む)。2026-10-17 に見直し (以前の線は隣の直線に置いていたため、ベストラップが 0.08 秒短く出ていた)",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線の上)。2026-10-18 作成"
@@ -82,8 +82,8 @@
       36.532484,
       140.231982
     ],
-    "cln": "motegi.cln",
-    "sci": "motegi.sci",
+    "cln": "ControlLine/motegi.cln",
+    "sci": "Sector/motegi.sci",
     "notes": {
       "controlLine": "国土地理院の航空写真でスタートライン付近の位置を確認し、OpenStreetMap のコース中心線に直交する線分として作成 (公式の計測位置と一致するとは限らない)",
       "sectors": "公式の区切りが分からないため、MotoGP と同じ 4 区間として 1 周を 4 等分した仮の位置。2026-10-18 作成"
@@ -97,8 +97,8 @@
       38.140417,
       140.776664
     ],
-    "cln": "sugo.cln",
-    "sci": "sugo.sci",
+    "cln": "ControlLine/sugo.cln",
+    "sci": "Sector/sugo.sci",
     "notes": {
       "controlLine": "管制塔の前の路面のコントロールライン (航空写真で確認)。2026-10-17 に見直し (以前の線はメインストレートの東の端に置いており、約 220 m ずれていた)",
       "sectors": "公式のコース図 (2026_racing-course_layout.pdf) の計測地点 S1 833 m・S2 1821 m・S3 2568 m の位置 (OpenStreetMap のコース中心線の上で、計測線からの距離で置いた)。2026-10-18 作成"
@@ -112,8 +112,8 @@
       33.036795,
       130.972808
     ],
-    "cln": "autopolis.cln",
-    "sci": "autopolis.sci",
+    "cln": "ControlLine/autopolis.cln",
+    "sci": "Sector/autopolis.sci",
     "notes": {
       "controlLine": "国土地理院の航空写真でスタートライン付近の位置を確認し、OpenStreetMap のコース中心線に直交する線分として作成 (公式の計測位置と一致するとは限らない)",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線の上)。2026-10-18 作成"
@@ -127,8 +127,8 @@
       34.91565,
       134.221622
     ],
-    "cln": "okayama.cln",
-    "sci": "okayama.sci",
+    "cln": "ControlLine/okayama.cln",
+    "sci": "Sector/okayama.sci",
     "notes": {
       "controlLine": "国土地理院の航空写真でスタートライン付近の位置を確認し、OpenStreetMap のコース中心線に直交する線分として作成 (公式の計測位置と一致するとは限らない)",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線の上)。2026-10-18 作成"
@@ -142,8 +142,8 @@
       35.394188,
       140.089014
     ],
-    "cln": "sodegaura.cln",
-    "sci": "sodegaura.sci",
+    "cln": "ControlLine/sodegaura.cln",
+    "sci": "Sector/sodegaura.sci",
     "notes": {
       "controlLine": "国土地理院の航空写真でスタートライン付近の位置を確認し、OpenStreetMap のコース中心線に直交する線分として作成 (公式の計測位置と一致するとは限らない)",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線の上)。2026-10-18 作成"
@@ -157,8 +157,8 @@
       36.171078,
       139.107479
     ],
-    "cln": "honjo.cln",
-    "sci": "honjo.sci",
+    "cln": "ControlLine/honjo.cln",
+    "sci": "Sector/honjo.sci",
     "notes": {
       "controlLine": "パドックの横でコースを横切る線 (航空写真で確認)。2026-10-17 に見直し (以前は写真から特定できず、直線の中ほどの仮の位置に置いていた)",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線の上)。2026-10-18 作成"
@@ -172,8 +172,8 @@
       37.643835,
       140.372223
     ],
-    "cln": "ebisu_east.cln",
-    "sci": "ebisu_east.sci",
+    "cln": "ControlLine/ebisu_east.cln",
+    "sci": "Sector/ebisu_east.sci",
     "notes": {
       "controlLine": "国土地理院の航空写真でスタートライン付近の位置を確認し、OpenStreetMap のコース中心線に直交する線分として作成 (公式の計測位置と一致するとは限らない)",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線の上)。2026-10-18 作成"
@@ -199,7 +199,7 @@
       36.393382,
       139.641318
     ],
-    "cln": "festika.cln",
+    "cln": "ControlLine/festika.cln",
     "notes": {
       "controlLine": "メインストレートに架かるゲートの位置 (国土地理院 シームレス空中写真で確認、ピットレーンまで含む)。2026-10-18 作成",
       "sectors": "OpenStreetMap にコースの線がなく 1 周の中心線を作れないため、セクター線は入れていない。2026-10-18 作成"
@@ -214,8 +214,8 @@
       137.377052
     ],
     "mapRadius": 400,
-    "cln": "akechi_hilltop_circuit.cln",
-    "sci": "akechi_hilltop_circuit.sci",
+    "cln": "ControlLine/akechi_hilltop_circuit.cln",
+    "sci": "Sector/akechi_hilltop_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 799 m の上)。2026-10-19 作成"
@@ -230,8 +230,8 @@
       139.592466
     ],
     "mapRadius": 400,
-    "cln": "akigase_circuit.cln",
-    "sci": "akigase_circuit.sci",
+    "cln": "ControlLine/akigase_circuit.cln",
+    "sci": "Sector/akigase_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -246,8 +246,8 @@
       137.468668
     ],
     "mapRadius": 400,
-    "cln": "autoland_tsukude.cln",
-    "sci": "autoland_tsukude.sci",
+    "cln": "ControlLine/autoland_tsukude.cln",
+    "sci": "Sector/autoland_tsukude.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 645 m の上)。2026-10-19 作成"
@@ -262,8 +262,8 @@
       133.858643
     ],
     "mapRadius": 400,
-    "cln": "asan_circuit.cln",
-    "sci": "asan_circuit.sci",
+    "cln": "ControlLine/asan_circuit.cln",
+    "sci": "Sector/asan_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1006 m の上)。2026-10-19 作成"
@@ -278,8 +278,8 @@
       140.841234
     ],
     "mapRadius": 400,
-    "cln": "aomori_speed_park.cln",
-    "sci": "aomori_speed_park.sci",
+    "cln": "ControlLine/aomori_speed_park.cln",
+    "sci": "Sector/aomori_speed_park.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 2046 m の上)。2026-10-19 作成"
@@ -294,8 +294,8 @@
       141.183354
     ],
     "mapRadius": 400,
-    "cln": "higashimatsushima_kart.cln",
-    "sci": "higashimatsushima_kart.sci",
+    "cln": "ControlLine/higashimatsushima_kart.cln",
+    "sci": "Sector/higashimatsushima_kart.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、レイアウトを替えて走るコースなので、OpenStreetMap のコースの線で 1 周として考えられる周のどれもが通る道の上に、1 周のおよそ 3 等分の位置で置いた仮の位置 (航空写真で、セクター線が路面にかかることを確かめた)。2026-10-24 作成"
@@ -310,8 +310,8 @@
       138.659752
     ],
     "mapRadius": 400,
-    "cln": "az_yamanashi.cln",
-    "sci": "az_yamanashi.sci",
+    "cln": "ControlLine/az_yamanashi.cln",
+    "sci": "Sector/az_yamanashi.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -326,8 +326,8 @@
       133.615232
     ],
     "mapRadius": 400,
-    "cln": "bihoku_highland.cln",
-    "sci": "bihoku_highland.sci",
+    "cln": "ControlLine/bihoku_highland.cln",
+    "sci": "Sector/bihoku_highland.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線。1 周の取り方は航空写真で路面に合うことを確かめた)。2026-10-24 作成"
@@ -342,8 +342,8 @@
       135.88856
     ],
     "mapRadius": 400,
-    "cln": "biwako_sportsland.cln",
-    "sci": "biwako_sportsland.sci",
+    "cln": "ControlLine/biwako_sportsland.cln",
+    "sci": "Sector/biwako_sportsland.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -358,8 +358,8 @@
       134.922474
     ],
     "mapRadius": 550,
-    "cln": "central_circuit.cln",
-    "sci": "central_circuit.sci",
+    "cln": "ControlLine/central_circuit.cln",
+    "sci": "Sector/central_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 2802 m の上)。2026-10-19 作成"
@@ -374,8 +374,8 @@
       140.12897
     ],
     "mapRadius": 400,
-    "cln": "chiba_kita_pocket_bike.cln",
-    "sci": "chiba_kita_pocket_bike.sci",
+    "cln": "ControlLine/chiba_kita_pocket_bike.cln",
+    "sci": "Sector/chiba_kita_pocket_bike.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -390,8 +390,8 @@
       139.781327
     ],
     "mapRadius": 400,
-    "cln": "city_circuit_tokyo_bay.cln",
-    "sci": "city_circuit_tokyo_bay.sci",
+    "cln": "ControlLine/city_circuit_tokyo_bay.cln",
+    "sci": "Sector/city_circuit_tokyo_bay.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -406,8 +406,8 @@
       139.364705
     ],
     "mapRadius": 400,
-    "cln": "hiratsuka_dream.cln",
-    "sci": "hiratsuka_dream.sci",
+    "cln": "ControlLine/hiratsuka_dream.cln",
+    "sci": "Sector/hiratsuka_dream.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 455 m の上)。2026-10-19 作成"
@@ -422,8 +422,8 @@
       140.365573
     ],
     "mapRadius": 400,
-    "cln": "ebisu_circuit_north.cln",
-    "sci": "ebisu_circuit_north.sci",
+    "cln": "ControlLine/ebisu_circuit_north.cln",
+    "sci": "Sector/ebisu_circuit_north.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -438,8 +438,8 @@
       140.371724
     ],
     "mapRadius": 550,
-    "cln": "ebisu_circuit_west.cln",
-    "sci": "ebisu_circuit_west.sci",
+    "cln": "ControlLine/ebisu_circuit_west.cln",
+    "sci": "Sector/ebisu_circuit_west.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -454,8 +454,8 @@
       138.933317
     ],
     "mapRadius": 400,
-    "cln": "fuji_speedway_kart.cln",
-    "sci": "fuji_speedway_kart.sci",
+    "cln": "ControlLine/fuji_speedway_kart.cln",
+    "sci": "Sector/fuji_speedway_kart.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -470,8 +470,8 @@
       138.937794
     ],
     "mapRadius": 400,
-    "cln": "fuji_short_circuit.cln",
-    "sci": "fuji_short_circuit.sci",
+    "cln": "ControlLine/fuji_short_circuit.cln",
+    "sci": "Sector/fuji_short_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -486,8 +486,8 @@
       139.700913
     ],
     "mapRadius": 400,
-    "cln": "grande_isola_circuit.cln",
-    "sci": "grande_isola_circuit.sci",
+    "cln": "ControlLine/grande_isola_circuit.cln",
+    "sci": "Sector/grande_isola_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -502,8 +502,8 @@
       139.908904
     ],
     "mapRadius": 400,
-    "cln": "harbor_circuit_kisarazu.cln",
-    "sci": "harbor_circuit_kisarazu.sci",
+    "cln": "ControlLine/harbor_circuit_kisarazu.cln",
+    "sci": "Sector/harbor_circuit_kisarazu.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 401 m の上)。2026-10-19 作成"
@@ -518,8 +518,8 @@
       140.714892
     ],
     "mapRadius": 450,
-    "cln": "hokkaido_speed_park.cln",
-    "sci": "hokkaido_speed_park.sci",
+    "cln": "ControlLine/hokkaido_speed_park.cln",
+    "sci": "Sector/hokkaido_speed_park.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1365 m の上)。2026-10-19 作成"
@@ -534,8 +534,8 @@
       130.876636
     ],
     "mapRadius": 400,
-    "cln": "hsr_kyushu.cln",
-    "sci": "hsr_kyushu.sci",
+    "cln": "ControlLine/hsr_kyushu.cln",
+    "sci": "Sector/hsr_kyushu.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -550,8 +550,8 @@
       130.873562
     ],
     "mapRadius": 400,
-    "cln": "hsr_dream.cln",
-    "sci": "hsr_dream.sci",
+    "cln": "ControlLine/hsr_dream.cln",
+    "sci": "Sector/hsr_dream.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -566,8 +566,8 @@
       139.985487
     ],
     "mapRadius": 400,
-    "cln": "igashira_motor_park.cln",
-    "sci": "igashira_motor_park.sci",
+    "cln": "ControlLine/igashira_motor_park.cln",
+    "sci": "Sector/igashira_motor_park.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -582,8 +582,8 @@
       127.999814
     ],
     "mapRadius": 400,
-    "cln": "ikei_island.cln",
-    "sci": "ikei_island.sci",
+    "cln": "ControlLine/ikei_island.cln",
+    "sci": "Sector/ikei_island.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 600 m の上)。2026-10-19 作成"
@@ -598,8 +598,8 @@
       135.683228
     ],
     "mapRadius": 400,
-    "cln": "sportsland_ikoma.cln",
-    "sci": "sportsland_ikoma.sci",
+    "cln": "ControlLine/sportsland_ikoma.cln",
+    "sci": "Sector/sportsland_ikoma.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -614,8 +614,8 @@
       135.306493
     ],
     "mapRadius": 400,
-    "cln": "inagawa_circuit.cln",
-    "sci": "inagawa_circuit.sci",
+    "cln": "ControlLine/inagawa_circuit.cln",
+    "sci": "Sector/inagawa_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1005 m の上)。2026-10-19 作成"
@@ -630,8 +630,8 @@
       137.211766
     ],
     "mapRadius": 400,
-    "cln": "ishino_circuit.cln",
-    "sci": "ishino_circuit.sci",
+    "cln": "ControlLine/ishino_circuit.cln",
+    "sci": "Sector/ishino_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -646,7 +646,7 @@
       135.71382
     ],
     "mapRadius": 400,
-    "cln": "isk_hanna.cln",
+    "cln": "ControlLine/isk_hanna.cln",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
@@ -661,8 +661,8 @@
       135.389672
     ],
     "mapRadius": 400,
-    "cln": "isk_maishima.cln",
-    "sci": "isk_maishima.sci",
+    "cln": "ControlLine/isk_maishima.cln",
+    "sci": "Sector/isk_maishima.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -677,8 +677,8 @@
       140.55343
     ],
     "mapRadius": 400,
-    "cln": "itako_motorsports_park.cln",
-    "sci": "itako_motorsports_park.sci",
+    "cln": "ControlLine/itako_motorsports_park.cln",
+    "sci": "Sector/itako_motorsports_park.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、レイアウトを替えて走るコースなので、OpenStreetMap のコースの線で 1 周として考えられる周のどれもが通る道の上に、1 周のおよそ 3 等分の位置で置いた仮の位置 (航空写真で、セクター線が路面にかかることを確かめた)。2026-10-24 作成"
@@ -693,8 +693,8 @@
       133.961589
     ],
     "mapRadius": 400,
-    "cln": "kartland_shikoku.cln",
-    "sci": "kartland_shikoku.sci",
+    "cln": "ControlLine/kartland_shikoku.cln",
+    "sci": "Sector/kartland_shikoku.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -709,8 +709,8 @@
       142.55583
     ],
     "mapRadius": 400,
-    "cln": "kart_land_ark.cln",
-    "sci": "kart_land_ark.sci",
+    "cln": "ControlLine/kart_land_ark.cln",
+    "sci": "Sector/kart_land_ark.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 569 m の上)。2026-10-19 作成"
@@ -725,8 +725,8 @@
       135.85163
     ],
     "mapRadius": 400,
-    "cln": "kinki_sportsland.cln",
-    "sci": "kinki_sportsland.sci",
+    "cln": "ControlLine/kinki_sportsland.cln",
+    "sci": "Sector/kinki_sportsland.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 764 m の上)。2026-10-19 作成"
@@ -741,8 +741,8 @@
       135.066851
     ],
     "mapRadius": 400,
-    "cln": "kobe_kita_kart.cln",
-    "sci": "kobe_kita_kart.sci",
+    "cln": "ControlLine/kobe_kita_kart.cln",
+    "sci": "Sector/kobe_kita_kart.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 711 m の上)。2026-10-19 作成"
@@ -757,8 +757,8 @@
       130.690869
     ],
     "mapRadius": 400,
-    "cln": "kitakyushu_wakamatsu_kart.cln",
-    "sci": "kitakyushu_wakamatsu_kart.sci",
+    "cln": "ControlLine/kitakyushu_wakamatsu_kart.cln",
+    "sci": "Sector/kitakyushu_wakamatsu_kart.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -773,8 +773,8 @@
       137.139989
     ],
     "mapRadius": 400,
-    "cln": "kota_circuit_aichi.cln",
-    "sci": "kota_circuit_aichi.sci",
+    "cln": "ControlLine/kota_circuit_aichi.cln",
+    "sci": "Sector/kota_circuit_aichi.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -789,8 +789,8 @@
       140.459026
     ],
     "mapRadius": 400,
-    "cln": "hitachiota_kart.cln",
-    "sci": "hitachiota_kart.sci",
+    "cln": "ControlLine/hitachiota_kart.cln",
+    "sci": "Sector/hitachiota_kart.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 777 m の上)。2026-10-19 作成"
@@ -805,8 +805,8 @@
       127.721642
     ],
     "mapRadius": 400,
-    "cln": "kukuru_yomitan_circuit.cln",
-    "sci": "kukuru_yomitan_circuit.sci",
+    "cln": "ControlLine/kukuru_yomitan_circuit.cln",
+    "sci": "Sector/kukuru_yomitan_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -821,8 +821,8 @@
       130.976096
     ],
     "mapRadius": 400,
-    "cln": "autopolis_lakeside.cln",
-    "sci": "autopolis_lakeside.sci",
+    "cln": "ControlLine/autopolis_lakeside.cln",
+    "sci": "Sector/autopolis_lakeside.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -837,8 +837,8 @@
       137.285721
     ],
     "mapRadius": 400,
-    "cln": "festika_circuit_mizunami.cln",
-    "sci": "festika_circuit_mizunami.sci",
+    "cln": "ControlLine/festika_circuit_mizunami.cln",
+    "sci": "Sector/festika_circuit_mizunami.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1161 m の上)。2026-10-19 作成"
@@ -853,8 +853,8 @@
       140.390356
     ],
     "mapRadius": 400,
-    "cln": "fukushima_ozasao_kart.cln",
-    "sci": "fukushima_ozasao_kart.sci",
+    "cln": "ControlLine/fukushima_ozasao_kart.cln",
+    "sci": "Sector/fukushima_ozasao_kart.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -869,8 +869,8 @@
       139.879302
     ],
     "mapRadius": 800,
-    "cln": "the_magarigawa_club.cln",
-    "sci": "the_magarigawa_club.sci",
+    "cln": "ControlLine/the_magarigawa_club.cln",
+    "sci": "Sector/the_magarigawa_club.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -885,8 +885,8 @@
       138.804351
     ],
     "mapRadius": 600,
-    "cln": "maze_circuit.cln",
-    "sci": "maze_circuit.sci",
+    "cln": "ControlLine/maze_circuit.cln",
+    "sci": "Sector/maze_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 2009 m の上)。2026-10-19 作成"
@@ -901,7 +901,7 @@
       140.25131
     ],
     "mapRadius": 400,
-    "cln": "minami_chiba_circuit.cln",
+    "cln": "ControlLine/minami_chiba_circuit.cln",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "1 周の形を確かめられないため、セクター線は入れていない。2026-10-19 作成"
@@ -916,8 +916,8 @@
       140.282126
     ],
     "mapRadius": 400,
-    "cln": "mobara_twin_circuit.cln",
-    "sci": "mobara_twin_circuit.sci",
+    "cln": "ControlLine/mobara_twin_circuit.cln",
+    "sci": "Sector/mobara_twin_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1130 m の上)。2026-10-19 作成"
@@ -932,8 +932,8 @@
       140.225704
     ],
     "mapRadius": 400,
-    "cln": "mobility_resort_motegi_kart.cln",
-    "sci": "mobility_resort_motegi_kart.sci",
+    "cln": "ControlLine/mobility_resort_motegi_kart.cln",
+    "sci": "Sector/mobility_resort_motegi_kart.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -948,8 +948,8 @@
       141.397012
     ],
     "mapRadius": 400,
-    "cln": "motor_land_sp.cln",
-    "sci": "motor_land_sp.sci",
+    "cln": "ControlLine/motor_land_sp.cln",
+    "sci": "Sector/motor_land_sp.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、レイアウトを替えて走るコースなので、OpenStreetMap のコースの線で 1 周として考えられる周のどれもが通る道の上に、1 周のおよそ 3 等分の位置で置いた仮の位置 (航空写真で、セクター線が路面にかかることを確かめた)。2026-10-24 作成"
@@ -964,8 +964,8 @@
       136.505548
     ],
     "mapRadius": 400,
-    "cln": "motorland_suzuka.cln",
-    "sci": "motorland_suzuka.sci",
+    "cln": "ControlLine/motorland_suzuka.cln",
+    "sci": "Sector/motorland_suzuka.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 988 m の上)。2026-10-19 作成"
@@ -980,8 +980,8 @@
       139.219287
     ],
     "mapRadius": 400,
-    "cln": "nakai_inter_circuit.cln",
-    "sci": "nakai_inter_circuit.sci",
+    "cln": "ControlLine/nakai_inter_circuit.cln",
+    "sci": "Sector/nakai_inter_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -996,8 +996,8 @@
       134.177883
     ],
     "mapRadius": 400,
-    "cln": "nakayama_circuit.cln",
-    "sci": "nakayama_circuit.sci",
+    "cln": "ControlLine/nakayama_circuit.cln",
+    "sci": "Sector/nakayama_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1797 m の上)。2026-10-19 作成"
@@ -1012,8 +1012,8 @@
       134.17794
     ],
     "mapRadius": 400,
-    "cln": "nakayama_circuit_kart.cln",
-    "sci": "nakayama_circuit_kart.sci",
+    "cln": "ControlLine/nakayama_circuit_kart.cln",
+    "sci": "Sector/nakayama_circuit_kart.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 706 m の上)。2026-10-19 作成"
@@ -1028,8 +1028,8 @@
       141.671912
     ],
     "mapRadius": 400,
-    "cln": "nanporo_riverside_kartland.cln",
-    "sci": "nanporo_riverside_kartland.sci",
+    "cln": "ControlLine/nanporo_riverside_kartland.cln",
+    "sci": "Sector/nanporo_riverside_kartland.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 718 m の上)。2026-10-19 作成"
@@ -1044,8 +1044,8 @@
       140.400523
     ],
     "mapRadius": 400,
-    "cln": "narita_motor_land.cln",
-    "sci": "narita_motor_land.sci",
+    "cln": "ControlLine/narita_motor_land.cln",
+    "sci": "Sector/narita_motor_land.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 753 m の上)。2026-10-19 作成"
@@ -1060,8 +1060,8 @@
       140.127581
     ],
     "mapRadius": 400,
-    "cln": "nasu_motorsports_land.cln",
-    "sci": "nasu_motorsports_land.sci",
+    "cln": "ControlLine/nasu_motorsports_land.cln",
+    "sci": "Sector/nasu_motorsports_land.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -1076,8 +1076,8 @@
       140.436634
     ],
     "mapRadius": 400,
-    "cln": "narita_sakurada_circuit.cln",
-    "sci": "narita_sakurada_circuit.sci",
+    "cln": "ControlLine/narita_sakurada_circuit.cln",
+    "sci": "Sector/narita_sakurada_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -1092,8 +1092,8 @@
       140.085667
     ],
     "mapRadius": 400,
-    "cln": "neo_speedpark.cln",
-    "sci": "neo_speedpark.sci",
+    "cln": "ControlLine/neo_speedpark.cln",
+    "sci": "Sector/neo_speedpark.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -1108,8 +1108,8 @@
       140.09215
     ],
     "mapRadius": 400,
-    "cln": "new_tokyo_circuit.cln",
-    "sci": "new_tokyo_circuit.sci",
+    "cln": "ControlLine/new_tokyo_circuit.cln",
+    "sci": "Sector/new_tokyo_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 925 m の上)。2026-10-19 作成"
@@ -1124,8 +1124,8 @@
       140.419271
     ],
     "mapRadius": 400,
-    "cln": "shin_kyowa_kartland.cln",
-    "sci": "shin_kyowa_kartland.sci",
+    "cln": "ControlLine/shin_kyowa_kartland.cln",
+    "sci": "Sector/shin_kyowa_kartland.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -1140,8 +1140,8 @@
       137.187155
     ],
     "mapRadius": 400,
-    "cln": "spa_nishiura.cln",
-    "sci": "spa_nishiura.sci",
+    "cln": "ControlLine/spa_nishiura.cln",
+    "sci": "Sector/spa_nishiura.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -1156,8 +1156,8 @@
       130.27255
     ],
     "mapRadius": 400,
-    "cln": "ocean_kartland.cln",
-    "sci": "ocean_kartland.sci",
+    "cln": "ControlLine/ocean_kartland.cln",
+    "sci": "Sector/ocean_kartland.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、レイアウトを替えて走るコースなので、OpenStreetMap のコースの線で 1 周として考えられる周のどれもが通る道の上に、1 周のおよそ 3 等分の位置で置いた仮の位置 (航空写真で、セクター線が路面にかかることを確かめた)。2026-10-24 作成"
@@ -1172,8 +1172,8 @@
       140.512709
     ],
     "mapRadius": 400,
-    "cln": "oarai_circuit.cln",
-    "sci": "oarai_circuit.sci",
+    "cln": "ControlLine/oarai_circuit.cln",
+    "sci": "Sector/oarai_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -1188,8 +1188,8 @@
       139.525494
     ],
     "mapRadius": 400,
-    "cln": "okegawa_sportsland.cln",
-    "sci": "okegawa_sportsland.sci",
+    "cln": "ControlLine/okegawa_sportsland.cln",
+    "sci": "Sector/okegawa_sportsland.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線。1 周の取り方は航空写真で路面に合うことを確かめた)。2026-10-24 作成"
@@ -1204,8 +1204,8 @@
       139.192423
     ],
     "mapRadius": 400,
-    "cln": "oimatsuda_kartland.cln",
-    "sci": "oimatsuda_kartland.sci",
+    "cln": "ControlLine/oimatsuda_kartland.cln",
+    "sci": "Sector/oimatsuda_kartland.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -1220,8 +1220,8 @@
       137.108303
     ],
     "mapRadius": 400,
-    "cln": "owara_circuit.cln",
-    "sci": "owara_circuit.sci",
+    "cln": "ControlLine/owara_circuit.cln",
+    "sci": "Sector/owara_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1032 m の上)。2026-10-19 作成"
@@ -1236,8 +1236,8 @@
       132.274182
     ],
     "mapRadius": 400,
-    "cln": "kart_pista_hiroshima.cln",
-    "sci": "kart_pista_hiroshima.sci",
+    "cln": "ControlLine/kart_pista_hiroshima.cln",
+    "sci": "Sector/kart_pista_hiroshima.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、レイアウトを替えて走るコースなので、OpenStreetMap のコースの線で 1 周として考えられる周のどれもが通る道の上に、1 周のおよそ 3 等分の位置で置いた仮の位置 (航空写真で、セクター線が路面にかかることを確かめた)。2026-10-24 作成"
@@ -1252,8 +1252,8 @@
       139.517022
     ],
     "mapRadius": 400,
-    "cln": "quick_hanyu_kart.cln",
-    "sci": "quick_hanyu_kart.sci",
+    "cln": "ControlLine/quick_hanyu_kart.cln",
+    "sci": "Sector/quick_hanyu_kart.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 622 m の上)。2026-10-19 作成"
@@ -1268,8 +1268,8 @@
       141.451477
     ],
     "mapRadius": 400,
-    "cln": "sapporo_sportsland.cln",
-    "sci": "sapporo_sportsland.sci",
+    "cln": "ControlLine/sapporo_sportsland.cln",
+    "sci": "Sector/sapporo_sportsland.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 770 m の上)。2026-10-19 作成"
@@ -1284,7 +1284,7 @@
       137.783234
     ],
     "mapRadius": 400,
-    "cln": "sarukura_msl.cln",
+    "cln": "ControlLine/sarukura_msl.cln",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
@@ -1299,8 +1299,8 @@
       133.01293
     ],
     "mapRadius": 400,
-    "cln": "setonaikai_circuit.cln",
-    "sci": "setonaikai_circuit.sci",
+    "cln": "ControlLine/setonaikai_circuit.cln",
+    "sci": "Sector/setonaikai_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 760 m の上)。2026-10-19 作成"
@@ -1315,8 +1315,8 @@
       138.622237
     ],
     "mapRadius": 400,
-    "cln": "shiraito_speedland.cln",
-    "sci": "shiraito_speedland.sci",
+    "cln": "ControlLine/shiraito_speedland.cln",
+    "sci": "Sector/shiraito_speedland.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 735 m の上)。2026-10-19 作成"
@@ -1331,8 +1331,8 @@
       138.507537
     ],
     "mapRadius": 400,
-    "cln": "sportsland_yamanashi.cln",
-    "sci": "sportsland_yamanashi.sci",
+    "cln": "ControlLine/sportsland_yamanashi.cln",
+    "sci": "Sector/sportsland_yamanashi.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 821 m の上)。2026-10-19 作成"
@@ -1347,8 +1347,8 @@
       131.354612
     ],
     "mapRadius": 400,
-    "cln": "sonic_park_ajimu.cln",
-    "sci": "sonic_park_ajimu.sci",
+    "cln": "ControlLine/sonic_park_ajimu.cln",
+    "sci": "Sector/sonic_park_ajimu.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -1363,8 +1363,8 @@
       140.786856
     ],
     "mapRadius": 400,
-    "cln": "southern_circuit.cln",
-    "sci": "southern_circuit.sci",
+    "cln": "ControlLine/southern_circuit.cln",
+    "sci": "Sector/southern_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -1379,8 +1379,8 @@
       131.408841
     ],
     "mapRadius": 400,
-    "cln": "spa_naoiri_circuit.cln",
-    "sci": "spa_naoiri_circuit.sci",
+    "cln": "ControlLine/spa_naoiri_circuit.cln",
+    "sci": "Sector/spa_naoiri_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1428 m の上)。2026-10-19 作成"
@@ -1395,8 +1395,8 @@
       139.37054
     ],
     "mapRadius": 400,
-    "cln": "speedpark_niigata.cln",
-    "sci": "speedpark_niigata.sci",
+    "cln": "ControlLine/speedpark_niigata.cln",
+    "sci": "Sector/speedpark_niigata.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 512 m の上)。2026-10-19 作成"
@@ -1411,7 +1411,7 @@
       140.77206
     ],
     "mapRadius": 400,
-    "cln": "sportsland_sugo_west.cln",
+    "cln": "ControlLine/sportsland_sugo_west.cln",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "セクター線が隣の路面までまたぐため、セクター線は入れていない。2026-10-19 作成"
@@ -1426,8 +1426,8 @@
       136.52821
     ],
     "mapRadius": 400,
-    "cln": "suzuka_south.cln",
-    "sci": "suzuka_south.sci",
+    "cln": "ControlLine/suzuka_south.cln",
+    "sci": "Sector/suzuka_south.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1267 m の上)。2026-10-19 作成"
@@ -1442,8 +1442,8 @@
       136.496931
     ],
     "mapRadius": 400,
-    "cln": "suzuka_twin_circuit.cln",
-    "sci": "suzuka_twin_circuit.sci",
+    "cln": "ControlLine/suzuka_twin_circuit.cln",
+    "sci": "Sector/suzuka_twin_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1066 m の上)。2026-10-19 作成"
@@ -1458,8 +1458,8 @@
       136.085123
     ],
     "mapRadius": 400,
-    "cln": "takasu_circuit.cln",
-    "sci": "takasu_circuit.sci",
+    "cln": "ControlLine/takasu_circuit.cln",
+    "sci": "Sector/takasu_circuit.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -1474,8 +1474,8 @@
       132.712173
     ],
     "mapRadius": 400,
-    "cln": "ts_takata.cln",
-    "sci": "ts_takata.sci",
+    "cln": "ControlLine/ts_takata.cln",
+    "sci": "Sector/ts_takata.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 1406 m の上)。2026-10-19 作成"
@@ -1490,8 +1490,8 @@
       135.336472
     ],
     "mapRadius": 400,
-    "cln": "takarazuka_kart_field.cln",
-    "sci": "takarazuka_kart_field.sci",
+    "cln": "ControlLine/takarazuka_kart_field.cln",
+    "sci": "Sector/takarazuka_kart_field.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -1506,8 +1506,8 @@
       143.290744
     ],
     "mapRadius": 800,
-    "cln": "tokachi_speedway.cln",
-    "sci": "tokachi_speedway.sci",
+    "cln": "ControlLine/tokachi_speedway.cln",
+    "sci": "Sector/tokachi_speedway.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -1522,8 +1522,8 @@
       143.282759
     ],
     "mapRadius": 400,
-    "cln": "tokachi_speedway_junior.cln",
-    "sci": "tokachi_speedway_junior.sci",
+    "cln": "ControlLine/tokachi_speedway_junior.cln",
+    "sci": "Sector/tokachi_speedway_junior.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周のおよそ 3 等分の仮の位置 (OpenStreetMap のコースの線で、西側のコースを回る周。セクター線は、航空写真で確かめた、ジュニアコースが通る道の上に置いた)。2026-10-24 作成"
@@ -1538,8 +1538,8 @@
       134.266191
     ],
     "mapRadius": 400,
-    "cln": "tokushima_kart_land.cln",
-    "sci": "tokushima_kart_land.sci",
+    "cln": "ControlLine/tokushima_kart_land.cln",
+    "sci": "Sector/tokushima_kart_land.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 642 m の上)。2026-10-19 作成"
@@ -1554,8 +1554,8 @@
       139.93959
     ],
     "mapRadius": 400,
-    "cln": "tsukuruma_nasu.cln",
-    "sci": "tsukuruma_nasu.sci",
+    "cln": "ControlLine/tsukuruma_nasu.cln",
+    "sci": "Sector/tsukuruma_nasu.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -1570,8 +1570,8 @@
       132.139645
     ],
     "mapRadius": 400,
-    "cln": "yanai_hizumi_kart.cln",
-    "sci": "yanai_hizumi_kart.sci",
+    "cln": "ControlLine/yanai_hizumi_kart.cln",
+    "sci": "Sector/yanai_hizumi_kart.sci",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (OpenStreetMap のコースの線に直交する線。国土地理院 シームレス空中写真で路面にかかることを確認)。コース名は仮。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコースの線で、計測線を通るいちばん長い周。並行する路面のそばは ±8% の範囲でずらし、ほかの路面にかからない長さにした。1 周の形は航空写真で確かめていない)。2026-10-24 作成"
@@ -1586,8 +1586,8 @@
       137.246434
     ],
     "mapRadius": 400,
-    "cln": "yz_circuit_east.cln",
-    "sci": "yz_circuit_east.sci",
+    "cln": "ControlLine/yz_circuit_east.cln",
+    "sci": "Sector/yz_circuit_east.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートラインやゲートの位置 (国土地理院 シームレス空中写真で確認)。2026-10-19 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 876 m の上)。2026-10-19 作成"
@@ -1601,8 +1601,8 @@
       52.388102,
       4.54589
     ],
-    "cln": "zandvoort.cln",
-    "sci": "zandvoort.sci",
+    "cln": "ControlLine/zandvoort.cln",
+    "sci": "Sector/zandvoort.sci",
     "notes": {
       "controlLine": "メインストレートに架かるスタートの信号のゲートの位置 (Beeldmateriaal Nederland の航空写真 (PDOK、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4258 m の上)。2026-10-18 作成"
@@ -1616,8 +1616,8 @@
       52.958714,
       6.521181
     ],
-    "cln": "assen.cln",
-    "sci": "assen.sci",
+    "cln": "ControlLine/assen.cln",
+    "sci": "Sector/assen.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタート / フィニッシュの白線の位置 (スタートのゲートの手前。ピットレーンまで続く線) (Beeldmateriaal Nederland の航空写真 (PDOK、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4541 m の上)。2026-10-18 作成"
@@ -1631,8 +1631,8 @@
       30.134742,
       -97.63396
     ],
-    "cln": "cota.cln",
-    "sci": "cota.sci",
+    "cln": "ControlLine/cota.cln",
+    "sci": "Sector/cota.sci",
     "notes": {
       "controlLine": "メインストレートに架かるスタートの信号のゲートの位置 (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 5509 m の上)。2026-10-18 作成"
@@ -1646,8 +1646,8 @@
       36.584282,
       -121.753385
     ],
-    "cln": "laguna_seca.cln",
-    "sci": "laguna_seca.sci",
+    "cln": "ControlLine/laguna_seca.cln",
+    "sci": "Sector/laguna_seca.sci",
     "notes": {
       "controlLine": "メインストレートの歩道橋の先の、路面の白線らしきものの位置 (写真の解像度が低いため推定) (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 3605 m の上)。2026-10-18 作成"
@@ -1661,8 +1661,8 @@
       42.33637,
       -76.924703
     ],
-    "cln": "watkins_glen.cln",
-    "sci": "watkins_glen.sci",
+    "cln": "ControlLine/watkins_glen.cln",
+    "sci": "Sector/watkins_glen.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタート / フィニッシュの白い印の位置 (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 5479 m の上)。2026-10-18 作成"
@@ -1676,8 +1676,8 @@
       27.452758,
       -81.352173
     ],
-    "cln": "sebring.cln",
-    "sci": "sebring.sci",
+    "cln": "ControlLine/sebring.cln",
+    "sci": "Sector/sebring.sci",
     "notes": {
       "controlLine": "メインストレートに架かる歩道橋の位置 (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 5872 m の上)。2026-10-18 作成"
@@ -1691,8 +1691,8 @@
       36.560388,
       -79.207499
     ],
-    "cln": "vir.cln",
-    "sci": "vir.sci",
+    "cln": "ControlLine/vir.cln",
+    "sci": "Sector/vir.sci",
     "notes": {
       "controlLine": "スタートラインを航空写真で確かめられなかったため、ピットロードの中ほどに置いた仮の線 (OpenStreetMap のピットロードに直交)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 5268 m の上)。2026-10-18 作成"
@@ -1706,8 +1706,8 @@
       34.143478,
       -83.814545
     ],
-    "cln": "road_atlanta.cln",
-    "sci": "road_atlanta.sci",
+    "cln": "ControlLine/road_atlanta.cln",
+    "sci": "Sector/road_atlanta.sci",
     "notes": {
       "controlLine": "メインストレートに架かる歩道橋の位置 (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4095 m の上)。2026-10-18 作成"
@@ -1721,8 +1721,8 @@
       40.689229,
       -82.636142
     ],
-    "cln": "mid_ohio.cln",
-    "sci": "mid_ohio.sci",
+    "cln": "ControlLine/mid_ohio.cln",
+    "sci": "Sector/mid_ohio.sci",
     "notes": {
       "controlLine": "スタートラインを航空写真で確かめられなかったため、ピットロードの中ほどに置いた仮の線 (OpenStreetMap のピットロードに直交)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 3620 m の上)。2026-10-18 作成"
@@ -1736,8 +1736,8 @@
       33.532586,
       -86.619474
     ],
-    "cln": "barber.cln",
-    "sci": "barber.sci",
+    "cln": "ControlLine/barber.cln",
+    "sci": "Sector/barber.sci",
     "notes": {
       "controlLine": "メインストレートの管制塔の前 (推定。路面の印は確かめられなかった) (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 3724 m の上)。2026-10-18 作成"
@@ -1751,8 +1751,8 @@
       41.927586,
       -73.383393
     ],
-    "cln": "lime_rock.cln",
-    "sci": "lime_rock.sci",
+    "cln": "ControlLine/lime_rock.cln",
+    "sci": "Sector/lime_rock.sci",
     "notes": {
       "controlLine": "スタートラインを航空写真で確かめられなかったため、ピットロードの中ほどに置いた仮の線 (OpenStreetMap のピットロードに直交)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 2414 m の上)。2026-10-18 作成"
@@ -1766,8 +1766,8 @@
       46.863762,
       3.164658
     ],
-    "cln": "magny_cours.cln",
-    "sci": "magny_cours.sci",
+    "cln": "ControlLine/magny_cours.cln",
+    "sci": "Sector/magny_cours.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートの白線の位置 (歩道橋の手前) (IGN BD ORTHO の航空写真 (Licence Ouverte 2.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4463 m の上)。2026-10-18 作成"
@@ -1781,8 +1781,8 @@
       47.953591,
       0.212991
     ],
-    "cln": "le_mans_bugatti.cln",
-    "sci": "le_mans_bugatti.sci",
+    "cln": "ControlLine/le_mans_bugatti.cln",
+    "sci": "Sector/le_mans_bugatti.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタート / フィニッシュの白線の位置 (IGN BD ORTHO の航空写真 (Licence Ouverte 2.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4168 m の上)。2026-10-18 作成"
@@ -1796,8 +1796,8 @@
       43.770058,
       -0.040327
     ],
-    "cln": "nogaro.cln",
-    "sci": "nogaro.sci",
+    "cln": "ControlLine/nogaro.cln",
+    "sci": "Sector/nogaro.sci",
     "notes": {
       "controlLine": "メインストレートの路面のチェッカー模様のスタートラインの位置 (IGN BD ORTHO の航空写真 (Licence Ouverte 2.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 3518 m の上)。2026-10-18 作成"
@@ -1811,8 +1811,8 @@
       41.569421,
       2.257905
     ],
-    "cln": "catalunya.cln",
-    "sci": "catalunya.sci",
+    "cln": "ControlLine/catalunya.cln",
+    "sci": "Sector/catalunya.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートの白線の位置 (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4656 m の上)。2026-10-18 作成"
@@ -1826,8 +1826,8 @@
       36.708456,
       -6.032593
     ],
-    "cln": "jerez.cln",
-    "sci": "jerez.sci",
+    "cln": "ControlLine/jerez.cln",
+    "sci": "Sector/jerez.sci",
     "notes": {
       "controlLine": "メインストレートに架かる円形の建物の下のフィニッシュの位置 (写真では建物に隠れて路面の線が見えないため推定) (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4431 m の上)。2026-10-18 作成"
@@ -1841,8 +1841,8 @@
       39.485519,
       -0.630614
     ],
-    "cln": "valencia.cln",
-    "sci": "valencia.sci",
+    "cln": "ControlLine/valencia.cln",
+    "sci": "Sector/valencia.sci",
     "notes": {
       "controlLine": "メインストレートの路面のフィニッシュの線の位置 (スタートのゲートより 300 m ほど手前) (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4004 m の上)。2026-10-18 作成"
@@ -1856,8 +1856,8 @@
       40.616044,
       -3.586926
     ],
-    "cln": "jarama.cln",
-    "sci": "jarama.sci",
+    "cln": "ControlLine/jarama.cln",
+    "sci": "Sector/jarama.sci",
     "notes": {
       "controlLine": "メインストレートの路面のスタートの白線の位置 (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 3910 m の上)。2026-10-18 作成"
@@ -1871,8 +1871,8 @@
       41.078934,
       -0.202874
     ],
-    "cln": "aragon.cln",
-    "sci": "aragon.sci",
+    "cln": "ControlLine/aragon.cln",
+    "sci": "Sector/aragon.sci",
     "notes": {
       "controlLine": "メインストレートの路面のフィニッシュの白線の位置 (スタートの線より 140 m ほど手前) (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 5339 m の上)。2026-10-18 作成"
@@ -1886,8 +1886,8 @@
       43.798196,
       -87.996411
     ],
-    "cln": "road_america.cln",
-    "sci": "road_america.sci",
+    "cln": "ControlLine/road_america.cln",
+    "sci": "Sector/road_america.sci",
     "notes": {
       "controlLine": "メインストレートの管制塔の前の路面のスタート / フィニッシュの白線の位置 (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 6501 m の上)。2026-10-18 作成"
@@ -1901,8 +1901,8 @@
       43.253857,
       5.790918
     ],
-    "cln": "paul_ricard.cln",
-    "sci": "paul_ricard.sci",
+    "cln": "ControlLine/paul_ricard.cln",
+    "sci": "Sector/paul_ricard.sci",
     "notes": {
       "controlLine": "メインストレートの路面のフィニッシュの白線の位置 (スタートのゲートの 40 m ほど先) (IGN BD ORTHO の航空写真 (Licence Ouverte 2.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 5842 m の上)。2026-10-18 作成"
@@ -1916,8 +1916,8 @@
       47.362664,
       4.89892
     ],
-    "cln": "dijon.cln",
-    "sci": "dijon.sci",
+    "cln": "ControlLine/dijon.cln",
+    "sci": "Sector/dijon.sci",
     "notes": {
       "controlLine": "メインストレートの路面のチェッカー模様のスタートラインの位置 (IGN BD ORTHO の航空写真 (Licence Ouverte 2.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 3727 m の上)。2026-10-18 作成"
@@ -1931,8 +1931,8 @@
       34.878042,
       -118.259812
     ],
-    "cln": "streets_of_willow.cln",
-    "sci": "streets_of_willow.sci",
+    "cln": "ControlLine/streets_of_willow.cln",
+    "sci": "Sector/streets_of_willow.sci",
     "notes": {
       "controlLine": "メインストレートの路面の白線の位置 (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 2555 m の上)。2026-10-18 作成"
@@ -1946,7 +1946,7 @@
       34.008145,
       -117.38292
     ],
-    "cln": "adams_motorsports.cln",
+    "cln": "ControlLine/adams_motorsports.cln",
     "notes": {
       "controlLine": "メインストレートの推定の位置 (写真の解像度が低く、路面の線は見えない) (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "レイアウトが入り組んでいて、3 等分の位置では隣の路面までまたぐため、セクター線は入れていない。2026-10-18 作成"
@@ -1960,8 +1960,8 @@
       38.591652,
       -104.676625
     ],
-    "cln": "ppir.cln",
-    "sci": "ppir.sci",
+    "cln": "ControlLine/ppir.cln",
+    "sci": "Sector/ppir.sci",
     "notes": {
       "controlLine": "オーバルのメインストレートの路面のスタートの白線の延長 (インフィールドのロードコースの直線までまたぐ) (USGS NAIP の航空写真 (パブリックドメイン)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 2090 m の上)。2026-10-18 作成"
@@ -1975,8 +1975,8 @@
       37.360846,
       -6.572809
     ],
-    "cln": "monteblanco.cln",
-    "sci": "monteblanco.sci",
+    "cln": "ControlLine/monteblanco.cln",
+    "sci": "Sector/monteblanco.sci",
     "notes": {
       "controlLine": "メインストレートの路面のチェッカー模様のスタートラインの位置 (PNOA の航空写真 (IGN España、CC BY 4.0)で確認、ピットロードまで含む)。2026-10-18 作成",
       "sectors": "公式の区切りが分からないため、1 周を 3 等分した仮の位置 (OpenStreetMap のコース中心線 4423 m の上)。2026-10-18 作成"
