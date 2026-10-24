@@ -7,6 +7,7 @@ import { sweepLayout } from './layout.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // 開発サーバーの場所 (別の口で動かしているときは E2E_APP で替える)
 export const APP = process.env.E2E_APP ?? 'http://localhost:5183/';
@@ -364,7 +365,7 @@ export const journeys = [
     }
   },
   {
-    name: 'コーナーの名前: 走行を開くと course/Corner/<コース>.json ができ、コースマップで名前を付け・まとめて保存すると、コーナー別の表にも出る',
+    name: 'コーナーの名前: アプリに入っているコーナー (日光) で始まり、コースマップで名前を付け・まとめて保存すると course/Corner/<コース>.json に書き、コーナー別の表にも出る',
     target: 'electron',
     async run(p) {
       const root = await p.ev(`window.electronAPI.laps.getFolder()`);
@@ -377,9 +378,9 @@ export const journeys = [
       await openRun(p, '8/30', 'run-open-analysis');
       await p.waitFor(`document.querySelector('[data-testid="corner-edit"]')`, 15000, 'コーナーの編集のボタン');
       await sleep(1500);
-      check(fs.existsSync(file), 'course/Corner/nikko.json が自動でできていない');
-      const auto = JSON.parse(fs.readFileSync(file, 'utf8'));
-      check(auto.auto === true && auto.corners.length >= 3, `自動の中身が違う: ${JSON.stringify(auto).slice(0, 200)}`);
+      // 日光はアプリにコーナーが入っているので、開いただけでは保管場所に作らない (入っているものを使う)
+      check(!fs.existsSync(file), 'アプリにコーナーが入っているのに、course/Corner/nikko.json を自動で作った');
+      const auto = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'courses', 'Corner', 'nikko.json'), 'utf8'));
       const n0 = auto.corners.length;
       await p.click('corner-edit');
       await p.waitFor(`document.querySelectorAll('[data-testid="corner-edit-row"]').length === ${n0}`, 5000, '編集の一覧');
@@ -397,7 +398,7 @@ export const journeys = [
       check(saved.corners.length === n0 - 1, `まとめたのに数が ${saved.corners.length} (元 ${n0})`);
       check(saved.corners[0].name === '1' && saved.corners[1].name === '2-3', `名前が違う: ${saved.corners.map(c => c.name).join(',')}`);
       check(saved.corners[1].exit.lat === auto.corners[2].exit.lat, 'まとめたコーナーの出口が、後ろのコーナーの出口でない');
-      check(fs.existsSync(`${file}.bak`), '前の中身の控え (.bak) がない');
+      // 保管場所に前の中身は無かった (アプリに入っているものだった) ので、控え (.bak) は作らない
       // コーナー別の表 (あれば) にも同じ名前
       const table = await p.ev(`document.querySelector('[data-testid="corner-analysis"]')?.innerText ?? null`);
       if (table !== null) check(table.includes('2-3'), 'コーナー別の表に名前が出ていない');
@@ -420,8 +421,13 @@ export const journeys = [
           if (img[i] > 220 && img[i + 1] > 220 && img[i + 2] > 220) amber.push({ x: r.left + x, y: r.top + y });
         }
         // 名札から離れた線の上 (名札の上を押すと、足さずに選ぶため)
-        const far = hits.filter(h => amber.every(a => Math.hypot(a.x - h.x, a.y - h.y) > 25));
-        return far.length ? far[Math.floor(far.length / 2)] : null;
+        // コーナーの多いコース (アプリに入っているコーナー) でも空いた所を押すよう、名札からいちばん遠い線の上を選ぶ
+        let best = null, bestD = 25;
+        for (const h of hits) {
+          const d = amber.reduce((m, a) => Math.min(m, Math.hypot(a.x - h.x, a.y - h.y)), Infinity);
+          if (d > bestD) { bestD = d; best = h; }
+        }
+        return best;
       })()`);
       check(spot, '地図の上に走行の線が見つからない');
       for (const type of ['mousePressed', 'mouseReleased']) await p.send('Input.dispatchMouseEvent', { type, x: spot.x, y: spot.y, button: 'left', clickCount: 1 });
