@@ -75,9 +75,9 @@ LapLoupe は、サーキット走行・ジムカーナ・カートの走行ロ�
 
 ### English
 
-**Promotional text**
+**Promotional text (170 characters max)**
 
-> Review your laps with lap times, speed graphs, a track map and onboard video from GPS loggers such as DigSpice — or time your laps live. Your data stays on your device and your iCloud Drive.
+> Review laps from GPS loggers like DigSpice with lap times, speed graphs, a track map and onboard video, or time laps live. Data stays on your device and iCloud Drive.
 
 **Description**
 
