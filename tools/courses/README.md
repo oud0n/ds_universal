@@ -23,6 +23,8 @@ node add_courses.mjs ../../courses <id>...     # courses/ に .cln・.sci と in
 - 走る向き（CW / CCW）を間違えても、アプリが周回の計算でセクターを並べ直す。
 - セクター線を入れないコースは、`add_courses.mjs` の META に `noSectors`（理由）を書く（.sci を書かず、`index.json` に `sci` を入れない）。
 - セクター線の無いコースにまとめて置く: `node sectors_batch.mjs [id...]`（2026-10-24）。計測線を通るいちばん長い周を 3 等分し、ほかの路面にかからない長さの線にする。結果は `sectors_batch.json` と `view_<id>.svg`（確かめ用の図）。courses/ には書かないので、図を見て正しいものだけ入れる。
+  - 1 周の候補を航空写真に重ねて見る: `CANDS=1 node sectors_batch.mjs <id>` のあと `node cands_view.mjs <id>`（`candsview_<id>.svg.png`。候補は、分かれ道で 60 度より急に曲がらない周を先に、長い順）。番号を選ぶときは `PICK=<番号>`。作ったセクター線を写真で見る: `node cands_view.mjs <id> result`。
+  - レイアウトを替えて走るコース: `COMMON=1`（1 周として考えられる周＝いちばん長い周の 7 割以上の周のどれもが通る道の上にだけ置く。`COMMONMIN=0.9` で割合、`COMMONTOP=9` で「急に曲がらない順の上位 9 周」に替える）。
 
 ## 航空写真
 
