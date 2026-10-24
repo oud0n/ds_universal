@@ -366,6 +366,8 @@ interface StoredData {
 
 class UserCircuitStorage {
   private files: CourseFile[] = [];
+  /** 保管場所の digspice/ にあるコースデータ (開くたびに読む。保存しない)。storageCourses.ts */
+  private storageFiles: CourseFile[] = [];
   private circuits: UserCircuitItem[] = [];
   private loose: LoosePolyline[] = [];
   private edited: UserCircuitItem[] = [];
@@ -449,7 +451,8 @@ class UserCircuitStorage {
     };
     const newPaths = new Set(files.map(f => norm(f.path)));
     const all = [...this.files.filter(f => !files.some(n => sameFile(f, n))), ...files];
-    const r = pairCourseFiles(all, CIRCUIT_PRESETS);
+    // 組み合わせには、保管場所の digspice/ のコースデータも入れる (同じファイルは読み込んだほうを使う)
+    const r = pairCourseFiles([...all, ...this.storageFiles.filter(f => !all.some(n => sameFile(f, n)))], CIRCUIT_PRESETS);
     // 読み込めなかったファイルは残さない (次の読み込みのたびに失敗として出さないように)
     const failedPaths = new Set(r.failed.map(f => f.path));
     this.files = all.filter(f => !failedPaths.has(f.path));
@@ -469,6 +472,26 @@ class UserCircuitStorage {
       saved,
       saveError
     };
+  }
+
+  /**
+   * 保管場所の digspice/ にあるコースデータ (デジスパイスと同じ形のフォルダ) を使う。保存はしない (開くたびに読む)。
+   * 内蔵のコースと同じコースのものは、コース図だけが使われる (circuitDatabase.ts の isShadowedByPreset)
+   */
+  public async setStorageCourseFiles(files: CourseFile[]): Promise<void> {
+    await this.ready.catch(() => undefined);
+    const { CIRCUIT_PRESETS } = await import('./circuitDatabase');
+    const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+    const sameFile = (a: CourseFile, b: CourseFile) => {
+      const pa = norm(a.path);
+      const pb = norm(b.path);
+      if (pa === pb || pa.endsWith('/' + pb) || pb.endsWith('/' + pa)) return true;
+      return pa.split('/').pop() === pb.split('/').pop() && a.text === b.text;
+    };
+    this.storageFiles = files;
+    const r = pairCourseFiles([...this.files, ...files.filter(f => !this.files.some(n => sameFile(f, n)))], CIRCUIT_PRESETS);
+    this.circuits = r.circuits;
+    this.loose = r.loose;
   }
 
   /** 今の内容を保存する */
@@ -554,9 +577,12 @@ class UserCircuitStorage {
     lat: number,
     lon: number,
     maxDistMeters = 15000,
-    points?: TelemetryPoint[]
+    points?: TelemetryPoint[],
+    /** 候補から外すコース (内蔵のコースと同じコースの、読み込んだコースデータなど) */
+    exclude?: (c: UserCircuitItem) => boolean
   ): { circuit: UserCircuitItem; crossings: number } | null {
     const near = [...this.edited, ...this.circuits]
+      .filter(c => !exclude?.(c))
       .map(c => ({ c, d: distM(lat, lon, lineMid(c.controlLine).lat, lineMid(c.controlLine).lon) }))
       .filter(x => x.d < maxDistMeters)
       .sort((a, b) => a.d - b.d);
