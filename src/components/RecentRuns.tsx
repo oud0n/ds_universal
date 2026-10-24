@@ -10,6 +10,7 @@ import { useEscapeKey } from '../hooks/useEscapeKey';
 import { formatLapTime } from '../services/liveLapTimer';
 import { getRunStore, type RunStore } from '../services/runStore';
 import { listRuns, type RunItem } from '../services/runOpener';
+import { storageFolderChanged } from '../services/storageCourses';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 export function fmtDate(ms: number | null, ja: boolean): string {
@@ -19,10 +20,21 @@ export function fmtDate(ms: number | null, ja: boolean): string {
   return `${d.getMonth() + 1}/${d.getDate()} (${w}) ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** 走行の一覧を読み込む (開いている間に 1 回) */
+const runsListeners = new Set<() => void>();
+/** 保管場所の走行が増えた・変わったことを、走行の一覧に知らせる (取り込みのあとなど。開いたままの一覧も読み直す) */
+export function notifyRunsChanged(): void {
+  runsListeners.forEach(f => f());
+}
+
+/** 走行の一覧を読み込む (開いている間に 1 回。notifyRunsChanged でも読み直す) */
 export function useRuns(enabled: boolean) {
   const [state, setState] = useState<{ store: RunStore | null; runs: RunItem[] | null; error: string | null; noFolder: boolean }>({ store: null, runs: null, error: null, noFolder: false });
   const [reload, setReload] = useState(0);
+  useEffect(() => {
+    const f = () => setReload(n => n + 1);
+    runsListeners.add(f);
+    return () => { runsListeners.delete(f); };
+  }, []);
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
@@ -59,7 +71,10 @@ export const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy
         </div>
         <div className="flex items-center gap-3 mt-1 text-xs">
           {!run.pending && run.courseName === null ? (
-            <span className="text-slate-500">{t('コース未設定', 'No course')}</span>
+            // 知らない場所の走行は、ここでは周を数えない (開くと計測線を自動で置いて数える。BUG-35 の (2))
+            <span className="text-slate-500" title={t('開くと、計測線を自動で置いて周を数えます', 'Laps are counted with an automatic timing line when you open it')}>
+              {t('コース未設定 (開くと周を数えます)', 'No course (laps counted when opened)')}
+            </span>
           ) : run.pending ? (
             <span className="text-slate-500" title={t('iCloud にだけあるので、開くと落としてきて周を数えます', 'Only in iCloud. Laps are counted after it downloads when you open it')}>
               {t('☁️ 未集計', '☁️ Not counted')}
@@ -69,7 +84,7 @@ export const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy
               <span className={`font-mono font-bold ${run.best !== null ? 'text-fuchsia-400' : 'text-slate-500'}`}>
                 {run.best !== null ? formatLapTime(run.best) : '--'}
               </span>
-              <span className="text-slate-400">{t(`${run.lapCount} 周`, `${run.lapCount} laps`)}</span>
+              <span className="text-slate-400">{t(`${run.lapCount} 周`, `${run.lapCount} lap${(run.lapCount) === 1 ? '' : 's'}`)}</span>
             </>
           )}
           {videoCount > 0 && (
@@ -117,7 +132,7 @@ export const RunsBrowser: React.FC<{ onOpen: (r: RunItem) => void; onPickFiles: 
   }, [runs]);
   const shown = (runs ?? []).filter(r => !folder || r.folder === folder);
   const pickFolder = async () => {
-    await window.electronAPI?.laps?.pickFolder();
+    if (await window.electronAPI?.laps?.pickFolder()) void storageFolderChanged();
     reload();
   };
   return (

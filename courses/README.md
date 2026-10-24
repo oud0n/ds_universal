@@ -1,12 +1,13 @@
 # 内蔵のコースデータ
 
-アプリに同梱しているコースのデータです。デジスパイスのコースフォルダと同じ形式のファイルで置いています。
+アプリに同梱しているコースのデータです。デジスパイスのコースフォルダと同じ形式・同じ並び（ControlLine/・Sector/）で置いています（2026-10-24 から。アプリの保管場所の course/ と同じ並び）。
 
 | ファイル | 中身 |
 |---|---|
-| `index.json` | コースの一覧（ID・名前・国・中心の座標・ファイル名・作り方のメモ） |
-| `<id>.cln` | 計測線（コントロールライン）。1 行目が本数（1）、続く 4 行が 緯度A・経度A・緯度B・経度B |
-| `<id>.sci` | セクター線。1 行 1 本「緯度A,経度A,緯度B,経度B,1」。公式の .sci と同じく、フィニッシュ（計測線）は含まない |
+| `index.json` | コースの一覧（ID・名前・国・中心の座標・ファイルの道（`ControlLine/<id>.cln` など）・作り方のメモ） |
+| `ControlLine/<id>.cln` | 計測線（コントロールライン）。1 行目が本数（1）、続く 4 行が 緯度A・経度A・緯度B・経度B |
+| `Corner/<id>.json` | コーナーの名前と位置（保管場所の course/Corner/ と同じ形）。保管場所にそのコースのファイルが無いときに使う。名前を直して保存すると保管場所に書く |
+| `Sector/<id>.sci` | セクター線。1 行 1 本「緯度A,経度A,緯度B,経度B,1」。公式の .sci と同じく、フィニッシュ（計測線）は含まない |
 
 - 改行は CRLF、座標は小数 6 桁（公式のファイルと同じ）。
 - アプリはビルドのときにこのフォルダのファイルを取り込みます（`src/services/circuitDatabase.ts`）。
@@ -26,6 +27,7 @@
 - 写真で路面の線が見えないコース（Jerez・Laguna Seca・Adams）は、写真の路面に直交する線を推定で引いた（`notes.controlLine` に書いてある）。
 - OpenStreetMap にコースの線がないコース（フェスティカ）や、レイアウトが入り組んでいて 3 等分のセクター線が隣の路面までまたぐコース（Adams）は、セクター線を入れない。OpenStreetMap のコースの線が路面から大きくずれているコース（Navarra・Horse Thief Mile）は作らない。
 - **国内のカートコース・小さなサーキット**（2026-10-19 から、87 コース）: OpenStreetMap のコースの線の上に、コースの線に直交する計測線を置いた。線の長さは、ほかの路面（OpenStreetMap のコースの線）との中間までで、最大で片側 20 m。国土地理院の航空写真で 1 つずつ確かめ、路面のスタートラインやゲートが見えたコース（24）はその位置に引き直した。ほかは推定の位置（`notes.controlLine` に書いてある）。1 周の長さ・形を OpenStreetMap で確かめられ、3 等分のセクター線が隣の路面をまたがないコースだけセクター線を入れた（ほかは計測線だけ）。コース図を引く範囲（`mapRadius`）は、そのコースの大きさに合わせて絞った（大きな施設の中のカートコースで、本コースまで地図に入らないように）。コース名は OpenStreetMap の施設の名前などから付け、確かめていないものは `notes.controlLine` に「コース名は仮」と書いた。OpenStreetMap にコースの線がないコースは作っていない。
+- **セクター線の無かったコース**（2026-10-24、39 コース）: OpenStreetMap のコースの線で計測線を通るいちばん長い周を 1 周とし、3 等分の位置（並行する路面のそばは ±8% の範囲でずらす）に、ほかの路面にかからない長さのセクター線を置いた（`tools/courses/sectors_batch.mjs`）。図で 1 つずつ確かめ、1 周の取り方がおかしいもの（敷地の中の連絡路を通る・ほかのレイアウトになる）は入れていない。1 周の形は航空写真では確かめていない（`notes.sectors` に書いてある）。続けて、図で外した 8 コースは、1 周の候補を国土地理院の航空写真に重ねて確かめて入れた（`tools/courses/cands_view.mjs`）。レイアウトを替えて走るカートコースは、1 周として考えられる周のどれもが通る道の上にだけセクター線を置いた（どのレイアウトで走ってもセクター線を通るように）。
 - 作るための道具と手順は [`tools/courses/`](../tools/courses/README.md)。
 
 出典: © OpenStreetMap contributors（[Open Database License 1.0](https://www.openstreetmap.org/copyright)）、[国土地理院 シームレス空中写真](https://maps.gsi.go.jp/development/ichiran.html)、[スポーツランドSUGO レーシングコース図](https://www.sportsland-sugo.co.jp/assets/docs/course/c-racing/2026_racing-course_layout.pdf)（計測地点の距離）、[USGS NAIP](https://www.usgs.gov/centers/eros/science/usgs-eros-archive-aerial-photography-national-agriculture-imagery-program-naip)（パブリックドメイン）、[Beeldmateriaal Nederland](https://www.beeldmateriaal.nl/)（CC BY 4.0）、[IGN BD ORTHO](https://geoservices.ign.fr/bdortho)（Licence Ouverte 2.0）、[PNOA](https://pnoa.ign.es/)（IGN España、CC BY 4.0）

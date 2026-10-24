@@ -38,6 +38,13 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
     // MARK: - Web から
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        // アプリの画面 (いちばん外の枠) からの呼び出しだけ受ける (ほかのページ・中の枠から保管場所などを使わせない)
+        let origin = message.frameInfo.securityOrigin
+        let originURL = URL(string: "\(origin.protocol)://\(origin.host)\(origin.port > 0 ? ":\(origin.port)" : "")/")
+        guard message.frameInfo.isMainFrame, WebSource.isAppPage(originURL) else {
+            NSLog("[native] アプリの画面でないところからの呼び出しを断った: \(origin.protocol)://\(origin.host)")
+            return
+        }
         guard let text = message.body as? String,
               let data = text.data(using: .utf8),
               let req = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -63,12 +70,14 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
                 "contractVersion": Self.contractVersion,
                 "platform": "ios",
                 "deviceKind": DeviceKind.current,
-                "features": ["ble": true]
+                "features": ["ble": true, "iap": true]
             ]))
         case let m where m.hasPrefix("ble.") || m.hasPrefix("recorder."):
             core.ble.handle(method: m, params: params, done: done)
         case let m where m.hasPrefix("system."):
             core.system.handle(method: m, params: params, done: done)
+        case let m where m.hasPrefix("iap."):
+            core.iap.handle(method: m, params: params, done: done)
         default:
             done(.failure(NativeError(.notSupported, "unknown method \(method)")))
         }

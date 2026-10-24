@@ -55,7 +55,16 @@ export interface Capabilities {
   platform: Platform;
   deviceKind: DeviceKind;
   /** 使える機能のまとまり。画面はこれで出し分け、端末の種類では分けない */
-  features: { ble: boolean };
+  /** iap: アプリ内課金 (投げ銭) が使える (2026-10-24 に足した。前の版のアプリには無いので、無いときは使えないとみなす) */
+  features: { ble: boolean; iap?: boolean };
+}
+
+/** アプリ内課金の商品 (値段はその国の通貨で、App Store が書いたもの) */
+export interface IapProduct {
+  id: string;
+  displayName: string;
+  description: string;
+  displayPrice: string;
 }
 
 /** BLE の特性の指定。UUID は 16 ビットの短い形 ('2a67') か、128 ビットの形 */
@@ -119,6 +128,10 @@ export interface StorageInfo {
 
 export interface NativeMethods {
   'caps.get': { params: Record<string, never>; result: Capabilities };
+  /** アプリ内課金の商品を読む (安い順) */
+  'iap.products': { params: { ids: string[] }; result: { products: IapProduct[] } };
+  /** 買う。pending は保護者の承認待ちなど (決まったら知らせ iap.purchased が来る) */
+  'iap.purchase': { params: { id: string }; result: { status: 'purchased' | 'cancelled' | 'pending' } };
   'ble.permission': { params: { request: boolean }; result: { state: PermissionState } };
   'ble.scan': { params: BleScanParams; result: Record<string, never> };
   'ble.stopScan': { params: Record<string, never>; result: Record<string, never> };
@@ -249,6 +262,8 @@ export interface NativeEvents {
   'system.appState': { state: 'active' | 'background' };
   /** G センサーの値 (列ごとの配列。t: UTC ミリ秒、g*: 重力の向き、u*: 重力を除いた加速度 (G)、r*: 回転の速さ (rad/s)。端末の向きのまま) */
   'system.motion': MotionBatch;
+  /** 保留だった購入などが、あとで終わった */
+  'iap.purchased': { productId: string };
 }
 
 export interface MotionBatch {

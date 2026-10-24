@@ -7,7 +7,9 @@
 
 - **iPhone だけ**で出す（`TARGETED_DEVICE_FAMILY: "1"`）。iPad は、iPad の画面も審査されるので、あとで考える。
 - **Web はアプリに入れる**（`laploupe://app/`。BundledWeb.swift）。電波がなくても起動でき、審査を通った版の画面がそのまま動く。審査の決まり 2.5.2（審査のあとに中身を変える）の心配もなくなる。
-- **価格は無料**。アプリ内課金・広告なし。
+- **価格は無料**。広告なし。最初の申請はアプリ内課金なし。
+- **寄付**: アプリの中では、外の寄付のページ (Buy Me a Coffee) への案内を出さない (審査の決まり 3.1.1。`App.tsx` の canDonate)。次の版で、アプリ内課金の投げ銭 (消耗型「ガソリン 1L / 5L / 10L」、製品 ID `io.github.oud0n.dsuniversal.tip.gas1` など。App Store Connect に下書きを作成済み) を足す。要るもの: 有料アプリ契約 (銀行口座・税の書類)、Small Business Program、Swift の StoreKit の処理、購入の画面のスクリーンショット。説明に「投げ銭で、ガソリンが届いたり機能が増えたりはしない」と書く。
+- **申請するビルド**: 1.0.2 (5)（Web 入り・寄付の案内なし）。
 - **配る国**: EU の国々は外す（EU の決まりで、個人の開発者は住所・電話番号・メールの公開を求められるため）。出すなら「取引業者ではない」の申告を検討する。
 - **販売元の名前**: 個人の登録なので、本名（Yoshihiro Takagi）が出る。
 
@@ -62,7 +64,7 @@ LapLoupe は、サーキット走行・ジムカーナ・カートの走行ロ�
 ■ 内蔵のサーキット
 日本の主なサーキット・カートコースと、海外の主なサーキットの計測線を内蔵しています。自分でコースを作ることもできます。
 
-※ デジスパイスは、株式会社デジスパイスの商標です。LapLoupe は株式会社デジスパイスとは関係のない、個人が作ったアプリです。
+※ デジスパイスは、その権利者の商標です。LapLoupe は、デジスパイスの開発元とは関係のない、個人が作ったアプリです。
 ```
 
 **キーワード（100 文字まで。カンマ区切り、空白なし）**
@@ -108,7 +110,7 @@ DigSpice logs (.bon4 etc.), NMEA, GPX, CSV (RaceChrono, AiM and others), FIT, Go
 BUILT-IN CIRCUITS
 Timing lines for major circuits and kart tracks in Japan and major circuits abroad. You can also make your own courses.
 
-DigSpice is a trademark of DigSpice Inc. LapLoupe is an independent app and is not affiliated with DigSpice Inc.
+DigSpice is a trademark of its respective owner. LapLoupe is an independent app and is not affiliated with the maker of DigSpice.
 ```
 
 **Keywords**
@@ -157,3 +159,35 @@ The app shows the same web-based analysis as our free desktop/browser versions, 
 6.9 インチ（1320 × 2868）を 3〜10 枚。iPhone 17 Pro Max の実機の画面がちょうどこの大きさ。
 
 候補: 走行の一覧 / 解析（速度グラフとコース図）/ 2 つの周の比べ / 車載動画の比べる / ラップタイマー
+
+## アプリ内課金 (1.0.3 から。2026-10-24)
+
+- 消耗型 3 つ: `io.github.oud0n.dsuniversal.tip.gas1` (ガソリン 1L)・`tip.gas5` (5L)・`tip.gas10` (10L)。何も解放しない投げ銭。
+- アプリの中: 設定の「開発支援」→ ガソリンの投げ銭の画面 (TipModal.tsx)。Swift は IapModule.swift (StoreKit 2)。
+- 有料アプリ契約・銀行口座・W-8BEN は 2026-10-24 に有効。Small Business Program は持ち主が申し込む。
+- 各項目の配信可否は、アプリと同じく EU の 27 か国を外す。
+- 審査用のスクリーンショット: 投げ銭の画面 (3 つの金額が並んだ状態) を撮って、3 つの項目それぞれに入れる。
+- 審査のメモ (項目ごと): `A voluntary tip to support the developer. It does not unlock any content or features; every feature of the app is free. Open Settings (gear icon, top right) > "Support" (開発支援) to see the tip options.`
+- 最初の課金は、バージョン 1.0.3 のページの「アプリ内購入およびサブスクリプション」に 3 つを足して、一緒に提出する。
+
+## 1.0.3 の「このバージョンの新機能」(下書き。2026-10-24)
+
+### 日本語
+
+- 動画を画面いっぱいに出すボタンと、音を消すボタンを付けました。
+- 比べる相手の動画の同期も、走行ごとに保存するようにしました。
+- コース編集で直したコースとコーナーの名前を、保管場所のフォルダに保存し、iPhone と Mac で共有できるようにしました。
+- 47 のコースにセクター線を入れました。
+- 別のサーキットの走行を開くと、前のサーキットのログを外すようにしました。
+- ガソリン代の投げ銭（1L・5L・10L）を付けました。投げ銭をしても機能は変わりません。
+- 横向きで画面の左右が切り欠きに隠れていたのを直しました。そのほか細かな不具合を直しました。
+
+### English
+
+- Added a full-screen button and a mute button for video playback.
+- Video sync for compared runs is now saved with each run.
+- Courses edited in the course editor and corner names are saved in your storage folder and shared between iPhone and Mac.
+- Added sector lines to 47 courses.
+- Opening a run at a different circuit now removes the previous circuit's logs.
+- Added fuel tips (1 L, 5 L, 10 L). Tipping does not unlock anything.
+- Fixed the left and right edges being hidden behind the notch in landscape, and other small issues.

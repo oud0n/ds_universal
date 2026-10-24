@@ -225,3 +225,76 @@ export function insertCorner(list: NamedCorner[], corner: NamedCorner, geo: LapG
   }
   return [...list.slice(0, k), corner, ...list.slice(k)];
 }
+
+/**
+ * 周 geo の点 a〜b (地図でなぞった範囲) を 1 つのコーナーにする。頂点は範囲の中でいちばん曲がりのきつい所、
+ * 向きは範囲全体の曲がりの向き。短すぎる (spanMinM より短い) ときは null
+ */
+export function cornerFromSpan(geo: LapGeometry, a: number, b: number, name: string, spanMinM = 10): NamedCorner | null {
+  const n = geo.s.length;
+  const i0 = Math.max(0, Math.min(a, b)), i1 = Math.min(n - 1, Math.max(a, b));
+  const len = geo.s[i1] - geo.s[i0];
+  // 周の半分より長い範囲は作らない (周の始めと終わりをまたいでなぞると、ほぼ 1 周が 1 つのコーナーになるため)
+  if (i1 <= i0 || len < spanMinM || len > geo.s[n - 1] / 2) return null;
+  let apex = i0, heading = 0;
+  for (let i = i0; i <= i1; i++) {
+    if (Math.abs(geo.curvature[i]) > Math.abs(geo.curvature[apex])) apex = i;
+    if (i > i0) heading += ((geo.curvature[i] + geo.curvature[i - 1]) / 2) * (geo.s[i] - geo.s[i - 1]);
+  }
+  return { name, direction: heading >= 0 ? 'R' : 'L', entry: at(geo, i0), apex: at(geo, apex), exit: at(geo, i1) };
+}
+
+/**
+ * 周 geo の点 index を押してコーナーを足すときの範囲。前後 spanM で、前後のコーナーの頂点にはかからない。
+ * 押した所がもうコーナーの中なら null (そのコーナーを選ぶ)
+ */
+export function tapSpan(list: NamedCorner[], geo: LapGeometry, index: number, spanM = 40): { a: number; b: number } | null {
+  const placed = placeCorners(geo, list).filter((p): p is PlacedCorner => !!p);
+  if (placed.some(p => p.startIndex <= index && index <= p.endIndex)) return null;
+  const n = geo.s.length;
+  let a = index, b = index;
+  while (a > 0 && geo.s[index] - geo.s[a - 1] <= spanM) a--;
+  while (b < n - 1 && geo.s[b + 1] - geo.s[index] <= spanM) b++;
+  for (const p of placed) {
+    if (p.apexIndex < index) a = Math.max(a, p.apexIndex + 1);
+    if (p.apexIndex > index) b = Math.min(b, p.apexIndex - 1);
+  }
+  return { a, b };
+}
+
+/**
+ * なぞった範囲 a〜b を 1 つのコーナーにして、一覧に入れる。頂点がその範囲に入る前のコーナーは置き換える
+ * (複合コーナーを 1 つにまとめる・まとめられたものを分けて作り直すため)。
+ * 名前は、置き換えたのが 1 つならその名前、複数なら「最初-最後」、無ければ C<数>。作れなければ null
+ */
+export function applySpanCorner(list: NamedCorner[], geo: LapGeometry, a: number, b: number): { list: NamedCorner[]; index: number } | null {
+  const i0 = Math.min(a, b), i1 = Math.max(a, b);
+  const placed = placeCorners(geo, list);
+  // 頂点が範囲の中 (と、すぐ外の 1 点。縮めると長さが無くなるため) のコーナーを置き換える
+  const inside = placed.map((p, k) => (p && p.apexIndex >= i0 - 1 && p.apexIndex <= i1 + 1 ? k : -1)).filter(k => k >= 0);
+  const name = inside.length === 1 ? list[inside[0]].name
+    : inside.length > 1 ? `${list[inside[0]].name}-${list[inside[inside.length - 1]].name}`
+    : freeCornerName(list);
+  const corner = cornerFromSpan(geo, i0, i1, name);
+  if (!corner) return null;
+  // 前後のコーナーが範囲にかかっていれば、範囲の外まで縮める (走る順に置くとき、前後が重ならないように)
+  const n = geo.s.length;
+  const rest = list.flatMap((c, k) => {
+    if (inside.includes(k)) return [];
+    const p = placed[k];
+    if (!p) return [c];
+    if (p.apexIndex > i1 && p.startIndex <= i1) return [{ ...c, entry: at(geo, Math.min(n - 1, i1 + 1)) }];
+    if (p.apexIndex < i0 && p.endIndex >= i0) return [{ ...c, exit: at(geo, Math.max(0, i0 - 1)) }];
+    return [c];
+  });
+  const next = insertCorner(rest, corner, geo);
+  return { list: next, index: next.indexOf(corner) };
+}
+
+/** まだ使っていない、いちばん小さい C<数> の名前 (消した・まとめたあとに足しても、同じ名前にならないように) */
+export function freeCornerName(list: NamedCorner[]): string {
+  const used = new Set(list.map(c => c.name));
+  let k = 1;
+  while (used.has(`C${k}`)) k++;
+  return `C${k}`;
+}

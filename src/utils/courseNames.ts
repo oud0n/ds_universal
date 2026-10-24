@@ -68,6 +68,17 @@ export function courseFolder(name: string, folder?: string, id?: string): string
   return `course_${h.toString(36)}`;
 }
 
+/**
+ * 2 つのコースの名前が、同じコースを指すか。自分で直したコースの「(ユーザー設置)」の印は見ない
+ * (Car 2 として足せるか・比べられるかの判定。BUG-33)。
+ * 名前から作ったフォルダの名前では比べない (「鈴鹿 (East)」と「筑波 (East)」のように、括弧の中だけで同じ名前になることがある)。
+ * 記録のフォルダが同じかは、走行の一覧の側で見る
+ */
+export function sameCourseName(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  return withoutUserMark(a) === withoutUserMark(b);
+}
+
 /** 英語名を確かめる。問題なければ null、あれば理由 (日本語・英語) */
 export function checkEnglishName(s: string): { ja: string; en: string } | null {
   const v = s.trim();

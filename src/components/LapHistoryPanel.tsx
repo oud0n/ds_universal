@@ -11,11 +11,13 @@ import { lapKey, type LapFileStore, type LapRow } from '../services/lapIndex';
 import { formatLapTime } from '../services/liveLapTimer';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { storageFolderChanged } from '../services/storageCourses';
 
 interface Props {
   onClose: () => void;
   /** 走行のファイル (.bon4) を解析で開く (無ければボタンを出さない) */
-  onOpenRun?: (file: File) => void;
+  /** 走行を解析で開く。run は保管場所の走行 (走行の画面から開くのと同じに開くため)。file はその中身 (走行として見つからないとき用) */
+  onOpenRun?: (file: File, run: { folder: string; file: string }) => void;
 }
 
 type SortKey = 'date' | 'time';
@@ -82,6 +84,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
   const pickFolder = async () => {
     const p = await window.electronAPI?.laps?.pickFolder();
     setFolderPath(p ?? null);
+    if (p) void storageFolderChanged();
     const s = await electronLapStore();
     setStore(s);
     await load(s);
@@ -123,7 +126,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
     try {
       const bytes = await store.read(`${current.folder}/${file}`);
       // 日付のフォルダの中の走行 (20261024/xxx.bon4) も、ファイルの名前だけで開く
-      onOpenRun(new File([bytes as BlobPart], file.slice(file.lastIndexOf('/') + 1), { type: 'application/octet-stream' }));
+      onOpenRun(new File([bytes as BlobPart], file.slice(file.lastIndexOf('/') + 1), { type: 'application/octet-stream' }), { folder: current.folder, file });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -147,7 +150,8 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-stretch sm:items-center justify-center sm:p-4" role="dialog" aria-label={t('ラップタイムの記録', 'Lap time records')}>
       <div className="bg-surface-2 border border-line-2 sm:rounded-2xl w-full max-w-3xl sm:max-h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-200">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-line-2 bg-surface-1">
+        {/* スマートフォンでは画面いっぱいに出すので、上の切り欠き・時計の下から始める */}
+        <div className="flex items-center gap-2 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:pt-3 border-b border-line-2 bg-surface-1">
           <h3 className="text-sm font-bold flex-1">{t('ラップタイムの記録', 'Lap time records')}</h3>
           <button onClick={() => { void load(store); }} disabled={busy !== null} className="p-1.5 rounded-lg text-slate-400 hover:text-fg disabled:opacity-40" title={t('読み直す', 'Reload')} aria-label={t('読み直す', 'Reload')}><RefreshCw size={15} /></button>
           <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-fg" aria-label={t('閉じる', 'Close')}><X size={18} /></button>
@@ -165,7 +169,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
           {folders && folders.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <select value={selected} onChange={e => setSelected(e.target.value)} className="bg-surface-0 border border-line-3 rounded-lg px-2 py-1.5 max-w-full" aria-label={t('コース', 'Course')}>
-                {folders.map(f => <option key={f.folder} value={f.folder}>{f.courseName ? circuitLabel(f.courseName) : f.folder}</option>)}
+                {folders.map(f => <option key={f.folder} value={f.folder}>{f.courseName ? circuitLabel(f.courseName) : f.folder === 'unsorted' ? t('未分類', 'Unsorted') : f.folder}</option>)}
               </select>
               <select value={sort} onChange={e => setSort(e.target.value as SortKey)} className="bg-surface-0 border border-line-3 rounded-lg px-2 py-1.5" aria-label={t('並べ方', 'Sort')}>
                 <option value="date">{t('走った順', 'By run')}</option>
@@ -182,8 +186,8 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
               <span>{t('ベスト', 'Best')} <b className="text-fuchsia-400 font-mono">{best !== null ? formatLapTime(best, 3) : '—'}</b></span>
               {top3[1] !== undefined && <span>2nd <b className="text-emerald-400 font-mono">{formatLapTime(top3[1], 3)}</b></span>}
               {top3[2] !== undefined && <span>3rd <b className="text-amber-400 font-mono">{formatLapTime(top3[2], 3)}</b></span>}
-              <span>{t(`${current.rows.filter(r => !r.hidden).length} 周`, `${current.rows.filter(r => !r.hidden).length} laps`)}</span>
-              <span>{t(`${current.fileCount} 走行`, `${current.fileCount} runs`)}</span>
+              <span>{t(`${current.rows.filter(r => !r.hidden).length} 周`, `${current.rows.filter(r => !r.hidden).length} lap${(current.rows.filter(r => !r.hidden).length) === 1 ? '' : 's'}`)}</span>
+              <span>{t(`${current.fileCount} 走行`, `${current.fileCount} run${current.fileCount === 1 ? '' : 's'}`)}</span>
             </div>
           )}
         </div>
@@ -212,7 +216,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
                 <div key={file} className="space-y-1">
                   <div className="flex items-baseline gap-2 text-xs">
                     <span className="font-bold text-slate-200 whitespace-nowrap">{fmtDate(rows[0].runStartMs)}</span>
-                    <span className="text-slate-500">{t(`${rows.length} 周`, `${rows.length} laps`)}{Number.isFinite(runBest) ? ` · ${t('ベスト', 'best')} ${formatLapTime(runBest, 3)}` : ''}</span>
+                    <span className="text-slate-500">{t(`${rows.length} 周`, `${rows.length} lap${(rows.length) === 1 ? '' : 's'}`)}{Number.isFinite(runBest) ? ` · ${t('ベスト', 'best')} ${formatLapTime(runBest, 3)}` : ''}</span>
                     {/* ファイル名は、幅のある画面だけ (スマートフォンでは日付が折れないように) */}
                     <span className="hidden sm:inline text-slate-600 text-[10px] ml-auto truncate">{file}</span>
                     {onOpenRun && (

@@ -4,6 +4,54 @@
 
 [Back to the README](../README.en.md)
 
+## v1.0.3
+
+**Added**
+
+- **Video**: a mute / unmute button in the playback bar. The choice is remembered on this device.
+- **Video**: a full-screen button in the playback bar (hides the top toolbar and shows only the video and the playback bar).
+- **Runs**: opening a run at a different circuit removes the previous circuit's logs from "Runs & course" (open Nikko, then Sodegaura, and only Sodegaura is left). Runs at the same circuit stay as before, and the run you opened last becomes Car 1.
+- **iPhone app**: fuel tips (in-app purchase: 1 L, 5 L, 10 L). Tipping does not unlock anything.
+- **course/ folder in your storage**: following the DigSpice course folder, the storage folder now has course/ (Circuit/ track maps, ControlLine/ timing lines, Sector/ sector lines, Corner/ corners). Corner names live in course/Corner/ (the old files are copied there the first time).
+- **Courses edited in the course editor** are also written to course/, so your other devices (iPhone and Mac) use them too. When the same course is edited on two devices, the later save wins.
+- **Remove installed courses**: a button in "Runs & course" removes the course data installed from a folder and goes back to the built-in courses.
+- **Built-in courses**: 47 more courses (mostly kart tracks) got provisional 3-way sector lines; Nikko, Sodegaura and Tsukuba 2000 got corner names.
+
+**Changes**
+
+- **New format for run records (runs.json)**: one row per run; video sync changes for compared runs (Car 2–4) are now saved to their own run (they were not saved before), and sync pins are saved per video. Old records are still read; a run is rewritten in the new format only when its content changes (not when you just open it).
+  - Versions 1.0.2 and earlier do not use the attached videos and sync of runs in a folder that has the new format (nothing is deleted). Please update to 1.0.3.
+- **Corner editing**: in "Edit corners" on the track map, drag along the line to make that stretch one corner. Use it to join a compound corner or to redo corners that were joined.
+- **DigSpice course data**: for a course that is also built in, only the DigSpice track map is used; the timing line, sector lines and corners come from the built-in course. A digspice/ folder (the DigSpice folder) in your storage is read at startup.
+
+**Fixes**
+
+- With DigSpice course data installed, courses without a DigSpice sector file (e.g. Sodegaura) showed no sector times in video and analysis.
+- The circuit preset menu in "Runs & course" overflowed its card on desktop too.
+- Split runs could get different part numbers in .bon4 and .nmea.
+
+- In Runs, "Add as Car 2" could stay disabled ("Only runs on the same course can be compared") for a run at the same circuit.
+- With your own edited copy of a built-in circuit, your corner names were not shown (C1… instead).
+- English UI: the circuit filter in Runs and the run detail heading were in Japanese.
+- Runs imported from the Runs screen did not show up until you switched screens.
+- Phone: the Single / Grid / PinP buttons in video Compare did nothing and are now hidden; you can return from Compare to Watch without a video; import buttons no longer wrap mid-word.
+- Phone: with a DigSpice registered, the ⚙ button was pushed off screen on Analysis.
+- Lap timer: your own courses are listed in the course picker.
+- Playback stops when the app goes to the background, so the video no longer jumps back when you return.
+- The video toolbar wraps instead of hiding buttons; card borders are visible in the high-contrast theme.
+- The "same course" check treated different circuits whose names differ only outside the brackets (e.g. two "… (East)" layouts), and unsorted runs, as the same course.
+- Runs before 9:00 in the morning (Japan time) showed the previous day in Convert and in the video run inspector.
+- Runs without a course no longer show "0 laps" in Runs; they show "No course (laps counted when opened)".
+- When you import several files at once, the import sheet shows which file it is ("2/3").
+- A compared run's (Car 2–4) video did not show in Compare when it had the same file name as Car 1's video (e.g. GoPro GX010017.MP4).
+- If the screen was hidden while exporting the video layout, a cut-short video was saved; the export now stops and tells you.
+- Runs timed with an old own course without a storage folder name could go to a different folder from its corner names.
+- iPhone app: in landscape, the left and right edges were hidden behind the notch; pinch zoom is disabled.
+- iPhone app: the screens are bundled in the app, so it starts without a connection (the previous version's saved data is copied once on first launch, including the preview page's data).
+- With DigSpice course data in your storage (New Tokyo Circuit etc.), a log from a nearby built-in circuit (Sodegaura etc.) was imported as an unknown place into unsorted/.
+- Opening a log file that is already in your storage with Open file now opens it like a run from Runs (it used to be added next to another circuit's logs).
+- Desktop: runs that are only in iCloud (not yet downloaded to this Mac) could disappear from the list, and their lap cache and hidden-lap marks could be lost.
+
 ## v1.0.2
 
 **Changes**

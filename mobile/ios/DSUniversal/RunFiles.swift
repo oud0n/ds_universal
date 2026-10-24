@@ -164,7 +164,8 @@ enum RunFiles {
 
     /// ログ・控えを読む (動画などの大きなファイルは読まない)。iCloud から落ちてきていなければ、落ちてくるのを待つ
     static func read(_ rel: String) throws -> Data {
-        let allowed = ["bon4", "nmea", "json", "csv"]
+        // pth・cln・sci: 保管場所の digspice/ のコースデータ (デジスパイスと同じ形。storageCourses.ts)
+        let allowed = ["bon4", "nmea", "json", "csv", "pth", "cln", "sci"]
         return try withRoot { root in
             guard let url = resolve(rel, in: root), allowed.contains(url.pathExtension.lowercased()) else {
                 throw NativeError(.notFound, "no file")
@@ -217,11 +218,17 @@ enum RunFiles {
         }
     }
 
-    /// runs.json・laptimes.json・corners.json (コーナーの名前。前の中身の控え .bak も) だけを書く (一時ファイルに書いてから入れ替える)
+    /// 保管場所の course/ (デジスパイスのコースフォルダにならった形。2026-10-24) に書いてよいファイル:
+    /// コーナー (Corner/<フォルダ>.json と .bak)・コース編集で直したコースの計測線・セクター線・その一覧 (courses.json)
+    static func isCourseText(_ rel: String) -> Bool {
+        rel.range(of: #"^course/(Corner/[a-z0-9_]+\.json(\.bak)?|ControlLine/[^/]+\.cln|Sector/[^/]+\.sci|courses\.json)$"#, options: .regularExpression) != nil
+    }
+
+    /// runs.json・laptimes.json・corners.json (コーナーの名前。前の中身の控え .bak も)・course/ のコースデータだけを書く (一時ファイルに書いてから入れ替える)
     static func write(_ rel: String, _ data: Data) throws {
         let allowed = ["runs.json", "laptimes.json", "corners.json", "corners.json.bak"]
         try withRoot { root in
-            guard let url = resolve(rel, in: root), allowed.contains(url.lastPathComponent) else {
+            guard let url = resolve(rel, in: root), allowed.contains(url.lastPathComponent) || isCourseText(rel) else {
                 throw NativeError(.notFound, "not writable")
             }
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

@@ -7,8 +7,10 @@ import { sweepLayout } from './layout.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const APP = 'http://localhost:5183/';
+// 開発サーバーの場所 (別の口で動かしているときは E2E_APP で替える)
+export const APP = process.env.E2E_APP ?? 'http://localhost:5183/';
 /** スマートフォンの試験で読み込むログ (読むだけ。E2E_SAMPLE_NMEA で替えられる) */
 const SAMPLE_NMEA = process.env.E2E_SAMPLE_NMEA ?? `${os.homedir()}/Library/Mobile Documents/com~apple~CloudDocs/LapLoupe/nikko/20260830/20260830095701.nmea`;
 
@@ -67,7 +69,7 @@ async function seekRatio(p, ratio) {
 
 export const journeys = [
   {
-    name: '走行を開くと Car 1 になる (別のコースの Car は外れる)',
+    name: '走行を開くと Car 1 になる (別のコースの Car とログは外れ、同じコースのログは残る)',
     target: 'electron',
     async run(p) {
       await p.goto(APP);
@@ -80,7 +82,15 @@ export const journeys = [
       const c1 = s.sessions.find(x => x.id === s.cars.find(c => c.slot === 0).sessionId).circuitName;
       check(others.every(n => n === c1), `別のコースの Car が残っている: ${others.join(', ')}`);
       check(s.screen === 'video', `動画を見るで開いたのに画面が ${s.screen}`);
+      // 違うコースのログ (TC2000) は走行とコースから外れる
+      check(s.sessions.every(x => x.circuitName === c1), `別のコースのログが残っている: ${s.sessions.map(x => x.circuitName).join(', ')}`);
       await checkVideoSync(p, '日光を開いた直後');
+      // 同じコースの走行を続けて開くと、両方残り、あとから開いた方が Car 1
+      await openRun(p, '9/18', 'run-open-analysis');
+      await openRun(p, '8/15', 'run-open-analysis');
+      const s2 = await p.state();
+      check(s2.sessions.length === 2 && s2.sessions.every(x => /Sodegaura/.test(x.circuitName)), `袖ヶ浦の 2 つのログだけになっていない: ${s2.sessions.map(x => x.sessionName).join(', ')}`);
+      check((await car1Name(p))?.includes('20260815'), `あとから開いた 8/15 が Car 1 でない: ${await car1Name(p)}`);
     }
   },
   {
@@ -116,30 +126,31 @@ export const journeys = [
     target: 'electron',
     async run(p) {
       await p.goto(APP);
-      await openRun(p, '10/12', 'run-open-analysis');
+      // 違うコースの走行は開くと外れるので、同じコース (袖ヶ浦) の 2 つの走行で試す
+      await openRun(p, '9/18', 'run-open-analysis');
       await openRun(p, '8/15', 'run-open-video');
       check((await car1Name(p))?.includes('20260815'), '8/15 が Car 1 でない');
       await p.click('nav-analysis');
       await sleep(800);
       await p.click('toggle-data-drawer');
       await p.waitFor(`document.querySelector('[data-testid="data-drawer"]')`, 3000);
-      // TC2000 の走行の周の表で、Car 1 (1 の印) を押す
+      // 9/18 の走行の周の表で、Car 1 (1 の印) を押す
       const ok = await p.ev(`(()=>{
         const drawer=document.querySelector('[data-testid="data-drawer"]');
         const isCar1=x=>(x.title||'').startsWith('Car 1');
-        const blocks=[...drawer.querySelectorAll('*')].filter(e=>e.innerText && e.innerText.includes('コース2000 (TC2000)') && e.innerText.includes('ラップタイム') && [...e.querySelectorAll('button')].some(isCar1));
+        const blocks=[...drawer.querySelectorAll('*')].filter(e=>e.innerText && e.innerText.includes('20260918') && !e.innerText.includes('20260815') && e.innerText.includes('ラップタイム') && [...e.querySelectorAll('button')].some(isCar1));
         const block=blocks.sort((a,b)=>a.innerText.length-b.innerText.length)[0];
         const btn=block && [...block.querySelectorAll('button')].find(isCar1);
         if(!btn) return false; btn.click(); return true })()`);
-      check(ok, 'TC2000 の周の Car 1 の印が見つからない');
+      check(ok, '9/18 の周の Car 1 の印が見つからない');
       await sleep(1500);
-      check((await car1Name(p))?.includes('20261012'), `Car 1 が TC2000 にならない: ${await car1Name(p)}`);
+      check((await car1Name(p))?.includes('20260918'), `Car 1 が 9/18 にならない: ${await car1Name(p)}`);
       await p.click('data-drawer-close');
       await p.click('nav-video');
       await sleep(6000);
       const src = await p.ev(`decodeURIComponent(document.querySelector('video')?.currentSrc ?? '')`);
-      check(src.includes('tsukuba2000'), `動画が TC2000 のものにならない: ${src}`);
-      await checkVideoSync(p, 'Car 1 を TC2000 に替えて動画へ');
+      check(src.includes('GX010017'), `動画が 9/18 のものにならない: ${src}`);
+      await checkVideoSync(p, 'Car 1 を 9/18 に替えて動画へ');
     }
   },
   {
@@ -354,21 +365,22 @@ export const journeys = [
     }
   },
   {
-    name: 'コーナーの名前: 走行を開くと corners.json ができ、コースマップで名前を付け・まとめて保存すると、コーナー別の表にも出る',
+    name: 'コーナーの名前: アプリに入っているコーナー (日光) で始まり、コースマップで名前を付け・まとめて保存すると course/Corner/<コース>.json に書き、コーナー別の表にも出る',
     target: 'electron',
     async run(p) {
       const root = await p.ev(`window.electronAPI.laps.getFolder()`);
       check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
-      const file = path.join(root, 'nikko', 'corners.json');
-      // 前の試験で作ったものを消してから (自動で作られることから確かめる。試験用の写しの中だけ)
-      for (const f of [file, `${file}.bak`]) fs.rmSync(f, { force: true });
+      const file = path.join(root, 'course', 'Corner', 'nikko.json');
+      // 前の試験で作ったもの (前の置き場所 nikko/corners.json も) を消してから (自動で作られることから確かめる。試験用の写しの中だけ)
+      const old = path.join(root, 'nikko', 'corners.json');
+      for (const f of [file, `${file}.bak`, old, `${old}.bak`]) fs.rmSync(f, { force: true });
       await p.goto(`${APP}`);
       await openRun(p, '8/30', 'run-open-analysis');
       await p.waitFor(`document.querySelector('[data-testid="corner-edit"]')`, 15000, 'コーナーの編集のボタン');
       await sleep(1500);
-      check(fs.existsSync(file), 'corners.json が自動でできていない');
-      const auto = JSON.parse(fs.readFileSync(file, 'utf8'));
-      check(auto.auto === true && auto.corners.length >= 3, `自動の中身が違う: ${JSON.stringify(auto).slice(0, 200)}`);
+      // 日光はアプリにコーナーが入っているので、開いただけでは保管場所に作らない (入っているものを使う)
+      check(!fs.existsSync(file), 'アプリにコーナーが入っているのに、course/Corner/nikko.json を自動で作った');
+      const auto = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'courses', 'Corner', 'nikko.json'), 'utf8'));
       const n0 = auto.corners.length;
       await p.click('corner-edit');
       await p.waitFor(`document.querySelectorAll('[data-testid="corner-edit-row"]').length === ${n0}`, 5000, '編集の一覧');
@@ -386,7 +398,7 @@ export const journeys = [
       check(saved.corners.length === n0 - 1, `まとめたのに数が ${saved.corners.length} (元 ${n0})`);
       check(saved.corners[0].name === '1' && saved.corners[1].name === '2-3', `名前が違う: ${saved.corners.map(c => c.name).join(',')}`);
       check(saved.corners[1].exit.lat === auto.corners[2].exit.lat, 'まとめたコーナーの出口が、後ろのコーナーの出口でない');
-      check(fs.existsSync(`${file}.bak`), '前の中身の控え (.bak) がない');
+      // 保管場所に前の中身は無かった (アプリに入っているものだった) ので、控え (.bak) は作らない
       // コーナー別の表 (あれば) にも同じ名前
       const table = await p.ev(`document.querySelector('[data-testid="corner-analysis"]')?.innerText ?? null`);
       if (table !== null) check(table.includes('2-3'), 'コーナー別の表に名前が出ていない');
@@ -409,8 +421,22 @@ export const journeys = [
           if (img[i] > 220 && img[i + 1] > 220 && img[i + 2] > 220) amber.push({ x: r.left + x, y: r.top + y });
         }
         // 名札から離れた線の上 (名札の上を押すと、足さずに選ぶため)
-        const far = hits.filter(h => amber.every(a => Math.hypot(a.x - h.x, a.y - h.y) > 25));
-        return far.length ? far[Math.floor(far.length / 2)] : null;
+        // コーナーの多いコース (アプリに入っているコーナー) でも空いた所を押すよう、名札からいちばん遠い線の上を選ぶ
+        let best = null, bestD = 25;
+        for (const h of hits) {
+          const d = amber.reduce((m, a) => Math.min(m, Math.hypot(a.x - h.x, a.y - h.y)), Infinity);
+          if (d > bestD) { bestD = d; best = h; }
+        }
+        // なぞる試しの始まり: その点から 50〜90 px 離れた線の上
+        // (まっすぐ動かすので、途中も線の上にある所。ヘアピンの内側を横切ると、線の別の所に跳ぶため)
+        const onLine = (x, y) => hits.some(h => Math.hypot(h.x - x, h.y - y) < 6);
+        const from = best && hits.find(h => {
+          const d = Math.hypot(h.x - best.x, h.y - best.y);
+          if (d < 50 || d > 90) return false;
+          for (let k = 1; k < 12; k++) if (!onLine(h.x + (best.x - h.x) * k / 12, h.y + (best.y - h.y) * k / 12)) return false;
+          return true;
+        });
+        return best && { x: best.x, y: best.y, from };
       })()`);
       check(spot, '地図の上に走行の線が見つからない');
       for (const type of ['mousePressed', 'mouseReleased']) await p.send('Input.dispatchMouseEvent', { type, x: spot.x, y: spot.y, button: 'left', clickCount: 1 });
@@ -418,6 +444,23 @@ export const journeys = [
       const rows = await p.ev(`document.querySelectorAll('[data-testid="corner-edit-row"]').length`);
       // 札の上を押したときは選ぶだけ (数は増えない)。そうでなければ 1 つ増える
       check(rows === saved.corners.length + 1, `地図を押してもコーナーが足されない (${rows} 個、元 ${saved.corners.length} 個)`);
+      // 走行の線をなぞる: なぞった範囲が 1 つのコーナーになり、選ばれる
+      if (spot.from) {
+        const steps = 12;
+        await p.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: spot.from.x, y: spot.from.y, button: 'left', clickCount: 1 });
+        for (let k = 1; k <= steps; k++) {
+          const t = k / steps;
+          await p.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: spot.from.x + (spot.x - spot.from.x) * t * 1.15, y: spot.from.y + (spot.y - spot.from.y) * t * 1.15, button: 'left', buttons: 1 });
+          await sleep(20);
+        }
+        await p.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: spot.from.x + (spot.x - spot.from.x) * 1.15, y: spot.from.y + (spot.y - spot.from.y) * 1.15, button: 'left', clickCount: 1 });
+        await sleep(400);
+        const after = await p.ev(`({ rows: document.querySelectorAll('[data-testid="corner-edit-row"]').length, picked: [...document.querySelectorAll('[data-testid="corner-edit-row"]')].some(r => r.className.includes('bg-amber-500')) })`);
+        // 押して足したコーナーの頂点は、範囲の中のいちばん曲がりのきつい所 (押した所とは限らない) なので、置き換わるかは決まらない。
+        // 増えるのは多くても 1 つ (置き換えは単体の試験で見る)
+        check(after.rows <= rows + 1, `なぞったら、コーナーが 2 つ以上増えた (${after.rows} 個、なぞる前 ${rows} 個)`);
+        check(after.picked, 'なぞって作ったコーナーが選ばれていない');
+      } else p.notes.push('なぞる試しの線の点が見つからなかったので、なぞる操作は確かめていない');
       await p.ev(`[...document.querySelectorAll('[data-testid="corner-edit-panel"] button')].find(b => /やめる|Cancel/.test(b.innerText)).click()`);
     }
   },

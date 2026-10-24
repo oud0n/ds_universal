@@ -13,6 +13,7 @@ import { MOTEC_CSV_ENABLED, exportMotecCsv } from '../services/externalFormats';
 import { circuitLabel, useT } from '../utils/i18n';
 import { GFilterLevel } from '../services/physics';
 import { TrimPreview } from './TrimPreview';
+import { sessionLocalDate } from '../utils/timeFormat';
 
 interface ConvertTabProps {
   sessions: Session[];
@@ -227,7 +228,7 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
                   <span>{t('対象のログ', 'Log')}</span>
                   <select value={session.id} onChange={e => onSelectSession(e.target.value)} className={`${inputCls} w-full`} data-testid="convert-session">
                     {sessions.map(s => (
-                      <option key={s.id} value={s.id}>{s.fileName}{s.sessionName !== s.fileName.replace(/\.[^/.]+$/, '') ? `（${s.sessionName}）` : ''}　{s.date}　{s.circuitName ? circuitLabel(s.circuitName) : t('一般コース', 'Unknown course')}　{t(`${s.laps.length} 周（${s.points.length} 点）`, `${s.laps.length} laps (${s.points.length} points)`)}</option>
+                      <option key={s.id} value={s.id}>{s.fileName}{s.sessionName !== s.fileName.replace(/\.[^/.]+$/, '') ? `（${s.sessionName}）` : ''}　{sessionLocalDate(s)}　{s.circuitName ? circuitLabel(s.circuitName) : t('一般コース', 'Unknown course')}　{t(`${s.laps.length} 周（${s.points.length} 点）`, `${s.laps.length} lap${s.laps.length === 1 ? '' : 's'} (${s.points.length} points)`)}</option>
                     ))}
                   </select>
                 </label>

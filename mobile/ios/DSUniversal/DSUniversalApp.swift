@@ -28,7 +28,18 @@ struct WebContainer: UIViewRepresentable {
         config.setURLSchemeHandler(context.coordinator.lapFiles, forURLScheme: RunFiles.scheme)
         // アプリに入れた Web を laploupe://app/ で返す (BundledWeb.swift)
         config.setURLSchemeHandler(context.coordinator.bundledWeb, forURLScheme: BundledWebSchemeHandler.scheme)
+        // 画面のピンチでの拡大・縮小を止める (アプリの中だけ。地図・グラフの 2 本指の拡大は、画面の側で処理するので使える)。
+        // ブラウザ版は、見えにくい人が拡大できるよう止めない
+        let noZoom = WKUserScript(source: """
+            (function () {
+              var m = document.querySelector('meta[name=viewport]');
+              if (!m) { m = document.createElement('meta'); m.name = 'viewport'; document.head.appendChild(m); }
+              m.content = 'width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no';
+            })();
+            """, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        config.userContentController.addUserScript(noZoom)
         let webView = WKWebView(frame: .zero, configuration: config)
+        webView.scrollView.pinchGestureRecognizer?.isEnabled = false
         webView.isInspectable = true
         context.coordinator.attach(to: webView)
         // 入口のページは、起動のたびに取り直す (GitHub Pages は 10 分覚えさせるので、出し直した版が起動し直しても出ないことがあった)。
@@ -38,8 +49,13 @@ struct WebContainer: UIViewRepresentable {
             // アプリに入れた Web を初めて開くときは、前の読み込み元の保存を先に写してから開く (WebMigration.swift)
             let migration = WebMigration(schemeHandler: context.coordinator.bundledWeb)
             Task { @MainActor in
-                await migration.runIfNeeded()
-                webView.load(URLRequest(url: start))
+                // 写すのに時間がかかっても (大きなラップタイマーの控えなど)、15 秒で画面を開く (写すのは裏で続け、終わらなければ次に起動したときにもう一度)
+                var opened = false
+                let open = { if !opened { opened = true; webView.load(URLRequest(url: start)) } }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 15) { open() }
+                let copied = await migration.runIfNeeded()
+                // 15 秒で先に開いたあとで写し終えたときは、写したもの (設定・自分のコースなど) を読むよう開き直す
+                if opened && copied { webView.reload() } else { open() }
             }
         } else {
             webView.load(URLRequest(url: start, cachePolicy: .reloadIgnoringLocalCacheData))
@@ -61,5 +77,14 @@ enum WebSource {
             return BundledWebSchemeHandler.startURL
         }
         return URL(string: "https://oud0n.github.io/ds_universal/")!
+    }
+
+    /// アプリの画面として開いてよいページか (アプリに入れた Web と、開発中に読む DSWebURL のページ)。
+    /// ほかのページ (リンクの先など) はアプリの中で開かず、Safari で開く。ネイティブの窓口も、このページからの呼び出しだけ受ける
+    static func isAppPage(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        if url.scheme == BundledWebSchemeHandler.scheme { return true }
+        let start = startURL
+        return url.scheme == start.scheme && url.host == start.host && url.port == start.port
     }
 }

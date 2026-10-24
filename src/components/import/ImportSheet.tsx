@@ -1,6 +1,6 @@
 import React from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, X } from 'lucide-react';
-import { useT } from '../../utils/i18n';
+import { circuitLabel, useT } from '../../utils/i18n';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import type { ImportPart, ImportPlan } from '../../services/import/importPlan';
 import type { PartResult } from '../../services/import/importApply';
@@ -37,7 +37,9 @@ export const ImportSheet: React.FC<{
   /** 取り込んだあと、解析で開く */
   onOpenAfter?: () => void;
   onClose: () => void;
-}> = ({ plan, phase, progress, results, onToggle, onApply, onOpenOnly, onOpenAfter, onClose }) => {
+  /** 複数のファイルを一度に取り込むとき、何番目か */
+  position?: { index: number; total: number };
+}> = ({ plan, position, phase, progress, results, onToggle, onApply, onOpenOnly, onOpenAfter, onClose }) => {
   const t = useT();
   useEscapeKey(phase !== 'writing', onClose);
   const checked = plan.parts.filter(p => p.checked).length;
@@ -45,19 +47,19 @@ export const ImportSheet: React.FC<{
   const label = (p: ImportPart) => {
     if (p.kind === 'transit') return t('移動 (コースの外)', 'Transit (off course)');
     if (p.kind === 'unknown') return t('知らない場所 (計測線を自動で置ける)', 'Unknown place (timing line can be placed)');
-    return p.course?.name ?? t('未分類', 'Unsorted');
+    return p.course?.name ? circuitLabel(p.course.name) : t('未分類', 'Unsorted');
   };
-  const countText = (p: ImportPart) => (p.kind === 'stage' ? t(`区間 ${p.laps}`, `${p.laps} stages`) : p.kind === 'transit' ? '—' : t(`${p.laps} 周`, `${p.laps} laps`));
+  const countText = (p: ImportPart) => (p.kind === 'stage' ? t(`区間 ${p.laps}`, `${p.laps} stage${(p.laps) === 1 ? '' : 's'}`) : p.kind === 'transit' ? '—' : t(`${p.laps} 周`, `${p.laps} lap${(p.laps) === 1 ? '' : 's'}`));
   const color = (p: ImportPart) => (p.kind === 'transit' ? '#64748b' : p.kind === 'unknown' ? '#f59e0b' : p.kind === 'stage' ? '#a78bfa' : '#10b981');
   return (
     <div className="fixed inset-0 z-[60] bg-black/70 flex items-stretch sm:items-center justify-center" role="dialog" aria-modal="true" data-testid="import-sheet">
       <div className="bg-surface-1 border border-line-2 w-full sm:max-w-3xl sm:max-h-[86vh] sm:rounded-2xl flex flex-col overflow-hidden shadow-2xl">
         <div className="flex items-start gap-2 px-4 py-3 border-b border-line-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
           <div className="flex-1 min-w-0">
-            <h2 className="text-sm font-bold text-slate-100 truncate">{t(`取り込み: ${plan.sourceName}`, `Import: ${plan.sourceName}`)}</h2>
+            <h2 className="text-sm font-bold text-slate-100 truncate">{position && <span className="mr-1.5 font-mono text-sky-400" data-testid="import-position">{position.index}/{position.total}</span>}{t(`取り込み: ${plan.sourceName}`, `Import: ${plan.sourceName}`)}</h2>
             <p className="text-xs text-slate-400 mt-0.5">
               {t(`走行を ${plan.parts.length} つに分けました${circuits > 1 ? ` (${circuits} つのサーキット)` : ''}。取り込むものに印を付けてください。`,
-                `Split into ${plan.parts.length} part(s)${circuits > 1 ? ` (${circuits} circuits)` : ''}. Tick the ones to import.`)}
+                `Split into ${plan.parts.length} part${plan.parts.length === 1 ? '' : 's'}${circuits > 1 ? ` (${circuits} circuits)` : ''}. Tick the ones to import.`)}
             </p>
           </div>
           {phase !== 'writing' && (
@@ -93,22 +95,23 @@ export const ImportSheet: React.FC<{
         </div>
         <div className="px-4 py-2 text-[11px] text-slate-500 border-t border-line-2">
           {t('元のファイルは 取り込み元/ に、手を加えずに残します。知らない場所の走行は 未分類 に入れます (あとでコースにできます)。',
-            'The original file is kept untouched in 取り込み元/. Runs at unknown places go to 未分類 (you can make a course later).')}
+            'The original file is kept untouched in the 取り込み元/ (originals) folder. Runs at unknown places go to Unsorted (you can make a course later).')}
         </div>
-        <div className="flex items-center gap-2 px-4 py-3 border-t border-line-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        {/* 狭い幅では折り返す (ボタンの中で文字が割れないよう、ボタンは折り返さない) */}
+        <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-t border-line-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           {phase === 'writing' && progress && (
             <span className="flex items-center gap-2 text-xs text-slate-300"><Loader2 size={14} className="animate-spin" />{t(`書いています ${progress.done}/${progress.total}`, `Writing ${progress.done}/${progress.total}`)}</span>
           )}
           {phase === 'confirm' && (
-            <button onClick={onOpenOnly} className="px-3 py-2 rounded-lg text-xs text-slate-300 border border-line-2 hover:bg-surface-3 cursor-pointer" data-testid="import-open-only">
+            <button onClick={onOpenOnly} className="px-3 py-2 rounded-lg text-xs text-slate-300 border border-line-2 hover:bg-surface-3 cursor-pointer whitespace-nowrap" data-testid="import-open-only">
               {t('取り込まずに今だけ開く', 'Just open (no import)')}
             </button>
           )}
           <div className="flex-1" />
           {phase === 'confirm' && (
             <>
-              <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-slate-300 border border-line-2 hover:bg-surface-3 cursor-pointer">{t('やめる', 'Cancel')}</button>
-              <button onClick={onApply} disabled={checked === 0} className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-red-600 hover:bg-red-500 disabled:opacity-40 cursor-pointer" data-testid="import-apply">
+              <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-slate-300 border border-line-2 hover:bg-surface-3 cursor-pointer whitespace-nowrap">{t('やめる', 'Cancel')}</button>
+              <button onClick={onApply} disabled={checked === 0} className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-red-600 hover:bg-red-500 disabled:opacity-40 cursor-pointer whitespace-nowrap" data-testid="import-apply">
                 {t(`${checked} つを取り込む`, `Import ${checked}`)}
               </button>
             </>

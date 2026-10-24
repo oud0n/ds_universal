@@ -7,37 +7,62 @@ import WebKit
 /// - 前の読み込み元の保存は消さない (写すだけ)
 /// - 新しい側にもうある名前は上書きしない
 /// - 試験版のページ (/ds_universal/preview/) の保存 (名前の頭に ds_preview: が付く) も、本番の保存に無いものだけ写す
-/// - 電波がなく前の読み込み元を開けないときは、今回は写さず、次に起動したときにもう一度試す
+/// - 通信はしない。前の読み込み元のページは、中身をアプリが渡し、読み込み元だけ https://oud0n.github.io として開く (loadHTMLString の baseURL)。
+///   以前は GitHub Pages の本物のページを開いていて、電波の弱い所では起動が最大 12 秒ほど待たされていた (1.0.3 の前のレビュー)
 @MainActor
 final class WebMigration: NSObject, WKNavigationDelegate {
     static let doneKey = "webMigration.fromPages.v1"
-    /// 前の読み込み元の、軽いページ (無い道なので GitHub の 404 のページが出る。読み込み元が同じなので保存は読める)
-    private static let oldOriginURL = URL(string: "https://oud0n.github.io/ds_universal/__laploupe_migrate__")!
+    static let emptyTriesKey = "webMigrationEmptyTries"
+    /// 前の読み込み元 (保存は読み込み元ごとに分かれるので、この読み込み元のページの中から読む)
+    private static let oldOriginURL = URL(string: "https://oud0n.github.io/ds_universal/")!
     private static let newOriginURL = URL(string: "laploupe://app/__migrate.html")!
 
     private var webView: WKWebView?
     private var loaded: CheckedContinuation<Bool, Never>?
+    /// 読み込みの回 (前の回の時間切れの知らせが、次の回を終わらせないように)
+    private var generation = 0
     private let schemeHandler: WKURLSchemeHandler
 
     init(schemeHandler: WKURLSchemeHandler) {
         self.schemeHandler = schemeHandler
     }
 
-    /// 要るときだけ写す。終わったら (写せなくても) 戻る
-    func runIfNeeded() async {
-        guard !UserDefaults.standard.bool(forKey: Self.doneKey) else { return }
+    /// 要るときだけ写す。終わったら (写せなくても) 戻る。写したら true
+    @discardableResult
+    func runIfNeeded() async -> Bool {
+        guard !UserDefaults.standard.bool(forKey: Self.doneKey) else { return false }
+        // 前の読み込み元 (github.io) の保存が無ければ、写すものは無い (初めて入れた人。起動を待たせない)
+        let records = await WKWebsiteDataStore.default().dataRecords(ofTypes: [WKWebsiteDataTypeLocalStorage, WKWebsiteDataTypeIndexedDBDatabases])
+        guard records.contains(where: { $0.displayName.contains("github.io") }) else {
+            DebugLog.write("web migration: nothing to copy (no github.io data)")
+            UserDefaults.standard.set(true, forKey: Self.doneKey)
+            return false
+        }
         DebugLog.write("web migration: start")
         guard let dump = await readOld() else {
-            DebugLog.write("web migration: could not read the old origin (offline?); retry next launch")
-            return
+            DebugLog.write("web migration: could not read the old origin; retry next launch")
+            return false
         }
+        // 保存があるのに何も読めなかったときは、終わった印を付けない (次に起動したときにもう一度。印を付けると二度と写さないため)
+        // ただし 3 回続けて空なら、中身の無い保存とみなして終える (起動のたびに読みに行かないように)
+        if dump.hasPrefix("{\"ls\":{},\"idb\":[]") {
+            let tries = UserDefaults.standard.integer(forKey: Self.emptyTriesKey) + 1
+            UserDefaults.standard.set(tries, forKey: Self.emptyTriesKey)
+            DebugLog.write("web migration: old origin read as empty although data exists (\(tries)/3)")
+            if tries >= 3 { UserDefaults.standard.set(true, forKey: Self.doneKey) }
+            webView = nil
+            return false
+        }
+        var copied = false
         if let result = await writeNew(dump) {
             DebugLog.write("web migration: done \(result)")
             UserDefaults.standard.set(true, forKey: Self.doneKey)
+            copied = true
         } else {
             DebugLog.write("web migration: write failed; retry next launch")
         }
         webView = nil
+        return copied
     }
 
     private func makeWebView() -> WKWebView {
@@ -49,12 +74,22 @@ final class WebMigration: NSObject, WKNavigationDelegate {
         return view
     }
 
-    private func load(_ url: URL, timeout: TimeInterval) async -> Bool {
+    /// ページを開いて、読み込み終わるのを待つ。html を渡したときは、通信せずにその中身を url の読み込み元として開く
+    private func load(_ url: URL, html: String? = nil, timeout: TimeInterval) async -> Bool {
         let view = makeWebView()
+        generation += 1
+        let gen = generation
         return await withCheckedContinuation { cont in
             loaded = cont
-            view.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout))
-            DispatchQueue.main.asyncAfter(deadline: .now() + timeout + 2) { [weak self] in self?.finishLoad(false) }
+            if let html {
+                view.loadHTMLString(html, baseURL: url)
+            } else {
+                view.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout))
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout + 2) { [weak self] in
+                guard let self, self.generation == gen else { return }
+                self.finishLoad(false)
+            }
         }
     }
 
@@ -78,7 +113,8 @@ final class WebMigration: NSObject, WKNavigationDelegate {
 
     /// 前の読み込み元の保存を、JSON の文字列で読み出す
     private func readOld() async -> String? {
-        guard await load(Self.oldOriginURL, timeout: 10), let view = webView else { return nil }
+        let html = "<!doctype html><meta charset=utf-8><title>migrate</title>"
+        guard await load(Self.oldOriginURL, html: html, timeout: 5), let view = webView else { return nil }
         do {
             let value = try await view.callAsyncJavaScript(Self.dumpScript, contentWorld: .page)
             return value as? String
@@ -130,6 +166,8 @@ final class WebMigration: NSObject, WKNavigationDelegate {
     """
 
     private static let dumpScript = codec + """
+    // 前の読み込み元のページとして開けていなければ読まない (別の読み込み元の空の保存を、写したものとみなさないように)
+    if (location.origin !== 'https://oud0n.github.io') return null;
     const ls = {};
     for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k !== null) ls[k] = localStorage.getItem(k); }
     let names = [];
@@ -147,7 +185,8 @@ final class WebMigration: NSObject, WKNavigationDelegate {
         const values = await req(db.transaction(sn, 'readonly').objectStore(sn).getAll());
         stores.push({ name: sn, keyPath: st.keyPath, autoIncrement: st.autoIncrement, indexes, records: keys.map((k, i) => [enc(k), enc(values[i])]) });
       }
-      idb.push({ name, version: db.version, stores });
+      // 無い DB を開くと空の DB ができる (indexedDB.databases() が使えないときの名前の決め打ち)。中身のない DB は写さない
+      if (stores.length > 0) idb.push({ name, version: db.version, stores });
       db.close();
     }
     return JSON.stringify({ ls, idb });
@@ -162,12 +201,26 @@ final class WebMigration: NSObject, WKNavigationDelegate {
       const name = k.startsWith(P) ? k.slice(P.length) : k;
       if (localStorage.getItem(name) === null) { localStorage.setItem(name, d.ls[k]); lsCount++; }
     }
-    const dbs = d.idb.filter(x => !x.name.startsWith(P)).concat(d.idb.filter(x => x.name.startsWith(P)));
-    for (const src of dbs) {
-      const name = src.name.startsWith(P) ? src.name.slice(P.length) : src.name;
+    // 本番の DB と試験版の DB (頭の印を外すと同じ名前) を 1 つにまとめてから写す。
+    // 別々に開くと、同じ版の DB が先にできて onupgradeneeded が来ず、試験版にしかない入れ物 (object store) を作れないため。
+    // 版は上げない (アプリは決まった版で開くので、上げると開けなくなる)。本番の DB があれば本番の版、無ければ試験版の版
+    const merged = new Map();
+    for (const x of d.idb.filter(x => !x.name.startsWith(P)).concat(d.idb.filter(x => x.name.startsWith(P)))) {
+      const preview = x.name.startsWith(P);
+      const name = preview ? x.name.slice(P.length) : x.name;
+      const m = merged.get(name) ?? { name, version: x.version || 1, stores: [] };
+      for (const s of x.stores) {
+        const cur = m.stores.find(t => t.name === s.name);
+        if (cur) cur.records = cur.records.concat(s.records);
+        else m.stores.push({ ...s, records: s.records.slice() });
+      }
+      merged.set(name, m);
+    }
+    for (const src of merged.values()) {
+      const name = src.name;
       let db;
       try {
-        const r = indexedDB.open(name, Math.max(1, src.version));
+        const r = indexedDB.open(name, src.version);
         r.onupgradeneeded = () => {
           const x = r.result;
           for (const s of src.stores) {

@@ -7,7 +7,7 @@
  */
 
 import { CONTRACT_VERSION, type NativeEvent, type NativeEvents, type NativeRequest, type NativeResponse, type StorageInfo } from './contract';
-import { toBase64 } from './bridge';
+import { fromBase64, toBase64 } from './bridge';
 
 export interface MockNativeOptions {
   /** Bluetooth の許可の状態 (既定は granted) */
@@ -95,6 +95,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   let recording: { fileName: string; deviceId: string; lines: string[]; count: number } | null = null;
   const shared: Array<{ fileName: string; text?: string }> = [];
   // ラップタイマーの記録のファイル (名前 → base64 をつないだもの。ふりなので、つなぎ方は気にしない)
+  const concatBytes = (a: Uint8Array, b: Uint8Array) => { const out = new Uint8Array(a.length + b.length); out.set(a); out.set(b, a.length); return out; };
   const lapTimerFiles = new Map<string, string>();
   /** 保管先 (選んだフォルダ) に写したファイル */
   const syncedFiles = new Map<string, string>();
@@ -174,7 +175,21 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   const handle = (req: NativeRequest): unknown => {
     switch (req.method) {
       case 'caps.get':
-        return { contractVersion: CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true } };
+        return { contractVersion: CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, iap: true } };
+      // アプリ内課金の模擬 (値段は日本円の例。買うとすぐ買えたことにする)
+      case 'iap.products': {
+        const { ids } = req.params as { ids: string[] };
+        const prices: Record<string, string> = { gas1: '¥180', gas5: '¥900', gas10: '¥1,800' };
+        return {
+          products: ids.map(id => {
+            const key = id.slice(id.lastIndexOf('.') + 1);
+            const liters = key.replace('gas', '');
+            return { id, displayName: `ガソリン ${liters}L 分の投げ銭`, description: '開発を応援する投げ銭です。', displayPrice: prices[key] ?? '¥0' };
+          })
+        };
+      }
+      case 'iap.purchase':
+        return { status: 'purchased' };
       case 'ble.permission':
         return { state: options.permission ?? 'granted' };
       case 'ble.scan': {
@@ -287,7 +302,10 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
       case 'system.appendFile': {
         const { path, b64, truncate, createNew } = req.params as { path: string; b64: string; truncate?: boolean; createNew?: boolean };
         if (createNew && lapTimerFiles.has(path)) throw { code: 'busy', message: 'file exists' };
-        lapTimerFiles.set(path, (truncate ? '' : lapTimerFiles.get(path) ?? '') + b64);
+        // base64 の文字のまま足すと、前の分の末尾の = (詰め物) が途中に残って読めなくなる (4 MiB ずつ書く取り込みで壊れていた)。
+        // バイト列に戻してからつなぎ、base64 にし直す
+        const prev = truncate ? '' : lapTimerFiles.get(path) ?? '';
+        lapTimerFiles.set(path, prev ? toBase64(concatBytes(fromBase64(prev), fromBase64(b64))) : b64);
         if (!path.startsWith('exports/')) openFiles.add(path);
         return {};
       }
