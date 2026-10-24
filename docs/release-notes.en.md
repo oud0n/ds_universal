@@ -21,6 +21,7 @@
 
 - **New format for run records (runs.json)**: one row per run; video sync changes for compared runs (Car 2–4) are now saved to their own run (they were not saved before), and sync pins are saved per video. Old records are still read; a run is rewritten in the new format only when its content changes (not when you just open it).
   - Versions 1.0.2 and earlier do not use the attached videos and sync of runs in a folder that has the new format (nothing is deleted). Please update to 1.0.3.
+- **Corner editing**: in "Edit corners" on the track map, drag along the line to make that stretch one corner. Use it to join a compound corner or to redo corners that were joined.
 - **DigSpice course data**: for a course that is also built in, only the DigSpice track map is used; the timing line, sector lines and corners come from the built-in course. A digspice/ folder (the DigSpice folder) in your storage is read at startup.
 
 **Fixes**
