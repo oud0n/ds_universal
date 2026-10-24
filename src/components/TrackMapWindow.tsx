@@ -12,7 +12,7 @@ import { getTileImage, MapBackground, TILE_ATTRIBUTION, tilesForView } from '../
 import { useLapGeometries } from '../hooks/useLapGeometries';
 import { computeCorrectedLineDelta, computeLineDelta } from '../services/drivingAnalysis';
 import { cornerLabel, useNamedCorners, type NamedCornerOnLap } from '../hooks/useNamedCorners';
-import { applySpanCorner, carryNames, cornerAt, cornersFromDetection, insertCorner, mergeCorners, newCornerFile, placeCorners, splitCorner, type NamedCorner } from '../services/cornerNames';
+import { applySpanCorner, carryNames, cornerAt, freeCornerName, cornersFromDetection, insertCorner, mergeCorners, newCornerFile, placeCorners, splitCorner, type NamedCorner } from '../services/cornerNames';
 import { saveCourseCorners } from '../services/courseCorners';
 import { canUseRunStore } from '../services/runStore';
 import { CornerEditPanel } from './CornerEditPanel';
@@ -215,7 +215,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       if (d < bestD) { bestD = d; best = i; }
     });
     if (best < 0) { setSelectedCorner(null); return; }
-    const added = cornerAt(baseGeo, best, `C${cornerDraft.length + 1}`);
+    const added = cornerAt(baseGeo, best, freeCornerName(cornerDraft));
     const next = insertCorner(cornerDraft, added, baseGeo);
     setCornerDraft(next);
     setSelectedCorner(next.indexOf(added));
@@ -784,7 +784,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     // コーナーの編集中に走行の線の上から動かしたら、地図を動かさずに範囲をなぞる
     spanRef.current = null;
     if (cornerDraft && baseGeo && !isAdjustingMap) {
-      const i = nearestBasePoint(e.currentTarget, e.clientX, e.clientY, 14);
+      // タッチは押した時のイベントを後で渡されるため、currentTarget が空のことがある (canvasRef を使う)
+      const i = canvasRef.current ? nearestBasePoint(canvasRef.current, e.clientX, e.clientY, 14) : -1;
       if (i >= 0) {
         spanRef.current = { a: i, b: i };
         panningRef.current = false;
@@ -799,8 +800,9 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (spanRef.current) {
-      const i = nearestBasePoint(e.currentTarget, e.clientX, e.clientY, 60);
-      if (i >= 0 && i !== spanRef.current.b) {
+      const i = canvasRef.current ? nearestBasePoint(canvasRef.current, e.clientX, e.clientY, 60) : -1;
+      // 一度に大きく跳んだ点 (コースが並んでいる所で隣の線に移った・周の始めと終わりをまたいだ) は使わない
+      if (i >= 0 && i !== spanRef.current.b && baseGeo && Math.abs(baseGeo.s[i] - baseGeo.s[spanRef.current.b]) < 150) {
         spanRef.current = { ...spanRef.current, b: i };
         setCornerSpan(spanRef.current);
       }
@@ -837,6 +839,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       if (!cancelled && span.a !== span.b && cornerDraft && baseGeo) {
         const r = applySpanCorner(cornerDraft, baseGeo, span.a, span.b);
         if (r) { setCornerDraft(r.list); setSelectedCorner(r.index); }
+        // 動かした量が小さい (縮小して見ている) と、離したあとの click でコーナーをもう 1 つ足してしまうため
+        downAtRef.current = null;
       }
     }
     if (panningRef.current && isAdjustingMap) store(offsetKey, mapOffset);
@@ -873,6 +877,21 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     setZoom(1.0);
     setPanOffset({ x: 0, y: 0 });
   };
+
+  // 違うコースになったら、コース全体を表示し直し、直しかけのコーナーの編集はやめる
+  // (前のコースで動かした位置のままだと中央からずれ、前のコースのコーナーを新しいコースに保存してしまうため)
+  const courseKeyRef = useRef(course.folder ?? circuitName);
+  useEffect(() => {
+    const key = course.folder ?? circuitName;
+    if (courseKeyRef.current === key) return;
+    courseKeyRef.current = key;
+    handleReset();
+    setCornerDraft(null);
+    setSelectedCorner(null);
+    spanRef.current = null;
+    setCornerSpan(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course.folder, circuitName]);
 
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
