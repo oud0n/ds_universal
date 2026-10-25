@@ -70,7 +70,7 @@ import { electronWriter, nativeWriter } from './services/import/importWriters';
 import { LOG_EXTENSIONS } from './services/logLoader';
 import { getWriteBon4 } from './services/runFormatSettings';
 import { applyImuToSession, getGSource, parseImuCsv, setGSource, type GSource, type ImuTrack } from './services/imuG';
-import { saveSession, type LapSession, type LapSessionCar } from './services/analysisSessions';
+import { fileSessionCars, lapStartUtcMs, matchFileSession, parseLapSession, resolveSessionLap, saveSession, type LapSession, type LapSessionCar } from './services/analysisSessions';
 
 /**
  * 距離を補正した周で、補正後の距離が 0 になる時刻 (秒)。
@@ -1012,11 +1012,42 @@ export const App: React.FC = () => {
       const run = runOfSession(c.sessionId);
       if (!run) return tr('保管場所の走行でない Car があります (ファイルから開いたログは保存できません)', 'A car is not a run from your storage (logs opened from files cannot be saved)');
       const part = run.ids.length > 1 ? run.ids.indexOf(c.sessionId) + 1 : 0;
-      cars.push({ slot: c.slot, run: `${run.item.folder}/${run.item.file}`, ...(run.item.entry?.id ? { id: run.item.entry.id } : {}), ...(part > 0 ? { part } : {}), lap: c.lapNumber });
+      const s = sessions.find(x => x.id === c.sessionId);
+      const lapStartMs = s ? lapStartUtcMs(s, c.lapNumber) : undefined;
+      cars.push({ slot: c.slot, run: `${run.item.folder}/${run.item.file}`, ...(run.item.entry?.id ? { id: run.item.entry.id } : {}), ...(part > 0 ? { part } : {}), lap: c.lapNumber, ...(lapStartMs !== undefined ? { lapStartMs } : {}) });
     }
     if (!cars.length) return tr('比べる周がありません', 'No laps selected');
     const course = sessions.find(s => s.id === selectedCars[0]?.sessionId)?.circuitName;
     await saveSession(store, { name, ...(course ? { course: { name: course } } : {}), cars });
+    return null;
+  };
+
+  /** ブラウザ版 (保管場所なし): 今の Car の割り当てを .lapsession.json として書き出す */
+  const downloadCurrentSession = async (name: string): Promise<string | null> => {
+    const cars = fileSessionCars(selectedCars, sessions);
+    if (!cars.length) return tr('比べる周がありません', 'No laps selected');
+    const course = sessions.find(s => s.id === selectedCars[0]?.sessionId)?.circuitName;
+    const data: LapSession = { version: 1, name, createdAt: new Date().toISOString(), source: 'files', ...(course ? { course: { name: course } } : {}), cars };
+    const safe = name.replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40) || 'session';
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safe}.lapsession.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    return null;
+  };
+
+  /** ブラウザ版: 書き出した比べ方を読み込み、開いているログにファイルの名前で当てる */
+  const importSessionFile = async (file: File): Promise<string | null> => {
+    const data = parseLapSession(await file.text());
+    if (!data) return tr('比べ方のファイルではありません', 'Not a saved comparison file');
+    const { picks, missing, moved } = matchFileSession(data, sessions);
+    if (!picks.length) return tr(`このログが開かれていません: ${missing.join(', ')} (先にログを開いてください)`, `Open these logs first: ${missing.join(', ')}`);
+    const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b'];
+    setSelectedCars(picks.map(p => ({ slot: p.slot, sessionId: p.session.id, lapNumber: p.lapNumber, colorHex: colors[p.slot] ?? colors[0], label: `${p.session.sessionName} (L${p.lapNumber})` })));
+    if (missing.length) return tr(`開かれていないログがありました: ${missing.join(', ')} (ほかの Car は割り当てました)`, `Some logs are not open: ${missing.join(', ')} (the other cars were set)`);
+    if (moved) alert(tr(`計測線が変わっていたので、周の始まりの時刻で周を選び直しました (${moved} 台)`, `The timing line changed, so ${moved} lap(s) were matched again by their start time`));
     return null;
   };
 
@@ -1037,17 +1068,22 @@ export const App: React.FC = () => {
     const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b'];
     const picks: SelectedCarSlot[] = [];
     const missing: string[] = [];
+    let moved = 0;
     for (const c of cars) {
       const item = find(c);
       if (!item) { missing.push(c.run); continue; }
       const runSessions = await loadRunSessions(store, item).catch(() => [] as Session[]);
       const s = runSessions[(c.part ?? 1) - 1] ?? runSessions[0];
       if (!s) { missing.push(c.run); continue; }
-      picks.push({ slot: c.slot, sessionId: s.id, lapNumber: c.lap, colorHex: colors[c.slot] ?? colors[0], label: `${s.sessionName} (L${c.lap})` });
+      // 計測線を直して周の番号が変わっていても、保存した周の始まりの時刻で選び直す
+      const { lap, moved: m } = resolveSessionLap(s, c);
+      if (m) moved++;
+      picks.push({ slot: c.slot, sessionId: s.id, lapNumber: lap, colorHex: colors[c.slot] ?? colors[0], label: `${s.sessionName} (L${lap})` });
     }
     if (picks.length) setSelectedCars(picks);
     navStore.go('analysis');
     if (missing.length) alert(tr(`見つからない走行がありました (${missing.length} 件): ${missing.join(', ')}`, `Some runs were not found (${missing.length}): ${missing.join(', ')}`));
+    else if (moved) alert(tr(`計測線が変わっていたので、保存したときの周の始まりの時刻で周を選び直しました (${moved} 台)`, `The timing line changed, so ${moved} lap(s) were matched again by their start time`));
   };
 
   const addRunAsCar2 = async (item: RunItem) => {
@@ -2395,7 +2431,8 @@ export const App: React.FC = () => {
               const run = runOfSession(id);
               if (run && run.ids[0] === id) void getRunStore().then(store => store && setRunMeta(store, run.item, { name })).catch(() => undefined);
             }}
-            onSaveSession={canUseRunStore() ? saveCurrentSession : undefined}
+            onSaveSession={canUseRunStore() ? saveCurrentSession : downloadCurrentSession}
+            onImportSession={canUseRunStore() ? undefined : importSessionFile}
             sessionDefaultName={(() => {
               const c = selectedCars.map(x => sessions.find(s => s.id === x.sessionId)?.sessionName).filter(Boolean);
               return c.length ? `${c[0]}${c.length > 1 ? ` vs ${c.slice(1).join(' / ')}` : ''}`.slice(0, 60) : '';

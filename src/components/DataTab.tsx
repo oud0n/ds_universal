@@ -53,6 +53,8 @@ interface DataTabProps {
   onEditSessionNote?: (sessionId: string, note: string) => void;
   /** 今の Car の割り当てを、解析用のセッションとして保存する (PLAN-18)。エラーなら文、できたら null */
   onSaveSession?: (name: string) => Promise<string | null>;
+  /** ブラウザ版: 書き出した比べ方を読み込む */
+  onImportSession?: (file: File) => Promise<string | null>;
   /** 保存するときの名前の既定 */
   sessionDefaultName?: string;
   // ログの時計の補正 (秒) を変える / 同じ時間のほかのログとの比べから見積もる (BUG-08)
@@ -234,6 +236,7 @@ export const DataTab: React.FC<DataTabProps> = ({
   onEditSessionName,
   onEditSessionNote,
   onSaveSession,
+  onImportSession,
   sessionDefaultName,
   onSetClockOffset,
   onEstimateClockOffset,
@@ -281,7 +284,9 @@ export const DataTab: React.FC<DataTabProps> = ({
   return (
     <div className={`flex flex-col h-full bg-surface-1 text-slate-200 overflow-y-auto overflow-x-hidden ${compact ? 'p-2 space-y-3' : 'p-4 space-y-6'}`}>
       {/* 今の Car の割り当てを保存する (保管場所の走行を比べているとき。PLAN-18) */}
-      {onSaveSession && selectedCars.length > 0 && <SessionSaveBar defaultName={sessionDefaultName ?? ''} onSave={onSaveSession} />}
+      {onSaveSession && (selectedCars.length > 0 || onImportSession) && (
+        <SessionSaveBar defaultName={sessionDefaultName ?? ''} onSave={onSaveSession} onImport={onImportSession} canSave={selectedCars.length > 0} />
+      )}
       {/* 上部: コース設定 & プリセット切り替えバー */}
       <div className={`bg-surface-2 border border-line-2 rounded-xl shadow-md flex flex-wrap items-center justify-between ${compact ? 'p-3 gap-3' : 'p-4 gap-4'}`}>
         <div

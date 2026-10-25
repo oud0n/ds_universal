@@ -515,6 +515,46 @@ export const journeys = [
     }
   },
   {
+    name: 'ブラウザ版の比べ方 (PLAN-18): ファイルに書き出し、周を替えてから読み込むと、同じログと周に戻る',
+    target: 'phone',
+    async run(p) {
+      await p.viewport(1440, 900, false);
+      await p.goto(APP);
+      await p.send('DOM.enable');
+      if (!fs.existsSync(SAMPLE_NMEA)) { p.notes.push(`読み込むログ ${SAMPLE_NMEA} がないので飛ばした`); return; }
+      const tmp = path.join(os.tmpdir(), path.basename(SAMPLE_NMEA));
+      fs.copyFileSync(SAMPLE_NMEA, tmp);
+      await p.setFiles('input[type=file]', [tmp]);
+      await sleep(4000);
+      const s0 = await p.state();
+      check(s0.sessions.length > 0 && s0.sessions[0].laps >= 3, `ログを読み込めていない: ${JSON.stringify(s0.sessions)}`);
+      const id = s0.sessions[0].id;
+      await p.ev(`window.__laploupe.selectCar(0, ${JSON.stringify(id)}, 3)`);
+      await sleep(800);
+      // 書き出し (ダウンロードの中身を横取りする)
+      await p.ev(`(() => { const orig = URL.createObjectURL; URL.createObjectURL = b => { b.text().then(t => { window.__dl = t; }); return orig(b); }; })()`);
+      // ブラウザ版の欄は Car が無くても出る (読み込むため) ので、引き出しが開いているかで見る
+      if (!(await p.exists('data-drawer-close'))) await p.click('toggle-data-drawer');
+      await p.waitFor(`document.querySelector('[data-testid="session-save-button"]')`, 5000, '比べ方を書き出すのボタン');
+      const dbg = await p.ev(`({ n: document.querySelectorAll('[data-testid="session-save-button"]').length, d: document.querySelector('[data-testid="session-save-button"]').disabled, cars: window.__laploupe.cars })`);
+      check(!dbg.d, `書き出すのボタンが押せない: ${JSON.stringify(dbg)}`);
+      await p.click('session-save-button');
+      await p.waitFor(`typeof window.__dl === 'string'`, 5000, '書き出したファイル');
+      const text = await p.ev(`window.__dl`);
+      const data = JSON.parse(text);
+      check(data.source === 'files' && data.cars?.[0]?.run === path.basename(SAMPLE_NMEA) && data.cars[0].lap === 3, `書き出しがおかしい: ${text}`);
+      // 周を替えてから読み込む
+      await p.ev(`window.__laploupe.selectCar(0, ${JSON.stringify(id)}, 2)`);
+      await sleep(800);
+      const json = path.join(os.tmpdir(), 'e2e.lapsession.json');
+      fs.writeFileSync(json, text);
+      await p.setFiles('[data-testid="session-import-input"]', [json]);
+      await p.waitFor(`document.querySelector('[data-testid="session-save"]')?.innerText.includes('読み込みました')`, 5000, '読み込みました');
+      const s1 = await p.state();
+      check(s1.cars.length === 1 && s1.cars[0].sessionId === id && s1.cars[0].lapNumber === 3, `読み込んだ Car が違う: ${JSON.stringify(s1.cars)}`);
+    }
+  },
+  {
     name: 'ブラウザ版: URL の末尾 #convert で変換が開き、上のタブがある',
     target: 'phone',
     async run(p) {
