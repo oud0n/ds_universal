@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Video } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import type { CameraLens, CameraPreset } from '../native/contract';
+import { callNative, onNative } from '../native/bridge';
 import { cameraAvailable, isoChoices, listLenses, loadCameraSettings, saveCameraSettings, type CameraSettings } from '../services/timer/phoneCamera';
 
 const PRESET_LABEL: Record<CameraPreset, string> = { '1080p30': '1080p · 30fps', '1080p60': '1080p · 60fps', '2160p30': '4K · 30fps', '2160p60': '4K · 60fps' };
@@ -15,6 +16,10 @@ export const TimerCameraSettings: React.FC = () => {
   const [ok, setOk] = useState(false);
   const [lenses, setLenses] = useState<CameraLens[]>([]);
   const [s, setS] = useState<CameraSettings>(loadCameraSettings);
+  // 撮る前の確かめ: 枠に今の映像を出し、ISO・シャッターの速さを出す
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [exposure, setExposure] = useState<{ iso: number; shutterSec: number } | null>(null);
+  const [liveError, setLiveError] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -27,6 +32,43 @@ export const TimerCameraSettings: React.FC = () => {
     return () => { alive = false; };
   }, []);
 
+  // 映像を出す (設定を開いている間、録画をオンにしているとき)。枠が動いたら (メニューを動かした) 置き直す
+  const live = ok && s.enabled;
+  const lensKey = `${s.lensId}|${s.preset}`;
+  useEffect(() => {
+    if (!live) return;
+    let alive = true;
+    let raf = 0;
+    const place = () => {
+      const box = boxRef.current;
+      const r = box?.getBoundingClientRect();
+      if (!box || !r || !alive) return;
+      // メニューを動かして枠が少しでも隠れたら、映像は消す (アプリが画面の上に重ねるので、メニューの外にはみ出すため)
+      const clip = box.closest('.overflow-y-auto')?.getBoundingClientRect();
+      const inside = !clip || (r.top >= clip.top - 1 && r.bottom <= clip.bottom + 1);
+      const cur = loadCameraSettings();
+      void callNative('camera.preview', { show: true, lensId: cur.lensId, preset: cur.preset, iso: cur.iso, rect: inside ? { x: r.left, y: r.top, w: r.width, h: r.height } : { x: 0, y: 0, w: 0, h: 0 } })
+        .then(() => setLiveError(''), e => setLiveError(e instanceof Error ? e.message : String(e)));
+    };
+    const onMove = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(place); };
+    void callNative('camera.permission', { request: true, audio: false }).then(p => {
+      if (!alive) return;
+      if (p.camera !== 'granted') { setLiveError('permission'); return; }
+      place();
+    }).catch(() => {});
+    const off = onNative('camera.exposure', e => setExposure(e));
+    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', onMove);
+    return () => {
+      alive = false;
+      cancelAnimationFrame(raf);
+      off();
+      window.removeEventListener('scroll', onMove, true);
+      window.removeEventListener('resize', onMove);
+      void callNative('camera.preview', { show: false }).catch(() => {});
+    };
+  }, [live, lensKey]);
+
   if (!ok) return null;
   const lens = lenses.find(l => l.id === s.lensId) ?? lenses.find(l => l.kind === 'wide') ?? lenses[0];
   const presets = lens?.presets.length ? lens.presets : (['1080p30'] as CameraPreset[]);
@@ -37,7 +79,10 @@ export const TimerCameraSettings: React.FC = () => {
     if (l && l.presets.length && !l.presets.includes(next.preset)) next.preset = l.presets[0];
     setS(next);
     saveCameraSettings(next);
+    // ISO だけ変えたときは、映像を出し直さずにその場で変える
+    if (patch.iso !== undefined && Object.keys(patch).length === 1) void callNative('camera.setIso', { iso: next.iso }).catch(() => {});
   };
+  const shutter = (sec: number) => (sec > 0 && sec < 0.5 ? `1/${Math.round(1 / sec)}` : `${sec.toFixed(2)}`);
   const lensName = (l: CameraLens) => {
     if (l.kind === 'front') return t('前 (自分側)', 'Front');
     const z = `${l.zoom}×`;
@@ -54,6 +99,15 @@ export const TimerCameraSettings: React.FC = () => {
       </label>
       {s.enabled && (
         <div className="mt-2 space-y-2 pl-1">
+          {/* 今の映像 (アプリが枠の上に重ねて出す)。ここで ISO を変えると、その場で映像に出る */}
+          <div ref={boxRef} className="w-full aspect-video rounded-lg bg-black/60 border border-line-3 flex items-center justify-center text-[11px] text-slate-500" data-testid="lap-timer-camera-live">
+            {liveError === 'permission' ? t('カメラの許可がありません (設定アプリで許可してください)', 'No camera access (allow it in Settings)') : liveError ? t('映像を出せません', 'Cannot show the camera') : t('カメラの映像', 'Camera view')}
+          </div>
+          {exposure && (
+            <div className="text-[11px] text-slate-400 font-mono" data-testid="lap-timer-camera-exposure">
+              ISO {Math.round(exposure.iso)} ・ {t('シャッター', 'Shutter')} {shutter(exposure.shutterSec)} {t('秒', 's')}
+            </div>
+          )}
           {lenses.length > 0 && (
             <div>
               <div className="text-[11px] text-slate-500 mb-1">{t('レンズ', 'Lens')}</div>

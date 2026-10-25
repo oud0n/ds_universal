@@ -27,6 +27,12 @@ final class CameraModule: NSObject {
     private var previewView: UIView?
     private var thermalObserver: NSObjectProtocol?
     private var interruptObservers: [NSObjectProtocol] = []
+    /// 撮る前の確かめ (設定の画面の枠に、今の映像を出す)
+    private var liveView: UIView?
+    private var liveLayer: AVCaptureVideoPreviewLayer?
+    private var liveConfig: String?
+    private var exposureTimer: Timer?
+    private var frameSec: Double = 1.0 / 30
 
     init(core: NativeCore) {
         self.core = core
@@ -43,6 +49,11 @@ final class CameraModule: NSObject {
             start(params: params, done: done)
         case "camera.stop":
             stop(path: params["path"] as? String, done: done)
+        case "camera.preview":
+            livePreview(params: params, done: done)
+        case "camera.setIso":
+            applyIso((params["iso"] as? Double).map { Float($0) })
+            done(.success([:]))
         default:
             done(.failure(NativeError(.notSupported, "unknown method \(method)")))
         }
@@ -163,6 +174,8 @@ final class CameraModule: NSObject {
         let lensId = lens.id
         device = dev
         isoTarget = iso
+        frameSec = 1 / spec.fps
+        hideLive()
         wantRecording = true
         segments = []
         observeEvents()
@@ -331,6 +344,117 @@ final class CameraModule: NSObject {
     private func hidePreview() {
         previewView?.removeFromSuperview()
         previewView = nil
+    }
+
+    // MARK: - 撮る前の確かめ (設定の画面の枠に映像を出し、ISO をその場で変える)
+
+    private func livePreview(params: [String: Any], done: @escaping (Result<[String: Any], NativeError>) -> Void) {
+        guard params["show"] as? Bool ?? false else {
+            hideLive()
+            if !wantRecording {
+                isoTimer?.invalidate()
+                isoTimer = nil
+                queue.async { [session] in if session.isRunning { session.stopRunning() } }
+            }
+            done(.success([:]))
+            return
+        }
+        guard !wantRecording else { done(.failure(NativeError(.busy, "recording"))); return }
+        guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { done(.failure(NativeError(.permissionDenied, "camera"))); return }
+        let r = params["rect"] as? [String: Any] ?? [:]
+        let rect = CGRect(x: r["x"] as? Double ?? 0, y: r["y"] as? Double ?? 0, width: r["w"] as? Double ?? 0, height: r["h"] as? Double ?? 0)
+        let wantLens = params["lensId"] as? String
+        let preset = params["preset"] as? String ?? "1080p30"
+        let iso = (params["iso"] as? Double).map { Float($0) }
+        let all = Self.lenses()
+        guard let lens = all.first(where: { $0.id == wantLens }) ?? all.first(where: { $0.kind == "wide" }) ?? all.first else {
+            done(.failure(NativeError(.notFound, "no camera"))); return
+        }
+        let spec = Self.presetSpecs[preset] ?? Self.presetSpecs["1080p30"]!
+        let angle = Self.rotationAngle(front: lens.position == "front")
+        let config = "\(lens.id)|\(preset)"
+        let dev = lens.device
+        let session = session, output = output
+        Task { @MainActor in
+            if self.liveConfig != config || !session.isRunning {
+                self.device = dev
+                self.frameSec = 1 / spec.fps
+                let error: NativeError? = await withCheckedContinuation { cont in
+                    self.queue.async {
+                        do {
+                            try Self.configure(session: session, output: output, device: dev, preset: preset, fps: spec.fps, audio: false, angle: angle)
+                            cont.resume(returning: nil)
+                        } catch {
+                            cont.resume(returning: error as? NativeError ?? NativeError(.io, error.localizedDescription))
+                        }
+                    }
+                }
+                if let error { done(.failure(error)); return }
+                self.liveConfig = config
+            }
+            self.placeLive(rect, angle: angle)
+            self.applyIso(iso)
+            self.startExposureReports()
+            done(.success([:]))
+        }
+    }
+
+    private func placeLive(_ rect: CGRect, angle: CGFloat) {
+        guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first?.windows.first(where: \.isKeyWindow) else { return }
+        if liveView == nil {
+            let view = UIView()
+            view.layer.cornerRadius = 10
+            view.clipsToBounds = true
+            view.backgroundColor = .black
+            let layer = AVCaptureVideoPreviewLayer(session: session)
+            layer.videoGravity = .resizeAspect
+            view.layer.addSublayer(layer)
+            // 映像は見るだけ (押しても下の画面のボタンに届くように)
+            view.isUserInteractionEnabled = false
+            window.addSubview(view)
+            liveView = view
+            liveLayer = layer
+        }
+        // Web の CSS の座標は、WKWebView (画面いっぱい) の座標と同じ
+        liveView?.frame = rect
+        liveView?.isHidden = rect.width < 4 || rect.height < 4
+        liveLayer?.frame = CGRect(origin: .zero, size: rect.size)
+        if let conn = liveLayer?.connection, conn.isVideoRotationAngleSupported(angle) { conn.videoRotationAngle = angle }
+    }
+
+    private func hideLive() {
+        exposureTimer?.invalidate()
+        exposureTimer = nil
+        liveView?.removeFromSuperview()
+        liveView = nil
+        liveLayer = nil
+        liveConfig = nil
+    }
+
+    /// ISO を決める (nil は自動)。決めたときは、シャッターの速さで明るさを保つ
+    private func applyIso(_ iso: Float?) {
+        isoTarget = iso
+        if iso != nil {
+            startIsoLoop(frameSec: frameSec)
+        } else {
+            isoTimer?.invalidate()
+            isoTimer = nil
+            if let dev = device, dev.isExposureModeSupported(.continuousAutoExposure), (try? dev.lockForConfiguration()) != nil {
+                dev.exposureMode = .continuousAutoExposure
+                dev.unlockForConfiguration()
+            }
+        }
+    }
+
+    /// 今の ISO とシャッターの速さを、Web に知らせる (枠の下に出す)
+    private func startExposureReports() {
+        guard exposureTimer == nil else { return }
+        exposureTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let dev = self.device else { return }
+                self.core.emit("camera.exposure", ["iso": Double(dev.iso), "shutterSec": CMTimeGetSeconds(dev.exposureDuration)])
+            }
+        }
     }
 
     // MARK: - 熱・止まったとき

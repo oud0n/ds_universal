@@ -261,6 +261,13 @@ export interface NativeMethods {
   'camera.start': { params: { lensId: string | null; preset: CameraPreset; audio: boolean; iso: number | null; preview: boolean }; result: { lensId: string; preset: CameraPreset } };
   /** 止める。path (LapTimer/ の下の道。.nmea と同じ所の .mov) があれば、そこへ移す (止まって分かれたものは _2・_3 を付ける) */
   'camera.stop': { params: { path: string | null }; result: { files: CameraFile[] } };
+  /**
+   * 撮る前の確かめ: 画面の rect (CSS の座標) に今の映像を出す (show: false で消す)。出している間は camera.exposure が届く。
+   * レンズ・画質を変えたら、もう一度呼ぶ
+   */
+  'camera.preview': { params: { show: boolean; lensId?: string | null; preset?: CameraPreset; iso?: number | null; rect?: { x: number; y: number; w: number; h: number } }; result: Record<string, never> };
+  /** ISO をその場で変える (null は自動) */
+  'camera.setIso': { params: { iso: number | null }; result: Record<string, never> };
 }
 
 // ---- 知らせ ----
@@ -299,6 +306,8 @@ export interface NativeEvents {
   'iap.purchased': { productId: string };
   /** 録画の様子。error: interrupted (裏に回った・電話など。戻ると続きを撮る)・thermal (熱すぎて止めた) */
   'camera.state': { recording: boolean; error?: 'interrupted' | 'thermal'; thermal?: 'nominal' | 'fair' | 'serious' | 'critical' };
+  /** 今の ISO とシャッターの速さ (秒)。確かめの映像を出している間、0.3 秒ごと */
+  'camera.exposure': { iso: number; shutterSec: number };
 }
 
 export interface MotionBatch {

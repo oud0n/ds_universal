@@ -98,6 +98,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   const concatBytes = (a: Uint8Array, b: Uint8Array) => { const out = new Uint8Array(a.length + b.length); out.set(a); out.set(b, a.length); return out; };
   const lapTimerFiles = new Map<string, string>();
   let mockCamera: { startWallMs: number } | null = null;
+  let mockExposure: ReturnType<typeof setInterval> | null = null;
   /** 保管先 (選んだフォルダ) に写したファイル */
   const syncedFiles = new Map<string, string>();
   /** 書いている最中のファイル (system.closeFiles で閉じるまで) */
@@ -309,6 +310,15 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         setTimeout(() => emit('camera.state', { recording: true }), 50);
         return { lensId: p.lensId ?? 'mock-w', preset: p.preset };
       }
+      case 'camera.preview': {
+        const { show, iso } = req.params as { show: boolean; iso?: number | null };
+        if (mockExposure) clearInterval(mockExposure);
+        mockExposure = null;
+        if (show) mockExposure = setInterval(() => emit('camera.exposure', { iso: iso ?? 125, shutterSec: iso ? 1 / Math.round(iso * 2.5) : 1 / 320 }), 300);
+        return {};
+      }
+      case 'camera.setIso':
+        return {};
       case 'camera.stop': {
         const { path } = req.params as { path: string | null };
         const cam = mockCamera;
