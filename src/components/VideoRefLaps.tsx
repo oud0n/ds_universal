@@ -46,6 +46,17 @@ const Shell: React.FC<{ title: string; onClose: () => void; children: React.Reac
   );
 };
 
+/** 動画の URL の頭がそろったか (Android はアプリに聞くまで分からない)。そろうまで動画の src を出さない */
+function useVideoBase(store: RunStore): boolean {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void store.supportsVideos().catch(() => false).then(() => { if (alive) setReady(true); });
+    return () => { alive = false; };
+  }, [store]);
+  return ready;
+}
+
 /** 参考ラップにする動画を選ぶ */
 export const VideoRefPicker: React.FC<{ candidates: RunFileInfo[] | null; onPick: (f: RunFileInfo) => void; onClose: () => void }> = ({ candidates, onPick, onClose }) => {
   const t = useT();
@@ -79,6 +90,7 @@ export const VideoLapMarker: React.FC<{
 }> = ({ store, path, existing, onClose, onSaved }) => {
   const t = useT();
   const video = useRef<HTMLVideoElement>(null);
+  const base = useVideoBase(store);
   const [marks, setMarks] = useState<VideoLapMark[]>(() => videoLapsOf(existing?.row)?.marks ?? []);
   const [now, setNow] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -158,7 +170,7 @@ export const VideoLapMarker: React.FC<{
     <Shell title={t(`参考ラップの印を打つ: ${nameOf(path)}`, `Mark laps: ${nameOf(path)}`)} onClose={close} testid="video-lap-marker" wide>
       <div className="p-3 grid gap-3 lg:grid-cols-[1fr_280px]">
         <div className="space-y-2 min-w-0">
-          <video ref={video} src={store.videoUrl(path)} controls playsInline preload="auto" className="w-full max-h-[55dvh] bg-black rounded-lg"
+          <video ref={video} src={base ? store.videoUrl(path) : undefined} controls playsInline preload="auto" className="w-full max-h-[55dvh] bg-black rounded-lg"
             // 印を直すときは、最初の印から
             // コマを出してから、印を直すときは最初の印へ (iPhone は再生するまでコマを読まないので、長さが分かった時点で)
             onLoadedMetadata={e => { const v = e.currentTarget; primeFrame(v, () => { const first = marks[0]; if (first && v.currentTime < 0.5) v.currentTime = first.t; }); }}
@@ -253,6 +265,7 @@ export const VideoLapCompare: React.FC<{ store: RunStore; videoRef: VideoRef; ru
   const refLap = refLaps.find(l => l.n === refN) ?? refLaps[0];
   const own = ownLaps[ownIdx] ?? null;
   const refVideo = useRef<HTMLVideoElement>(null);
+  const base = useVideoBase(store);
   const ownVideo = useRef<HTMLVideoElement>(null);
   const [tau, setTau] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -343,12 +356,12 @@ export const VideoLapCompare: React.FC<{ store: RunStore; videoRef: VideoRef; ru
         <div className="grid gap-2 md:grid-cols-2">
           <div className="space-y-1 min-w-0">
             <div className="text-slate-400">{t('参考ラップ', 'Reference')} {videoRef.row.reference?.driver ? `· ${videoRef.row.reference.driver}` : ''}</div>
-            <video ref={refVideo} src={store.videoUrl(videoRef.path)} playsInline muted preload="auto" onLoadedMetadata={e => { const v = e.currentTarget; primeFrame(v, () => { if (refLap && !playing) v.currentTime = refLap.start + Math.min(tau, refLap.time); }); }} className="w-full aspect-video bg-black rounded-lg" data-testid="video-lap-compare-ref-video" />
+            <video ref={refVideo} src={base ? store.videoUrl(videoRef.path) : undefined} playsInline muted preload="auto" onLoadedMetadata={e => { const v = e.currentTarget; primeFrame(v, () => { if (refLap && !playing) v.currentTime = refLap.start + Math.min(tau, refLap.time); }); }} className="w-full aspect-video bg-black rounded-lg" data-testid="video-lap-compare-ref-video" />
           </div>
           <div className="space-y-1 min-w-0">
             <div className="text-slate-400">{t('自分', 'Mine')}</div>
             {own
-              ? <video key={own.video.path} ref={ownVideo} src={store.videoUrl(own.video.path)} playsInline muted preload="auto" onLoadedMetadata={e => { const v = e.currentTarget; primeFrame(v, () => { if (own && !playing) v.currentTime = own.video.sec + Math.min(tau, own.time); }); }} className="w-full aspect-video bg-black rounded-lg" data-testid="video-lap-compare-own-video" />
+              ? <video key={own.video.path} ref={ownVideo} src={base ? store.videoUrl(own.video.path) : undefined} playsInline muted preload="auto" onLoadedMetadata={e => { const v = e.currentTarget; primeFrame(v, () => { if (own && !playing) v.currentTime = own.video.sec + Math.min(tau, own.time); }); }} className="w-full aspect-video bg-black rounded-lg" data-testid="video-lap-compare-own-video" />
               : <div className="w-full aspect-video bg-black/50 rounded-lg" />}
           </div>
         </div>

@@ -247,7 +247,8 @@ class MainActivity : ComponentActivity() {
         val len = f.length()
         val range = headers.entries.firstOrNull { it.key.equals("Range", ignoreCase = true) }?.value
         val m = range?.let { Regex("bytes=(\\d*)-(\\d*)").find(it) }
-        val common = mapOf("Accept-Ranges" to "bytes", "Access-Control-Allow-Origin" to "*")
+        // WebView の HTTP の控えに入れない (控えた途中までの中身と、あとの Range の答えを合わせようとして失敗し、動画の後ろが読めなかった)
+        val common = mapOf("Accept-Ranges" to "bytes", "Access-Control-Allow-Origin" to "*", "Cache-Control" to "no-store")
         if (m == null) {
             return WebResourceResponse(mime(f.name), null, 200, "OK", common + ("Content-Length" to len.toString()), FileInputStream(f))
         }
@@ -255,9 +256,9 @@ class MainActivity : ComponentActivity() {
         val start = if (a.isEmpty()) maxOf(0L, len - (b.toLongOrNull() ?: 0L)) else a.toLong()
         val end = if (a.isEmpty() || b.isEmpty()) len - 1 else minOf(b.toLong(), len - 1)
         if (start >= len || end < start) return WebResourceResponse(mime(f.name), null, 416, "Range Not Satisfiable", common + ("Content-Range" to "bytes */$len"), null)
+        // WebView が Range の頭まで読み飛ばすので、頭から渡して end までで止める (safRunFile と同じ)
         val input = FileInputStream(f)
-        input.channel.position(start)
-        val body = limited(input, end - start + 1)
+        val body = limited(input, end + 1)
         return WebResourceResponse(mime(f.name), null, 206, "Partial Content",
             common + mapOf("Content-Range" to "bytes $start-$end/$len", "Content-Length" to (end - start + 1).toString()), body)
     }
@@ -268,7 +269,8 @@ class MainActivity : ComponentActivity() {
         val pfd = try { store.openFd(path) } catch (e: Exception) { null } ?: return null
         val len = pfd.statSize
         val name = path.substringAfterLast('/')
-        val common = mapOf("Accept-Ranges" to "bytes", "Access-Control-Allow-Origin" to "*")
+        // WebView の HTTP の控えに入れない (控えた途中までの中身と、あとの Range の答えを合わせようとして失敗し、動画の後ろが読めなかった)
+        val common = mapOf("Accept-Ranges" to "bytes", "Access-Control-Allow-Origin" to "*", "Cache-Control" to "no-store")
         val input = ParcelFileDescriptor.AutoCloseInputStream(pfd)
         val range = headers.entries.firstOrNull { it.key.equals("Range", ignoreCase = true) }?.value
         val m = range?.let { Regex("bytes=(\\d*)-(\\d*)").find(it) }
@@ -278,9 +280,10 @@ class MainActivity : ComponentActivity() {
         val start = if (a.isEmpty()) maxOf(0L, len - (b.toLongOrNull() ?: 0L)) else a.toLong()
         val end = if (a.isEmpty() || b.isEmpty()) len - 1 else minOf(b.toLong(), len - 1)
         if (start >= len || end < start) { input.close(); return WebResourceResponse(mime(name), null, 416, "Range Not Satisfiable", common + ("Content-Range" to "bytes */$len"), null) }
-        input.channel.position(start)
+        // WebView が Range の頭まで自分で読み飛ばす (InputStream.skip) ので、流れはファイルの頭から渡し、end までで止める
+        // (こちらでも頭へ動かすと 2 回飛ばすことになり、後ろ半分が読めず、前半は違う中身を返していた)
         return WebResourceResponse(mime(name), null, 206, "Partial Content",
-            common + mapOf("Content-Range" to "bytes $start-$end/$len", "Content-Length" to (end - start + 1).toString()), limited(input, end - start + 1))
+            common + mapOf("Content-Range" to "bytes $start-$end/$len", "Content-Length" to (end - start + 1).toString()), limited(input, end + 1))
     }
 
     /** n バイトまでしか読ませない流れ */
@@ -293,6 +296,14 @@ class MainActivity : ComponentActivity() {
             if (r > 0) left -= r
             return r
         }
+        // WebView が Range の頭まで読み飛ばした分も数える
+        override fun skip(n: Long): Long {
+            if (left <= 0) return 0
+            val s = super.skip(minOf(n, left))
+            if (s > 0) left -= s
+            return s
+        }
+        override fun available(): Int = minOf(super.available().toLong(), maxOf(0L, left)).toInt()
     }
 
     /** 走行のファイル (files/LapTimer)。動画の一部だけを読む頼み (Range) にも答える */

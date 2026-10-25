@@ -69,6 +69,8 @@ const isOldApp = (e: unknown) => e instanceof NativeError && e.code === 'not-sup
 /** iPhone のアプリ。選んだフォルダがあればそこ、なければ書類の LapTimer/ */
 export function nativeRunStore(): RunStore | null {
   if (!hasNative()) return null;
+  // 動画の URL の頭 (Android は lapfile:// でない) を早めに聞いておく
+  void nativeSupportsVideos();
   let synced: Promise<unknown> | null = null;
   // 走っている間に書いた走行を、選んだフォルダへ写してから見る (写すのは 1 回だけ待つ)
   const sync = () => (synced ??= callNative('system.syncLapFiles', {}).catch(() => undefined));
