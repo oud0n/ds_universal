@@ -125,7 +125,8 @@ final class OrientationControl {
         mask = m
         guard let scene else { return }
         for w in scene.windows { w.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations() }
-        scene.requestGeometryUpdate(.iOS(interfaceOrientations: request ?? m)) { error in
+        // 失敗の知らせは主スレッドの外で来るので、主スレッドに縛られない閉包にする (縛ると、その確かめで落ちていた)
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: request ?? m)) { @Sendable error in
             DebugLog.write("orientation: \(error.localizedDescription)")
         }
     }

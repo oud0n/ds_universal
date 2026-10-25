@@ -19,6 +19,8 @@ final class CameraModule: NSObject {
         var output = AVCaptureMovieFileOutput()
         var device: AVCaptureDevice?
         var active = false
+        /// 録画のファイルに書いている (始めると頼んでから、終わったと知らせが来るまで)。カメラに問い合わせると、組み立て中は鍵の取り合いになるので自分で持つ
+        var writing = false
         var segments: [(url: URL, startWallMs: Double)] = []
         var currentStartWallMs: Double?
         var isoTarget: Float?
@@ -436,10 +438,13 @@ final class CameraModule: NSObject {
     }
 
     private func beginSegment(_ c: Channel) {
-        guard wantRecording, c.active, !c.output.isRecording else { return }
+        guard wantRecording, c.active, !c.writing else { return }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("cam-\(c.name)-\(UUID().uuidString).mov")
         c.currentStartWallMs = nil
-        c.output.startRecording(to: url, recordingDelegate: self)
+        c.writing = true
+        // 録画の始め・止めも、組み立てと同じカメラ用の列で行う (主スレッドで始めると、組み立てと鍵の取り合いになって固まった)
+        let out = Box(value: c.output), me = Box(value: self as AVCaptureFileOutputRecordingDelegate)
+        queue.async { out.value.startRecording(to: url, recordingDelegate: me.value) }
     }
 
     /// 止める。path (後ろ)・frontPath (前) があれば、撮ったファイルを LapTimer/ の下のその場所へ移す (続きは _2・_3 を付ける)
@@ -447,9 +452,9 @@ final class CameraModule: NSObject {
         wantRecording = false
         isoTimer?.invalidate()
         isoTimer = nil
-        hidePreview()
         let finish = { [weak self] in
             guard let self else { return }
+            self.hidePreview()
             let session = Box(value: self.session)
             self.queue.async { if session.value.isRunning { session.value.stopRunning() } }
             let files = self.moveSegments(self.main, path: path)
@@ -458,12 +463,12 @@ final class CameraModule: NSObject {
             self.front.active = false
             done(.success(["files": files, "frontFiles": frontFiles]))
         }
-        let busy = channels.filter { $0.output.isRecording }
+        let busy = channels.filter { $0.writing }
         if busy.isEmpty {
             finish()
         } else {
             stopWaiters.append(finish)
-            busy.forEach { $0.output.stopRecording() }
+            stopOutputs(busy)
         }
     }
 
@@ -557,9 +562,11 @@ final class CameraModule: NSObject {
         if let conn = layer.connection, conn.isVideoRotationAngleSupported(angle) { conn.videoRotationAngle = angle }
         window.addSubview(view)
         previewView = view
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in self?.hidePreview() }
+        // 5 秒たったら見えなくするだけ (層を外すとカメラのつなぎが変わり、前と後ろを同時に撮っているときは録画が止まっていた)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak view] in view?.isHidden = true }
     }
 
+    /// 撮り始めの小さな映像を外す (録画を止めたあと)
     private func hidePreview() {
         previewView?.removeFromSuperview()
         previewView = nil
@@ -747,7 +754,16 @@ final class CameraModule: NSObject {
     /// 裏から戻った・電話が終わったら、続きを撮る (ファイルは分かれる)。カメラのまとまりを替えたら、見張り直す
     private func resetInterruptObserver() {
         interruptObservers.forEach { NotificationCenter.default.removeObserver($0) }
-        interruptObservers = [NotificationCenter.default.addObserver(forName: AVCaptureSession.interruptionEndedNotification, object: session, queue: .main) { [weak self] _ in
+        let s = session
+        interruptObservers = [
+        NotificationCenter.default.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: s, queue: .main) { note in
+            let e = note.userInfo?[AVCaptureSessionErrorKey] as? NSError
+            DebugLog.write("camera: session runtime error \(e?.code ?? 0) \(e?.localizedDescription ?? "")")
+        },
+        NotificationCenter.default.addObserver(forName: AVCaptureSession.wasInterruptedNotification, object: s, queue: .main) { note in
+            let reason = note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int ?? -1
+            DebugLog.write("camera: session interrupted reason=\(reason)")
+        },NotificationCenter.default.addObserver(forName: AVCaptureSession.interruptionEndedNotification, object: session, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.wantRecording else { return }
                 let s = Box(value: self.session)
@@ -765,11 +781,16 @@ final class CameraModule: NSObject {
         if s == .critical && wantRecording {
             // 熱すぎる: 録画だけ止める (ログの記録は Web が続ける)。撮ったファイルは、測定終了のときに移す
             wantRecording = false
-            for c in channels where c.output.isRecording { c.output.stopRecording() }
+            stopOutputs(channels.filter { $0.writing })
             core.emit("camera.state", ["recording": false, "error": "thermal", "thermal": name])
         } else {
             core.emit("camera.state", ["recording": recording, "thermal": name])
         }
+    }
+
+    private func stopOutputs(_ list: [Channel]) {
+        let outs = Box(value: list.map(\.output))
+        queue.async { outs.value.forEach { $0.stopRecording() } }
     }
 
     private func channel(for output: AVCaptureFileOutput) -> Channel? {
@@ -820,9 +841,11 @@ extension CameraModule: AVCaptureFileOutputRecordingDelegate {
                 c.segments.append((outputFileURL, c.currentStartWallMs ?? Date().timeIntervalSince1970 * 1000))
             }
             if let message, !ok { DebugLog.write("camera(\(c.name)): recording failed \(message)") }
+            if self.wantRecording { DebugLog.write("camera(\(c.name)): recording ended by itself ok=\(ok) \(message ?? "")") }
             if c === self.main { self.recording = false }
             // 全部のカメラが止まるまで待つ
-            guard !self.channels.contains(where: { $0.output.isRecording }) else { return }
+            c.writing = false
+            guard !self.channels.contains(where: { $0.writing }) else { return }
             let waiters = self.stopWaiters
             self.stopWaiters = []
             if waiters.isEmpty {

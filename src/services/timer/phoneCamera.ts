@@ -85,6 +85,7 @@ export type CameraStatus = { recording: boolean; error: string | null };
 /** 測っている間の録画 (TimerRuntime が持つ) */
 export class PhoneCameraRecorder {
   private active = false;
+  private starting = false;
   /** 端末の時計から GPS の時計への差 (ミリ秒)。測位ごとに大きいほうへ寄せる */
   private gpsMinusWall: number | null = null;
   status: CameraStatus = { recording: false, error: null };
@@ -106,7 +107,17 @@ export class PhoneCameraRecorder {
   /** 測定開始 */
   async start(): Promise<void> {
     const s = loadCameraSettings();
-    if (!s.enabled || this.active || !(await cameraAvailable())) return;
+    // 続けて呼ばれても (測位ごとなど) 1 回だけ始める
+    if (!s.enabled || this.active || this.starting) return;
+    this.starting = true;
+    try {
+      if (await cameraAvailable()) await this.begin(s);
+    } finally {
+      this.starting = false;
+    }
+  }
+
+  private async begin(s: CameraSettings): Promise<void> {
     try {
       const p = await callNative('camera.permission', { request: true, audio: s.audio });
       if (p.camera !== 'granted') { this.set({ error: 'permission' }); return; }

@@ -222,6 +222,8 @@ export class TimerRuntime {
 
   setSource(s: TimerSource): void {
     if (s === this.snap.source) return;
+    // 試すための再生中の録画は、再生をやめたら止める
+    if (this.snap.source === 'replay' && !this.snap.measuring) void this.camera.stop(null, this.cameraFolder());
     this.set({ source: s });
     if (s !== 'replay') setPositionSource(s);
     if (!this.running) return;
@@ -357,13 +359,21 @@ export class TimerRuntime {
   }
 
   /** 動画を置く未分類のフォルダ (測位が無かったときだけ使う) */
+  /** 内蔵カメラで撮るか。読み込んだログの再生では撮らない (試すときだけ、localStorage の ds_timer_camera_replay を 1 にすると撮る) */
+  private cameraOn(): boolean {
+    if (this.snap.source !== 'replay') return true;
+    try { return localStorage.getItem('ds_timer_camera_replay') === '1'; } catch { return false; }
+  }
+
   private cameraFolder(): string {
     const c = this.snap.course;
     return c ? courseFolder(c.name) || UNSORTED_FOLDER : UNSORTED_FOLDER;
   }
 
   handleFix(fix: LiveFix): void {
-    if (fix.valid && this.snap.source !== 'replay') this.camera.noteFix(fix.tMs);
+    if (fix.valid && this.cameraOn()) this.camera.noteFix(fix.tMs);
+    // 試すとき (ds_timer_camera_replay): 再生は「測る」にならないので、再生が動き出したら録画を始める
+    if (fix.valid && this.snap.source === 'replay' && !this.snap.measuring && this.cameraOn()) void this.camera.start();
     if (!fix.valid) return;
     this.snap = { ...this.snap, lastPos: fix, lastFixPerf: performance.now() };
     this.fixes.push(fix);
@@ -432,7 +442,7 @@ export class TimerRuntime {
     // iPhone の GPS で測るときは、GPS の間を G センサーで埋める (1 Hz → 10 Hz)
     this.startFusion();
     // 内蔵カメラで録画を始める (設定でオンのとき。読み込んだログの再生で試すときは撮らない)
-    if (this.snap.source !== 'replay') void this.camera.start();
+    if (this.cameraOn()) void this.camera.start();
     this.chooseCourse(this.snap.course);
   }
 
@@ -470,7 +480,7 @@ export class TimerRuntime {
     void (rec ? rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true) : Promise.resolve())
       // 測っている途中なら、録画もそこで区切り、新しい走行として撮り始める
       .then(() => this.camera.stop(rec?.filesBase ?? null, this.cameraFolder()))
-      .then(() => { if (measuring && this.snap.measuring && this.snap.source !== 'replay') void this.camera.start(); })
+      .then(() => { if (measuring && this.snap.measuring && this.cameraOn()) void this.camera.start(); })
       .then(() => sensors).then(() => closeRunFiles(rec?.filesBase)).then(() => this.sync());
     this.fixes = [];
     this.set({ lastPos: null, epoch: this.snap.epoch + 1 });
