@@ -70,6 +70,7 @@ import { electronWriter, nativeWriter } from './services/import/importWriters';
 import { LOG_EXTENSIONS } from './services/logLoader';
 import { getWriteBon4 } from './services/runFormatSettings';
 import { applyImuToSession, getGSource, parseImuCsv, setGSource, type GSource, type ImuTrack } from './services/imuG';
+import { saveSession, type LapSession, type LapSessionCar } from './services/analysisSessions';
 
 /**
  * 距離を補正した周で、補正後の距離が 0 になる時刻 (秒)。
@@ -987,6 +988,68 @@ export const App: React.FC = () => {
    * その走行の動画は、Car が変わったときの処理 (companionChainRef) で足す。
    * 周は、その走行の隠していない周のうちいちばん速いもの (同じタイムの周を、読み込んだログの周から探す)
    */
+  /** 保管場所の走行のログを読み込む (もう開いていればそれ)。読み込んだログ (分かれた走行は読み込んだ順) */
+  const loadRunSessions = async (store: NonNullable<Awaited<ReturnType<typeof getRunStore>>>, item: RunItem): Promise<Session[]> => {
+    const runPath = `${item.folder}/${item.file}`;
+    const openedIds = runSessionsRef.current.get(runPath) ?? [];
+    let added = latestRef.current.sessions.filter(x => openedIds.includes(x.id));
+    if (!added.length) {
+      const bytes = await store.read(runPath);
+      const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+      added = await loadFileData(item.file.slice(item.file.lastIndexOf('/') + 1), buffer);
+      runSessionsRef.current.set(runPath, added.map(x => x.id));
+    }
+    runItemsRef.current.set(runPath, item);
+    return added;
+  };
+
+  /** 今の Car の割り当てを、解析用のセッションとして保存する (PLAN-18)。保管場所の走行だけ。エラーなら文 */
+  const saveCurrentSession = async (name: string): Promise<string | null> => {
+    const store = await getRunStore().catch(() => null);
+    if (!store) return tr('保管場所がありません (設定で選んでください)', 'No storage folder (choose one in Settings)');
+    const cars: LapSessionCar[] = [];
+    for (const c of [...selectedCars].sort((a, b) => a.slot - b.slot)) {
+      const run = runOfSession(c.sessionId);
+      if (!run) return tr('保管場所の走行でない Car があります (ファイルから開いたログは保存できません)', 'A car is not a run from your storage (logs opened from files cannot be saved)');
+      const part = run.ids.length > 1 ? run.ids.indexOf(c.sessionId) + 1 : 0;
+      cars.push({ slot: c.slot, run: `${run.item.folder}/${run.item.file}`, ...(run.item.entry?.id ? { id: run.item.entry.id } : {}), ...(part > 0 ? { part } : {}), lap: c.lapNumber });
+    }
+    if (!cars.length) return tr('比べる周がありません', 'No laps selected');
+    const course = sessions.find(s => s.id === selectedCars[0]?.sessionId)?.circuitName;
+    await saveSession(store, { name, ...(course ? { course: { name: course } } : {}), cars });
+    return null;
+  };
+
+  /** 保存したセッションを開く: 指している走行を開いて、Car に割り当てる (見つからない走行は飛ばして知らせる) */
+  const openSavedSession = async (saved: LapSession) => {
+    const store = await getRunStore().catch(() => null);
+    if (!store) return;
+    const items = await listRuns(store).catch(() => [] as RunItem[]);
+    const find = (c: LapSessionCar) => items.find(r => `${r.folder}/${r.file}` === c.run) ?? (c.id ? items.find(r => r.entry?.id === c.id) : undefined);
+    const cars = [...saved.cars].sort((a, b) => a.slot - b.slot);
+    const firstItem = find(cars[0]);
+    if (!firstItem) {
+      alert(tr('このセッションの走行が見つかりません (消したか、名前を変えた走行)', 'The runs of this session were not found (deleted or renamed)'));
+      return;
+    }
+    // Car 1 の走行を開く (動画・同期もそろう)
+    await openRun(firstItem, 'analysis');
+    const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b'];
+    const picks: SelectedCarSlot[] = [];
+    const missing: string[] = [];
+    for (const c of cars) {
+      const item = find(c);
+      if (!item) { missing.push(c.run); continue; }
+      const runSessions = await loadRunSessions(store, item).catch(() => [] as Session[]);
+      const s = runSessions[(c.part ?? 1) - 1] ?? runSessions[0];
+      if (!s) { missing.push(c.run); continue; }
+      picks.push({ slot: c.slot, sessionId: s.id, lapNumber: c.lap, colorHex: colors[c.slot] ?? colors[0], label: `${s.sessionName} (L${c.lap})` });
+    }
+    if (picks.length) setSelectedCars(picks);
+    navStore.go('analysis');
+    if (missing.length) alert(tr(`見つからない走行がありました (${missing.length} 件): ${missing.join(', ')}`, `Some runs were not found (${missing.length}): ${missing.join(', ')}`));
+  };
+
   const addRunAsCar2 = async (item: RunItem) => {
     if (runOpeningRef.current) return;
     runOpeningRef.current = true;
@@ -2332,6 +2395,11 @@ export const App: React.FC = () => {
               const run = runOfSession(id);
               if (run && run.ids[0] === id) void getRunStore().then(store => store && setRunMeta(store, run.item, { name })).catch(() => undefined);
             }}
+            onSaveSession={canUseRunStore() ? saveCurrentSession : undefined}
+            sessionDefaultName={(() => {
+              const c = selectedCars.map(x => sessions.find(s => s.id === x.sessionId)?.sessionName).filter(Boolean);
+              return c.length ? `${c[0]}${c.length > 1 ? ` vs ${c.slice(1).join(' / ')}` : ''}`.slice(0, 60) : '';
+            })()}
             onEditSessionNote={(id, note) => {
               // メモは走行ごと (分かれた走行のログは、どれも同じメモ)
               const run = runOfSession(id);
@@ -2396,6 +2464,7 @@ export const App: React.FC = () => {
             active={currentTab === 'library'}
             wide={profile.layout === 'wide'}
             onOpen={r => void openRun(r)}
+            onOpenSession={s => void openSavedSession(s)}
             // 動画を見る: 走行を開いて (動画と同期もそろう)、動画の画面へ
             onOpenVideo={r => void openRun(r, 'video').then(() => navStore.go('video'))}
             // 走行がもう開いているときだけ、比べる相手として足せる

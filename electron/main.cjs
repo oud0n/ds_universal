@@ -420,7 +420,9 @@ const LAP_TEXT_NAMES = new Set(['laptimes.json', 'runs.json', 'corners.json', 'c
 // 保管場所の course/ (デジスパイスのコースフォルダにならった形。2026-10-24): コーナー (Corner/<フォルダ>.json と .bak)・
 // コース編集で直したコースの計測線 (ControlLine/*.cln)・セクター線 (Sector/*.sci)・その名前などの一覧 (courses.json)
 const COURSE_TEXT = /^course\/(Corner\/[a-z0-9_]+\.json(\.bak)?|ControlLine\/[^/\\]+\.cln|Sector\/[^/\\]+\.sci|courses\.json)$/;
-const lapTextAllowed = (rel, full) => LAP_TEXT_NAMES.has(path.basename(full)) || COURSE_TEXT.test(String(rel).replace(/\\/g, '/'));
+// 解析用のセッション (sessions/<名前>.lapsession.json。保存した比べ方。PLAN-18。2026-10-25)
+const SESSION_TEXT = /^sessions\/[^/\\]+\.lapsession\.json$/;
+const lapTextAllowed = (rel, full) => LAP_TEXT_NAMES.has(path.basename(full)) || COURSE_TEXT.test(String(rel).replace(/\\/g, '/')) || SESSION_TEXT.test(String(rel).replace(/\\/g, '/'));
 const MAX_LAP_TEXT_BYTES = 20 * 1024 * 1024;
 /**
  * 保管場所からの道を、保管場所の中の実際の場所にする (外へ出る道は断る)。

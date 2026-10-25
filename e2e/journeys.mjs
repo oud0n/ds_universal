@@ -114,6 +114,8 @@ export const journeys = [
         Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${JSON.stringify(v)});
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.blur();
+        // 窓が前面にないと blur の知らせが起きないので、離れた知らせをはっきり送る
+        el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
       })()`);
       await select();
       await fill('run-detail-name', 'e2e 新品タイヤ');
@@ -137,7 +139,7 @@ export const journeys = [
       if (!(await p.exists('session-note'))) await p.click('toggle-data-drawer');
       await p.waitFor(`document.querySelector('[data-testid="session-note"]')`, 8000, '走行とコースのメモ');
       check(await p.ev(`[...document.querySelectorAll('[data-testid="session-note"]')].some(e => e.value === 'e2e 晴れ 22℃')`), '走行とコースにメモが出ない');
-      await p.ev(`(() => { const el = [...document.querySelectorAll('[data-testid="session-note"]')].find(e => e.value === 'e2e 晴れ 22℃'); el.focus(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, 'e2e 雨'); el.dispatchEvent(new Event('input', { bubbles: true })); el.blur(); })()`);
+      await p.ev(`(() => { const el = [...document.querySelectorAll('[data-testid="session-note"]')].find(e => e.value === 'e2e 晴れ 22℃'); el.focus(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, 'e2e 雨'); el.dispatchEvent(new Event('input', { bubbles: true })); el.blur(); el.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); })()`);
       await sleep(1500);
       const row2 = Object.entries(JSON.parse(fs.readFileSync(path.join(root, 'sodegaura/runs.json'), 'utf8')).runs).find(([k]) => k.includes('20260913'))?.[1];
       check(row2?.note === 'e2e 雨', `走行とコースのメモが runs.json に入らない: ${row2?.note}`);
@@ -177,6 +179,44 @@ export const journeys = [
       await p.waitFor(`![...document.querySelectorAll('[data-testid="run-row-note"]')].some(e => e.innerText.includes('e2e'))`, 8000, 'メモが消える');
       const after = Object.entries(JSON.parse(fs.readFileSync(path.join(root, 'sodegaura/runs.json'), 'utf8')).runs).find(([k]) => k.includes('20260913'))?.[1];
       check(after && after.name === undefined && after.note === undefined, `名前・メモが消えない: ${JSON.stringify(after)}`);
+    }
+  },
+  {
+    name: '保存した比べ方 (PLAN-18): Car の割り当てを保存し、別の走行を開いたあとで開き直すと、同じ走行と周に戻る',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      await openRun(p, '9/18', 'run-open-analysis');
+      await openRun(p, '8/15', 'run-add-car2');
+      const before = await p.state();
+      check(before.cars.length === 2, `Car が 2 台にならない: ${JSON.stringify(before.cars)}`);
+      const want = before.cars.map(c => ({ slot: c.slot, name: before.sessions.find(x => x.id === c.sessionId)?.fileName, lap: c.lapNumber }));
+      if (!(await p.exists('session-save'))) await p.click('toggle-data-drawer');
+      await p.waitFor(`document.querySelector('[data-testid="session-save-name"]')`, 5000, '比べ方を保存の欄');
+      await p.ev(`(() => { const el = document.querySelector('[data-testid="session-save-name"]'); el.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, 'e2e 比べ方'); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      await p.click('session-save-button');
+      await p.waitFor(`document.querySelector('[data-testid="session-save"]')?.innerText.includes('保存しました')`, 8000, '保存しました');
+      const files = fs.readdirSync(path.join(root, 'sessions')).filter(f => f.endsWith('.lapsession.json'));
+      const saved = files.map(f => JSON.parse(fs.readFileSync(path.join(root, 'sessions', f), 'utf8'))).find(j => j.name === 'e2e 比べ方' && !j.deleted);
+      check(saved?.cars?.length === 2, `保存したファイルがおかしい: ${JSON.stringify(saved)}`);
+      if (await p.exists('session-save')) await p.click('toggle-data-drawer');
+      // 別の走行を開いてから、保存した比べ方を開く
+      await openRun(p, '8/30', 'run-open-analysis');
+      await p.click('nav-library');
+      await p.waitFor(`[...document.querySelectorAll('[data-testid="library-session-row"]')].some(r => r.innerText.includes('e2e 比べ方'))`, 10000, '保存した比べ方の行');
+      await p.ev(`[...document.querySelectorAll('[data-testid="library-session-row"]')].find(r => r.innerText.includes('e2e 比べ方')).querySelector('button').click()`);
+      await p.waitFor(`!document.querySelector('[data-testid="library-session-row"]')`, 30000, '開き終わる (解析の画面へ)');
+      await sleep(3000);
+      const after = await p.state();
+      const got = after.cars.map(c => ({ slot: c.slot, name: after.sessions.find(x => x.id === c.sessionId)?.fileName, lap: c.lapNumber }));
+      check(JSON.stringify(got) === JSON.stringify(want), `開き直した Car が違う: ${JSON.stringify(got)} / 保存: ${JSON.stringify(want)}`);
+      // 片付け (消す)
+      await p.click('nav-library');
+      await p.waitFor(`[...document.querySelectorAll('[data-testid="library-session-row"]')].some(r => r.innerText.includes('e2e 比べ方'))`, 10000, '保存した比べ方の行');
+      await p.ev(`window.confirm = () => true; [...document.querySelectorAll('[data-testid="library-session-row"]')].find(r => r.innerText.includes('e2e 比べ方')).querySelector('[data-testid="library-session-delete"]').click()`);
+      await p.waitFor(`![...document.querySelectorAll('[data-testid="library-session-row"]')].some(r => r.innerText.includes('e2e 比べ方'))`, 8000, '消した比べ方が消える');
     }
   },
   {
