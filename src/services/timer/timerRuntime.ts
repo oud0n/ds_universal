@@ -367,7 +367,7 @@ export class TimerRuntime {
 
   private cameraFolder(): string {
     const c = this.snap.course;
-    return c ? courseFolder(c.name) || UNSORTED_FOLDER : UNSORTED_FOLDER;
+    return c ? courseFolder(c.name, c.folder, c.id) || UNSORTED_FOLDER : UNSORTED_FOLDER;
   }
 
   handleFix(fix: LiveFix): void {
