@@ -106,6 +106,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 
   const [colorMode, setColorMode] = useState<'car' | 'speed' | 'accel' | 'line'>('car');
   const [showCorners, setShowCorners] = useState(true);
+  // セクターからの一斉スタートの段。スマートフォンでは地図が小さくなるので、押したときだけ出す
+  const [sectorBarOpen, setSectorBarOpen] = useState(!compact);
   // コーナーの編集 (PLAN-27): 直している途中の一覧 (編集していなければ null)・選んでいるコーナー
   const [cornerDraft, setCornerDraft] = useState<NamedCorner[] | null>(null);
   const [selectedCorner, setSelectedCorner] = useState<number | null>(null);
@@ -176,6 +178,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   const canEditCorners = !!course.folder && !!baseGeo && canUseRunStore();
   const startCornerEdit = () => {
     if (!baseGeo) return;
+    // 編集の一覧が右半分を隠すので、追従はやめる (追いかけた車が一覧の端に隠れていた)
+    if (isFollowing) { setPanOffset(drawnPanRef.current); setIsFollowing(false); }
     setCornerDraft(course.file?.corners.length ? course.file.corners : cornersFromDetection(baseGeo, course.found));
     setSelectedCorner(null);
     setCornerError('');
@@ -380,6 +384,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       x: width / 2 + (lon - lonMid) * cosLat * baseScale + pan.x,
       y: height / 2 - (lat - latMid) * baseScale + pan.y
     });
+    // 速度の文字を書いた位置 (近くを走る車の文字が重なって読めなくならないよう、重なるときは下へずらす)
+    const labelSpots: Array<{ x: number; y: number }> = [];
     cars.forEach(car => {
       const pts = car.lap.points;
       if (pts.length === 0) return;
@@ -441,14 +447,17 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       // 追従 (車を大きく出している) ときは、車の下に速度 (もとはアニメの窓だけ)
       if (following) {
         const label = `${curPt.speed.toFixed(0)} km/h`;
+        let labelY = pos.y + 14;
+        while (labelSpots.some(p => Math.abs(p.x - pos.x) < 64 && Math.abs(p.y - labelY) < 13)) labelY += 13;
+        labelSpots.push({ x: pos.x, y: labelY });
         ctx.font = 'bold 11px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
         ctx.lineWidth = 3;
         ctx.strokeStyle = 'rgba(0,0,0,0.75)';
-        ctx.strokeText(label, pos.x, pos.y + 14);
+        ctx.strokeText(label, pos.x, labelY);
         ctx.fillStyle = car.slot.colorHex;
-        ctx.fillText(label, pos.x, pos.y + 14);
+        ctx.fillText(label, pos.x, labelY);
       }
     });
   };
@@ -1066,6 +1075,18 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
 
         {/* コントロール */}
         <div className="flex items-center gap-1">
+          {/* スマートフォン: セクターからの一斉スタートの段を出す・しまう (地図を大きく使うため) */}
+          {compact && sectorStart && sectors.length > 0 && !cornerDraft && (
+            <button
+              onClick={() => setSectorBarOpen(v => !v)}
+              aria-pressed={sectorBarOpen}
+              title={t('セクターから一斉にスタート', 'Start all cars from a sector')}
+              className={`px-1.5 py-0.5 mr-1 rounded border text-[11px] ${sectorBarOpen || sectorStart.alignedSectorName ? 'border-amber-500/60 text-amber-300' : 'border-line-3 text-slate-400'}`}
+              data-testid="track-sector-toggle"
+            >
+              {t('同時', 'Start')}
+            </button>
+          )}
           <button
             onClick={() => {
               // 追従を外すときは、今見えている位置のままにする
@@ -1122,7 +1143,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       </div>
 
       {/* セクターからの一斉スタート (もとはアニメの窓だけ。PLAN-28)。コーナーの編集中は出さない */}
-      {sectorStart && sectors.length > 0 && !cornerDraft && (
+      {sectorStart && sectors.length > 0 && !cornerDraft && sectorBarOpen && (
         <div className={`flex items-center bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0 overflow-x-auto ${compact ? 'px-2 py-1' : 'px-3 py-1'}`} data-testid="track-sector-start">
           <SectorStartBar compact={compact} sectors={sectors} {...sectorStart} />
         </div>

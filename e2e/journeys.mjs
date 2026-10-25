@@ -482,7 +482,8 @@ export const journeys = [
       await p.waitFor(`document.querySelectorAll('[data-testid="run-row"]').length > 0`, 20000);
       await p.ev(`(()=>{const r=[...document.querySelectorAll('[data-testid="run-row"]')].find(r=>r.innerText.includes('9/13')); r?.click()})()`);
       await p.waitFor(`document.querySelector('[data-testid="run-detail"]')`, 5000);
-      const head = () => p.ev(`document.querySelector('[data-testid="run-detail"]').innerText.split('\\n').slice(0,3).join(' ')`);
+      // 見出しの「ベスト ・ N 周」の行 (名前・車種・タイヤの欄の数で行の位置は変わる)
+      const head = () => p.ev(`document.querySelector('[data-testid="run-detail"]').innerText.split('\\n').find(l => /^(ベスト|Best) /.test(l)) ?? ''`);
       const before = await head();
       await p.ev(`[...document.querySelectorAll('[data-testid="run-detail"] button[aria-label="隠す"]')][0].click()`);
       await sleep(4000);

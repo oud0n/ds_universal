@@ -157,7 +157,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
 
   const select = (r: RunItem) => setSelectedKey(`${r.folder}/${r.file}`);
   /** 車種・タイヤの候補 (書いたことのあるもの。新しい走行のものから) */
-  const carTyreChoices = { cars: uniqueValues((runs ?? []).map(r => r.entry?.car ?? r.entry?.reference?.car)), tyres: uniqueValues((runs ?? []).map(r => r.entry?.tyre)) };
+  const carTyreChoices = { cars: uniqueValues((runs ?? []).map(r => (r.entry?.reference ? r.entry.reference.car : r.entry?.car))), tyres: uniqueValues((runs ?? []).map(r => r.entry?.tyre)) };
 
   const list = (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -547,13 +547,15 @@ const CarTyreFields: React.FC<{
     <div className="flex gap-2 mt-1.5" data-testid="run-detail-car-tyre">
       {showCar && (
         <>
+          <span className="shrink-0 text-[10px] text-slate-500 self-center">{t('車種', 'Car')}</span>
           <input value={c} onChange={e => setC(e.target.value.slice(0, 40))} onBlur={save} onKeyDown={enter} list="run-car-choices"
-            placeholder={t('車種', 'Car')} aria-label={t('車種', 'Car')} className={input} data-testid="run-detail-car" />
+            placeholder={t('例: ロードスター', 'e.g. Roadster')} aria-label={t('車種', 'Car')} className={input} data-testid="run-detail-car" />
           <datalist id="run-car-choices">{choices?.cars.map(v => <option key={v} value={v} />)}</datalist>
         </>
       )}
+      <span className="shrink-0 text-[10px] text-slate-500 self-center">{t('タイヤ', 'Tyres')}</span>
       <input value={ty} onChange={e => setTy(e.target.value.slice(0, 40))} onBlur={save} onKeyDown={enter} list="run-tyre-choices"
-        placeholder={t('タイヤ', 'Tyres')} aria-label={t('タイヤ', 'Tyres')} className={input} data-testid="run-detail-tyre" />
+        placeholder={t('例: RE-71RS', 'e.g. RE-71RS')} aria-label={t('タイヤ', 'Tyres')} className={input} data-testid="run-detail-tyre" />
       <datalist id="run-tyre-choices">{choices?.tyres.map(v => <option key={v} value={v} />)}</datalist>
     </div>
   );
@@ -591,13 +593,25 @@ const RunNameInput: React.FC<{ name: string; onSave: (name: string) => void }> =
  * 参考ラップの印 (自分のではない走行。PLAN-31)。印を付けると、誰の走行か・車を書ける。
  * 参考ラップは、ラップタイムの一覧の順位・ベストと、ラップタイマーの「これまでのベスト」には数えない
  */
-const ReferenceField: React.FC<{ reference: { driver?: string; car?: string } | undefined; onSave: (r: { driver?: string; car?: string } | null) => void }> = ({ reference, onSave }) => {
+const ReferenceField: React.FC<{ reference: { driver?: string; car?: string } | undefined; ownCar?: string; onSave: (r: { driver?: string; car?: string } | null) => void }> = ({ reference, ownCar, onSave }) => {
   const t = useT();
   const [driver, setDriver] = useState(reference?.driver ?? '');
-  const [car, setCar] = useState(reference?.car ?? '');
+  // 参考ラップにしたときは、書いてあった車種を車の欄に入れておく
+  const [car, setCar] = useState(reference?.car ?? ownCar ?? '');
   // 印はすぐ切り替える (一覧を読み直す前に誰・車を書いても、書けるように)
   const [on, setOn] = useState(!!reference);
-  const save = () => { if (on && (driver.trim() !== (reference?.driver ?? '') || car.trim() !== (reference?.car ?? ''))) onSave({ driver, car }); };
+  const savedRef = useRef({ driver: reference?.driver ?? '', car: reference?.car ?? '' });
+  const save = () => {
+    if (on && (driver.trim() !== savedRef.current.driver.trim() || car.trim() !== savedRef.current.car.trim())) {
+      savedRef.current = { driver, car };
+      onSave({ driver, car });
+    }
+  };
+  // 欄が消える (別の走行を選んだ) ときも、書きかけを書く
+  const latestSave = useRef(save);
+  latestSave.current = save;
+  useEffect(() => () => latestSave.current(), []);
+  const enter = (e: React.KeyboardEvent<HTMLInputElement>) => { if (!e.nativeEvent.isComposing && e.key === 'Enter') e.currentTarget.blur(); };
   const input = 'flex-1 min-w-0 bg-transparent border-b border-line-3 focus:border-sky-500 text-xs text-slate-200 placeholder:text-slate-500 outline-none py-0.5';
   return (
     <div className="mt-1.5 space-y-1">
@@ -607,8 +621,8 @@ const ReferenceField: React.FC<{ reference: { driver?: string; car?: string } | 
       </label>
       {on && (
         <div className="flex gap-2 pl-5">
-          <input value={driver} onChange={e => setDriver(e.target.value.slice(0, 40))} onBlur={save} placeholder={t('誰の走行か', 'Driver')} aria-label={t('誰の走行か', 'Driver')} className={input} data-testid="run-detail-ref-driver" />
-          <input value={car} onChange={e => setCar(e.target.value.slice(0, 40))} onBlur={save} placeholder={t('車', 'Car')} aria-label={t('車', 'Car')} className={input} data-testid="run-detail-ref-car" />
+          <input value={driver} onChange={e => setDriver(e.target.value.slice(0, 40))} onBlur={save} onKeyDown={enter} placeholder={t('誰の走行か', 'Driver')} aria-label={t('誰の走行か', 'Driver')} className={input} data-testid="run-detail-ref-driver" />
+          <input value={car} onChange={e => setCar(e.target.value.slice(0, 40))} onBlur={save} onKeyDown={enter} placeholder={t('車', 'Car')} aria-label={t('車', 'Car')} className={input} data-testid="run-detail-ref-car" />
         </div>
       )}
     </div>
@@ -656,7 +670,7 @@ const RunDetail: React.FC<{
         <div className="flex-1 min-w-0">
           <div className="text-sm font-bold text-slate-100">{fmtDate(run.startMs, ja)} {run.courseName != null ? circuitLabel(run.courseName) : (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</div>
           {onSaveMeta && <RunNameInput key={`${run.folder}/${run.file}`} name={run.entry?.name ?? ''} onSave={name => void onSaveMeta({ name })} />}
-          {onSaveMeta && <ReferenceField key={`ref-${run.folder}/${run.file}`} reference={run.entry?.reference} onSave={reference => void onSaveMeta({ reference })} />}
+          {onSaveMeta && <ReferenceField key={`ref-${run.folder}/${run.file}`} reference={run.entry?.reference} ownCar={run.entry?.car} onSave={reference => void onSaveMeta({ reference })} />}
           {onSaveMeta && (
             <CarTyreFields
               key={`ct-${run.folder}/${run.file}`}
