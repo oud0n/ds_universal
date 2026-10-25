@@ -75,6 +75,8 @@ interface VideoSyncWindowProps {
   targetSessionId?: string;  // 速度ウィンドウで選択中のセッションID
   targetLap?: any;           // 速度ウィンドウで選択中のラップ
   isGraphEmbedded?: boolean; // グラフ解析画面に埋め込まれているかどうか
+  /** 動画を 1 つ見るだけ (スマートフォンの解析の下の欄)。上の道具の段・比べる・マルチカメラは出さない */
+  simple?: boolean;
   // 音を出さない (グラフ解析で、同じ動画をほかのウインドウも出しているとき。音が二重になるため)
   muted?: boolean;
   // 画面に見えているか。見えていないウインドウ (隠れている動画同期タブ・グラフ画面) では動画を再生しない
@@ -200,6 +202,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   targetSessionId,
   targetLap,
   isGraphEmbedded = false,
+  simple = false,
   muted: muteAll = false,
   isVisible = true,
   playbackSpeed,
@@ -452,7 +455,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const renderSessionTime = isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec;
   // 走行比較は周がないと何も映せないので、周がないとき (GPS のない動画だけを読み込んだときなど) はマルチカメラで出す。
   // 選んだ表示 (win.mode) は変えないので、周のあるログを読み込めば走行比較に戻る
-  const isCompare = win.mode === 'compare' && !!baseLap;
+  const isCompare = !simple && win.mode === 'compare' && !!baseLap;
 
   // Car 2 がいないときに走行比較を押したら、Car 1 と同じログの、Car 1 の周以外でいちばん速い周を Car 2 に入れる
   // (動画 1 本・ログ 1 つでも、同じ動画の別の周どうしを比べられるように)
@@ -529,7 +532,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   };
   const tiles: Tile[] = isCompare
     ? compareTiles(renderSessionTime)
-    : cameras.map((m, i) => ({ media: m, position: positionInMedia(m, renderSessionTime), gauge: i === 0 ? { session: baseSession, lap: baseLap, time: renderSessionTime } : undefined }));
+    : (simple ? cameras.slice(0, 1) : cameras).map((m, i) => ({ media: m, position: positionInMedia(m, renderSessionTime), gauge: i === 0 ? { session: baseSession, lap: baseLap, time: renderSessionTime } : undefined }));
   const tileCount = tiles.length;
   const positions = tiles.map(x => x.position);
   // 同期の調整・書き出しの対象は、メインのカメラの今のチャプター
@@ -1095,7 +1098,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       {/* スマートフォンでは、横にスクロールさせず折り返し、押しやすいよう大きくする (2026-10-20) */}
       <div
         ref={toolbarScrollRef}
-        className={fullView ? 'hidden' : phoneToolbar
+        className={fullView || simple ? 'hidden' : phoneToolbar
           ? 'bg-surface-1 border-b border-line-1 px-2 py-1.5 flex flex-wrap items-center gap-1 shrink-0 [&_button]:whitespace-nowrap [&_button]:shrink-0 [&_button]:min-h-9 [&_button]:text-xs [&_select]:min-h-9 [&_select]:text-sm [&_svg]:w-4 [&_svg]:h-4'
           : 'min-h-11 bg-surface-1 border-b border-line-1 px-3 py-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 shrink-0 [&_button]:whitespace-nowrap [&_button]:shrink-0'}
         data-testid="video-toolbar"

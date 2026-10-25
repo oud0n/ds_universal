@@ -119,9 +119,10 @@ const COLLAPSED_STORAGE_KEY = 'ds_collapsed_panes';
 const SHOW_DRIFT = false;
 
 // スマートフォンのグラフ解析タブで、速度ウインドウの下 (横向きでは右) に切り替えて出すウインドウ
-type MobilePanel = 'map' | 'gg' | 'corner' | 'braking' | 'xy' | 'drift';
+type MobilePanel = 'map' | 'video' | 'gg' | 'corner' | 'braking' | 'xy' | 'drift';
 const MOBILE_PANELS: { id: MobilePanel; label: [string, string] }[] = ([
   { id: 'map', label: ['コース', 'Map'] },
+  { id: 'video', label: ['動画', 'Video'] },
   { id: 'gg', label: ['GG', 'GG'] },
   { id: 'corner', label: ['コーナー', 'Corners'] },
   { id: 'braking', label: ['ブレーキ', 'Braking'] },
@@ -2044,6 +2045,7 @@ export const App: React.FC = () => {
                   <button
                     key={p.id}
                     onClick={() => setMobilePanel(p.id)}
+                    data-testid={`mobile-panel-${p.id}`}
                     className={`flex-1 px-1 py-1.5 rounded text-xs font-bold transition-colors ${
                       mobilePanel === p.id ? 'bg-red-600 text-white' : 'text-slate-400'
                     }`}
@@ -2061,6 +2063,30 @@ export const App: React.FC = () => {
                       {el}
                     </div>
                   ))}
+                {/* 動画は選んだときだけ置く (隠したまま再生・読み込みしないように)。見るだけ (比べる・マルチカメラは動画の画面で) */}
+                {mobilePanel === 'video' && (
+                  <VideoSyncWindow
+                    sessions={sessions}
+                    selectedCars={selectedCars}
+                    currentTimeSec={currentTimeSec}
+                    currentDistanceKm={currentDistanceKm}
+                    isPlaying={isPlaying}
+                    onSeekTime={handleSeekTime}
+                    onTogglePlay={() => setIsPlaying(!isPlaying)}
+                    circuitName={currentCircuitName}
+                    targetSessionId={baseSession?.id}
+                    targetLap={baseLap}
+                    isGraphEmbedded={true}
+                    simple
+                    isVisible={currentTab === 'analysis'}
+                    playbackSpeed={playbackSpeed}
+                    onChangePlaybackSpeed={setPlaybackSpeed}
+                    onChooseLog={setBaseSession}
+                    onLoadFiles={loadFiles}
+                    viewKey="phone-analysis"
+                    onSetClockOffset={setSessionClockOffset}
+                  />
+                )}
               </div>
             </div>
             </Freeze>

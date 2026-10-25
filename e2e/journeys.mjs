@@ -416,6 +416,31 @@ export const journeys = [
     }
   },
   {
+    name: 'スマートフォンの解析: 下の欄の「動画」で、Car 1 の動画を見るだけで出す (道具の段・比べるは出さない)。グラフで動かすと動画も動く',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      await openRun(p, '8/15', 'run-open-analysis');
+      await p.viewport(390, 844, true);
+      try {
+        await sleep(800);
+        await p.click('mobile-panel-video');
+        await p.waitFor(`[...document.querySelectorAll('video')].some(v => v.offsetParent !== null && v.readyState >= 2)`, 20000, '下の欄の動画');
+        const info = await p.ev(`(()=>{const w=[...document.querySelectorAll('[data-testid="video-window"]')].find(x=>x.offsetParent!==null); return { toolbar: w.querySelector('[data-testid="video-toolbar"]').offsetParent !== null, videos: [...w.querySelectorAll('video')].filter(v=>v.offsetParent!==null).length, compare: !!w.querySelector('[data-testid="video-mode-compare"]') }})()`);
+        check(!info.toolbar && info.videos === 1 && !info.compare, `見るだけになっていない: ${JSON.stringify(info)}`);
+        await p.shot('phone_video_pane');
+        await checkVideoSync(p, '下の欄の動画');
+        // ほかの欄に替えると動画を外す
+        await p.click('mobile-panel-map');
+        await sleep(500);
+        check(!(await p.ev(`[...document.querySelectorAll('video')].some(v => v.offsetParent !== null)`)), 'コースに替えても動画が見えている');
+      } finally {
+        await p.send('Emulation.clearDeviceMetricsOverride').catch(() => {});
+        await p.send('Emulation.setTouchEmulationEnabled', { enabled: false }).catch(() => {});
+      }
+    }
+  },
+  {
     name: '走行を消す: 同じ日の別の走行・付けていない動画は残し、その走行のファイルと runs.json の行だけを消す',
     target: 'electron',
     async run(p) {
