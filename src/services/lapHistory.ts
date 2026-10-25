@@ -6,6 +6,7 @@
 import { CIRCUIT_PRESETS } from './circuitDatabase';
 import { userCircuitStorage } from './userCircuitStorage';
 import { courseFolder } from '../utils/courseNames';
+import { findRunRow, readRunsFile } from './runsFile';
 import {
   LAP_INDEX_FILE, groupBon4ByFolder, lapRows, parseLapIndex, queueLapIndexWrite, reconcileFolder, setHidden,
   type LapCourse, type LapFileStore, type LapIndex, type LapRow
@@ -33,6 +34,8 @@ export interface LapFolder {
   fileCount: number;
   rows: LapRow[];
   index: LapIndex | null;
+  /** 走行の名前 (runs.json の行の name。走行のファイル名 → 名前。PLAN-32) */
+  names?: Record<string, string>;
 }
 
 /**
@@ -64,7 +67,11 @@ export async function loadLapHistory(store: LapFileStore, onProgress?: (folder: 
     if (result.changed) await writeIndex(result.index).catch(() => {});
     // 一覧には、書いた中身 (計算の間に隠した周を残したもの) を出す
     const index: LapIndex = result.changed && written ? written : result.index;
-    out.push({ folder, courseName: course.name, fileCount: files.length, rows: lapRows(folder, index), index });
+    // 走行に付けた名前 (読めなくても一覧は出す)
+    const runsFile = await readRunsFile(store, folder).catch(() => null);
+    const names: Record<string, string> = {};
+    if (runsFile) for (const file of Object.keys(index.files)) { const n = findRunRow(runsFile, file)?.name; if (n) names[file] = n; }
+    out.push({ folder, courseName: course.name, fileCount: files.length, rows: lapRows(folder, index), index, names });
   }
   return out;
 }

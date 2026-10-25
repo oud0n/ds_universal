@@ -142,6 +142,15 @@ export const journeys = [
       const row2 = Object.entries(JSON.parse(fs.readFileSync(path.join(root, 'sodegaura/runs.json'), 'utf8')).runs).find(([k]) => k.includes('20260913'))?.[1];
       check(row2?.note === 'e2e 雨', `走行とコースのメモが runs.json に入らない: ${row2?.note}`);
       if (await p.exists('session-note')) await p.click('toggle-data-drawer');
+      // ラップタイムの一覧にも、走行の名前が出る
+      await p.click('nav-library');
+      await p.waitFor(`document.querySelector('[data-testid="library-lap-history"]')`, 10000, 'ラップタイムのボタン');
+      await p.click('library-lap-history');
+      await p.waitFor(`[...document.querySelectorAll('select option')].some(o => o.value === 'unsorted')`, 20000, 'ラップタイムのコースの選択');
+      await p.ev(`(() => { const sel = [...document.querySelectorAll('select')].find(x => [...x.options].some(o => o.value === 'unsorted')); const o = [...sel.options].find(o => o.textContent.includes('袖ヶ浦')); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, o.value); sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      await p.waitFor(`[...document.querySelectorAll('[data-testid="lap-history-run-name"]')].some(e => e.innerText === 'e2e 新品タイヤ')`, 20000, 'ラップタイムの一覧の名前');
+      await p.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+      await sleep(500);
       // 片付け (名前・メモを消す)
       await select();
       await fill('run-detail-name', '');

@@ -137,6 +137,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
       <span className="w-10 text-slate-500 font-mono" title={r.part ? t(`${r.part} つめのまとまり (解析では _${r.part})`, `Part ${r.part} (_${r.part} in analysis)`) : undefined}>{r.part ? `${r.part}-` : ''}L{r.n}</span>
       <span className={`font-mono font-bold w-20 ${RANK_STYLE[rankOf(r)]?.text ?? 'text-slate-100'}`}>{formatLapTime(r.time, 3)}</span>
       {withDate && <span className="text-slate-400 font-mono text-[11px]">{fmtDate(r.startMs || r.runStartMs)}</span>}
+      {withDate && current?.names?.[r.file] && <span className="text-sky-300 text-[11px] truncate max-w-[8rem]">{current.names[r.file]}</span>}
       <span className="hidden sm:flex gap-2 text-slate-400 font-mono text-[11px] flex-1 min-w-0 truncate">
         {r.sectors.map((s, i) => <span key={i}>S{i + 1} {s.toFixed(3)}</span>)}
       </span>
@@ -216,6 +217,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
                 <div key={file} className="space-y-1">
                   <div className="flex items-baseline gap-2 text-xs">
                     <span className="font-bold text-slate-200 whitespace-nowrap">{fmtDate(rows[0].runStartMs)}</span>
+                    {current?.names?.[file] && <span className="font-bold text-sky-300 truncate min-w-0" data-testid="lap-history-run-name">{current.names[file]}</span>}
                     <span className="text-slate-500">{t(`${rows.length} 周`, `${rows.length} lap${(rows.length) === 1 ? '' : 's'}`)}{Number.isFinite(runBest) ? ` · ${t('ベスト', 'best')} ${formatLapTime(runBest, 3)}` : ''}</span>
                     {/* ファイル名は、幅のある画面だけ (スマートフォンでは日付が折れないように) */}
                     <span className="hidden sm:inline text-slate-600 text-[10px] ml-auto truncate">{file}</span>
