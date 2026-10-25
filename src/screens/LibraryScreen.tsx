@@ -257,8 +257,14 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
                     <div className="text-[11px] text-slate-500 truncate">
                       {circuitLabel(runs?.find(x => x.folder === r.folder)?.courseName ?? r.folder)}
                       {r.row.reference?.driver ? ` · ${r.row.reference.driver}` : ''}{r.row.reference?.car ? ` · ${r.row.reference.car}` : ''}
-                      {` · ${t(`${r.laps.length} 周`, `${r.laps.length} lap${r.laps.length === 1 ? '' : 's'}`)}`}{best !== null ? ` · ${formatLapTime(best)}` : ''}{r.remote ? ' · iCloud' : ''}
+                      {` · ${t(`${r.laps.length} 周`, `${r.laps.length} lap${r.laps.length === 1 ? '' : 's'}`)}`}{best !== null ? ` · ${formatLapTime(best)}` : ''}
                     </div>
+                    {/* iCloud にだけある動画は、行の後ろで切れて見えないので、別の行に出す */}
+                    {r.remote && (
+                      <div className="flex items-center gap-1 text-[11px] text-amber-500" data-testid="library-video-ref-remote">
+                        <Cloud size={12} className="shrink-0" />{t('iCloud にだけあります (「ファイル」で落とすと比べられます)', 'Only in iCloud (download it in Files to compare)')}
+                      </div>
+                    )}
                   </div>
                   <button onClick={() => setComparing(r)} disabled={!r.laps.length || r.remote} title={r.remote ? t('iCloud から落としてから比べてください', 'Download it from iCloud first') : undefined} className="px-3 py-2 rounded bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50" data-testid="library-video-ref-compare">{t('比べる', 'Compare')}</button>
                   <button onClick={() => setMarking({ path: r.path, existing: r })} className="px-3 py-2 rounded border border-line-3 text-slate-300 text-[11px] cursor-pointer" data-testid="library-video-ref-edit">{t('印', 'Marks')}</button>
