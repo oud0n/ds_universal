@@ -70,6 +70,20 @@ class MainActivity : ComponentActivity() {
         permissionCallback = null
     }
 
+    private var permissionsCallback: ((Boolean) -> Unit)? = null
+    private val permissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
+        permissionsCallback?.invoke(r.values.all { it })
+        permissionsCallback = null
+    }
+
+    /** いくつかの許可をまとめて聞く (全部もらえたら true) */
+    fun withPermissions(perms: Array<String>, cb: (Boolean) -> Unit) {
+        val missing = perms.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isEmpty()) { cb(true); return }
+        permissionsCallback = cb
+        permissionsLauncher.launch(missing.toTypedArray())
+    }
+
     fun launchIntentSender(sender: IntentSender, cb: (Intent?) -> Unit) {
         senderCallback = cb
         senderLauncher.launch(IntentSenderRequest.Builder(sender).build())
