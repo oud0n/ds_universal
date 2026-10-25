@@ -81,6 +81,8 @@ export interface CameraLens {
 export interface CameraFrontParams {
   preset: CameraPreset;
   iso: number | null;
+  /** 明るさの補正 (EV。2026-10-25。前の版のアプリは見ない) */
+  ev?: number;
 }
 
 /** 撮り終えた動画のファイル (止まって分かれたら複数)。startWallMs は先頭のコマの端末の時計 (UTC ミリ秒) */
@@ -268,16 +270,21 @@ export interface NativeMethods {
    * 録画を始める (一時ファイルに書く)。向きは今の画面の向き。iso を決めたら、シャッターの速さで明るさを保つ (null は自動)。
    * preview なら、撮り始めの 5 秒だけ右上に小さく映す
    */
-  'camera.start': { params: { lensId: string | null; preset: CameraPreset; audio: boolean; iso: number | null; preview: boolean; front?: CameraFrontParams | null }; result: { lensId: string; preset: CameraPreset; front?: boolean } };
+  'camera.start': { params: { lensId: string | null; preset: CameraPreset; audio: boolean; iso: number | null; preview: boolean; front?: CameraFrontParams | null; ev?: number; focusFar?: boolean }; result: { lensId: string; preset: CameraPreset; front?: boolean } };
   /** 止める。path (LapTimer/ の下の道。.nmea と同じ所の .mov) があれば、そこへ移す (止まって分かれたものは _2・_3 を付ける) */
   'camera.stop': { params: { path: string | null; frontPath?: string | null }; result: { files: CameraFile[]; frontFiles?: CameraFile[] } };
   /**
    * 撮る前の確かめ: 画面の rect (CSS の座標) に今の映像を出す (show: false で消す)。出している間は camera.exposure が届く。
    * レンズ・画質を変えたら、もう一度呼ぶ
    */
-  'camera.preview': { params: { show: boolean; lensId?: string | null; preset?: CameraPreset; iso?: number | null; rect?: { x: number; y: number; w: number; h: number }; front?: (CameraFrontParams & { rect: { x: number; y: number; w: number; h: number } }) | null }; result: Record<string, never> };
+  'camera.preview': { params: { show: boolean; lensId?: string | null; preset?: CameraPreset; iso?: number | null; ev?: number; focusFar?: boolean; rect?: { x: number; y: number; w: number; h: number }; front?: (CameraFrontParams & { rect: { x: number; y: number; w: number; h: number } }) | null }; result: Record<string, never> };
   /** ISO をその場で変える (null は自動) */
   'camera.setIso': { params: { iso: number | null; which?: 'main' | 'front' }; result: Record<string, never> };
+  /**
+   * 明るさの補正 (EV) をその場で変える (確かめの映像を出している間。2026-10-25)。露出は自動のまま、全体を明るめ・暗めにする
+   * (車内に合うと窓の外が白く飛ぶので、マイナスで外を残す)
+   */
+  'camera.setEv': { params: { ev: number; which?: 'main' | 'front' }; result: Record<string, never> };
   /**
    * Bluetooth Classic のシリアル (SPP。Android だけ)。OS の機器を選ぶ画面を出し、選んだ機器とペアリングする。
    * namePrefixes を渡すと、その名前で始まる機器だけを出す (空なら全部)

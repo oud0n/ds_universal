@@ -16,17 +16,24 @@ export interface CameraSettings {
   lensId: string | null;
   preset: CameraPreset;
   audio: boolean;
-  /** null は自動 */
+  /** 前の版の ISO (2026-10-25 に明るさの補正へ替えた。今は使わず、いつも自動) */
   iso: number | null;
+  /** 明るさの補正 (EV。−2〜+1。マイナスで暗め = 窓の外が白く飛びにくい) */
+  ev: number;
+  /** ピントを遠く (無限遠の側) に合わせて固定する (車載向け。前のカメラは機種による) */
+  focusFar: boolean;
   preview: boolean;
   /** 前のカメラ (自分側) も同時に撮る (前と後ろを同時に撮れる端末だけ。後ろのカメラは lensId のもの) */
-  front: { enabled: boolean; preset: CameraPreset; iso: number | null };
+  front: { enabled: boolean; preset: CameraPreset; iso: number | null; ev: number };
 }
+
+/** 明るさの補正の選べる値 (EV) */
+export const EV_CHOICES = [-2, -1.5, -1, -0.5, 0, 0.5, 1];
 
 const KEY = 'ds_timer_camera';
 export const DEFAULT_CAMERA: CameraSettings = {
-  enabled: false, lensId: null, preset: '1080p30', audio: true, iso: null, preview: true,
-  front: { enabled: false, preset: '1080p30', iso: null }
+  enabled: false, lensId: null, preset: '1080p30', audio: true, iso: null, ev: 0, focusFar: true, preview: true,
+  front: { enabled: false, preset: '1080p30', iso: null, ev: 0 }
 };
 
 export function loadCameraSettings(): CameraSettings {
@@ -69,15 +76,9 @@ export function dualPlan(s: CameraSettings, lenses: CameraLens[], multiCam: bool
 }
 
 /** 撮るときに渡す前のカメラの設定 (前を撮らない・同時に撮れないときは null)。画質は同時に撮れるものに直す */
-export function frontParams(s: CameraSettings, plan: ReturnType<typeof dualPlan>): { preset: CameraPreset; iso: number | null } | null {
+export function frontParams(s: CameraSettings, plan: ReturnType<typeof dualPlan>): { preset: CameraPreset; iso: null; ev: number } | null {
   if (!s.front.enabled || !plan) return null;
-  return { preset: plan.frontPresets.includes(s.front.preset) ? s.front.preset : plan.frontPresets[0], iso: s.front.iso };
-}
-
-/** ISO の選べる値 (レンズの範囲の中) */
-export function isoChoices(lens: CameraLens | undefined): number[] {
-  const all = [50, 100, 200, 400, 800, 1600, 3200];
-  return lens ? all.filter(v => v >= lens.isoMin - 0.5 && v <= lens.isoMax + 0.5) : all;
+  return { preset: plan.frontPresets.includes(s.front.preset) ? s.front.preset : plan.frontPresets[0], iso: null, ev: s.front.ev ?? 0 };
 }
 
 export type CameraStatus = { recording: boolean; error: string | null };
@@ -129,7 +130,7 @@ export class PhoneCameraRecorder {
       const front = frontParams(s, plan);
       const lensId = front && plan ? plan.back.id : s.lensId;
       const preset = front && plan && !plan.backPresets.includes(s.preset) ? plan.backPresets[0] : s.preset;
-      await callNative('camera.start', { lensId, preset, audio: s.audio && p.mic === 'granted', iso: s.iso, preview: s.preview, front });
+      await callNative('camera.start', { lensId, preset, audio: s.audio && p.mic === 'granted', iso: null, ev: s.ev, focusFar: s.focusFar, preview: s.preview, front });
       this.set({ recording: true, error: null });
     } catch (e) {
       this.active = false;

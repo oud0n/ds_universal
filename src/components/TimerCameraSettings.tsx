@@ -3,7 +3,7 @@ import { Video } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import type { CameraLens, CameraPreset } from '../native/contract';
 import { callNative, onNative } from '../native/bridge';
-import { cameraAvailable, dualPlan, frontParams, isoChoices, listLenses, loadCameraSettings, saveCameraSettings, type CameraSettings } from '../services/timer/phoneCamera';
+import { EV_CHOICES, cameraAvailable, dualPlan, frontParams, listLenses, loadCameraSettings, saveCameraSettings, type CameraSettings } from '../services/timer/phoneCamera';
 
 // クラスの名前は、Tailwind が見つけられるよう組み立てずにそのまま書く
 // 横向きのスマートフォン: 画面の左に固定 (前も撮るときは、2 つの映像を横に並べる)
@@ -97,7 +97,9 @@ export const TimerCameraSettings: React.FC = () => {
         show: true,
         lensId: fp && p ? p.back.id : cur.lensId,
         preset: fp && p && !p.backPresets.includes(cur.preset) ? p.backPresets[0] : cur.preset,
-        iso: cur.iso,
+        iso: null,
+        ev: cur.ev,
+        focusFar: cur.focusFar,
         rect: main,
         front: fp && frontRect ? { ...fp, rect: frontRect } : null
       }).then(() => setLiveError(''), e => setLiveError(e instanceof Error ? e.message : String(e)));
@@ -145,8 +147,10 @@ export const TimerCameraSettings: React.FC = () => {
     const l = lenses.find(x => x.id === next.lensId) ?? lens;
     if (l && l.presets.length && !l.presets.includes(next.preset)) next.preset = l.presets[0];
     save(next);
-    // ISO だけ変えたときは、映像を出し直さずにその場で変える
-    if (patch.iso !== undefined && Object.keys(patch).length === 1) void callNative('camera.setIso', { iso: next.iso, which: 'main' }).catch(() => {});
+    // 明るさの補正だけ変えたときは、映像を出し直さずにその場で変える
+    if (patch.ev !== undefined && Object.keys(patch).length === 1) void callNative('camera.setEv', { ev: next.ev, which: 'main' }).catch(() => {});
+    // ピントの固定を替えたときは、組み直して出し直す
+    if (patch.focusFar !== undefined) setTimeout(() => placeRef.current(), 50);
   };
   const updateFront = (patch: Partial<CameraSettings['front']>) => {
     const next = { ...s, front: { ...s.front, ...patch } };
@@ -159,7 +163,7 @@ export const TimerCameraSettings: React.FC = () => {
       }
     }
     save(next);
-    if (patch.iso !== undefined && Object.keys(patch).length === 1) void callNative('camera.setIso', { iso: patch.iso, which: 'front' }).catch(() => {});
+    if (patch.ev !== undefined && Object.keys(patch).length === 1) void callNative('camera.setEv', { ev: patch.ev, which: 'front' }).catch(() => {});
   };
   const shutter = (sec: number) => (sec > 0 && sec < 0.5 ? `1/${Math.round(1 / sec)}` : `${sec.toFixed(2)}`);
   const lensName = (l: CameraLens) => {
@@ -186,10 +190,11 @@ export const TimerCameraSettings: React.FC = () => {
       </div>
     );
   };
-  const isoRow = (cur: number | null, l: CameraLens | undefined, set: (v: number | null) => void) => (
-    <div className="flex flex-wrap gap-1">
-      <button onClick={() => set(null)} className={pill(cur === null)}>{t('自動', 'Auto')}</button>
-      {isoChoices(l).map(v => <button key={v} onClick={() => set(v)} className={pill(cur === v)}>{v}</button>)}
+  // 明るさの補正 (EV)。0 が自動のまま、マイナスで暗め
+  const evLabel = (v: number) => (v === 0 ? '0' : `${v > 0 ? '+' : '−'}${Math.abs(v)}`);
+  const evRow = (cur: number, set: (v: number) => void, testId: string) => (
+    <div className="flex flex-wrap gap-1" data-testid={testId}>
+      {EV_CHOICES.map(v => <button key={v} onClick={() => set(v)} className={pill(cur === v)}>{evLabel(v)}</button>)}
     </div>
   );
 
@@ -224,13 +229,15 @@ export const TimerCameraSettings: React.FC = () => {
               {presets.map(p => <button key={p} onClick={() => update({ preset: p })} className={pill(p === preset)}>{PRESET_LABEL[p]}</button>)}
             </div>
           </div>
-          {/* ISO を決められないレンズ (Android の版。isoMax が 0) は、自動だけなので欄を出さない */}
-          {(lens?.isoMax ?? 1) > 0 && (
-            <div>
-              <div className="text-[11px] text-slate-500 mb-1">{t('ISO 感度 (決めると、シャッターの速さで明るさを合わせます)', 'ISO (when fixed, shutter speed keeps the exposure)')}</div>
-              {isoRow(s.iso, lens, v => update({ iso: v }))}
-            </div>
-          )}
+          {/* 明るさの補正 (2026-10-25 に ISO から替えた)。露出は自動のまま、全体を暗め・明るめにする */}
+          <div>
+            <div className="text-[11px] text-slate-500 mb-1">{t('明るさの補正 (マイナスで暗め。車内に合って窓の外が白く飛ぶときは −1〜−2)', 'Brightness (EV). Use −1 to −2 if the view outside the windows is blown out')}</div>
+            {evRow(s.ev ?? 0, v => update({ ev: v }), 'lap-timer-camera-ev')}
+          </div>
+          <label className="flex items-center gap-2 text-xs text-slate-300">
+            <input type="checkbox" checked={s.focusFar !== false} onChange={e => update({ focusFar: e.target.checked })} data-testid="lap-timer-camera-focus-far" />
+            {t('ピントを遠くに合わせて固定する (車載向け。車内の物にピントが移らない)', 'Lock focus far away (for onboard; focus never jumps to the cabin)')}
+          </label>
           {plan && (
             <label className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-2 cursor-pointer">
               <input type="checkbox" checked={s.front.enabled} onChange={e => updateFront({ enabled: e.target.checked })} data-testid="lap-timer-camera-front-on" />
@@ -249,12 +256,10 @@ export const TimerCameraSettings: React.FC = () => {
                   {plan.frontPresets.map(p => <button key={p} onClick={() => updateFront({ preset: p })} className={pill(p === frontPreset)}>{PRESET_LABEL[p]}</button>)}
                 </div>
               </div>
-              {plan.front.isoMax > 0 && (
-                <div>
-                  <div className="text-[11px] text-slate-500 mb-1">{t('ISO 感度', 'ISO')}</div>
-                  {isoRow(s.front.iso, plan.front, v => updateFront({ iso: v }))}
-                </div>
-              )}
+              <div>
+                <div className="text-[11px] text-slate-500 mb-1">{t('明るさの補正', 'Brightness (EV)')}</div>
+                {evRow(s.front.ev ?? 0, v => updateFront({ ev: v }), 'lap-timer-camera-front-ev')}
+              </div>
             </div>
           )}
           <label className="flex items-center gap-2 text-xs text-slate-300">

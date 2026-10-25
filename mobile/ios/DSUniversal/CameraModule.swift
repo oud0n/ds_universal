@@ -24,6 +24,8 @@ final class CameraModule: NSObject {
         var segments: [(url: URL, startWallMs: Double)] = []
         var currentStartWallMs: Double?
         var isoTarget: Float?
+        /** 明るさの補正 (EV。露出は自動のまま、全体を明るめ・暗めにする) */
+        var ev: Float = 0
         var frameSec: Double = 1.0 / 30
         var angle: CGFloat = 90
         var liveView: UIView?
@@ -42,6 +44,8 @@ final class CameraModule: NSObject {
         let fps: Double
         let angle: CGFloat
         let layers: [AVCaptureVideoPreviewLayer]
+        /// ピントを遠くに合わせて固定する (組み立ての前に build が入れる)
+        var focusFar = true
     }
 
     private unowned let core: NativeCore
@@ -60,6 +64,8 @@ final class CameraModule: NSObject {
     private var interruptObservers: [NSObjectProtocol] = []
     /// 撮る前の確かめ (設定の画面の枠に、今の映像を出す)
     private var liveConfig: String?
+    /** ピントを遠くに合わせて固定するか (撮る・確かめの映像の頼みで決まる) */
+    private var focusFar = true
     private var exposureTimer: Timer?
     /** 確かめの映像の頼みの番号 (続けて頼まれたら、古い頼みの結果は使わない) */
     private var liveGen = 0
@@ -81,6 +87,11 @@ final class CameraModule: NSObject {
             stop(path: params["path"] as? String, frontPath: params["frontPath"] as? String, done: done)
         case "camera.preview":
             livePreview(params: params, done: done)
+        case "camera.setEv":
+            let c = (params["which"] as? String) == "front" ? front : main
+            c.ev = Float(params["ev"] as? Double ?? 0)
+            applyEv(c)
+            done(.success([:]))
         case "camera.setIso":
             applyIso((params["which"] as? String) == "front" ? front : main, (params["iso"] as? Double).map { Float($0) })
             done(.success([:]))
@@ -242,7 +253,9 @@ final class CameraModule: NSObject {
     }
 
     /// カメラを組み立てる (カメラ用の列で)。specs[0] が後ろ (main)、specs[1] があれば前
-    private func build(_ specs: [Spec], audio: Bool) async -> NativeError? {
+    private func build(_ specsIn: [Spec], audio: Bool) async -> NativeError? {
+        let far = focusFar
+        let specs = specsIn.map { spec -> Spec in var x = spec; x.focusFar = far; return x }
         let s = Box(value: session)
         let multi = isMulti
         return await withCheckedContinuation { cont in
@@ -261,11 +274,11 @@ final class CameraModule: NSObject {
         }
     }
 
-    private struct FrontParams { let preset: String; let iso: Float? }
+    private struct FrontParams { let preset: String; let iso: Float?; let ev: Float }
 
     private static func frontParams(_ any: Any?) -> FrontParams? {
         guard let d = any as? [String: Any] else { return nil }
-        return FrontParams(preset: d["preset"] as? String ?? "1080p30", iso: (d["iso"] as? Double).map { Float($0) })
+        return FrontParams(preset: d["preset"] as? String ?? "1080p30", iso: (d["iso"] as? Double).map { Float($0) }, ev: Float(d["ev"] as? Double ?? 0))
     }
 
     private func frontLens() -> Lens? { Self.lenses().first { $0.position == "front" } }
@@ -280,6 +293,8 @@ final class CameraModule: NSObject {
         let audio = (params["audio"] as? Bool ?? false) && AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         let iso = (params["iso"] as? Double).map { Float($0) }
         let preview = params["preview"] as? Bool ?? false
+        focusFar = params["focusFar"] as? Bool ?? true
+        main.ev = Float(params["ev"] as? Double ?? 0)
         let all = Self.lenses()
         guard let lens = all.first(where: { $0.id == wantLens }) ?? all.first(where: { $0.kind == "wide" }) ?? all.first else {
             done(.failure(NativeError(.notFound, "no camera"))); return
@@ -306,6 +321,7 @@ final class CameraModule: NSObject {
         if let fp, let fLens {
             let fs = Self.presetSpecs[fp.preset] ?? Self.presetSpecs["1080p30"]!
             front.isoTarget = fp.iso
+            front.ev = fp.ev
             front.frameSec = 1 / fs.fps
             front.angle = Self.rotationAngle(for: fLens.device)
             specs.append(Spec(device: fLens.device, output: front.output, preset: fp.preset, fps: fs.fps, angle: front.angle, layers: []))
@@ -321,7 +337,7 @@ final class CameraModule: NSObject {
                 done(.failure(error))
                 return
             }
-            for c in self.channels where c.active { self.beginSegment(c) }
+            for c in self.channels where c.active { self.beginSegment(c); self.applyEv(c) }
             if self.channels.contains(where: { $0.active && $0.isoTarget != nil }) { self.startIsoLoop() }
             if let previewLayer { self.showPreview(previewLayer, angle: self.main.angle) }
             done(.success(["lensId": lens.id, "preset": preset, "front": fp != nil]))
@@ -359,11 +375,11 @@ final class CameraModule: NSObject {
             guard session.canAddOutput(output) else { throw NativeError(.io, "movie output") }
             session.addOutput(output)
         }
-        try setFormat(dev, preset: spec.preset, fps: spec.fps, multi: false)
+        try setFormat(dev, preset: spec.preset, fps: spec.fps, multi: false, focusFar: spec.focusFar)
         if let conn = output.connection(with: .video) { setupRecording(conn, output: output, angle: spec.angle) }
     }
 
-    nonisolated private static func setFormat(_ dev: AVCaptureDevice, preset: String, fps: Double, multi: Bool) throws {
+    nonisolated private static func setFormat(_ dev: AVCaptureDevice, preset: String, fps: Double, multi: Bool, focusFar: Bool = true) throws {
         try dev.lockForConfiguration()
         defer { dev.unlockForConfiguration() }
         if let f = format(for: dev, preset: preset, multi: multi) {
@@ -379,7 +395,14 @@ final class CameraModule: NSObject {
             dev.activeVideoMinFrameDuration = frame
             dev.activeVideoMaxFrameDuration = frame
         }
-        if dev.isFocusModeSupported(.continuousAutoFocus) { dev.focusMode = .continuousAutoFocus }
+        // ピント: 遠くに合わせて固定する (車載では、車内の物やダッシュボードにピントが移らないように)。
+        // 決まった位置で固定できないレンズは、自動のまま遠くの範囲だけで合わせる
+        if focusFar && dev.isLockingFocusWithCustomLensPositionSupported {
+            dev.setFocusModeLocked(lensPosition: 1.0, completionHandler: nil)
+        } else {
+            if dev.isFocusModeSupported(.continuousAutoFocus) { dev.focusMode = .continuousAutoFocus }
+            if dev.isAutoFocusRangeRestrictionSupported { dev.autoFocusRangeRestriction = focusFar ? .far : .none }
+        }
         if dev.isExposureModeSupported(.continuousAutoExposure) { dev.exposureMode = .continuousAutoExposure }
     }
 
@@ -403,7 +426,7 @@ final class CameraModule: NSObject {
                 session.addInputWithNoConnections(input)
                 guard session.canAddOutput(spec.output) else { throw NativeError(.io, "multicam output") }
                 session.addOutputWithNoConnections(spec.output)
-                try setFormat(spec.device, preset: spec.preset, fps: spec.fps, multi: true)
+                try setFormat(spec.device, preset: spec.preset, fps: spec.fps, multi: true, focusFar: spec.focusFar)
                 guard let port = input.ports(for: .video, sourceDeviceType: spec.device.deviceType, sourceDevicePosition: spec.device.position).first else {
                     throw NativeError(.io, "multicam port")
                 }
@@ -612,7 +635,9 @@ final class CameraModule: NSObject {
         let frontRect = Self.rect(fd?["rect"])
         let spec = Self.presetSpecs[preset] ?? Self.presetSpecs["1080p30"]!
         let mainAngle = Self.rotationAngle(for: lens.device)
-        let config = "\(lens.id)|\(preset)|\(fp?.preset ?? "-")"
+        focusFar = params["focusFar"] as? Bool ?? true
+        main.ev = Float(params["ev"] as? Double ?? 0)
+        let config = "\(lens.id)|\(preset)|\(fp?.preset ?? "-")|\(focusFar)"
         Task { @MainActor in
             self.useSession(multi: fp != nil)
             if self.liveConfig != config || !self.session.isRunning {
@@ -652,9 +677,12 @@ final class CameraModule: NSObject {
             guard gen == self.liveGen else { done(.success([:])); return }
             self.placeLive(self.main, mainRect)
             self.applyIso(self.main, iso)
+            self.applyEv(self.main)
             if let fp {
                 self.placeLive(self.front, frontRect)
                 self.applyIso(self.front, fp.iso)
+                self.front.ev = fp.ev
+                self.applyEv(self.front)
             }
             self.startExposureReports()
             done(.success([:]))
@@ -702,6 +730,18 @@ final class CameraModule: NSObject {
             c.liveLayer = nil
         }
         liveConfig = nil
+    }
+
+    /// 明るさの補正 (EV) を入れる (そのレンズの範囲に収める)
+    private func applyEv(_ c: Channel) {
+        guard let dev = c.device else { return }
+        let d = Box(value: dev), ev = c.ev
+        queue.async {
+            guard (try? d.value.lockForConfiguration()) != nil else { return }
+            defer { d.value.unlockForConfiguration() }
+            let bias = min(max(ev, d.value.minExposureTargetBias), d.value.maxExposureTargetBias)
+            d.value.setExposureTargetBias(bias, completionHandler: nil)
+        }
     }
 
     /// ISO を決める (nil は自動)。決めたときは、シャッターの速さで明るさを保つ

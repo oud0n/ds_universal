@@ -323,6 +323,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         return {};
       }
       case 'camera.setIso':
+      case 'camera.setEv':
         return {};
       // Bluetooth Classic の Drogger のふり (袖ヶ浦の近くで円を回る NMEA を 10 Hz で送る)
       case 'spp.pick':

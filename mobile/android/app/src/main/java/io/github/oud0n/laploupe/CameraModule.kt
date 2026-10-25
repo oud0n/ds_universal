@@ -71,7 +71,10 @@ class CameraModule(private val activity: MainActivity, private val bridge: Nativ
     /** 今の組み立て (つなぎ直しに使う) */
     private var current: Config? = null
 
-    data class Config(val lens: Lens, val preset: String, val withPreview: Boolean)
+    data class Config(val lens: Lens, val preset: String, val withPreview: Boolean, val focusFar: Boolean = true)
+
+    /** 明るさの補正 (EV)。露出は自動のまま、全体を明るめ・暗めにする */
+    private var ev = 0.0
 
     data class Lens(val id: String, val cameraIndex: Int, val front: Boolean, val kind: String, val zoom: Float, val presets: List<String>)
 
@@ -100,8 +103,9 @@ class CameraModule(private val activity: MainActivity, private val bridge: Nativ
             "camera.start" -> withProvider(done) { start(params, done) }
             "camera.stop" -> stop(params.optString("path").ifEmpty { null }, params.optString("frontPath").ifEmpty { null }, done)
             "camera.preview" -> withProvider(done) { livePreview(params, done) }
-            // ISO は自動だけ (この版)
+            // ISO は自動だけ (明るさは補正 (EV) で変える)
             "camera.setIso" -> done(Result.success(JSONObject()))
+            "camera.setEv" -> { ev = params.optDouble("ev", 0.0); applyEv(); done(Result.success(JSONObject())) }
             else -> done(Result.failure(NativeError.notSupported("unknown method $method")))
         }
     }
@@ -191,6 +195,8 @@ class CameraModule(private val activity: MainActivity, private val bridge: Nativ
         val rec = Recorder.Builder().setQualitySelector(QualitySelector.fromOrderedList(order, androidx.camera.video.FallbackStrategy.lowerQualityOrHigherThan(Quality.SD))).build()
         val rotation = activity.display?.rotation ?: 0
         val vcBuilder = VideoCapture.Builder(rec).setTargetRotation(rotation)
+        val far = config.focusFar && manualFocus(p.availableCameraInfos[config.lens.cameraIndex])
+        if (far) lockFocusFar(Camera2Interop.Extender(vcBuilder))
         val info = p.availableCameraInfos[config.lens.cameraIndex]
         info.supportedFrameRateRanges.firstOrNull { it.lower == fps && it.upper == fps }?.let { vcBuilder.setTargetFrameRate(Range(fps, fps)) }
         val vc = vcBuilder.build()
@@ -198,6 +204,7 @@ class CameraModule(private val activity: MainActivity, private val bridge: Nativ
         var pv: Preview? = null
         if (config.withPreview) {
             val b = Preview.Builder().setTargetRotation(rotation)
+            if (far) lockFocusFar(Camera2Interop.Extender(b))
             // 今の ISO とシャッターの速さを読む (Web の確かめの欄に出す)
             Camera2Interop.Extender(b).setSessionCaptureCallback(object : CameraCaptureSession.CaptureCallback() {
                 override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
@@ -215,11 +222,34 @@ class CameraModule(private val activity: MainActivity, private val bridge: Nativ
         val selector = CameraSelector.Builder().requireLensFacing(if (config.lens.front) CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK).build()
         camera = p.bindToLifecycle(activity, selector, *useCases.toTypedArray())
         camera?.cameraControl?.setZoomRatio(config.lens.zoom)
+        applyEv()
         recorder = rec
         videoCapture = vc
         preview = pv
         current = config
         (liveView ?: smallView)?.let { pv?.surfaceProvider = it.surfaceProvider }
+    }
+
+    /** ピントの距離を決められるレンズか (固定焦点のレンズは決められない) */
+    private fun manualFocus(info: CameraInfo): Boolean = try {
+        (androidx.camera.camera2.interop.Camera2CameraInfo.from(info).getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f) > 0f
+    } catch (e: Exception) { false }
+
+    /** ピントを遠く (無限遠 = 距離 0) に固定する (車載で、車内の物にピントが移らないように) */
+    private fun <T> lockFocusFar(ext: Camera2Interop.Extender<T>) {
+        ext.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+        ext.setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, 0f)
+    }
+
+    /** 明るさの補正を入れる (そのカメラの刻み・範囲に合わせる) */
+    private fun applyEv() {
+        val cam = camera ?: return
+        val st = cam.cameraInfo.exposureState
+        if (!st.isExposureCompensationSupported) return
+        val step = st.exposureCompensationStep.toFloat()
+        if (step <= 0f) return
+        val idx = kotlin.math.round(ev / step).toInt().coerceIn(st.exposureCompensationRange.lower, st.exposureCompensationRange.upper)
+        cam.cameraControl.setExposureCompensationIndex(idx)
     }
 
     // ---- 撮る ----
@@ -231,12 +261,14 @@ class CameraModule(private val activity: MainActivity, private val bridge: Nativ
         val preset = params.optString("preset", "1080p30").let { if (it in lens.presets) it else lens.presets.first() }
         audio = params.optBoolean("audio") && state(Manifest.permission.RECORD_AUDIO) == "granted"
         val showSmall = params.optBoolean("preview")
+        ev = params.optDouble("ev", 0.0)
+        val focusFar = params.optBoolean("focusFar", true)
         hideLive()
         segments.clear()
         wantRecording = true
         try {
             if (showSmall) showSmall()
-            bind(Config(lens, preset, withPreview = showSmall))
+            bind(Config(lens, preset, withPreview = showSmall, focusFar = focusFar))
             beginSegment()
         } catch (e: Exception) {
             wantRecording = false
@@ -389,13 +421,16 @@ class CameraModule(private val activity: MainActivity, private val bridge: Nativ
         val view = liveView ?: makeView().also { activity.overlay.addView(it, FrameLayout.LayoutParams(1, 1)); liveView = it }
         view.layoutParams = FrameLayout.LayoutParams(maxOf(w, 1), maxOf(h, 1)).apply { leftMargin = x; topMargin = y }
         view.visibility = if (w < 4 || h < 4) View.INVISIBLE else View.VISIBLE
-        val config = "${lens.id}|$preset"
+        ev = params.optDouble("ev", 0.0)
+        val focusFar = params.optBoolean("focusFar", true)
+        val config = "${lens.id}|$preset|$focusFar"
         try {
             if (liveConfig != config || camera == null) {
-                bind(Config(lens, preset, withPreview = true))
+                bind(Config(lens, preset, withPreview = true, focusFar = focusFar))
                 liveConfig = config
             }
             preview?.surfaceProvider = view.surfaceProvider
+            applyEv()
         } catch (e: Exception) {
             done(Result.failure(NativeError.io(e.message ?: "camera")))
             return
