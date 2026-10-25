@@ -55,7 +55,7 @@ See **[Features](docs/features.en.md)** for the details.
 
 ## 📸 Screenshots
 
-**Graph analysis**: speed graph, track map (with GSI aerial photos as the background), driving animation, friction circle
+**Graph analysis**: speed graph, track map (with GSI aerial photos as the background; it can follow the car close up and start all cars from a sector), friction circle
 
 ![Graph analysis](docs/images/analysis.png)
 

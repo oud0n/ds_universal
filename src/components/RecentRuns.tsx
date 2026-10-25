@@ -77,9 +77,10 @@ export const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy
           <span className="text-slate-400 truncate">{run.courseName != null ? circuitLabel(run.courseName) : (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</span>
         </div>
         {/* 車種・タイヤ */}
-        {(run.entry?.car || run.entry?.reference?.car || run.entry?.tyre) && (
+        {/* 参考ラップの車は参考ラップの欄のもの (自分の走行の車種の欄は隠れているので使わない) */}
+        {((run.entry?.reference ? run.entry.reference.car : run.entry?.car) || run.entry?.tyre) && (
           <div className="mt-0.5 text-[11px] text-slate-400 truncate" data-testid="run-row-car-tyre">
-            {[run.entry?.car ?? run.entry?.reference?.car, run.entry?.tyre].filter(Boolean).join(' · ')}
+            {[run.entry?.reference ? run.entry.reference.car : run.entry?.car, run.entry?.tyre].filter(Boolean).join(' · ')}
           </div>
         )}
         {/* メモの頭 (PLAN-33) */}

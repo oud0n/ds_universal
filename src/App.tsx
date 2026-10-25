@@ -164,7 +164,7 @@ export const App: React.FC = () => {
   // グラフ解析の「周回を区切れていません」の注意を閉じたセッション
   const [wholeLapNoticeClosed, setWholeLapNoticeClosed] = useState('');
 
-  // パソコン表示で、たたんでいるウインドウ (anim: 左下のアニメーション / 動画、map: 全コース、sub: 右下の GG など)。端末に保存する
+  // パソコン表示で、たたんでいるウインドウ (anim: 左下の車載動画 (名前は前のアニメーションの窓のまま)、map: 全コース、sub: 右下の GG など)。端末に保存する
   const [collapsed, setCollapsed] = useState<{ anim: boolean; map: boolean; sub: boolean }>(() => {
     try {
       const v = JSON.parse(localStorage.getItem(COLLAPSED_STORAGE_KEY) || '{}');
@@ -212,8 +212,8 @@ export const App: React.FC = () => {
     return () => { window.removeEventListener('dragend', reset); window.removeEventListener('drop', reset); };
   }, []);
 
-  // サブウインドウ表示モード ('all' | 'track_friction' | 'replay_focus' | 'video')
-  const [subWindowMode, setSubWindowMode] = useState<'all' | 'track_friction' | 'replay_focus' | 'video' | 'corner' | 'braking' | 'xy'>('all');
+  // サブウインドウ表示モード
+  const [subWindowMode, setSubWindowMode] = useState<'all' | 'track_friction' | 'video' | 'corner' | 'braking' | 'xy'>('all');
 
   // ウィンドウ分割リサイズフック (左右、左側上下、右側上下)
   const horizSplit = useResizableSplit({ initialRatio: 0.58, direction: 'horizontal', storageKey: 'ds_split_horiz' });
@@ -1156,7 +1156,7 @@ export const App: React.FC = () => {
       // (分かれた走行は、2 番目から「名前 (2)」)。比べる相手・ラップの一覧にも、この名前が出る
       const meta = item.entry;
       // 車種 (runs.json の行。参考ラップは reference.car) は、ログの車の名前より先にする
-      const carName = meta?.car ?? meta?.reference?.car;
+      const carName = meta?.reference ? meta.reference.car : meta?.car;
       if (!already.length && added.length && (meta?.name || meta?.note || carName)) {
         added.forEach((x, i) => {
           if (meta?.name) x.sessionName = i > 0 ? `${meta.name} (${i + 1})` : meta.name;

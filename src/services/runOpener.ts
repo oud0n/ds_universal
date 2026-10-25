@@ -542,6 +542,12 @@ export function getOpenRun(): { store: RunStore; item: RunItem } | null {
  * 空にしたら消す。開いている走行の行も、書いた中身にそろえる
  */
 export async function setRunMeta(store: RunStore, item: RunItem, patch: { name?: string | null; note?: string | null; car?: string | null; tyre?: string | null; reference?: { driver?: string; car?: string } | null }): Promise<RunRow> {
+  // 書き終わる前に開いても新しい値が使われるよう、先に手元の行にも入れておく (車種を書いてすぐ「解析で開く」を押したとき)
+  if (item.entry) {
+    const preview = { ...item.entry };
+    for (const k of ['name', 'note', 'car', 'tyre'] as const) if (k in patch) { const v = patch[k]?.trim(); if (v) preview[k] = v; else delete preview[k]; }
+    item.entry = preview;
+  }
   const row = await updateRun(store, item.folder, item.file, prev => {
     const next: Partial<RunRow> = { ...prev };
     // 参考ラップの印 (null で外す)。誰・車は前後の空白を落とす

@@ -102,7 +102,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   // 車両の現在位置だけを描く、上に重ねた canvas (再生中はこちらだけを描き直す。追従中は地図ごと動くので両方)
   const carCanvasRef = useRef<HTMLCanvasElement | null>(null);
   // 下の canvas を描いたときの座標変換 (車両の位置の計算に使う)
-  const layoutRef = useRef<{ width: number; height: number; latMid: number; lonMid: number; cosLat: number; baseScale: number; pan: { x: number; y: number } } | null>(null);
+  const layoutRef = useRef<{ width: number; height: number; latMid: number; lonMid: number; cosLat: number; baseScale: number; pan: { x: number; y: number }; zoom?: number } | null>(null);
 
   const [colorMode, setColorMode] = useState<'car' | 'speed' | 'accel' | 'line'>('car');
   const [showCorners, setShowCorners] = useState(true);
@@ -124,6 +124,13 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   const [isFollowing, setIsFollowing] = useState(false);
   // 実際に描画に使った平行移動量。追従を外したとき、その位置から手動の移動を続けるために覚えておく
   const drawnPanRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  // 拡大・縮小したら、ずらした量も同じ割合にする (画面の真ん中を中心に拡大する。そのままだと、大きく寄せたあとに縮めるとコースが画面の外へ出ていた)
+  const prevZoomRef = useRef(zoom);
+  useEffect(() => {
+    const r = zoom / prevZoomRef.current;
+    prevZoomRef.current = zoom;
+    if (r !== 1 && Number.isFinite(r)) setPanOffset(p => ({ x: p.x * r, y: p.y * r }));
+  }, [zoom]);
 
   // 背景地図 (既定はなし = オフライン動作)
   const [background, setBackground] = useState<MapBackground>(() => {
@@ -339,13 +346,15 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   const followZoomOf = () => {
     const l = layoutRef.current;
     if (!l) return 0;
-    return (l.baseScale * FOLLOW_SPAN_DEG) / Math.min(l.width, l.height);
+    // 描いたときの拡大率ではなく、今の拡大率 (state) で出す (描く前の画面でも、押した倍率が選ばれて見えるように)
+    const fit = l.baseScale / (l.zoom || zoom);
+    return (fit * zoom * FOLLOW_SPAN_DEG) / Math.min(l.width, l.height);
   };
   /** 追従の倍率にする (コース全体の倍率 zoom を、その見え方になるよう決める) */
   const setFollowZoom = (z: number) => {
     const l = layoutRef.current;
     if (!l || zoom <= 0) return;
-    const fit = l.baseScale / zoom;
+    const fit = l.baseScale / (l.zoom || zoom);
     const want = (Math.min(l.width, l.height) / FOLLOW_SPAN_DEG) * z;
     setZoom(Math.max(0.4, Math.min(MAX_ZOOM, want / fit)));
   };
@@ -509,6 +518,11 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     };
 
     metersPerPixelRef.current = METERS_PER_DEG_LAT / baseScale;
+    // 画面の外 (余白込み) にある線は描かない (追従で大きく寄せて再生すると、コマごとに全部の線を描き直すので重くなるため)
+    const MARGIN = 40;
+    const offScreen = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+      (a.x < -MARGIN && b.x < -MARGIN) || (a.x > width + MARGIN && b.x > width + MARGIN) ||
+      (a.y < -MARGIN && b.y < -MARGIN) || (a.y > height + MARGIN && b.y > height + MARGIN);
 
     // 0. 背景地図タイル
     if (background !== 'none') {
@@ -547,11 +561,13 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       for (const poly of pathPolylines) {
         if (poly.length < 2) continue;
         ctx.beginPath();
-        const start = toScreen(poly[0][1], poly[0][0]);
-        ctx.moveTo(start.x, start.y);
+        let prev = toScreen(poly[0][1], poly[0][0]);
+        ctx.moveTo(prev.x, prev.y);
         for (let i = 1; i < poly.length; i++) {
           const pt = toScreen(poly[i][1], poly[i][0]);
-          ctx.lineTo(pt.x, pt.y);
+          if (offScreen(prev, pt)) ctx.moveTo(pt.x, pt.y);
+          else ctx.lineTo(pt.x, pt.y);
+          prev = pt;
         }
         ctx.stroke();
       }
@@ -565,11 +581,13 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       for (const poly of pathPolylines) {
         if (poly.length < 2) continue;
         ctx.beginPath();
-        const start = toScreen(poly[0][1], poly[0][0]);
-        ctx.moveTo(start.x, start.y);
+        let prev = toScreen(poly[0][1], poly[0][0]);
+        ctx.moveTo(prev.x, prev.y);
         for (let i = 1; i < poly.length; i++) {
           const pt = toScreen(poly[i][1], poly[i][0]);
-          ctx.lineTo(pt.x, pt.y);
+          if (offScreen(prev, pt)) ctx.moveTo(pt.x, pt.y);
+          else ctx.lineTo(pt.x, pt.y);
+          prev = pt;
         }
         ctx.stroke();
       }
@@ -580,11 +598,13 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       for (const poly of pathPolylines) {
         if (poly.length < 2) continue;
         ctx.beginPath();
-        const start = toScreen(poly[0][1], poly[0][0]);
-        ctx.moveTo(start.x, start.y);
+        let prev = toScreen(poly[0][1], poly[0][0]);
+        ctx.moveTo(prev.x, prev.y);
         for (let i = 1; i < poly.length; i++) {
           const pt = toScreen(poly[i][1], poly[i][0]);
-          ctx.lineTo(pt.x, pt.y);
+          if (offScreen(prev, pt)) ctx.moveTo(pt.x, pt.y);
+          else ctx.lineTo(pt.x, pt.y);
+          prev = pt;
         }
         ctx.stroke();
       }
@@ -696,6 +716,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
           if (!Number.isFinite(off)) continue;
           const p1 = toScreen(pts[i].latitude - dLat, pts[i].longitude - dLon);
           const p2 = toScreen(pts[i + 1].latitude - dLat, pts[i + 1].longitude - dLon);
+          if (offScreen(p1, p2)) continue;
           const strength = Math.min(1, Math.abs(off) / LINE_DELTA_FULL_SCALE_M);
           ctx.strokeStyle = off < 0
             ? `rgba(56, 189, 248, ${0.25 + strength * 0.75})`
@@ -710,11 +731,14 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         ctx.strokeStyle = colorMode === 'line' ? C.soft : car.slot.colorHex;
         ctx.lineWidth = colorMode === 'line' ? 1.5 : car.slot.slot === 0 ? 3 : 2;
         ctx.beginPath();
-        const start = toScreen(pts[0].latitude, pts[0].longitude);
-        ctx.moveTo(start.x, start.y);
+        let prev = toScreen(pts[0].latitude, pts[0].longitude);
+        ctx.moveTo(prev.x, prev.y);
         for (let i = 1; i < pts.length; i++) {
           const pt = toScreen(pts[i].latitude, pts[i].longitude);
-          ctx.lineTo(pt.x, pt.y);
+          // 画面の外の区間は線を引かずに進む
+          if (offScreen(prev, pt)) ctx.moveTo(pt.x, pt.y);
+          else ctx.lineTo(pt.x, pt.y);
+          prev = pt;
         }
         ctx.stroke();
       } else if (colorMode === 'speed') {
@@ -728,6 +752,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         for (let i = 0; i < pts.length - 1; i++) {
           const p1 = toScreen(pts[i].latitude, pts[i].longitude);
           const p2 = toScreen(pts[i + 1].latitude, pts[i + 1].longitude);
+          if (offScreen(p1, p2)) continue;
 
           const ratio = Math.max(0, Math.min(1, (pts[i].speed - minSpd) / spdRange));
           // HSL: 240(Blue) -> 120(Green) -> 0(Red)
@@ -745,6 +770,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         for (let i = 0; i < pts.length - 1; i++) {
           const p1 = toScreen(pts[i].latitude, pts[i].longitude);
           const p2 = toScreen(pts[i + 1].latitude, pts[i + 1].longitude);
+          if (offScreen(p1, p2)) continue;
 
           const g = pts[i].accelG;
           if (g < -0.15) {
@@ -825,7 +851,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       ctx.lineCap = 'butt';
     }
 
-    layoutRef.current = { width, height, latMid, lonMid, cosLat, baseScale, pan };
+    layoutRef.current = { width, height, latMid, lonMid, cosLat, baseScale, pan, zoom };
     drawCars();
   }, [cornerSpan, cars, controlLine, finishLine, sectors, pathPolylines, followPosition, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, selectedCorner, cornerDraft, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick, dpr, theme, lang]);
 

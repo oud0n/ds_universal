@@ -166,8 +166,9 @@ export const journeys = [
       await p.click('nav-library');
       await p.waitFor(`document.querySelector('[data-testid="library-lap-history"]')`, 10000, 'ラップタイムのボタン');
       await p.click('library-lap-history');
-      await p.waitFor(`[...document.querySelectorAll('select option')].some(o => o.value === 'unsorted')`, 20000, 'ラップタイムのコースの選択');
-      await p.ev(`(() => { const sel = [...document.querySelectorAll('select')].find(x => [...x.options].some(o => o.value === 'unsorted')); const o = [...sel.options].find(o => o.textContent.includes('袖ヶ浦')); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, o.value); sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      // コースの選択 (袖ヶ浦の選びがある select。unsorted/ が無い保管場所でも探せるように)
+      await p.waitFor(`[...document.querySelectorAll('select')].some(x => x.offsetParent !== null && [...x.options].some(o => o.textContent.includes('袖ヶ浦')))`, 20000, 'ラップタイムのコースの選択');
+      await p.ev(`(() => { const sel = [...document.querySelectorAll('select')].find(x => x.offsetParent !== null && [...x.options].some(o => o.textContent.includes('袖ヶ浦'))); const o = [...sel.options].find(o => o.textContent.includes('袖ヶ浦')); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, o.value); sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
       await p.waitFor(`[...document.querySelectorAll('[data-testid="lap-history-run-name"]')].some(e => e.innerText === 'e2e 新品タイヤ')`, 20000, 'ラップタイムの一覧の名前');
       await p.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
       await sleep(500);
@@ -456,8 +457,9 @@ export const journeys = [
       await p.click('video-mode-compare');
       await sleep(5000);
       const tiles = async () => p.ev(`(()=>({
-        sel: [...document.querySelectorAll('select')].filter(x => /^自動/.test(x.options[0]?.text ?? '')).map(x => x.options[x.selectedIndex]?.text),
-        src: [...document.querySelectorAll('video')].map(v => decodeURIComponent(v.currentSrc || v.src).split('/').pop()),
+        // 見えているものだけ (解析の画面の左下にも車載動画の窓がある)
+        sel: [...document.querySelectorAll('select')].filter(x => x.offsetParent !== null && /^自動/.test(x.options[0]?.text ?? '')).map(x => x.options[x.selectedIndex]?.text),
+        src: [...document.querySelectorAll('video')].filter(v => v.offsetParent !== null).map(v => decodeURIComponent(v.currentSrc || v.src).split('/').pop()),
         none: /この時刻の映像はありません|この周を映している動画がありません/.test(document.body.innerText)
       }))()`);
       let t = await tiles();

@@ -423,7 +423,8 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
       case 'system.writeRunFile': {
         // 走行の置き場 (選んだフォルダがあればそこ) に書く
         const { path, b64 } = req.params as { path: string; b64: string };
-        (storage.kind === 'folder' ? syncedFiles : lapTimerFiles).set(path, b64);
+        if (storage.kind === 'folder') { syncedFiles.set(path, b64); lapTimerFiles.delete(path); }
+        else lapTimerFiles.set(path, b64);
         return {};
       }
       case 'system.shareFile':

@@ -64,7 +64,11 @@ let nativeVideos: Promise<boolean> | null = null;
 const nativeSupportsVideos = () => (nativeVideos ??= callNative('system.runRoot', {}).then(r => {
   if (r.urlBase && /^(lapfile|https):\/\//.test(r.urlBase)) runUrlBase = r.urlBase.endsWith('/') ? r.urlBase : `${r.urlBase}/`;
   return true;
-}, () => false));
+}, () => {
+  // 一時的な失敗 (起動直後など) のこともあるので、覚えずに次にまた聞く
+  nativeVideos = null;
+  return false;
+}));
 
 /** iPhone のアプリ。選んだフォルダがあればそこ、なければ書類の LapTimer/ */
 export function nativeRunStore(): RunStore | null {
