@@ -35,6 +35,11 @@ function sink(): NativeSink | null {
 }
 
 /** ネイティブのアプリの中で動いているか */
+/** Android のアプリか (画面の文の「iPhone」を「この端末」にするため) */
+export function isAndroidApp(): boolean {
+  return typeof window !== 'undefined' && !!window.dsNativeAndroid;
+}
+
 export function hasNative(): boolean {
   return sink() !== null;
 }
