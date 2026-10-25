@@ -215,6 +215,11 @@ final class CameraModule: NSObject {
             throw error
         }
         session.commitConfiguration()
+        // レンズを替えると、カメラから録画・映像の枠へのつなぎが作り直される。新しいつなぎにも向きを決め直す
+        // (決めないと、既定の横向きで描かれる。前のカメラに替えると、縦の画面でも映像が横になっていた)
+        for conn in session.connections where conn.isVideoRotationAngleSupported(angle) {
+            conn.videoRotationAngle = angle
+        }
         if !session.isRunning { session.startRunning() }
     }
 
@@ -441,6 +446,10 @@ final class CameraModule: NSObject {
         liveView?.isHidden = rect.width < 4 || rect.height < 4
         liveLayer?.frame = CGRect(origin: .zero, size: rect.size)
         if let conn = liveLayer?.connection, conn.isVideoRotationAngleSupported(angle) { conn.videoRotationAngle = angle }
+        // 映像の枠のつなぎは、作ったあと少し遅れてできることがあるので、もう一度決める
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            if let conn = self?.liveLayer?.connection, conn.isVideoRotationAngleSupported(angle), conn.videoRotationAngle != angle { conn.videoRotationAngle = angle }
+        }
     }
 
     private func hideLive() {
