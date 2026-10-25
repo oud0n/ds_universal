@@ -100,7 +100,7 @@ function newPart(type: OverlayPartType, id: string, channel: ChannelId): Overlay
     case 'graph': return { ...base, type, channels: [channel], window: 'lap', compare: true, x: 0.2, y: 0.8, w: 0.6, h: 0.17 };
     case 'steering': return { ...base, type, w: 0.1, h: 0.17 };
     case 'map': return { ...base, type, compare: true, w: 0.2, h: 0.32 };
-    case 'zoomMap': return { ...base, type, spanM: 140, headingUp: true, compare: true, photo: true, w: 0.2, h: 0.3 };
+    case 'zoomMap': return { ...base, type, spanM: 140, headingUp: false, compare: true, photo: true, w: 0.2, h: 0.3 };
     case 'delta': return { ...base, type, maxSec: 1, w: 0.24, h: 0.06 };
     case 'gmeter': return { ...base, type, w: 0.13, h: 0.18 };
     case 'lapPanel': return { ...base, type, w: 0.245, h: 0.4 };
@@ -222,7 +222,7 @@ export const OverlayEditPanel: React.FC<{
               <>
                 <label className="block">{t('横幅に入る距離 (m)', 'Width shown (m)')}<input type="number" min={20} max={2000} value={sel.spanM ?? 140} onChange={e => update({ spanM: Math.max(20, Number(e.target.value) || 140) } as Partial<OverlayPart>)} className={input} /></label>
                 <label className="flex items-center gap-1.5 text-slate-300 cursor-pointer">
-                  <input type="checkbox" checked={sel.headingUp !== false} onChange={e => update({ headingUp: e.target.checked } as Partial<OverlayPart>)} />
+                  <input type="checkbox" checked={sel.headingUp === true} onChange={e => update({ headingUp: e.target.checked } as Partial<OverlayPart>)} />
                   {t('進む向きを上にする (地図の左右が車の左右になる)', 'Direction of travel up (map left/right = car left/right)')}
                 </label>
                 <label className="flex items-center gap-1.5 text-slate-300 cursor-pointer">

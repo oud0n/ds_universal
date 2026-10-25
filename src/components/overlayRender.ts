@@ -442,7 +442,7 @@ function lateralOffset(lines: Array<Array<[number, number]>>, lat0: number, lon0
 
 /**
  * 車のまわりを拡大した地図: 航空写真 (読めたら)・コースの形 (道幅の帯)・比べる周の線・この周の線 (今から前 TRAIL_SEC 秒は明るく)・車。
- * 進む向きを上にすると、地図の左右が車の左右と同じになる。下に、コースの真ん中 (無ければ比べる周の線) からの左右の距離
+ * 向きは既定でコース図と同じ北が上 (進む向きを上にもできる)。下に、コースの真ん中と比べる周の線からの左右の距離 (進む向きに対して)
  */
 function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: number, rh: number, part: Extract<OverlayPart, { type: 'zoomMap' }>, input: OverlayFrameInput, pt: TelemetryPoint): void {
   plate(ctx, rx, ry, rw, rh);
@@ -460,7 +460,7 @@ function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: 
   ctx.roundRect(rx + 1, ry + 1, rw - 2, rh - textH - 2, 3);
   ctx.clip();
   ctx.translate(cx, cy);
-  if (part.headingUp !== false) ctx.rotate((-heading * Math.PI) / 180);
+  if (part.headingUp === true) ctx.rotate((-heading * Math.PI) / 180);
   // 0. 航空写真 (読めたタイルだけ。まだのものは次のコマで)
   const radiusM = (Math.hypot(rw, rh) / 2) * mpp;
   let drewPhoto = false;
@@ -536,7 +536,7 @@ function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: 
     ctx.lineWidth = Math.max(2, 1.6 / mpp);
     drawPoints(pts, trailFrom, nowIdx);
   }
-  // 4. 車 (進む向きの三角)
+  // 4. 車 (進む向きの三角)。北が上なら進む向きへ回し、進む向きが上なら地図を回した分を戻して真上を向かせる (どちらも +heading)
   ctx.rotate((heading * Math.PI) / 180);
   const carL = Math.max(8, 4.5 / mpp);
   ctx.fillStyle = '#ef4444';

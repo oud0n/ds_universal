@@ -76,7 +76,7 @@ export type OverlayPart =
   | (PartBase & { type: 'lapPanel' })
   | (PartBase & { type: 'lapClock' })
   | (PartBase & { type: 'map'; compare?: boolean })
-  /** 車のまわりを拡大した地図 (航空写真・コースの形・走った線・比べる周の線)。spanM: 横幅に入る距離 (m)。headingUp: 進む向きを上にする */
+  /** 車のまわりを拡大した地図 (航空写真・コースの形・走った線・比べる周の線)。spanM: 横幅に入る距離 (m)。headingUp: 進む向きを上にする (無ければコース図と同じ北が上) */
   | (PartBase & { type: 'zoomMap'; spanM?: number; headingUp?: boolean; compare?: boolean; photo?: boolean })
   | (PartBase & { type: 'bar'; channel: ChannelId; min?: number; max?: number; color?: string; label?: string; horizontal?: boolean })
   | (PartBase & { type: 'steering'; maxDeg?: number })
@@ -129,7 +129,7 @@ export function partChannels(p: OverlayPart): ChannelId[] {
 const STANDARD: OverlayPart[] = [
   { id: 'map', type: 'map', x: 0.02, y: 0.035, w: 0.2, h: 0.32, compare: true },
   // コース図の下に、車のまわりを拡大した地図 (道幅の中のどこを走っているか)
-  { id: 'zoom', type: 'zoomMap', x: 0.02, y: 0.375, w: 0.2, h: 0.3, spanM: 140, headingUp: true, compare: true, photo: true },
+  { id: 'zoom', type: 'zoomMap', x: 0.02, y: 0.375, w: 0.2, h: 0.3, spanM: 140, headingUp: false, compare: true, photo: true },
   { id: 'lap', type: 'lapPanel', x: 0.735, y: 0.035, w: 0.245, h: 0.4 },
   { id: 'speed', type: 'speed', x: 0.02, y: 0.83, w: 0.165, h: 0.13 },
   { id: 'g', type: 'gmeter', x: 0.85, y: 0.775, w: 0.13, h: 0.18 }
@@ -152,7 +152,7 @@ export const BUILTIN_LAYOUTS: OverlayLayout[] = [
     version: 1, id: 'builtin:graph', name: ['グラフ', 'Graph'], builtin: true,
     parts: [
       { id: 'map', type: 'map', x: 0.02, y: 0.035, w: 0.2, h: 0.32, compare: true },
-      { id: 'zoom', type: 'zoomMap', x: 0.02, y: 0.375, w: 0.2, h: 0.3, spanM: 140, headingUp: true, compare: true, photo: true },
+      { id: 'zoom', type: 'zoomMap', x: 0.02, y: 0.375, w: 0.2, h: 0.3, spanM: 140, headingUp: false, compare: true, photo: true },
       { id: 'lap', type: 'lapPanel', x: 0.735, y: 0.035, w: 0.245, h: 0.4 },
       { id: 'speed', type: 'speed', x: 0.02, y: 0.83, w: 0.165, h: 0.13 },
       { id: 'graph', type: 'graph', channels: ['speed'], window: 'lap', compare: true, x: 0.2, y: 0.8, w: 0.63, h: 0.17 },
@@ -238,7 +238,8 @@ export function parseOverlayLayout(text: string | null, fallbackId: string): Ove
       parts.push({
         ...base, type,
         ...(num(r.spanM, 20, 2000) !== null ? { spanM: r.spanM as number } : {}),
-        ...(r.headingUp === false ? { headingUp: false } : { headingUp: true }),
+        // 既定はコース図と同じ北が上 (利用者の希望。進む向きを上にするのは選べる)
+        ...(r.headingUp === true ? { headingUp: true } : { headingUp: false }),
         ...(r.compare === true ? { compare: true } : {}),
         ...(r.photo === false ? { photo: false } : { photo: true })
       });
