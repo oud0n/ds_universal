@@ -61,6 +61,7 @@ export function phoneFeed(
         longitude: pos.coords.longitude,
         speedKmh,
         altitude: pos.coords.altitude ?? undefined,
+        ...(pos.coords.heading !== null && Number.isFinite(pos.coords.heading) && pos.coords.heading >= 0 ? { course: pos.coords.heading } : {}),
         // 誤差の大きい測位 (屋内・測位の始め) は使わない
         valid: pos.coords.accuracy <= 30
       };

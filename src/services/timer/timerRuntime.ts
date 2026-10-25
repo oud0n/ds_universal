@@ -19,6 +19,16 @@ import { setPositionSource, type PositionSource } from '../positionSource';
 import { digspiceFeed, distanceKm, phoneFeed, replayFeed, type PhoneInfo, type StopFeed } from './positionFeeds';
 import { LapDeviceSet, type LapDeviceStatus } from './lapDeviceSet';
 import { PhoneCameraRecorder, type CameraStatus } from './phoneCamera';
+import { GpsImuFusion } from './gpsImuFusion';
+
+const FUSION_KEY = 'ds_timer_phone_fusion';
+/** iPhone の GPS の間を G センサーで埋めるか (既定はオン) */
+export function loadPhoneFusion(): boolean {
+  try { return localStorage.getItem(FUSION_KEY) !== 'off'; } catch { return true; }
+}
+export function savePhoneFusion(on: boolean): void {
+  try { localStorage.setItem(FUSION_KEY, on ? 'on' : 'off'); } catch { /* 覚えられなくても測れる */ }
+}
 import type { CircuitPreset, TelemetryPoint } from '../../types/telemetry';
 
 export type TimerSource = PositionSource | 'replay';
@@ -122,6 +132,8 @@ export class TimerRuntime {
   private onHide = () => { if (document.visibilityState === 'hidden') void this.sync(); };
   private running = false;
   private pastBestToken = 0;
+  /** iPhone の GPS の間を G センサーで埋める (測っている間・端末の GPS のとき) */
+  private fusion: GpsImuFusion | null = null;
   readonly camera: PhoneCameraRecorder;
   private offCamera: (() => void) | null = null;
 
@@ -253,7 +265,8 @@ export class TimerRuntime {
         }
       };
     } else if (src === 'phone') {
-      this.stopFeed = phoneFeed(onFix, i => this.set({ phoneInfo: i }), this.deps.phoneMessages());
+      // 測っている間は、GPS の間を G センサーで埋めた測位を使う (設定でオンのとき)
+      this.stopFeed = phoneFeed(f => (this.fusion ? this.fusion.gps(f) : onFix(f)), i => this.set({ phoneInfo: i }), this.deps.phoneMessages());
     } else if (src === 'replay') {
       this.stopFeed = replayFeed(this.deps.replayLogs().find(l => l.id === this.snap.replayId), this.snap.replaySpeed, onFix);
     }
@@ -331,6 +344,18 @@ export class TimerRuntime {
   // ---- 測位 ----
 
   /** 測位を 1 つ受け取る (出どころによらず同じ) */
+  private startFusion(): void {
+    this.stopFusion();
+    if (this.snap.source !== 'phone' || !loadPhoneFusion()) return;
+    this.fusion = new GpsImuFusion(f => this.handleFix(f));
+    this.imu.onCar = (t, l, a, y) => this.fusion?.imu(t, l, a, y);
+  }
+
+  private stopFusion(): void {
+    this.fusion = null;
+    this.imu.onCar = null;
+  }
+
   /** 動画を置く未分類のフォルダ (測位が無かったときだけ使う) */
   private cameraFolder(): string {
     const c = this.snap.course;
@@ -404,6 +429,8 @@ export class TimerRuntime {
     this.devices.startRun(new Date());
     // G センサーを読み始める (今の傾きを基準にするので、止まっているうちに押すのがよい)
     void this.imu.start();
+    // iPhone の GPS で測るときは、GPS の間を G センサーで埋める (1 Hz → 10 Hz)
+    this.startFusion();
     // 内蔵カメラで録画を始める (設定でオンのとき。読み込んだログの再生で試すときは撮らない)
     if (this.snap.source !== 'replay') void this.camera.start();
     this.chooseCourse(this.snap.course);
@@ -413,6 +440,7 @@ export class TimerRuntime {
   async stopMeasuring(): Promise<void> {
     if (!this.snap.measuring) return;
     this.set({ measuring: false });
+    this.stopFusion();
     // カメラの録画を止め、センサーの値を書き、次の走行の .csv に替える
     // センサーの .csv は、書き終えてから写す (写したあとに残りの行を書くと、選んだフォルダの .csv が欠けるため)
     const sensors = Promise.all([this.devices.stopRun(), this.imu.stop()]).catch(() => {});
@@ -449,6 +477,8 @@ export class TimerRuntime {
     this.chooseCourse(this.snap.course);
     // 測っている途中で出どころを替えたときは、新しい走行としてカメラの録画を始め直す
     if (this.snap.measuring) this.devices.startRun(new Date());
+    // GPS の間を埋めるのは端末の GPS のときだけ (出どころを替えたら、付け直す)
+    if (this.snap.measuring) this.startFusion();
   }
 
   // ---- 保存 ----

@@ -15,7 +15,7 @@ import { useEscapeKey } from '../hooks/useEscapeKey';
 import { getPositionSource } from '../services/positionSource';
 import { navStore } from '../app/navStore';
 import { distanceKm } from '../services/timer/positionFeeds';
-import { TimerRuntime } from '../services/timer/timerRuntime';
+import { TimerRuntime, loadPhoneFusion, savePhoneFusion } from '../services/timer/timerRuntime';
 import { OrientationToggle, StopConfirm, loadTimerOrientation, saveTimerOrientation, type TimerOrientation } from './LapTimerControls';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
 import type { TelemetryPoint } from '../types/telemetry';
@@ -107,6 +107,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const setSaveError = (m: string | null) => rt.setSaveError(m);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [phoneFusion, setPhoneFusion] = useState(loadPhoneFusion);
   // 測定終了の確認 (全画面) を出しているか
   const [confirmStop, setConfirmStop] = useState(false);
   // 画面の向き (アプリだけ。測る前に選び、測っている間は固める)
@@ -538,6 +539,15 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               </button>
             </div>
           </div>
+          {source === 'phone' && hasNative() && (
+            <label className="flex items-start gap-2 px-3 py-2 rounded-lg bg-surface-2 cursor-pointer" data-testid="lap-timer-phone-fusion">
+              <input type="checkbox" className="mt-0.5" checked={phoneFusion} onChange={e => { setPhoneFusion(e.target.checked); savePhoneFusion(e.target.checked); }} />
+              <span>
+                {t('GPS の間を G センサーで埋める (10 Hz)', 'Fill GPS gaps with the G sensor (10 Hz)')}
+                <span className="block text-[11px] text-slate-500">{t('iPhone の GPS は 1 秒に 1 回くらいなので、その間を加速度と回転の速さで推定し、計測線を越えた時刻を細かく出します。測定開始から効きます。', 'iPhone GPS updates about once a second; the gaps are estimated from acceleration and rotation so line crossings are timed more finely. Applies from the next start.')}</span>
+              </span>
+            </label>
+          )}
           {source === 'replay' && replayLogs.length > 0 && (
             <div className="space-y-2">
               <select value={replayId} onChange={e => setReplayId(e.target.value)} className="w-full bg-surface-2 rounded-lg px-2 py-2" aria-label={t('再生するログ', 'Log to replay')}>

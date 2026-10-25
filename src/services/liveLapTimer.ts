@@ -18,6 +18,8 @@ export interface LiveFix {
   /** 測位できているか (できていない測位は使わない) */
   valid: boolean;
   altitude?: number;
+  /** 進む向き (度、北から右回り。端末の GPS が出すとき) */
+  course?: number;
 }
 
 export interface LiveCourse {

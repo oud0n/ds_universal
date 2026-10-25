@@ -73,6 +73,9 @@ export class PhoneImuRecorder {
   /** 周を数え直したとき: この時刻より前の値は前の走行へ */
   private split: { beforeMs: number; base: string } | null = null;
 
+  /** 車の向きに直した値を受け取る (iPhone の GPS の間を埋めるため。gpsImuFusion.ts) */
+  onCar: ((tMs: number, longG: number, latG: number, yawDps: number) => void) | null = null;
+
   constructor(private readonly runBase: () => string | null) {}
 
   async start(): Promise<void> {
@@ -135,6 +138,7 @@ export class PhoneImuRecorder {
       const a: Vec = [-b.ux[i], -b.uy[i], -b.uz[i]];
       const car = toCar(this.frame, a);
       const yawDps = dot([b.rx[i], b.ry[i], b.rz[i]], this.frame.up) * 180 / Math.PI;
+      this.onCar?.(b.t[i], car.long, car.lat, yawDps);
       this.record(b.t[i], { g_long: car.long, g_lat: car.lat, g_vert: car.vert, yaw_dps: yawDps, ax: a[0], ay: a[1], az: a[2] });
     }
   }
