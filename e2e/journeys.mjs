@@ -38,9 +38,10 @@ async function car1Name(p) {
 /** 動画の位置が、ログの時刻 − 同期のずれ と合っているか (止めた状態で) */
 async function checkVideoSync(p, where) {
   await p.ev(`document.querySelectorAll('video').forEach(v => v.pause())`);
+  // 見えている動画で確かめる (解析の画面の左下にも車載動画の窓がある。PLAN-28 でアニメの窓を外したので、いつも出ている)
   await sleep(1200);
   const s = await p.state();
-  const v = await p.ev(`(()=>{const v=document.querySelector('video'); return v ? { t: v.currentTime, src: decodeURIComponent(v.currentSrc || v.src), dur: v.duration } : null})()`);
+  const v = await p.ev(`(()=>{const v=[...document.querySelectorAll('video')].find(x=>x.offsetParent!==null) ?? document.querySelector('video'); return v ? { t: v.currentTime, src: decodeURIComponent(v.currentSrc || v.src), dur: v.duration } : null})()`);
   check(v, `${where}: 動画が出ていない`);
   const main = s.videos.find(x => v.src.endsWith(x.fileName));
   check(main, `${where}: 出ている動画 ${v.src} が同期の一覧にない`);
@@ -407,7 +408,7 @@ export const journeys = [
       await p.click('data-drawer-close');
       await p.click('nav-video');
       await sleep(6000);
-      const src = await p.ev(`decodeURIComponent(document.querySelector('video')?.currentSrc ?? '')`);
+      const src = await p.ev(`decodeURIComponent(([...document.querySelectorAll('video')].find(x=>x.offsetParent!==null) ?? document.querySelector('video'))?.currentSrc ?? '')`);
       check(src.includes('GX010017'), `動画が 9/18 のものにならない: ${src}`);
       await checkVideoSync(p, 'Car 1 を 9/18 に替えて動画へ');
     }

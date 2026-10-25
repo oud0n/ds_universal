@@ -20,7 +20,6 @@ import { userCircuitStorage, runsOnPolylines } from './services/userCircuitStora
 import { Header } from './components/Header';
 import { SpeedGraphWindow } from './components/SpeedGraphWindow';
 import { TrackMapWindow } from './components/TrackMapWindow';
-import { ReplayWindow } from './components/ReplayWindow';
 import { FrictionCircleWindow } from './components/FrictionCircleWindow';
 import { DriftWindow } from './components/DriftWindow';
 import { CornerAnalysisWindow } from './components/CornerAnalysisWindow';
@@ -120,10 +119,9 @@ const COLLAPSED_STORAGE_KEY = 'ds_collapsed_panes';
 const SHOW_DRIFT = false;
 
 // スマートフォンのグラフ解析タブで、速度ウインドウの下 (横向きでは右) に切り替えて出すウインドウ
-type MobilePanel = 'map' | 'replay' | 'gg' | 'corner' | 'braking' | 'xy' | 'drift';
+type MobilePanel = 'map' | 'gg' | 'corner' | 'braking' | 'xy' | 'drift';
 const MOBILE_PANELS: { id: MobilePanel; label: [string, string] }[] = ([
   { id: 'map', label: ['コース', 'Map'] },
-  { id: 'replay', label: ['アニメ', 'Anim'] },
   { id: 'gg', label: ['GG', 'GG'] },
   { id: 'corner', label: ['コーナー', 'Corners'] },
   { id: 'braking', label: ['ブレーキ', 'Braking'] },
@@ -181,7 +179,8 @@ export const App: React.FC = () => {
   const toggleCollapsed = (key: 'anim' | 'map' | 'sub', value?: boolean, nextMode?: string) => {
     // たたんだ動画のウインドウを開くときは、再生を止める (開いた動画が再生の基準に切り替わり、続きから再生できないため)
     const opening = collapsed[key] && value !== true;
-    const mode = nextMode ?? (key === 'anim' ? leftBottomMode : key === 'sub' ? subWindowMode : '');
+    // 左下は車載動画だけ (アニメの窓は PLAN-28 でコースの窓にまとめた)
+    const mode = nextMode ?? (key === 'anim' ? 'video' : key === 'sub' ? subWindowMode : '');
     const videoPane = key !== 'map' && mode === 'video';
     if (opening && videoPane) setIsPlaying(false);
     setCollapsed(prev => {
@@ -200,8 +199,6 @@ export const App: React.FC = () => {
     if (canUseLoggerBle) void bleLoggerLink.start();
   }, []);
 
-  // グラフ画面・左下モード ('replay' | 'video')
-  const [leftBottomMode, setLeftBottomMode] = useState<'replay' | 'video'>('replay');
   // 右下のタブの帯 (入りきらないときに横にスクロールする)
   const subTabsScrollRef = useWheelScrollX<HTMLDivElement>();
   // ファイルを画面の上に持ってきているか (落とせることを知らせる)。子の要素に入るたびに enter / leave が来るので、深さを数える
@@ -1756,30 +1753,6 @@ export const App: React.FC = () => {
     alignBaseMissing,
     onClearAlignedSector: () => setAlignedSector(null)
   };
-  const replayEl = (
-    <ReplayWindow
-      cars={activeCars}
-      sectors={currentSectors}
-      currentTime={currentTimeSec}
-      currentDistance={currentDistanceKm}
-      compareAxis={compareAxis}
-      isPlaying={isPlaying}
-      onTogglePlay={() => setIsPlaying(!isPlaying)}
-      onStepForward={() => handleStep(0.1)}
-      onStepBack={() => handleStep(-0.1)}
-      onSeekDistance={handleSeekDistance}
-      onSyncSectorStart={handleSyncSectorStart}
-      sectorStartMode={sectorStartMode}
-      onChangeSectorStartMode={mode => {
-        setSectorStartMode(mode);
-        if (mode === 'base') setAlignedSector(null);
-      }}
-      alignedSectorName={alignedSector !== null ? `S${alignedSector + 2}` : undefined}
-      alignFailedCount={alignFailedCount}
-      alignBaseMissing={alignBaseMissing}
-      onClearAlignedSector={() => setAlignedSector(null)}
-    />
-  );
   const trackMapEl = (
     <TrackMapWindow
       cars={activeCars}
@@ -2078,7 +2051,7 @@ export const App: React.FC = () => {
               </div>
               <div className="flex-1 min-h-0 overflow-hidden">
                 {/* 切り替えても表示の設定 (色分け・拡大・追従など) が消えないよう、外さずに隠すだけにする */}
-                {([['map', trackMapEl], ['replay', replayEl], ['gg', frictionEl], ['corner', cornerEl], ['braking', brakingEl], ['xy', xyEl], ['drift', driftEl]] as const)
+                {([['map', trackMapEl], ['gg', frictionEl], ['corner', cornerEl], ['braking', brakingEl], ['xy', xyEl], ['drift', driftEl]] as const)
                   .filter(([id]) => MOBILE_PANELS.some(p => p.id === id))
                   .map(([id, el]) => (
                     <div key={id} className={mobilePanel === id ? 'h-full' : 'hidden'}>
@@ -2119,7 +2092,7 @@ export const App: React.FC = () => {
                 />
               )}
 
-              {/* 下部: 走行アニメーション or 車載動画 切替エリア (たたむとタブの帯だけ残す) */}
+              {/* 下部: 車載動画 (たたむとタブの帯だけ残す。走行アニメーションは PLAN-28 でコースの窓にまとめた) */}
               <div
                 style={collapsed.anim ? undefined : { height: `${(1 - leftVertSplit.ratio) * 100}%` }}
                 className={`overflow-hidden flex flex-col bg-surface-1 rounded border border-line-1 ${collapsed.anim ? 'shrink-0' : 'min-h-[120px]'}`}
@@ -2127,34 +2100,17 @@ export const App: React.FC = () => {
                 {/* 左下タブバー */}
                 <div className={`flex items-center bg-surface-2 p-1 text-[11px] gap-1 shrink-0 ${collapsed.anim ? '' : 'border-b border-line-1'}`}>
                   <button
-                    onClick={() => { setLeftBottomMode('replay'); toggleCollapsed('anim', false); }}
-                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
-                      leftBottomMode === 'replay'
-                        ? 'bg-red-600 text-white'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    {T('走行アニメーション', 'Animation')}
-                  </button>
-                  <button
-                    onClick={() => { setLeftBottomMode('video'); toggleCollapsed('anim', false, 'video'); }}
-                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
-                      leftBottomMode === 'video'
-                        ? 'bg-red-600 text-white'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
+                    onClick={() => toggleCollapsed('anim', false, 'video')}
+                    className="px-3 py-0.5 rounded font-bold transition-colors cursor-pointer bg-red-600 text-white"
                   >
                     {T('車載動画 (GoPro/MP4)', 'Onboard video (GoPro/MP4)')}
                   </button>
                   <CollapseButton collapsed={collapsed.anim} onClick={() => toggleCollapsed('anim')} />
                 </div>
 
-                {/* たたんでも中身の設定 (拡大率など) が消えないよう、外さずに隠す。動画だけは隠したまま再生されないよう外す */}
-                {!(collapsed.anim && leftBottomMode === 'video') && (
-                <div className={`flex-1 min-h-0 overflow-hidden ${collapsed.anim ? 'hidden' : ''}`}>
-                  {leftBottomMode === 'replay' ? (
-                    replayEl
-                  ) : (
+                {/* たたんだら外す (隠したまま再生されないように) */}
+                {!collapsed.anim && (
+                <div className="flex-1 min-h-0 overflow-hidden">
                     <VideoSyncWindow
                       sessions={sessions}
                       selectedCars={selectedCars}
@@ -2177,7 +2133,6 @@ export const App: React.FC = () => {
                       onSetClockOffset={setSessionClockOffset}
                       compareCars={activeCars}
                     />
-                  )}
                 </div>
                 )}
               </div>
@@ -2359,7 +2314,7 @@ export const App: React.FC = () => {
                       onLoadFiles={loadFiles}
                       viewKey="graph-b"
                       // 左下にも車載動画を出しているときは、こちらの音を消す (同じ動画の音が二重になるため)
-                      muted={leftBottomMode === 'video' && !collapsed.anim}
+                      muted={!collapsed.anim}
                       onSetClockOffset={setSessionClockOffset}
                       compareCars={activeCars}
                     />
