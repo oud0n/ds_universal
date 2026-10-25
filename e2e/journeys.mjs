@@ -5,6 +5,7 @@
 import { check, sleep } from './cdp.mjs';
 import { sweepLayout } from './layout.mjs';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -217,6 +218,75 @@ export const journeys = [
       await p.waitFor(`[...document.querySelectorAll('[data-testid="library-session-row"]')].some(r => r.innerText.includes('e2e 比べ方'))`, 10000, '保存した比べ方の行');
       await p.ev(`window.confirm = () => true; [...document.querySelectorAll('[data-testid="library-session-row"]')].find(r => r.innerText.includes('e2e 比べ方')).querySelector('[data-testid="library-session-delete"]').click()`);
       await p.waitFor(`![...document.querySelectorAll('[data-testid="library-session-row"]')].some(r => r.innerText.includes('e2e 比べ方'))`, 8000, '消した比べ方が消える');
+    }
+  },
+  {
+    name: '動画だけの参考ラップ (LATER-17): 動画に計測線の印を打って保存し、自分の周の動画と周の始まりをそろえて並べる',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      // 試験用の写しに、どの走行にも付いていない動画を置く (APFS の写し。場所は取らない)
+      const dir = path.join(root, 'sodegaura/20200102');
+      fs.mkdirSync(dir, { recursive: true });
+      const video = path.join(dir, 'E2EREF.MP4');
+      execFileSync('cp', ['-c', path.join(root, 'sodegaura/20260913/GX010016.MP4'), video]);
+      const runsPath = path.join(root, 'sodegaura/runs.json');
+      try {
+        await p.goto(`${APP}?r=${Date.now()}`);
+        await p.click('nav-library');
+        await p.waitFor(`document.querySelector('[data-testid="library-owner-ref"]')`, 20000, '参考ラップの区切り');
+        await p.click('library-owner-ref');
+        await p.waitFor(`document.querySelector('[data-testid="library-video-ref-new"]')`, 5000, '動画から作る');
+        await p.click('library-video-ref-new');
+        await p.waitFor(`[...document.querySelectorAll('[data-testid="video-ref-candidate"]')].some(b => b.innerText.includes('E2EREF.MP4'))`, 20000, '候補の動画');
+        const others = await p.ev(`[...document.querySelectorAll('[data-testid="video-ref-candidate"]')].map(b => b.innerText)`);
+        check(!others.some(x => x.includes('GX010016') || x.includes('GX010017')), `走行に付けた動画が候補に出ている: ${others.join(' / ')}`);
+        await p.ev(`[...document.querySelectorAll('[data-testid="video-ref-candidate"]')].find(b => b.innerText.includes('E2EREF.MP4')).click()`);
+        await p.waitFor(`document.querySelector('[data-testid="video-lap-marker-video"]')?.readyState >= 1`, 20000, '印を打つ画面の動画');
+        // 10 秒・50 秒 (セクター)・110 秒・205 秒 に印
+        const mark = async (sec, kind) => {
+          await p.ev(`(() => { const v = document.querySelector('[data-testid="video-lap-marker-video"]'); v.pause(); v.currentTime = ${sec}; })()`);
+          await p.waitFor(`Math.abs(document.querySelector('[data-testid="video-lap-marker-video"]').currentTime - ${sec}) < 0.05 && !document.querySelector('[data-testid="video-lap-marker-video"]').seeking`, 10000, `${sec} 秒へ`);
+          await p.click(kind === 'line' ? 'video-lap-mark-line' : 'video-lap-mark-sector');
+        };
+        await mark(10, 'line'); await mark(50, 'sector'); await mark(110, 'line'); await mark(205, 'line');
+        await p.ev(`(() => { const el = document.querySelector('[data-testid="video-lap-name"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, 'e2e 参考'); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+        await p.waitFor(`document.querySelector('[data-testid="video-lap-laps"]').innerText.includes('1:40.000') && document.querySelector('[data-testid="video-lap-laps"]').innerText.includes('1:35.000')`, 5000, '周が 2 つ (1:40.000・1:35.000)');
+        await p.click('video-lap-save');
+        await p.waitFor(`!document.querySelector('[data-testid="video-lap-marker"]')`, 10000, '保存して閉じる');
+        const row = JSON.parse(fs.readFileSync(runsPath, 'utf8')).runs['20200102/E2EREF.MP4'];
+        check(row?.name === 'e2e 参考' && row?.videoLaps?.marks?.length === 4 && row.reference, `runs.json の行がおかしい: ${JSON.stringify(row)}`);
+        await p.waitFor(`[...document.querySelectorAll('[data-testid="library-video-ref-row"]')].some(r => r.innerText.includes('e2e 参考'))`, 10000, '参考ラップの行');
+        await p.ev(`[...document.querySelectorAll('[data-testid="library-video-ref-row"]')].find(r => r.innerText.includes('e2e 参考')).querySelector('[data-testid="library-video-ref-compare"]').click()`);
+        await p.waitFor(`document.querySelector('[data-testid="video-lap-compare"]')`, 5000, '比べる画面');
+        check(await p.exists('video-lap-compare-own'), '自分の周 (同期した動画のある袖ヶ浦の走行) が出ない');
+        await p.waitFor(`document.querySelector('[data-testid="video-lap-compare-ref-video"]').readyState >= 2 && document.querySelector('[data-testid="video-lap-compare-own-video"]').readyState >= 2`, 30000, '両方の動画');
+        await sleep(500);
+        const st0 = await p.ev(`({ ref: document.querySelector('[data-testid="video-lap-compare-ref-video"]').currentTime })`);
+        check(Math.abs(st0.ref - 110) < 0.2, `参考ラップの動画が周の始まりにない: ${st0.ref}`);
+        await p.click('video-lap-compare-play');
+        await sleep(2500);
+        await p.click('video-lap-compare-play');
+        await sleep(300);
+        const st = await p.ev(`({ ref: document.querySelector('[data-testid="video-lap-compare-ref-video"]').currentTime, own: document.querySelector('[data-testid="video-lap-compare-own-video"]').currentTime })`);
+        const refStart = 110; // いちばん速い L2 (1:35.000) が始めに選ばれる
+        check(st.ref - refStart > 1, `再生されていない: ${JSON.stringify(st)}`);
+        check(await p.ev(`document.querySelector('[data-testid="video-lap-compare-table"]').innerText.includes('差')`), '差の行がない');
+        p.notes.push(`参考 ${(st.ref - refStart).toFixed(2)} 秒・自分の動画 ${st.own.toFixed(2)} 秒`);
+        await p.click('video-lap-compare-close');
+        // やめる (行を消す。動画は残す)
+        await p.ev(`window.confirm = () => true; [...document.querySelectorAll('[data-testid="library-video-ref-row"]')].find(r => r.innerText.includes('e2e 参考')).querySelector('[data-testid="library-video-ref-delete"]').click()`);
+        await p.waitFor(`![...document.querySelectorAll('[data-testid="library-video-ref-row"]')].some(r => r.innerText.includes('e2e 参考'))`, 10000, '参考ラップの行が消える');
+        check(fs.existsSync(video), '動画のファイルまで消えた');
+        check(!JSON.parse(fs.readFileSync(runsPath, 'utf8')).runs['20200102/E2EREF.MP4'], 'runs.json の行が残っている');
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+        const r2 = JSON.parse(fs.readFileSync(runsPath, 'utf8'));
+        delete r2.runs['20200102/E2EREF.MP4'];
+        fs.writeFileSync(runsPath, JSON.stringify(r2, null, 1));
+      }
     }
   },
   {

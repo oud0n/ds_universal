@@ -13,7 +13,9 @@ import { RunNoteField } from '../components/RunNoteField';
 import { navStore } from '../app/navStore';
 import { deleteSession, listSessions, type LapSession, type SavedSession } from '../services/analysisSessions';
 import { deleteRun, planRunDelete, type RunDeletePlan } from '../services/runDelete';
-import { canRemoveRunFiles } from '../services/runStore';
+import { canRemoveRunFiles, type RunFileInfo } from '../services/runStore';
+import { listVideoRefs, removeVideoLaps, videoRefCandidates, type VideoRef } from '../services/videoLaps';
+import { VideoLapCompare, VideoLapMarker, VideoRefPicker } from '../components/VideoRefLaps';
 
 /** 一度に出す行の数 (数千件あっても固まらないよう、続きは「さらに表示」で足す) */
 const PAGE = 150;
@@ -84,6 +86,24 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
   /** 保存した比べ方 (解析用のセッション)。走行を読み直すたびに読み直す */
   const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
   const [sessionsOpen, setSessionsOpen] = useState(true);
+  /** 動画だけの参考ラップ (LATER-17)。走行を読み直すたびに読み直す */
+  const [videoRefs, setVideoRefs] = useState<VideoRef[]>([]);
+  const [refsTick, setRefsTick] = useState(0);
+  useEffect(() => {
+    if (!active || !store) return;
+    let alive = true;
+    void listVideoRefs(store).then(l => { if (alive) setVideoRefs(l); }, () => {});
+    return () => { alive = false; };
+  }, [active, store, runs, refsTick]);
+  /** 参考ラップにする動画を選ぶ画面 (null: 探している) / 印を打つ画面 / 比べる画面 */
+  const [picking, setPicking] = useState<RunFileInfo[] | null | false>(false);
+  const [marking, setMarking] = useState<{ path: string; existing: VideoRef | null } | null>(null);
+  const [comparing, setComparing] = useState<VideoRef | null>(null);
+  const startPick = () => {
+    if (!store) return;
+    setPicking(null);
+    void store.listAll().then(files => setPicking(videoRefCandidates(files, runs ?? [], videoRefs)), () => setPicking([]));
+  };
   useEffect(() => {
     if (!active || !store || !onOpenSession) return;
     let alive = true;
@@ -100,9 +120,10 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
     return [...m.entries()];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runs]);
-  const refCount = useMemo(() => (runs ?? []).filter(r => !!r.entry?.reference).length, [runs]);
-  // 参考ラップが無くなったら (印を外した)、自分の走行に戻す
-  const ownerNow = refCount === 0 ? 'mine' : owner;
+  const refCount = useMemo(() => (runs ?? []).filter(r => !!r.entry?.reference).length, [runs]) + videoRefs.length;
+  // 参考ラップの区切りは、走行があれば出す (動画だけの参考ラップをそこから作れるように)
+  const showOwner = !!store && (runs?.length ?? 0) > 0;
+  const ownerNow = showOwner ? owner : 'mine';
   const filtered = useMemo(() => (runs ?? []).filter(r => (!folder || r.folder === folder) && (ownerNow === 'ref') === !!r.entry?.reference), [runs, folder, ownerNow]);
   const selected = filtered.find(r => `${r.folder}/${r.file}` === selectedKey) ?? null;
 
@@ -140,13 +161,13 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
         </button>
       )}
       {/* 参考ラップがあるときだけ、自分の走行と分けて出す */}
-      {refCount > 0 && (
+      {showOwner && (
         <div className="flex gap-1 px-3 pt-3 shrink-0" data-testid="library-owner">
           {(['mine', 'ref'] as const).map(o => (
             <button key={o} onClick={() => { setOwner(o); setShown(PAGE); setSelectedKey(null); }}
               className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer ${ownerNow === o ? 'bg-sky-600 border-sky-500 text-white' : 'bg-surface-2 border-line-2 text-slate-300'}`}
               data-testid={`library-owner-${o}`}>
-              {o === 'mine' ? t('自分の走行', 'My runs') : t(`参考ラップ ${refCount}`, `Reference laps ${refCount}`)}
+              {o === 'mine' ? t('自分の走行', 'My runs') : refCount ? t(`参考ラップ ${refCount}`, `Reference laps ${refCount}`) : t('参考ラップ', 'Reference laps')}
             </button>
           ))}
         </div>
@@ -203,6 +224,41 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
                 ))}
               </div>
             )}
+          </div>
+        )}
+        {/* 動画だけの参考ラップ (LATER-17)。参考ラップの区切りの上に */}
+        {ownerNow === 'ref' && store && (
+          <div className="space-y-1.5" data-testid="library-video-refs">
+            <div className="flex items-center gap-2 px-1">
+              <span className="text-[11px] font-bold text-slate-400 flex-1">{t(`動画だけの参考ラップ ${videoRefs.length}`, `Video-only reference laps ${videoRefs.length}`)}</span>
+              <button onClick={startPick} className="flex items-center gap-1 px-2 py-1 rounded border border-line-3 hover:border-sky-500 text-[11px] text-slate-300 cursor-pointer" data-testid="library-video-ref-new">
+                <Video size={12} />{t('動画から作る', 'From a video')}
+              </button>
+            </div>
+            {videoRefs.filter(r => !folder || r.folder === folder).map(r => {
+              const best = r.laps.length ? Math.min(...r.laps.map(l => l.time)) : null;
+              return (
+                <div key={r.path} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-2 border border-line-2" data-testid="library-video-ref-row">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-bold text-slate-100 truncate">{r.row.name || r.file.slice(r.file.lastIndexOf('/') + 1)}</div>
+                    <div className="text-[11px] text-slate-500 truncate">
+                      {circuitLabel(runs?.find(x => x.folder === r.folder)?.courseName ?? r.folder)}
+                      {r.row.reference?.driver ? ` · ${r.row.reference.driver}` : ''}{r.row.reference?.car ? ` · ${r.row.reference.car}` : ''}
+                      {` · ${t(`${r.laps.length} 周`, `${r.laps.length} lap${r.laps.length === 1 ? '' : 's'}`)}`}{best !== null ? ` · ${formatLapTime(best)}` : ''}{r.remote ? ' · iCloud' : ''}
+                    </div>
+                  </div>
+                  <button onClick={() => setComparing(r)} disabled={!r.laps.length} className="px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50" data-testid="library-video-ref-compare">{t('比べる', 'Compare')}</button>
+                  <button onClick={() => setMarking({ path: r.path, existing: r })} className="px-2 py-1 rounded border border-line-3 text-slate-300 text-[11px] cursor-pointer" data-testid="library-video-ref-edit">{t('印', 'Marks')}</button>
+                  <button
+                    onClick={() => {
+                      if (!window.confirm(t('この参考ラップをやめますか？ (動画のファイルは消えません)', 'Remove this reference lap? (The video file is kept)'))) return;
+                      void removeVideoLaps(store, r).then(() => setRefsTick(n => n + 1));
+                    }}
+                    className="p-1.5 rounded text-slate-500 hover:text-red-400 cursor-pointer" aria-label={t('消す', 'Delete')} data-testid="library-video-ref-delete"
+                  ><X size={14} /></button>
+                </div>
+              );
+            })}
           </div>
         )}
         {runs && runs.length === 0 && !noFolder && !error && (
@@ -332,6 +388,14 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
         const item = runs?.find(r => r.folder === run.folder && sameRunFile(r.file, run.file));
         if (item) onOpen(item); else onOpenFile(file);
       }} />}
+      {picking !== false && (
+        <VideoRefPicker candidates={picking} onClose={() => setPicking(false)} onPick={f => { setPicking(false); setMarking({ path: f.path, existing: null }); }} />
+      )}
+      {marking && store && (
+        <VideoLapMarker store={store} path={marking.path} existing={marking.existing} onClose={() => setMarking(null)}
+          onSaved={() => { setMarking(null); setOwner('ref'); setRefsTick(n => n + 1); }} />
+      )}
+      {comparing && store && <VideoLapCompare store={store} videoRef={comparing} runs={runs ?? []} onClose={() => setComparing(null)} />}
       {deleting && store && (
         <DeleteRunDialog
           state={deleting}
