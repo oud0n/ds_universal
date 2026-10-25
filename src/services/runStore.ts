@@ -32,14 +32,23 @@ export interface RunStore extends LapFileStore {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+/**
+ * 動画を読む URL の頭。iPhone・デスクトップ版は lapfile://run/、Android は https://appassets.androidplatform.net/run/
+ * (アプリが system.runRoot で教える。聞く前は lapfile://run/)
+ */
+let runUrlBase = 'lapfile://run/';
+
 /** lapfile://run/<道> (道の区切りごとに % で書く) */
 export function lapFileUrl(path: string): string {
-  return 'lapfile://run/' + path.split('/').map(encodeURIComponent).join('/');
+  return runUrlBase + path.split('/').map(encodeURIComponent).join('/');
 }
 
 /** アプリが lapfile:// を持っているか (system.runRoot に答えるか)。1 回だけ聞く */
 let nativeVideos: Promise<boolean> | null = null;
-const nativeSupportsVideos = () => (nativeVideos ??= callNative('system.runRoot', {}).then(() => true, e => !isOldApp(e)));
+const nativeSupportsVideos = () => (nativeVideos ??= callNative('system.runRoot', {}).then(r => {
+  if (r.urlBase && /^(lapfile|https):\/\//.test(r.urlBase)) runUrlBase = r.urlBase.endsWith('/') ? r.urlBase : `${r.urlBase}/`;
+  return true;
+}, e => !isOldApp(e)));
 
 /** 古いアプリ (走行の置き場の窓口がない) か */
 const isOldApp = (e: unknown) => e instanceof NativeError && e.code === 'not-supported';

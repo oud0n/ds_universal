@@ -46,7 +46,12 @@ export function phoneFeed(
   }
   onInfo({ accuracy: null, error: null });
   let prev: LiveFix | null = null;
-  const id = navigator.geolocation.watchPosition(
+  let stopped = false;
+  let retry: ReturnType<typeof setTimeout> | null = null;
+  let id = -1;
+  // 許可が無いと知らされても、少し待って取り直す (Android は OS の許可の画面を出している間に、先に「許可なし」が届くことがある。
+  // あとで許可されれば、そこから測位が始まる)
+  const watch = () => { id = navigator.geolocation.watchPosition(
     pos => {
       onInfo({ accuracy: pos.coords.accuracy, error: null });
       // 速さが来ない (null・負) ときは、前の測位からの位置と時刻で求める (iPhone はよく来ない)
@@ -68,10 +73,17 @@ export function phoneFeed(
       if (fix.valid) prev = fix;
       onFix(fix);
     },
-    err => onInfo({ accuracy: null, error: err.code === err.PERMISSION_DENIED ? messages.denied : err.message }),
+    err => {
+      onInfo({ accuracy: null, error: err.code === err.PERMISSION_DENIED ? messages.denied : err.message });
+      if (err.code === err.PERMISSION_DENIED && !stopped && !retry) {
+        navigator.geolocation.clearWatch(id);
+        retry = setTimeout(() => { retry = null; if (!stopped) watch(); }, 3000);
+      }
+    },
     { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
-  );
-  return () => navigator.geolocation.clearWatch(id);
+  ); };
+  watch();
+  return () => { stopped = true; if (retry) clearTimeout(retry); navigator.geolocation.clearWatch(id); };
 }
 
 export interface ReplaySource {

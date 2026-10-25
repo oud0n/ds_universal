@@ -33,6 +33,7 @@ class NativeBridge(private val activity: MainActivity, private val webView: WebV
     val system = SystemModule(activity, this)
     val spp = SppModule(activity, this)
     val ble = BleModule(activity, this)
+    val camera = CameraModule(activity, this)
 
     @JavascriptInterface
     fun postMessage(text: String) {
@@ -55,10 +56,11 @@ class NativeBridge(private val activity: MainActivity, private val webView: WebV
                         .put("contractVersion", CONTRACT_VERSION)
                         .put("platform", "android")
                         .put("deviceKind", "phone")
-                        .put("features", JSONObject().put("ble", true).put("iap", false).put("camera", false).put("spp", true))))
+                        .put("features", JSONObject().put("ble", true).put("iap", false).put("camera", true).put("spp", true))))
                     method.startsWith("system.") -> system.handle(method, params, done)
                     method.startsWith("spp.") -> spp.handle(method, params, done)
                     method.startsWith("ble.") || method.startsWith("recorder.") -> ble.handle(method, params, done)
+                    method.startsWith("camera.") -> camera.handle(method, params, done)
                     else -> done(Result.failure(NativeError.notSupported("unknown method $method")))
                 }
             } catch (e: Exception) {

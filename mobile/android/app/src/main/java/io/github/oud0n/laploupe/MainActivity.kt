@@ -46,6 +46,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private lateinit var webView: WebView
+    /** WebView の上に重ねる物 (カメラの映像) を置く所。WebView と同じ広さ */
+    lateinit var overlay: FrameLayout
+        private set
     lateinit var bridge: NativeBridge
         private set
 
@@ -104,9 +107,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         webView = WebView(this)
         // Android 15 からは画面の端まで描くので、状態のバー・ジェスチャーのバー・切り欠きの分だけ内側に寄せる
+        overlay = FrameLayout(this)
         val frame = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             addView(webView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+            addView(this@MainActivity.overlay, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         }
         ViewCompat.setOnApplyWindowInsetsListener(frame) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
@@ -127,6 +132,7 @@ class MainActivity : ComponentActivity() {
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
+            setGeolocationEnabled(true)
             databaseEnabled = true
             mediaPlaybackRequiresUserGesture = false
             allowFileAccess = false
@@ -134,8 +140,12 @@ class MainActivity : ComponentActivity() {
         }
         webView.addJavascriptInterface(bridge, "dsNativeAndroid")
         webView.webViewClient = object : WebViewClient() {
-            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
-                loader.shouldInterceptRequest(request.url)
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                // 走行のファイル (動画) は、一部だけを読む頼み (Range) に答える (答えないと、WebView が動画を再生できない)
+                val url = request.url
+                if (url.host == HOST && url.path?.startsWith("/run/") == true) return runFile(runRoot, url.path!!.removePrefix("/run/"), request.requestHeaders)
+                return loader.shouldInterceptRequest(url)
+            }
 
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url
@@ -146,6 +156,14 @@ class MainActivity : ComponentActivity() {
             }
         }
         webView.webChromeClient = object : WebChromeClient() {
+            // 「この端末の GPS」で測るとき: Web が位置を使いたいと言ったら、OS の位置の許可を聞いて渡す (アプリの画面だけ)
+            override fun onGeolocationPermissionsShowPrompt(origin: String, callback: android.webkit.GeolocationPermissions.Callback) {
+                if (!isAppPage(webView.url)) { callback.invoke(origin, false, false); return }
+                withPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) { ok ->
+                    callback.invoke(origin, ok || ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED, false)
+                }
+            }
+
             override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
                 fileCallback?.onReceiveValue(null)
                 fileCallback = callback
@@ -168,7 +186,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::bridge.isInitialized) bridge.emit("system.appState", JSONObject().put("state", "active"))
+        if (::bridge.isInitialized) {
+            bridge.emit("system.appState", JSONObject().put("state", "active"))
+            bridge.camera.onResume()
+        }
     }
 
     override fun onPause() {
@@ -188,6 +209,39 @@ class MainActivity : ComponentActivity() {
                 null
             }
         }
+    }
+
+    /** 走行のファイル (files/LapTimer)。Range があれば、その部分だけを 206 で返す */
+    private fun runFile(root: File, rel: String, headers: Map<String, String>): WebResourceResponse? {
+        val path = Uri.decode(rel)
+        if (path.contains("..")) return null
+        val f = File(root, path)
+        if (!f.isFile) return WebResourceResponse("text/plain", null, 404, "Not Found", emptyMap(), null)
+        val len = f.length()
+        val range = headers.entries.firstOrNull { it.key.equals("Range", ignoreCase = true) }?.value
+        val m = range?.let { Regex("bytes=(\\d*)-(\\d*)").find(it) }
+        val common = mapOf("Accept-Ranges" to "bytes", "Access-Control-Allow-Origin" to "*")
+        if (m == null) {
+            return WebResourceResponse(mime(f.name), null, 200, "OK", common + ("Content-Length" to len.toString()), FileInputStream(f))
+        }
+        val (a, b) = m.destructured
+        val start = if (a.isEmpty()) maxOf(0L, len - (b.toLongOrNull() ?: 0L)) else a.toLong()
+        val end = if (a.isEmpty() || b.isEmpty()) len - 1 else minOf(b.toLong(), len - 1)
+        if (start >= len || end < start) return WebResourceResponse(mime(f.name), null, 416, "Range Not Satisfiable", common + ("Content-Range" to "bytes */$len"), null)
+        val input = FileInputStream(f)
+        input.channel.position(start)
+        val body = object : java.io.FilterInputStream(input) {
+            var left = end - start + 1
+            override fun read(): Int { if (left <= 0) return -1; val r = super.read(); if (r >= 0) left--; return r }
+            override fun read(buf: ByteArray, off: Int, n: Int): Int {
+                if (left <= 0) return -1
+                val r = super.read(buf, off, minOf(n.toLong(), left).toInt())
+                if (r > 0) left -= r
+                return r
+            }
+        }
+        return WebResourceResponse(mime(f.name), null, 206, "Partial Content",
+            common + mapOf("Content-Range" to "bytes $start-$end/$len", "Content-Length" to (end - start + 1).toString()), body)
     }
 
     /** 走行のファイル (files/LapTimer)。動画の一部だけを読む頼み (Range) にも答える */

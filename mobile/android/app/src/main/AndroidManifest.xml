@@ -7,10 +7,16 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- Bluetooth LE の機器 (デジスパイス・RaceBox・GoPro など) を探す。Android 12 からは位置に使わないと宣言する。それより前は位置情報の許可が要る -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+    <!-- 位置情報: 「この端末の GPS」で測るとき (WebView の位置)。Android 11 までは BLE で探すのにも要る -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
     <uses-feature android:name="android.software.companion_device_setup" android:required="false" />
+    <!-- 内蔵カメラで、測っている間に録画する (音はエンジンの音) -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- 走っている間、画面を消さない -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 

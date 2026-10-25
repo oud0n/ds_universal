@@ -12,8 +12,8 @@ android {
         applicationId = "io.github.oud0n.dsuniversal"
         minSdk = 29
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "0.2.0"
     }
 
     buildTypes {
@@ -47,4 +47,10 @@ dependencies {
     implementation("androidx.webkit:webkit:1.18.0")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-ktx:1.10.1")
+    // 内蔵カメラの録画 (CameraX)
+    val camerax = "1.4.2"
+    implementation("androidx.camera:camera-camera2:$camerax")
+    implementation("androidx.camera:camera-lifecycle:$camerax")
+    implementation("androidx.camera:camera-video:$camerax")
+    implementation("androidx.camera:camera-view:$camerax")
 }

@@ -47,7 +47,12 @@ export const TimerCameraSettings: React.FC = () => {
     void cameraAvailable().then(async yes => {
       if (!alive || !yes) return;
       setOk(true);
-      const l = await listLenses();
+      // 起動直後は、カメラの一覧がまだ空のことがある (Android) ので、空なら少し待って聞き直す
+      let l = await listLenses();
+      for (let i = 0; i < 3 && alive && l.lenses.length === 0; i++) {
+        await new Promise(r => setTimeout(r, 1500));
+        l = await listLenses();
+      }
       if (!alive) return;
       setLenses(l.lenses);
       setMultiCam(l.multiCam);
@@ -219,10 +224,13 @@ export const TimerCameraSettings: React.FC = () => {
               {presets.map(p => <button key={p} onClick={() => update({ preset: p })} className={pill(p === preset)}>{PRESET_LABEL[p]}</button>)}
             </div>
           </div>
-          <div>
-            <div className="text-[11px] text-slate-500 mb-1">{t('ISO 感度 (決めると、シャッターの速さで明るさを合わせます)', 'ISO (when fixed, shutter speed keeps the exposure)')}</div>
-            {isoRow(s.iso, lens, v => update({ iso: v }))}
-          </div>
+          {/* ISO を決められないレンズ (Android の版。isoMax が 0) は、自動だけなので欄を出さない */}
+          {(lens?.isoMax ?? 1) > 0 && (
+            <div>
+              <div className="text-[11px] text-slate-500 mb-1">{t('ISO 感度 (決めると、シャッターの速さで明るさを合わせます)', 'ISO (when fixed, shutter speed keeps the exposure)')}</div>
+              {isoRow(s.iso, lens, v => update({ iso: v }))}
+            </div>
+          )}
           {plan && (
             <label className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-2 cursor-pointer">
               <input type="checkbox" checked={s.front.enabled} onChange={e => updateFront({ enabled: e.target.checked })} data-testid="lap-timer-camera-front-on" />
@@ -241,10 +249,12 @@ export const TimerCameraSettings: React.FC = () => {
                   {plan.frontPresets.map(p => <button key={p} onClick={() => updateFront({ preset: p })} className={pill(p === frontPreset)}>{PRESET_LABEL[p]}</button>)}
                 </div>
               </div>
-              <div>
-                <div className="text-[11px] text-slate-500 mb-1">{t('ISO 感度', 'ISO')}</div>
-                {isoRow(s.front.iso, plan.front, v => updateFront({ iso: v }))}
-              </div>
+              {plan.front.isoMax > 0 && (
+                <div>
+                  <div className="text-[11px] text-slate-500 mb-1">{t('ISO 感度', 'ISO')}</div>
+                  {isoRow(s.front.iso, plan.front, v => updateFront({ iso: v }))}
+                </div>
+              )}
             </div>
           )}
           <label className="flex items-center gap-2 text-xs text-slate-300">
