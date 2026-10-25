@@ -1,6 +1,7 @@
 /**
- * 取り込みの書き方 (2026-10-21)。デスクトップ版は保管場所のフォルダへ直接、iPhone のアプリはアプリの中 (LapTimer/) に書いてから
- * 選んだフォルダへ移す (system.closeFiles → system.syncLapFiles。アプリの中には残さない)。どちらも、もうあるファイルは書かない
+ * 取り込みの書き方 (2026-10-21)。デスクトップ版は保管場所のフォルダへ直接、iPhone・Android のアプリはアプリの中 (LapTimer/) に書いてから
+ * 選んだフォルダへ移す (system.closeFiles → system.syncLapFiles。アプリの中には残さない)。どちらも、もうあるファイルは書かない。
+ * アプリは 4 MB ずつ書くので、途中で失敗したら書きかけのファイルを消す (LATER-19)
  */
 
 import { callNative, hasNative, toBase64 } from '../../native/bridge';
@@ -43,8 +44,17 @@ export function nativeWriter(existing: ReadonlySet<string> = new Set()): (Import
         if (code === 'busy') return 'exists';
         throw e;
       }
-      for (let off = CHUNK; off < bytes.length; off += CHUNK) {
-        await callNative('system.appendFile', { path, b64: toBase64(bytes.subarray(off, off + CHUNK)) });
+      try {
+        for (let off = CHUNK; off < bytes.length; off += CHUNK) {
+          await callNative('system.appendFile', { path, b64: toBase64(bytes.subarray(off, off + CHUNK)) });
+        }
+      } catch (e) {
+        // 途中で失敗したら、書きかけのファイルを消す (残すと、取り込み直したときに「もうある」として飛ばされ、
+        // 途中までのログが走行として残る。LATER-19)。閉じる一覧からも外す
+        written.splice(written.indexOf(path), 1);
+        await callNative('system.closeFiles', { paths: [path] }).catch(() => {});
+        await callNative('system.deleteRunFiles', { paths: [path] }).catch(() => {});
+        throw e;
       }
       return 'ok';
     },

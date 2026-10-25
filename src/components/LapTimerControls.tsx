@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Square, Play, RotateCw, Smartphone } from 'lucide-react';
+import { Square, Play, RotateCw, Smartphone, Trash2, Check } from 'lucide-react';
 import { useT } from '../utils/i18n';
 
 /** 終了の確認を出したまま何もしなければ、この秒数で「続ける」に戻る */
@@ -56,6 +56,73 @@ export const StopConfirm: React.FC<{ lapCount: number; onYes: () => void; onNo: 
           data-testid="lap-timer-stop-no"
         >
           <Play size={28} fill="currentColor" />{t('いいえ、続ける', 'No, keep timing')}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+/** 走っていない走行の確認を出したまま何もしなければ、この秒数で「残す」にする (消すのは押したときだけ) */
+export const IDLE_CONFIRM_SEC = 30;
+
+/**
+ * 測定終了のあと、ほとんど動いていなかった走行 (ピットにいただけ) を消すか聞く (LATER-18)。全画面・大きなボタン
+ */
+export const IdleRunConfirm: React.FC<{ distM: number; onDiscard: () => Promise<string | null>; onKeep: () => void }> = ({ distM, onDiscard, onKeep }) => {
+  const t = useT();
+  const [left, setLeft] = useState(IDLE_CONFIRM_SEC);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const onKeepRef = useRef(onKeep);
+  onKeepRef.current = onKeep;
+  const busyRef = useRef(false);
+  busyRef.current = busy;
+  useEffect(() => {
+    const started = performance.now();
+    const id = window.setInterval(() => {
+      if (busyRef.current) return;
+      const rest = IDLE_CONFIRM_SEC - Math.floor((performance.now() - started) / 1000);
+      if (rest <= 0) { window.clearInterval(id); onKeepRef.current(); } else setLeft(rest);
+    }, 250);
+    return () => window.clearInterval(id);
+  }, []);
+  const discard = async () => {
+    setBusy(true);
+    setError(null);
+    const e = await onDiscard();
+    setBusy(false);
+    if (e) setError(e);
+  };
+  return (
+    <div
+      className="absolute inset-0 z-30 bg-surface-0 flex flex-col landscape:flex-row items-stretch gap-4 p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]"
+      role="alertdialog"
+      aria-modal="true"
+      aria-label={t('走っていないようです', 'It looks like you did not drive')}
+      data-testid="lap-timer-idle-confirm"
+    >
+      <div className="flex-1 min-h-0 flex flex-col items-center justify-center text-center gap-2 landscape:basis-1/3">
+        <div className="font-bold" style={{ fontSize: 'min(7vw, 8vh)' }}>{t('走っていないようです', 'It looks like you did not drive')}</div>
+        <div className="text-slate-400 text-lg">{t(`走った距離は ${distM} m です。この記録 (ログ・動画) を消しますか？`, `Distance driven: ${distM} m. Delete this run (log and video)?`)}</div>
+        <div className="text-slate-500 text-base">{t(`${left} 秒で「残す」にします`, `It will be kept in ${left} s`)}</div>
+        {error && <div className="text-amber-500 text-base">{t(`消せませんでした: ${error}`, `Could not delete: ${error}`)}</div>}
+      </div>
+      <div className="flex flex-col landscape:flex-row landscape:basis-2/3 gap-4">
+        <button
+          onClick={() => void discard()}
+          disabled={busy}
+          className="min-h-[120px] landscape:min-h-0 landscape:flex-1 rounded-3xl border-4 border-red-500 text-red-500 font-bold text-3xl flex items-center justify-center gap-3 active:bg-red-900/40 disabled:opacity-50"
+          data-testid="lap-timer-idle-discard"
+        >
+          <Trash2 size={28} />{busy ? t('消しています…', 'Deleting…') : t('消す', 'Delete')}
+        </button>
+        <button
+          onClick={onKeep}
+          disabled={busy}
+          className="min-h-[140px] landscape:min-h-0 landscape:flex-1 rounded-3xl bg-emerald-600 active:bg-emerald-700 text-white font-bold text-3xl flex items-center justify-center gap-3 disabled:opacity-50"
+          data-testid="lap-timer-idle-keep"
+        >
+          <Check size={28} />{t('残す', 'Keep')}
         </button>
       </div>
     </div>

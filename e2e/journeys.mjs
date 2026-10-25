@@ -616,6 +616,45 @@ export const journeys = [
     }
   },
   {
+    name: 'スマートフォンのアプリ: 走らずに測定を終えると、消すか聞き、消すとその走行のファイルが消える (LATER-18)',
+    target: 'phone',
+    async run(p) {
+      await p.viewport(390, 844, true);
+      // 端末の GPS のふり: 袖ヶ浦のピットで止まったまま
+      await p.send('Browser.grantPermissions', { origin: APP.replace(/\/$/, ''), permissions: ['geolocation'] }).catch(() => {});
+      await p.send('Emulation.setGeolocationOverride', { latitude: 35.3955, longitude: 140.0885, accuracy: 5 });
+      await p.goto(`${APP}?native=mock`);
+      await p.ev(`localStorage.removeItem('ds_timer_camera')`);
+      await p.click('nav-timer');
+      await sleep(600);
+      await p.click('lap-timer-menu');
+      await p.click('lap-timer-src-phone');
+      await sleep(300);
+      if (await p.exists('lap-timer-menu-backdrop')) await p.click('lap-timer-menu-backdrop');
+      await sleep(300);
+      await p.click('lap-timer-start-stop');
+      // 走行のログを書き始めたか (アプリのふりに届いた頼みで見る。ここで bridge.ts を import すると、
+      // 2 つ目の受け口ができてアプリへの答えを横取りしてしまうので、しない)
+      const createdLog = `window.__dsMockNative.requests.filter(r => r.method === 'system.appendFile' && r.params.createNew && /\\.nmea$/.test(r.params.path)).map(r => r.params.path)`;
+      for (let i = 0; i < 30 && !(await p.ev(createdLog)).length; i++) {
+        // 止まっている測位を続けて届ける (位置をごくわずかに動かして、watchPosition に知らせを出させる)
+        await p.send('Emulation.setGeolocationOverride', { latitude: 35.3955 + (i % 2) * 0.000001, longitude: 140.0885, accuracy: 5 });
+        await sleep(500);
+      }
+      const logs = await p.ev(createdLog);
+      check(logs.length > 0, '走行のファイルができない');
+      await p.click('lap-timer-start-stop');
+      await p.click('lap-timer-stop-yes');
+      await p.waitFor(`document.querySelector('[data-testid="lap-timer-idle-confirm"]')`, 10000, '走っていないようです の確かめ');
+      check(/走った距離は \d+ m/.test(await p.ev(`document.querySelector('[data-testid="lap-timer-idle-confirm"]').innerText`)), '走った距離が出ない');
+      await p.click('lap-timer-idle-discard');
+      await p.waitFor(`!document.querySelector('[data-testid="lap-timer-idle-confirm"]')`, 8000, '消して閉じる');
+      const deleted = await p.ev(`window.__dsMockNative.requests.filter(r => r.method === 'system.deleteRunFiles').flatMap(r => r.params.paths)`);
+      check(logs.every(l => deleted.includes(l)), `走行のログを消していない: ${JSON.stringify({ logs, deleted })}`);
+      await p.send('Emulation.clearGeolocationOverride').catch(() => {});
+    }
+  },
+  {
     name: 'ブラウザ版の比べ方 (PLAN-18): ファイルに書き出し、周を替えてから読み込むと、同じログと周に戻る',
     target: 'phone',
     async run(p) {

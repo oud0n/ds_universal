@@ -16,7 +16,7 @@ import { getPositionSource } from '../services/positionSource';
 import { navStore } from '../app/navStore';
 import { distanceKm } from '../services/timer/positionFeeds';
 import { TimerRuntime, loadPhoneFusion, savePhoneFusion } from '../services/timer/timerRuntime';
-import { OrientationToggle, StopConfirm, loadTimerOrientation, saveTimerOrientation, type TimerOrientation } from './LapTimerControls';
+import { IdleRunConfirm, OrientationToggle, StopConfirm, loadTimerOrientation, saveTimerOrientation, type TimerOrientation } from './LapTimerControls';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
 import type { TelemetryPoint } from '../types/telemetry';
 
@@ -510,6 +510,10 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       )}
       {confirmStop && measuring && (
         <StopConfirm lapCount={state?.laps.length ?? 0} nothingToSave={!rt.hasRunFile} onYes={confirmStopYes} onNo={cancelStop} />
+      )}
+      {/* ほとんど動いていなかった走行を消すか聞く (LATER-18) */}
+      {snap.idleRun && !measuring && (
+        <IdleRunConfirm distM={snap.idleRun.distM} onDiscard={() => rt.discardIdleRun()} onKeep={() => rt.keepIdleRun()} />
       )}
 
       {/* メニュー: 出どころ・再生の設定・記録 */}
