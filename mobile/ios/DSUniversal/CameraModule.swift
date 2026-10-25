@@ -67,8 +67,15 @@ final class CameraModule: NSObject {
     /** ピントを遠くに合わせて固定するか (撮る・確かめの映像の頼みで決まる) */
     private var focusFar = true
     private var exposureTimer: Timer?
-    /** 確かめの映像の頼みの番号 (続けて頼まれたら、古い頼みの結果は使わない) */
-    private var liveGen = 0
+    /** 確かめの映像で、今頼まれている組み立て (消す頼み・撮り始めで nil)。組み立てを待つ間に替わったら、古い頼みは置かない */
+    private var liveRequested: String?
+    /** 組み立てている最中の確かめの映像 (同じ組み立ての頼みが続けて来たら、組み直さずに置き場所だけ覚える) */
+    private var liveBuilding: String?
+    /** 最後に頼まれた置き場所・ISO・明るさ (組み立て終わったら、これで置く) */
+    private var liveLatest: (main: CGRect, front: CGRect, iso: Float?, frontIso: Float?, frontEv: Float) = (.zero, .zero, nil, nil, 0)
+    /** レンズの一覧と取り付けのずれ (端末の中で変わらないので、1 回だけ調べる) */
+    private static var cachedLenses: [Lens]?
+    private static var cachedMountOffsets: [String: CGFloat] = [:]
 
     init(core: NativeCore) {
         self.core = core
@@ -162,6 +169,13 @@ final class CameraModule: NSObject {
     }
 
     static func lenses() -> [Lens] {
+        if let cachedLenses { return cachedLenses }
+        let found = discoverLenses()
+        cachedLenses = found
+        return found
+    }
+
+    private static func discoverLenses() -> [Lens] {
         let back = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInUltraWideCamera, .builtInWideAngleCamera, .builtInTelephotoCamera], mediaType: .video, position: .back).devices
         let fronts = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera], mediaType: .video, position: .front).devices
         let wideFov = back.first { $0.deviceType == .builtInWideAngleCamera }.map { Double($0.activeFormat.videoFieldOfView) } ?? 70
@@ -214,6 +228,13 @@ final class CameraModule: NSObject {
     /// その端末の向きでの「水平に撮る角度」を、後ろの広角とそのカメラで iPhone に聞き (RotationCoordinator)、ふつうのカメラなら
     /// なるはずの角度との差をずれとする (同じときに聞くので、端末の持ち方によらない)
     private static func mountOffset(_ device: AVCaptureDevice) -> CGFloat {
+        if let known = cachedMountOffsets[device.uniqueID] { return known }
+        let found = measureMountOffset(device)
+        cachedMountOffsets[device.uniqueID] = found
+        return found
+    }
+
+    private static func measureMountOffset(_ device: AVCaptureDevice) -> CGFloat {
         guard let ref = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back), ref != device else { return 0 }
         let refAngle = AVCaptureDevice.RotationCoordinator(device: ref, previewLayer: nil).videoRotationAngleForHorizonLevelCapture
         let angle = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil).videoRotationAngleForHorizonLevelCapture
@@ -285,9 +306,13 @@ final class CameraModule: NSObject {
 
     private func start(params: [String: Any], done: @escaping (Result<[String: Any], NativeError>) -> Void) {
         guard !wantRecording else { done(.failure(NativeError(.busy, "already recording"))); return }
+        // 前の録画を止めている最中 (書き終わりの知らせ待ち) は始めない (前の止める処理と重なると、録画が始まらない・止める答えが返らない)
+        guard stopWaiters.isEmpty, !channels.contains(where: { $0.writing }) else { done(.failure(NativeError(.busy, "still stopping"))); return }
         guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
             done(.failure(NativeError(.permissionDenied, "camera"))); return
         }
+        // 組み立て中の確かめの映像は、置かずに終わらせる
+        liveRequested = nil
         let wantLens = params["lensId"] as? String
         let preset = params["preset"] as? String ?? "1080p30"
         let audio = (params["audio"] as? Bool ?? false) && AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
@@ -335,6 +360,12 @@ final class CameraModule: NSObject {
                 self.main.active = false
                 self.front.active = false
                 done(.failure(error))
+                return
+            }
+            // 組み立てを待つ間に止められていたら (camera.stop)、撮り始めない
+            guard self.wantRecording else {
+                previewLayer?.removeFromSuperlayer()
+                done(.failure(NativeError(.busy, "stopped before recording started")))
                 return
             }
             for c in self.channels where c.active { self.beginSegment(c); self.applyEv(c) }
@@ -504,17 +535,37 @@ final class CameraModule: NSObject {
         let segs = c.segments
         c.segments = []
         var files: [[String: Any]] = []
+        let fm = FileManager.default
         for (i, seg) in segs.enumerated() {
             var url = seg.url
-            if let path, let dest = Self.lapTimerURL(path, index: i) {
-                try? FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-                if (try? FileManager.default.moveItem(at: seg.url, to: dest)) != nil { url = dest }
+            var rel: String? = nil
+            if let path {
+                // 同じ名前がもうあれば、名前に _v2・_v3 を付けて置く (上書きしない)
+                var candidate = Self.indexedPath(path, index: i)
+                var n = 2
+                while let dest = Self.lapTimerURL(candidate, index: 0), fm.fileExists(atPath: dest.path), n < 50 {
+                    let ns = Self.indexedPath(path, index: i) as NSString
+                    candidate = "\(ns.deletingPathExtension)_v\(n).\(ns.pathExtension)"
+                    n += 1
+                }
+                if let dest = Self.lapTimerURL(candidate, index: 0) {
+                    try? fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    do {
+                        try fm.moveItem(at: seg.url, to: dest)
+                        url = dest
+                        rel = candidate
+                    } catch {
+                        DebugLog.write("camera: could not move \(seg.url.lastPathComponent) to \(candidate): \(error.localizedDescription)")
+                    }
+                }
+                // 移せなかった動画は、走行に書かない (一時フォルダは消えるので、無い動画を指してしまう)
+                if rel == nil { continue }
             }
             let asset = AVURLAsset(url: url)
             let duration = CMTimeGetSeconds(asset.duration)
-            let bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+            let bytes = (try? fm.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
             files.append([
-                "path": path.map { Self.indexedPath($0, index: i) } ?? url.lastPathComponent,
+                "path": rel ?? url.lastPathComponent,
                 "startWallMs": seg.startWallMs, "durationSec": duration.isFinite ? duration : 0, "bytes": bytes
             ])
         }
@@ -603,9 +654,8 @@ final class CameraModule: NSObject {
     }
 
     private func livePreview(params: [String: Any], done: @escaping (Result<[String: Any], NativeError>) -> Void) {
-        liveGen += 1
-        let gen = liveGen
         guard params["show"] as? Bool ?? false else {
+            liveRequested = nil
             hideLive()
             if !wantRecording {
                 isoTimer?.invalidate()
@@ -638,9 +688,17 @@ final class CameraModule: NSObject {
         focusFar = params["focusFar"] as? Bool ?? true
         main.ev = Float(params["ev"] as? Double ?? 0)
         let config = "\(lens.id)|\(preset)|\(fp?.preset ?? "-")|\(focusFar)"
+        liveRequested = config
+        liveLatest = (mainRect, frontRect, iso, fp?.iso, fp?.ev ?? 0)
+        // 同じ組み立てをしている最中なら、組み直さない (終わったら、最後に頼まれた置き場所に置く)
+        if liveBuilding == config { done(.success([:])); return }
         Task { @MainActor in
+            // 待っている間に撮り始めた・消す頼み・別の組み立ての頼みが来ていたら、何もしない
+            guard !self.wantRecording, self.liveRequested == config else { done(.success([:])); return }
             self.useSession(multi: fp != nil)
             if self.liveConfig != config || !self.session.isRunning {
+                self.liveBuilding = config
+                defer { self.liveBuilding = nil }
                 // 組み直す間は、ISO を保つ調整を止める
                 self.isoTimer?.invalidate()
                 self.isoTimer = nil
@@ -673,15 +731,16 @@ final class CameraModule: NSObject {
                 }
                 self.liveConfig = config
             }
-            // 待っている間に、次の頼み (別のレンズ・消す) が来ていたら、そちらに任せる
-            guard gen == self.liveGen else { done(.success([:])); return }
-            self.placeLive(self.main, mainRect)
-            self.applyIso(self.main, iso)
+            // 待っている間に、撮り始めた・次の頼み (別のレンズ・消す) が来ていたら、そちらに任せる
+            guard !self.wantRecording, self.liveRequested == config else { done(.success([:])); return }
+            let latest = self.liveLatest
+            self.placeLive(self.main, latest.main)
+            self.applyIso(self.main, latest.iso)
             self.applyEv(self.main)
-            if let fp {
-                self.placeLive(self.front, frontRect)
-                self.applyIso(self.front, fp.iso)
-                self.front.ev = fp.ev
+            if fp != nil {
+                self.placeLive(self.front, latest.front)
+                self.applyIso(self.front, latest.frontIso)
+                self.front.ev = latest.frontEv
                 self.applyEv(self.front)
             }
             self.startExposureReports()

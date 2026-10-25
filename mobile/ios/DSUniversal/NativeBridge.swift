@@ -103,6 +103,8 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
         // JSON にできないもの (NaN・無限大など) が混ざっていたら送らない (JSONSerialization は例外を投げてアプリが落ちるため)
         guard JSONSerialization.isValidJSONObject(message) else {
             DebugLog.write("bridge: dropped a message that is not valid JSON: \(message["event"] ?? message["id"] ?? "?")")
+            // 答え (id のあるもの) は、捨てずにエラーの答えにする (捨てると、Web が答えを待ち続ける)
+            if let id = message["id"] { send(["id": id, "ok": false, "error": ["code": "io", "message": "reply could not be encoded"]]) }
             return
         }
         guard let data = try? JSONSerialization.data(withJSONObject: message),

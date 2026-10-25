@@ -424,11 +424,19 @@ final class SystemModule {
                 if done(file, rel) { r.moved += 1 } else { r.skipped += 1 }
                 continue
             }
-            // 動画 (内蔵カメラで撮ったもの。数 GB になる) は、読み込まずにそのまま移す (書き終えたものしか LapTimer/ に置かない)
+            // 動画 (内蔵カメラで撮ったもの。数 GB になる) は、読み込まずにそのまま移す (書き終えたものしか LapTimer/ に置かない)。
+            // 選んだフォルダがアプリの中 (同じ場所) のときと、書いている最中・書き足したばかりのものは動かさない
             if ["mov", "mp4"].contains(file.pathExtension.lowercased()) {
+                if sameTree || openFiles.contains(rel) || lastAppend[rel].map({ now.timeIntervalSince($0) < Self.settleSeconds }) == true {
+                    r.skipped += 1
+                    continue
+                }
                 let outcome = await Task.detached(priority: .utility) { Self.moveCoordinated(file, to: target) }.value
                 switch outcome {
-                case .copied: r.moved += 1
+                case .copied:
+                    r.moved += 1
+                    closedFiles.remove(rel)
+                    lastAppend[rel] = nil
                 case .failed(let message):
                     r.failed += 1
                     r.error = message
@@ -535,8 +543,9 @@ final class SystemModule {
         var coordError: NSError?
         NSFileCoordinator().coordinate(writingItemAt: file, options: .forMoving, writingItemAt: target, options: .forReplacing, error: &coordError) { src, dst in
             do {
-                if fm.fileExists(atPath: dst.path) { try fm.removeItem(at: dst) }
-                try fm.moveItem(at: src, to: dst)
+                // 先に消してから移すと、移せなかったときに選んだフォルダの動画まで失うので、入れ替える
+                if fm.fileExists(atPath: dst.path) { _ = try fm.replaceItemAt(dst, withItemAt: src) }
+                else { try fm.moveItem(at: src, to: dst) }
                 outcome = .copied
             } catch {
                 outcome = .failed(error.localizedDescription)

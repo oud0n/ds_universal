@@ -87,6 +87,10 @@ export type CameraStatus = { recording: boolean; error: string | null };
 export class PhoneCameraRecorder {
   private active = false;
   private starting = false;
+  /** 止めている最中 (アプリの書き終わりを待っている)。終わるまで次の録画を始めない (重なると、録画が始まらなかった) */
+  private stopping: Promise<void> | null = null;
+  /** 始める途中で止められた (始められなかったことをエラーとして出さない) */
+  private stopRequested = false;
   /** 端末の時計から GPS の時計への差 (ミリ秒)。測位ごとに大きいほうへ寄せる */
   private gpsMinusWall: number | null = null;
   status: CameraStatus = { recording: false, error: null };
@@ -111,7 +115,9 @@ export class PhoneCameraRecorder {
     // 続けて呼ばれても (測位ごとなど) 1 回だけ始める
     if (!s.enabled || this.active || this.starting) return;
     this.starting = true;
+    this.stopRequested = false;
     try {
+      if (this.stopping) await this.stopping.catch(() => {});
       if (await cameraAvailable()) await this.begin(s);
     } finally {
       this.starting = false;
@@ -134,7 +140,8 @@ export class PhoneCameraRecorder {
       this.set({ recording: true, error: null });
     } catch (e) {
       this.active = false;
-      this.set({ recording: false, error: e instanceof Error ? e.message : String(e) });
+      // 始める途中で止めた (測定を終えた) ときは、エラーにしない
+      this.set({ recording: false, error: this.stopRequested ? null : e instanceof Error ? e.message : String(e) });
     }
   }
 
@@ -148,9 +155,16 @@ export class PhoneCameraRecorder {
    * 測定終了 (走行を替えたときも)。fileBase (LapTimer/ の下、拡張子なし。.nmea と同じ) に .mov を置き、走行の行に書く。
    * 走行のファイルが無い (測位が 1 つも無かった) ときは、撮り始めた時刻の名前で未分類に置く
    */
-  async stop(fileBase: string | null, fallbackFolder: string): Promise<void> {
-    if (!this.active) return;
+  stop(fileBase: string | null, fallbackFolder: string): Promise<void> {
+    if (!this.active) return this.stopping ?? Promise.resolve();
     this.active = false;
+    this.stopRequested = true;
+    const run = this.stopNow(fileBase, fallbackFolder).finally(() => { if (this.stopping === run) this.stopping = null; });
+    this.stopping = run;
+    return run;
+  }
+
+  private async stopNow(fileBase: string | null, fallbackFolder: string): Promise<void> {
     let base = fileBase;
     if (!base) {
       const d = new Date();
