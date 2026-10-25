@@ -34,12 +34,12 @@ function sink(): NativeSink | null {
   return window.webkit?.messageHandlers?.dsNative ?? window.dsNativeAndroid ?? null;
 }
 
-/** ネイティブのアプリの中で動いているか */
 /** Android のアプリか (画面の文の「iPhone」を「この端末」にするため) */
 export function isAndroidApp(): boolean {
   return typeof window !== 'undefined' && !!window.dsNativeAndroid;
 }
 
+/** ネイティブのアプリの中で動いているか */
 export function hasNative(): boolean {
   return sink() !== null;
 }

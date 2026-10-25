@@ -7,6 +7,7 @@
 import { bleLoggerLink } from '../bleLoggerLink';
 import type { LiveFix } from '../liveLapTimer';
 import type { TelemetryPoint } from '../../types/telemetry';
+import { isAndroidApp } from '../../native/bridge';
 
 export type StopFeed = () => void;
 
@@ -75,7 +76,8 @@ export function phoneFeed(
     },
     err => {
       onInfo({ accuracy: null, error: err.code === err.PERMISSION_DENIED ? messages.denied : err.message });
-      if (err.code === err.PERMISSION_DENIED && !stopped && !retry) {
+      // 取り直すのは Android のアプリだけ (OS の許可の画面の答えより先に「許可なし」が届くため。ほかで取り直すと、断った人に聞き続ける)
+      if (err.code === err.PERMISSION_DENIED && isAndroidApp() && !stopped && !retry) {
         navigator.geolocation.clearWatch(id);
         retry = setTimeout(() => { retry = null; if (!stopped) watch(); }, 3000);
       }

@@ -67,4 +67,23 @@ describe('iPhone の GPS の間を G センサーで埋める', () => {
     for (let ms = 20; ms <= 6000; ms += 20) f.imu(t0 + ms, 0, 0, 0);
     expect(out.every(o => o.tMs - t0 <= 3000)).toBe(true);
   });
+
+  it('GPS が長く途切れたあとは、ずれた推定に寄せず GPS からやり直す', () => {
+    const out: LiveFix[] = [];
+    const f = new GpsImuFusion(x => out.push(x));
+    const t0 = 2_000_000;
+    f.gps({ tMs: t0, latitude: LAT0, longitude: LON0, speedKmh: 72, valid: true, course: 0 });
+    // 途切れている間、G センサーは前へ 0.3 G と言い続ける (推定はどんどん前へずれる)
+    for (let ms = 20; ms <= 8000; ms += 20) f.imu(t0 + ms, 0.3, 0, 0);
+    // 8 秒後に戻った GPS は、最初の所から 50 m 東
+    const back = ll(50, 0);
+    f.gps({ tMs: t0 + 8000, ...back, speedKmh: 72, valid: true, course: 90 });
+    out.length = 0;
+    f.imu(t0 + 8020, 0, 0, 0);
+    f.imu(t0 + 8120, 0, 0, 0);
+    const first = out[0];
+    expect(first).toBeDefined();
+    const dx = (first.longitude - back.longitude) * COS * 111320, dy = (first.latitude - back.latitude) * 111320;
+    expect(Math.hypot(dx, dy)).toBeLessThan(5);
+  });
 });

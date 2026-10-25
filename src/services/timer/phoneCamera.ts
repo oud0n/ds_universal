@@ -10,6 +10,7 @@ import { callNative, hasNative, nativeCapabilities } from '../../native/bridge';
 import type { CameraFile, CameraLens, CameraPreset } from '../../native/contract';
 import { getRunStore } from '../runStore';
 import { updateRun, type RunVideo } from '../runsFile';
+import { runFileBase } from '../runFiles';
 
 export interface CameraSettings {
   enabled: boolean;
@@ -91,15 +92,21 @@ export class PhoneCameraRecorder {
   private stopping: Promise<void> | null = null;
   /** 始める途中で止められた (始められなかったことをエラーとして出さない) */
   private stopRequested = false;
+  /** 撮り始めた時刻 (走行のファイルが無いときの動画の名前に使う) */
+  private startedMs: number | null = null;
   /** 端末の時計から GPS の時計への差 (ミリ秒)。測位ごとに大きいほうへ寄せる */
   private gpsMinusWall: number | null = null;
   status: CameraStatus = { recording: false, error: null };
 
   constructor(private readonly onStatus: (s: CameraStatus) => void) {}
 
-  /** 測位を受け取った (GPS の時刻) */
-  noteFix(gpsMs: number): void {
+  /**
+   * 測位を受け取った (GPS の時刻)。deviceClock: 端末の GPS の測位 (時刻が端末の時計なので、差は 0。
+   * 届くまでの遅れの分を差と取り違えると、動画が遅れの分だけ前にずれていた)
+   */
+  noteFix(gpsMs: number, deviceClock = false): void {
     if (!this.active) return;
+    if (deviceClock) { this.gpsMinusWall = 0; return; }
     const d = gpsMs - Date.now();
     if (this.gpsMinusWall === null || d > this.gpsMinusWall) this.gpsMinusWall = d;
   }
@@ -127,8 +134,11 @@ export class PhoneCameraRecorder {
   private async begin(s: CameraSettings): Promise<void> {
     try {
       const p = await callNative('camera.permission', { request: true, audio: s.audio });
+      // 許可を聞いている間に測定を終えていたら、撮り始めない
+      if (this.stopRequested) return;
       if (p.camera !== 'granted') { this.set({ error: 'permission' }); return; }
       this.active = true;
+      this.startedMs = Date.now();
       this.gpsMinusWall = null;
       // 前も同時に撮るときは、後ろのレンズ・画質も同時に撮れるものにする
       const { lenses, multiCam } = s.front.enabled ? await listLenses() : { lenses: [], multiCam: false };
@@ -136,6 +146,7 @@ export class PhoneCameraRecorder {
       const front = frontParams(s, plan);
       const lensId = front && plan ? plan.back.id : s.lensId;
       const preset = front && plan && !plan.backPresets.includes(s.preset) ? plan.backPresets[0] : s.preset;
+      if (this.stopRequested) { this.active = false; return; }
       await callNative('camera.start', { lensId, preset, audio: s.audio && p.mic === 'granted', iso: null, ev: s.ev, focusFar: s.focusFar, preview: s.preview, front });
       this.set({ recording: true, error: null });
     } catch (e) {
@@ -156,6 +167,8 @@ export class PhoneCameraRecorder {
    * 走行のファイルが無い (測位が 1 つも無かった) ときは、撮り始めた時刻の名前で未分類に置く
    */
   stop(fileBase: string | null, fallbackFolder: string): Promise<void> {
+    // 始める途中 (許可を聞いている・アプリが組み立てている) なら、始めないように印を付ける
+    if (this.starting) this.stopRequested = true;
     if (!this.active) return this.stopping ?? Promise.resolve();
     this.active = false;
     this.stopRequested = true;
@@ -167,8 +180,8 @@ export class PhoneCameraRecorder {
   private async stopNow(fileBase: string | null, fallbackFolder: string): Promise<void> {
     let base = fileBase;
     if (!base) {
-      const d = new Date();
-      const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
+      // 撮り始めた時刻の名前 (走行のファイルと同じ形)
+      const stamp = runFileBase(this.startedMs ?? Date.now());
       base = `${fallbackFolder}/${stamp.slice(0, 8)}/${stamp}`;
     }
     let files: CameraFile[] = [];

@@ -59,6 +59,15 @@ export class GpsImuFusion {
   gps(fix: FusionGpsFix): void {
     if (!fix.valid) { this.onFix(fix); return; }
     if (!this.origin) this.origin = { lat: fix.latitude, lon: fix.longitude, cos: Math.cos((fix.latitude * Math.PI) / 180) };
+    // GPS が長く途切れたあと (推定はずれている) は、寄せずに GPS からやり直す (前は 6 割だけ寄せて、ずれたまま出していた)。向きは前のものを使う
+    let keepPsi: number | null = null;
+    if (this.s && this.lastGps && fix.tMs - this.lastGps.t > GPS_TIMEOUT_MS) {
+      keepPsi = this.s.psi;
+      this.s = null;
+      this.history = [];
+      this.lastGps = null;
+      this.acc = { long: 0, lat: 0, n: 0 };
+    }
     const p = this.xy(fix.latitude, fix.longitude);
     const v = fix.speedKmh / 3.6;
     const course = fix.course !== undefined && Number.isFinite(fix.course) && v > 3 ? (fix.course * Math.PI) / 180 : null;
@@ -79,7 +88,7 @@ export class GpsImuFusion {
     this.lastGps = { t: fix.tMs, v, x: p.x, y: p.y };
     this.acc = { long: 0, lat: 0, n: 0 };
     if (!this.s) {
-      this.s = { t: fix.tMs, x: p.x, y: p.y, v, psi: heading ?? 0 };
+      this.s = { t: fix.tMs, x: p.x, y: p.y, v, psi: heading ?? keepPsi ?? 0 };
       this.history = [{ ...this.s }];
       this.onFix(fix);
       this.lastOutT = fix.tMs;

@@ -131,10 +131,17 @@ export function fuseImuG(points: TelemetryPoint[], track: ImuTrack, startUtc: nu
 }
 
 /** ログに G センサーの値を合わせる (時刻のずれを探してから)。ログに時刻が無ければそのまま */
+/** 見つけた時計のずれ (G センサーの値ごと・走行の始まりと点の数ごと)。ならし方を替えるたびに探し直すと重いので覚える */
+const offsetCache = new WeakMap<ImuTrack, Map<string, number>>();
+
 export function applyImuToSession(points: TelemetryPoint[], session: Pick<Session, 'points' | 'clockOffsetSec'>, track: ImuTrack): { points: TelemetryPoint[]; offsetMs: number } {
   const start = sessionStartUtcMs({ ...session, points } as Session);
   if (start === null) return { points, offsetMs: 0 };
-  const offsetMs = alignImu(points, track, start);
+  const key = `${start}|${points.length}`;
+  let byKey = offsetCache.get(track);
+  if (!byKey) { byKey = new Map(); offsetCache.set(track, byKey); }
+  const offsetMs = byKey.get(key) ?? alignImu(points, track, start);
+  byKey.set(key, offsetMs);
   return { points: fuseImuG(points, track, start, offsetMs), offsetMs };
 }
 

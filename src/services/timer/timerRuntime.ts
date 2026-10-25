@@ -20,16 +20,16 @@ import { digspiceFeed, distanceKm, phoneFeed, replayFeed, type PhoneInfo, type S
 import { LapDeviceSet, type LapDeviceStatus } from './lapDeviceSet';
 import { PhoneCameraRecorder, type CameraStatus } from './phoneCamera';
 import { GpsImuFusion } from './gpsImuFusion';
+import type { CircuitPreset, TelemetryPoint } from '../../types/telemetry';
 
 const FUSION_KEY = 'ds_timer_phone_fusion';
-/** iPhone の GPS の間を G センサーで埋めるか (既定はオン) */
+/** 端末の GPS の間を G センサーで埋めるか (既定はオン) */
 export function loadPhoneFusion(): boolean {
   try { return localStorage.getItem(FUSION_KEY) !== 'off'; } catch { return true; }
 }
 export function savePhoneFusion(on: boolean): void {
   try { localStorage.setItem(FUSION_KEY, on ? 'on' : 'off'); } catch { /* 覚えられなくても測れる */ }
 }
-import type { CircuitPreset, TelemetryPoint } from '../../types/telemetry';
 
 export type TimerSource = PositionSource | 'replay';
 
@@ -121,6 +121,8 @@ export class TimerRuntime {
   private timer: LiveLapTimer | null = null;
   private fixes: LiveFix[] = [];
   private recorder: LiveRunRecorder | null = null;
+  /** この測定で走行のファイルを書き始めたか */
+  private measureWroteRun = false;
   private readonly imu: PhoneImuRecorder;
   readonly devices: LapDeviceSet;
   private manualCourse = false;
@@ -268,7 +270,12 @@ export class TimerRuntime {
       };
     } else if (src === 'phone') {
       // 測っている間は、GPS の間を G センサーで埋めた測位を使う (設定でオンのとき)
-      this.stopFeed = phoneFeed(f => (this.fusion ? this.fusion.gps(f) : onFix(f)), i => this.set({ phoneInfo: i }), this.deps.phoneMessages());
+      // 本当の GPS の測位はログに書き、周の計測・画面には埋めた測位を使う (前は埋めた推定だけをログに書いていた)
+      this.stopFeed = phoneFeed(f => {
+        if (!this.fusion) { onFix(f); return; }
+        this.handleFix(f, 'record');
+        this.fusion.gps(f);
+      }, i => this.set({ phoneInfo: i }), this.deps.phoneMessages());
     } else if (src === 'replay') {
       this.stopFeed = replayFeed(this.deps.replayLogs().find(l => l.id === this.snap.replayId), this.snap.replaySpeed, onFix);
     }
@@ -345,11 +352,11 @@ export class TimerRuntime {
 
   // ---- 測位 ----
 
-  /** 測位を 1 つ受け取る (出どころによらず同じ) */
+  /** iPhone の GPS の間を G センサーで埋める (測っている間・端末の GPS のとき)。埋めた測位は周の計測と画面だけに使う */
   private startFusion(): void {
     this.stopFusion();
     if (this.snap.source !== 'phone' || !loadPhoneFusion()) return;
-    this.fusion = new GpsImuFusion(f => this.handleFix(f));
+    this.fusion = new GpsImuFusion(f => this.handleFix(f, 'time'));
     this.imu.onCar = (t, l, a, y) => this.fusion?.imu(t, l, a, y);
   }
 
@@ -358,25 +365,37 @@ export class TimerRuntime {
     this.imu.onCar = null;
   }
 
-  /** 動画を置く未分類のフォルダ (測位が無かったときだけ使う) */
-  /** 内蔵カメラで撮るか。読み込んだログの再生では撮らない (試すときだけ、localStorage の ds_timer_camera_replay を 1 にすると撮る) */
-  /** この測定で走行のファイルを書き始めたか (測位が 1 つでも届いたか) */
+  /** この測定で走行のファイルを書き始めたか (測位が 1 つでも届いたか。途中で出どころを替えても、前に書いたものは数える) */
   get hasRunFile(): boolean {
-    return !!this.recorder;
+    return this.measureWroteRun || !!this.recorder;
   }
 
+  /** 内蔵カメラで撮るか。読み込んだログの再生では撮らない (試すときだけ、localStorage の ds_timer_camera_replay を 1 にすると撮る) */
   private cameraOn(): boolean {
     if (this.snap.source !== 'replay') return true;
     try { return localStorage.getItem('ds_timer_camera_replay') === '1'; } catch { return false; }
   }
 
+  /** 動画を置く未分類のフォルダ (測位が無かったときだけ使う) */
   private cameraFolder(): string {
     const c = this.snap.course;
     return c ? courseFolder(c.name, c.folder, c.id) || UNSORTED_FOLDER : UNSORTED_FOLDER;
   }
 
-  handleFix(fix: LiveFix): void {
-    if (fix.valid && this.cameraOn()) this.camera.noteFix(fix.tMs);
+  /**
+   * 測位を 1 つ受け取る (出どころによらず同じ)。role:
+   * - both: 記録にも周の計測にも使う (ふつう)
+   * - record: 走行のログに書くだけ (端末の GPS で G センサーで埋めるとき、本当の GPS の測位はログに残す)
+   * - time: 周の計測・画面だけ (G センサーで埋めた推定の測位。ログには書かない)
+   */
+  handleFix(fix: LiveFix, role: 'both' | 'record' | 'time' = 'both'): void {
+    // 動画の時刻合わせ: 機器の GPS の時刻と端末の時計の差を見る。端末の GPS は端末の時計なので差は 0 として扱う
+    if (fix.valid && role !== 'time' && this.cameraOn()) this.camera.noteFix(fix.tMs, this.snap.source === 'phone');
+    if (role === 'record') {
+      if (!fix.valid || !this.snap.measuring) return;
+      this.recordFix(fix);
+      return;
+    }
     // 試すとき (ds_timer_camera_replay): 再生は「測る」にならないので、再生が動き出したら録画を始める
     if (fix.valid && this.snap.source === 'replay' && !this.snap.measuring && this.cameraOn()) void this.camera.start();
     if (!fix.valid) return;
@@ -396,13 +415,8 @@ export class TimerRuntime {
     // 測定開始を押すまでは、周を数えず記録もしない (ログの再生はいつも数える・記録しない)
     const src = this.snap.source;
     if (src !== 'replay' && !this.snap.measuring) return;
-    // 走っている間の記録 (ログの再生は記録しない)
-    if (src !== 'replay') {
-      const course = () => this.snap.course;
-      this.recorder ??= new LiveRunRecorder(src, () => course()?.name ?? '', m => this.set({ saveError: m }),
-        () => { const c = course(); return c ? courseFolder(c.name, c.folder, c.id) : ''; });
-      this.recorder.add(fix);
-    }
+    // 走っている間の記録 (ログの再生・推定の測位は記録しない)
+    if (src !== 'replay' && role === 'both') this.recordFix(fix);
     const timer = this.timer;
     if (!timer) return;
     const events = timer.push(fix);
@@ -424,6 +438,17 @@ export class TimerRuntime {
     if (events.length > 0) this.set({ lap: timer.getState() });
   }
 
+  /** 走行のログに書く (測っている間) */
+  private recordFix(fix: LiveFix): void {
+    const src = this.snap.source;
+    if (src === 'replay') return;
+    const course = () => this.snap.course;
+    this.recorder ??= new LiveRunRecorder(src, () => course()?.name ?? '', m => this.set({ saveError: m }),
+      () => { const c = course(); return c ? courseFolder(c.name, c.folder, c.id) : ''; });
+    this.measureWroteRun = true;
+    this.recorder.add(fix);
+  }
+
   setVoice(on: boolean): void {
     this.set({ voice: on });
   }
@@ -438,6 +463,7 @@ export class TimerRuntime {
     // 前の走行 (測る前に書いていたもの) は、ここで書き終える (選んだフォルダへ移せるように)
     void closeRunFiles(this.recorder?.filesBase);
     this.recorder = null;
+    this.measureWroteRun = false;
     // 押す前の測位で周を数えないよう、コースの選び直しに使う測位も捨てる
     this.fixes = [];
     this.set({ measuring: true, savedRun: null, epoch: this.snap.epoch + 1 });

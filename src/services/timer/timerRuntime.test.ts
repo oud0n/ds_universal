@@ -82,3 +82,19 @@ describe('ラップタイマーの中身: ログの再生', () => {
     expect(rt.getSnapshot().course?.id).toBe('sodegaura');
   });
 });
+
+describe('ログに書く測位と、周の計測に使う測位を分ける (端末の GPS を G センサーで埋めるとき)', () => {
+  const fix = (i: number) => ({ tMs: 1_000_000 + i * 100, latitude: 35.39 + i * 1e-5, longitude: 140.08, speedKmh: 50, valid: true });
+
+  it('埋めた推定 (time) はログに書かず、本当の GPS (record) だけを書く', () => {
+    const rt = make('digspice');
+    rt.startMeasuring();
+    rt.handleFix(fix(1), 'time');
+    expect(rt.hasRunFile).toBe(false);
+    expect(rt.getSnapshot().lastPos?.tMs).toBe(fix(1).tMs);
+    rt.handleFix(fix(2), 'record');
+    expect(rt.hasRunFile).toBe(true);
+    // 本当の GPS は、画面の今の位置 (埋めた測位で出す) を動かさない
+    expect(rt.getSnapshot().lastPos?.tMs).toBe(fix(1).tMs);
+  });
+});

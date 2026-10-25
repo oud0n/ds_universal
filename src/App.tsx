@@ -1067,17 +1067,19 @@ export const App: React.FC = () => {
         setSessions(prev => prev.map(x => { const a = added.find(y => y.id === x.id); return a ? { ...x, sessionName: a.sessionName, runNote: a.runNote } : x; }));
       }
       // iPhone のラップタイマーで測った走行なら、G センサーの値 (<走行>.iphone_imu.csv) を読んで G に合わせる
+      // 読み終わるのを待たずに開く (30 分の走行で数 MB あり、開くのが遅くなっていた)。読めたら G を計算し直す
       if (!already.length && added.length) {
-        // テキストの読み方は、パソコン版では決まったファイルしか読めないので、ファイルとして読む (無ければ失敗 → null)
-        const imuPath = `${item.folder}/${item.file.replace(/\.[^./]+$/, '')}.iphone_imu.csv`;
-        const imuText = await store.read(imuPath).then(b => new TextDecoder().decode(b), () => null);
-        const track = parseImuCsv(imuText);
-        if (track) {
+        void (async () => {
+          // テキストの読み方は、パソコン版では決まったファイルしか読めないので、ファイルとして読む (無ければ失敗 → null)
+          const imuPath = `${item.folder}/${item.file.replace(/\.[^./]+$/, '')}.iphone_imu.csv`;
+          const imuText = await store.read(imuPath).then(b => new TextDecoder().decode(b), () => null);
+          const track = parseImuCsv(imuText);
+          if (!track) return;
           added.forEach(x => imuTracksRef.current.set(x.id, track));
+          // 読み込んだばかりのログは、まだ一覧に入っていないことがあるので、入ってから計算し直す (上の useEffect)
+          if (getGSource() === 'sensor') added.forEach(x => imuPendingRef.current.add(x.id));
           setImuSessionIds(ids => [...new Set([...ids, ...added.map(x => x.id)])]);
-          // 読み込んだばかりのログは、まだ一覧に入っていないことがあるので、入ってから計算し直す (下の useEffect)
-          if (gSource === 'sensor') added.forEach(x => imuPendingRef.current.add(x.id));
-        }
+        })();
       }
       attachedRunRef.current = runPath;
       setRunsSheetOpen(false);
