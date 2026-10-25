@@ -319,6 +319,47 @@ export const journeys = [
     }
   },
   {
+    name: 'メーターの配置 (PLAN-08): 部品をつかんで動かし、足して、名前を付けて保存すると overlays/ に入り、その並びになる。消すと元に戻る',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      const file = path.join(root, 'overlays', 'e2e_並び.overlay.json');
+      try {
+        await openRun(p, '8/15', 'run-open-video');
+        if (await p.exists('video-mode-watch')) await p.click('video-mode-watch');
+        await sleep(1000);
+        await p.click('overlay-edit-toggle');
+        await p.waitFor(`document.querySelector('[data-testid="overlay-edit-layer"]')`, 5000, '配置の枠');
+        // 速度をつかんで右へ 10% 動かす
+        const r = await p.ev(`(()=>{const b=document.querySelector('[data-testid="overlay-edit-part-speed"]').getBoundingClientRect(); const L=document.querySelector('[data-testid="overlay-edit-layer"]').getBoundingClientRect(); return {x:b.left+b.width/2, y:b.top+b.height/2, lw:L.width}})()`);
+        await p.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: r.x, y: r.y, button: 'left', clickCount: 1 });
+        for (let i = 1; i <= 5; i++) await p.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: r.x + r.lw * 0.02 * i, y: r.y, button: 'left' });
+        await p.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: r.x + r.lw * 0.1, y: r.y, button: 'left', clickCount: 1 });
+        await sleep(300);
+        check(/x 0\.12/.test(await p.ev(`document.querySelector('[data-testid="overlay-edit-props"]').innerText`)), '速度が 10% 動かない');
+        // 値の棒を足して保存
+        await p.click('overlay-edit-add');
+        await p.ev(`(()=>{const el=document.querySelector('[data-testid="overlay-edit-name"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'e2e 並び'); el.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+        await p.click('overlay-edit-save');
+        for (let i = 0; i < 30 && !fs.existsSync(file); i++) await sleep(200);
+        const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+        check(saved.parts.some(x => x.type === 'bar') && saved.parts.find(x => x.id === 'speed')?.x === 0.12, `保存した並びがおかしい: ${JSON.stringify(saved.parts.map(x => [x.id, x.type, x.x]))}`);
+        const win = await p.ev(`Object.entries(localStorage).filter(([k]) => k.startsWith('ds_video_window_')).map(([, v]) => JSON.parse(v).overlayLayout)`);
+        check(win.includes('user:e2e_並び'), `保存した並びがウインドウの並びにならない: ${JSON.stringify(win)}`);
+        // 消すと、自動に戻り、一覧にも出ない
+        await p.ev(`window.confirm = () => true`);
+        await p.click('overlay-edit-delete');
+        await p.waitFor(`!document.querySelector('[data-testid="overlay-edit-panel"]')`, 5000, '消して閉じる');
+        for (let i = 0; i < 30 && !fs.readFileSync(file, 'utf8').includes('deleted'); i++) await sleep(200);
+        check(JSON.parse(fs.readFileSync(file, 'utf8')).deleted === true, '消した印が無い');
+      } finally {
+        fs.rmSync(file, { force: true });
+      }
+    }
+  },
+  {
     name: '走行を消す: 同じ日の別の走行・付けていない動画は残し、その走行のファイルと runs.json の行だけを消す',
     target: 'electron',
     async run(p) {

@@ -6,8 +6,7 @@ import {
   Clock, Gauge, Plus, Trash2, CheckCircle2, ChevronRight,
   Globe, AlertTriangle, Zap, Layers, ChevronLeft,
   Columns, PictureInPicture, MapPin, Download, X,
-  ArrowLeftRight, Volume2, VolumeX, Maximize2, ListChecks, Maximize, Minimize
-} from 'lucide-react';
+  ArrowLeftRight, Volume2, VolumeX, Maximize2, ListChecks, Maximize, Minimize, LayoutDashboard } from 'lucide-react';
 import { Session, TelemetryPoint, SelectedCarSlot, Lap } from '../types/telemetry';
 import { getAddVideoGpsLog, setAddVideoGpsLog } from '../services/videoPrefs';
 import { videoSyncManager, PlacedTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs, overlappingSessions, placeTracks } from '../services/videoSyncManager';
@@ -34,7 +33,10 @@ import { canUseEncodeExport, exportEncodedVideo } from '../services/encodeVideoE
 import { canExportWebmAlpha, exportOverlayOnly } from '../services/overlayOnlyExporter';
 import { type OverlayPartsOptions } from './overlayParts';
 import { renderOverlayParts } from './overlayRender';
-import { AUTO_LAYOUT, BUILTIN_LAYOUTS, availableChannels, partChannels, partLabel, resolveLayout, visibleParts, type OverlayPart } from '../services/overlayLayout';
+import { AUTO_LAYOUT, BUILTIN_LAYOUTS, availableChannels, parseOverlayLayout, partChannels, partLabel, resolveLayout, visibleParts, type OverlayLayout, type OverlayPart } from '../services/overlayLayout';
+import { deleteCustomLayout, layoutFileText, listCustomLayouts, saveCustomLayout } from '../services/overlayStore';
+import { canUseRunStore, getRunStore } from '../services/runStore';
+import { OverlayEditLayer, OverlayEditPanel } from './video/OverlayLayoutEditor';
 
 /** 走行比較の枠には、足した部品を出さない (枠が小さく、Car の札・比べる差と重なるため) */
 const NO_PARTS: OverlayPartsOptions = { lapPanel: false, map: false };
@@ -363,15 +365,36 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   useEffect(() => {
     if (win.lapRef !== 'best' && sessions.length > 0 && !refLapPicked) setWin({ lapRef: 'best' });
   }, [win.lapRef, sessions.length, refLapPicked]);
-  // メーターの並び (PLAN-08)
-  const overlayLayout = resolveLayout(win.overlayLayout ?? AUTO_LAYOUT, baseSession);
+  // メーターの並び (PLAN-08)。自分の並びは保管場所 (無ければブラウザ) から読む
+  const [customLayouts, setCustomLayouts] = useState<OverlayLayout[]>([]);
+  const [layoutTick, setLayoutTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    void (canUseRunStore() ? getRunStore().catch(() => null) : Promise.resolve(null))
+      .then(store => listCustomLayouts(store))
+      .then(list => { if (alive) setCustomLayouts(list); }, () => {});
+    return () => { alive = false; };
+  }, [layoutTick]);
+  // 配置の編集 (パソコンだけ): 直している並び (下書き)・元の並び・選んだ部品
+  const [editLayout, setEditLayout] = useState<OverlayLayout | null>(null);
+  const [editBase, setEditBase] = useState('');
+  const [editSel, setEditSel] = useState<string | null>(null);
+  const overlayLayout = editLayout ?? resolveLayout(win.overlayLayout ?? AUTO_LAYOUT, baseSession, customLayouts);
   const overlayParts: OverlayPartsOptions = {
-    lapPanel: win.showLapPanel,
-    map: win.showMap,
+    // 編集の間は、出さないことにした部品も出す (置き場所が見えるように)
+    lapPanel: editLayout ? true : win.showLapPanel,
+    map: editLayout ? true : win.showMap,
     reference: refCar && refLapPicked ? { lap: refLapPicked, label: `Car${refCar.slot + 1}` } : null,
     layout: overlayLayout,
-    hidden: win.hiddenParts ?? []
+    hidden: editLayout ? [] : win.hiddenParts ?? []
   };
+  const startLayoutEdit = () => {
+    const base = resolveLayout(win.overlayLayout ?? AUTO_LAYOUT, baseSession, customLayouts);
+    setEditBase(base.id);
+    setEditLayout({ ...base, parts: base.parts.map(p => ({ ...p })) });
+    setEditSel(null);
+  };
+  const layoutStore = () => (canUseRunStore() ? getRunStore().catch(() => null) : Promise.resolve(null));
   const baseLap = targetLap || baseSession?.laps.find(l => l.lapNumber === baseSelected?.lapNumber) || baseSession?.laps[0];
   // グラフ画面の動画では、App の時刻は選んだ周の時刻 (0〜周のタイム)。周の外へは動かさない
   // (周の外の時刻にすると、次のコマで周の始めに戻ってしまう)
@@ -392,6 +415,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // 走行比較は周がないと何も映せないので、周がないとき (GPS のない動画だけを読み込んだときなど) はマルチカメラで出す。
   // 選んだ表示 (win.mode) は変えないので、周のあるログを読み込めば走行比較に戻る
   const isCompare = win.mode === 'compare' && !!baseLap;
+  // 比べる・合わせるなどへ移ったら、配置の編集を閉じる (編集は「見る」のメインの枠だけ)
+  useEffect(() => { if (isCompare || isCompactLayout) setEditLayout(null); }, [isCompare, isCompactLayout]);
   // Car 2 がいないときに走行比較を押したら、Car 1 と同じログの、Car 1 の周以外でいちばん速い周を Car 2 に入れる
   // (動画 1 本・ログ 1 つでも、同じ動画の別の周どうしを比べられるように)
   const autoCompareLap = baseSession && baseLap
@@ -1256,6 +1281,20 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               <span className="hidden xl:inline">{t('走行の確認', 'Runs')}</span>
             </button>
           )}
+
+          {/* メーターの配置 (パソコンだけ。PLAN-08) */}
+          {media.length > 0 && !isCompactLayout && !isGraphEmbedded && win.showOverlay && !isCompare && (
+            <button
+              onClick={() => (editLayout ? setEditLayout(null) : startLayoutEdit())}
+              aria-pressed={!!editLayout}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-xs border transition-colors cursor-pointer ${editLayout ? 'bg-sky-600 border-sky-500 text-white' : 'bg-surface-3 hover:bg-surface-5 text-slate-300 border-line-3'}`}
+              title={t('メーターの配置: 部品をつかんで動かし、大きさを変えて、並びとして保存する', 'Meter layout: drag parts, resize them and save the layout')}
+              data-testid="overlay-edit-toggle"
+            >
+              <LayoutDashboard size={12} />
+              <span className="hidden xl:inline">{t('メーターの配置', 'Meter layout')}</span>
+            </button>
+          )}
         </div>
 
         {/* 右側アクション群 (ピン留め・MP4エクスポート・プロジェクト保存)。スマートフォンでは右に寄せて折り返しに並べる */}
@@ -1480,6 +1519,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     active={isVisible}
                     onSeeked={handleSeeked}
                     overlay={overlayFor(x, i)}
+                    editLayer={isMain && editLayout && size === 'full' ? (
+                      <OverlayEditLayer parts={editLayout.parts} selected={editSel} onSelect={setEditSel} onChange={parts => setEditLayout(l => (l ? { ...l, parts } : l))} />
+                    ) : undefined}
                     avoidRef={isMain && win.layout === 'pip' ? pipRef : undefined}
                     accent={isCompare ? x.color : undefined}
                     emptyText={isCompare ? t('この周を映している動画がありません', 'No video covers this lap') : undefined}
@@ -1550,6 +1592,60 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 );
               }}
             />
+
+            {editLayout && (
+              <OverlayEditPanel
+                draft={editLayout}
+                baseId={editBase}
+                custom={customLayouts}
+                channels={availableChannels(baseSession)}
+                selected={editSel}
+                onSelect={setEditSel}
+                onChange={parts => setEditLayout(l => (l ? { ...l, parts } : l))}
+                onPickBase={id => {
+                  const base = resolveLayout(id, baseSession, customLayouts);
+                  setEditBase(base.id);
+                  setEditLayout({ ...base, parts: base.parts.map(p => ({ ...p })) });
+                  setEditSel(null);
+                }}
+                onSave={async name => {
+                  try {
+                    const saved = await saveCustomLayout(await layoutStore(), editLayout, name);
+                    setEditBase(saved.id);
+                    setEditLayout({ ...saved, parts: saved.parts.map(p => ({ ...p })) });
+                    // 保存した並びを、このウインドウの並びにする (出さないことにした部品は戻す)
+                    setWin({ overlayLayout: saved.id, hiddenParts: [] });
+                    setLayoutTick(n => n + 1);
+                    return null;
+                  } catch (e) {
+                    return e instanceof Error ? e.message : String(e);
+                  }
+                }}
+                onDelete={async () => {
+                  await deleteCustomLayout(await layoutStore(), editBase).catch(() => {});
+                  setWin({ overlayLayout: AUTO_LAYOUT });
+                  setEditLayout(null);
+                  setLayoutTick(n => n + 1);
+                }}
+                onExport={() => {
+                  const url = URL.createObjectURL(new Blob([layoutFileText(editLayout)], { type: 'application/json' }));
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `${(editLayout.name[0] || 'layout').replace(/[\\/:*?"<>|\s]+/g, '_')}.overlay.json`;
+                  a.click();
+                  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+                }}
+                onImport={file => {
+                  void file.text().then(text => {
+                    const l = parseOverlayLayout(text, 'import');
+                    if (!l) { alert(t('メーターの並びのファイルではありません', 'Not a meter layout file')); return; }
+                    setEditLayout({ ...l, parts: l.parts.map(p => ({ ...p })) });
+                    setEditSel(null);
+                  });
+                }}
+                onClose={() => setEditLayout(null)}
+              />
+            )}
 
             {heavyCount >= 3 && (
               <div className="absolute top-2 right-2 z-30 bg-amber-950/90 border border-amber-600 text-amber-200 px-2 py-1 rounded text-[11px] max-w-xs">
@@ -2130,6 +2226,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               >
                 <option value={AUTO_LAYOUT}>{t(`自動 (${resolveLayout(AUTO_LAYOUT, baseSession).name[0]})`, `Auto (${resolveLayout(AUTO_LAYOUT, baseSession).name[1]})`)}</option>
                 {BUILTIN_LAYOUTS.map(l => <option key={l.id} value={l.id}>{t(l.name[0], l.name[1])}</option>)}
+                {customLayouts.map(l => <option key={l.id} value={l.id}>{l.name[0]}</option>)}
               </select>
               <label className="text-[10px] font-medium text-slate-400 block pt-1">{t('重ねる部品:', 'Parts:')}</label>
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-300" data-testid="overlay-parts">

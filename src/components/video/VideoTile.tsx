@@ -37,6 +37,8 @@ interface VideoTileProps {
   active?: boolean;
   /** 映像の外に重ねるもの (PinP の小窓など) */
   children?: React.ReactNode;
+  /** メーターの配置エディタの枠 (メーターを描く四角と同じ所に重ねる。PLAN-08) */
+  editLayer?: React.ReactNode;
 }
 
 /** メーターを描く板の幅 (映っている動画の幅の 2 倍、800〜1280。スマートフォンではメーターを動画に対して約 1.5 倍に出す) */
@@ -45,7 +47,7 @@ export function overlayLogicalWidth(displayWidth: number): number {
 }
 
 export const VideoTile: React.FC<VideoTileProps> = ({
-  tileKey, controller, position, muted, onSeeked, overlay, avoidRef, badge, accent, onClick, className = '', emptyText, useProxy = false, active = true, children
+  tileKey, controller, position, muted, onSeeked, overlay, avoidRef, badge, accent, onClick, className = '', emptyText, useProxy = false, active = true, children, editLayer
 }) => {
   const t = useT();
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -162,6 +164,9 @@ export const VideoTile: React.FC<VideoTileProps> = ({
           // 動画の無い枠では、メーターを 16:9 のまま枠に収める (伸び縮みさせない)
           className={`absolute ${box ? '' : 'inset-0 w-full h-full object-contain'} pointer-events-none z-[15]`}
         />
+      )}
+      {editLayer && box && (
+        <div className="absolute z-[16]" style={{ left: box.left, top: box.top, width: box.width, height: box.height }}>{editLayer}</div>
       )}
       {src && position?.outOfRange && (
         <div className="absolute inset-0 z-[5] flex items-center justify-center bg-black/80 text-slate-400 text-[11px] text-center px-2 pointer-events-none">

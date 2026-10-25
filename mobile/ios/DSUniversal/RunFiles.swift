@@ -224,6 +224,8 @@ enum RunFiles {
         rel.range(of: #"^course/(Corner/[a-z0-9_]+\.json(\.bak)?|ControlLine/[^/]+\.cln|Sector/[^/]+\.sci|courses\.json)$"#, options: .regularExpression) != nil
             // 解析用のセッション (保存した比べ方。PLAN-18。2026-10-25)
             || rel.range(of: #"^sessions/[^/]+\.lapsession\.json$"#, options: .regularExpression) != nil
+            // メーターの並び (PLAN-08。2026-10-25)
+            || rel.range(of: #"^overlays/[^/]+\.overlay\.json$"#, options: .regularExpression) != nil
     }
 
     /// 消してよい走行のファイルか (サーキットのフォルダの中のもの。共有の控え・コース・セッションは消さない)
