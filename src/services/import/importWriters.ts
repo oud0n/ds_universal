@@ -21,6 +21,13 @@ export function electronWriter(): ImportWriter | null {
   };
 }
 
+/** 書きかけのファイルを閉じて消す。消せなかったら知らせる (黙って残すと、取り込み直しで飛ばされるため) */
+async function removePartial(path: string): Promise<void> {
+  await callNative('system.closeFiles', { paths: [path] }).catch(() => {});
+  const r = await callNative('system.deleteRunFiles', { paths: [path] }).catch(() => null);
+  if (r?.failed?.length) console.warn('[import] 書きかけのファイルを消せない:', path, r.failed[0].error);
+}
+
 /** 一度に送る大きさ (橋の上の base64 が大きくなりすぎないように) */
 const CHUNK = 4 * 1024 * 1024;
 
@@ -42,6 +49,8 @@ export function nativeWriter(existing: ReadonlySet<string> = new Set()): (Import
       } catch (e) {
         const code = (e as { code?: string })?.code;
         if (code === 'busy') return 'exists';
+        // 初めの 4 MB を書く途中で失敗したときも、書きかけが残っているかもしれないので消す
+        await removePartial(path);
         throw e;
       }
       try {
@@ -52,8 +61,7 @@ export function nativeWriter(existing: ReadonlySet<string> = new Set()): (Import
         // 途中で失敗したら、書きかけのファイルを消す (残すと、取り込み直したときに「もうある」として飛ばされ、
         // 途中までのログが走行として残る。LATER-19)。閉じる一覧からも外す
         written.splice(written.indexOf(path), 1);
-        await callNative('system.closeFiles', { paths: [path] }).catch(() => {});
-        await callNative('system.deleteRunFiles', { paths: [path] }).catch(() => {});
+        await removePartial(path);
         throw e;
       }
       return 'ok';

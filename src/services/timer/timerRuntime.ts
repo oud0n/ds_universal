@@ -509,6 +509,9 @@ export class TimerRuntime {
   /** 測定終了: 書いた走行を閉じて保存し、選んだフォルダへ写す。周の表示は次に測り始めるまで残す */
   async stopMeasuring(): Promise<void> {
     if (!this.snap.measuring) return;
+    // 走った距離と回は、止めた時点のものを覚える (保存を待つ間に測り直すと、数え直した 0 m で前の走行を「走っていない」としてしまうため)
+    const distM = this.measureDistM;
+    const epoch = this.snap.epoch;
     this.set({ measuring: false });
     this.stopFusion();
     // カメラの録画を止め、センサーの値を書き、次の走行の .csv に替える
@@ -527,8 +530,9 @@ export class TimerRuntime {
     await closeRunFiles(rec?.filesBase);
     await this.sync();
     // ほとんど動いていなければ (ピットにいただけ)、消すか聞く
-    if (rec?.filesBase && this.measureDistM < IDLE_RUN_M) {
-      this.set({ idleRun: { fileBase: rec.filesBase, runId: rec.current?.id ?? null, distM: Math.round(this.measureDistM) } });
+    // 保存を待つ間に測り直した・数え直したときは聞かない (今の走行と取り違えないように)
+    if (rec?.filesBase && distM < IDLE_RUN_M && !this.snap.measuring && this.snap.epoch === epoch) {
+      this.set({ idleRun: { fileBase: rec.filesBase, runId: rec.current?.id ?? null, distM: Math.round(distM) } });
     }
   }
 
@@ -547,23 +551,36 @@ export class TimerRuntime {
     try {
       const store = await getRunStore();
       if (store?.remove) {
+        // 選んだフォルダへ移しきってから消す (アプリの中に残ったファイルが、あとで走行の行の無い走行として戻らないように)
+        if (hasNative()) {
+          const sync = await callNative('system.syncLapFiles', {}).catch(() => null);
+          if (sync && sync.kind === 'folder' && sync.failed > 0) throw new Error(sync.error ?? 'could not move files to the folder');
+        }
         const files = await store.listAll();
+        const runsFile = await readRunsFile(store, idle.fileBase.slice(0, idle.fileBase.indexOf('/'))).catch(() => null);
         const folder = idle.fileBase.slice(0, idle.fileBase.indexOf('/'));
         const rest = idle.fileBase.slice(folder.length + 1);
         const dir = idle.fileBase.slice(0, idle.fileBase.lastIndexOf('/') + 1);
         const logs = files.filter(f => f.path.startsWith(dir) && !f.path.slice(dir.length).includes('/') && /\.(nmea|bon4)$/i.test(f.path));
-        const pseudo = (path: string): RunItem => ({
-          folder, file: path.slice(folder.length + 1), courseName: null, startMs: null, lapCount: 0, best: null,
-          videos: [], synced: false, folderVideos: [], laps: [], pending: false, entry: null
-        });
+        // ほかの走行は runs.json の行の動画も持たせる (その走行にも付いている動画を消さないように)
+        const pseudo = (path: string): RunItem => {
+          const file = path.slice(folder.length + 1);
+          const entry = runsFile ? findRunRow(runsFile, file) : null;
+          return {
+            folder, file, courseName: null, startMs: null, lapCount: 0, best: null,
+            videos: entry?.videos?.map(v => v.name) ?? [], synced: false, folderVideos: [], laps: [], pending: false, entry
+          };
+        };
         const mine = logs.find(f => f.path === `${idle.fileBase}.nmea`) ?? logs.find(f => f.path === `${idle.fileBase}.bon4`);
         const item = pseudo(mine?.path ?? `${idle.fileBase}.nmea`);
-        const plan = planRunDelete(item, files, logs.map(f => pseudo(f.path)));
-        if (plan.remove.length) {
-          const r = await store.remove(plan.remove.map(f => f.path));
-          if (r.failed.length) throw new Error(r.failed.map(f => f.error).join(', '));
-        }
-        await removeRunRow(store, folder, `${rest}.nmea`).catch(() => {});
+        const plan = planRunDelete(item, files, logs.filter(f => f.path !== mine?.path).map(f => pseudo(f.path)));
+        // 一覧に出なかったもの (まだアプリの中にある) も、この走行の名前のログ・内蔵カメラの動画は消す
+        const paths = new Set(plan.remove.map(f => f.path));
+        const keep = new Set(plan.keep.map(f => f.path));
+        for (const ext of ['.nmea', '.bon4', '.mov', '_front.mov', '.mp4', '_front.mp4']) if (!keep.has(`${idle.fileBase}${ext}`)) paths.add(`${idle.fileBase}${ext}`);
+        const r = await store.remove([...paths]);
+        if (r.failed.length) throw new Error(r.failed.map(f => f.error).join(', '));
+        await removeRunRow(store, folder, `${rest}.nmea`);
       }
       if (idle.runId) await deleteRunRecord(idle.runId).catch(() => {});
       this.set({ idleRun: null, savedRun: null });
