@@ -33,6 +33,8 @@ final class CameraModule: NSObject {
     private var liveConfig: String?
     private var exposureTimer: Timer?
     private var frameSec: Double = 1.0 / 30
+    /** 確かめの映像の頼みの番号 (続けて頼まれたら、古い頼みの結果は使わない) */
+    private var liveGen = 0
 
     init(core: NativeCore) {
         self.core = core
@@ -231,9 +233,13 @@ final class CameraModule: NSObject {
         }
         try dev.lockForConfiguration()
         if let f = format(for: dev, preset: preset) { dev.activeFormat = f }
-        let frame = CMTime(value: 1000, timescale: CMTimeScale(fps * 1000))
-        dev.activeVideoMinFrameDuration = frame
-        dev.activeVideoMaxFrameDuration = frame
+        // その形式が対応していない fps を決めると落ちるので、対応しているときだけ決める (しないときは、その形式の既定のまま)
+        let fpsOk = dev.activeFormat.videoSupportedFrameRateRanges.contains { $0.minFrameRate <= fps + 0.01 && $0.maxFrameRate >= fps - 0.01 }
+        if fpsOk {
+            let frame = CMTime(value: 1000, timescale: CMTimeScale(fps * 1000))
+            dev.activeVideoMinFrameDuration = frame
+            dev.activeVideoMaxFrameDuration = frame
+        }
         if dev.isFocusModeSupported(.continuousAutoFocus) { dev.focusMode = .continuousAutoFocus }
         if dev.isExposureModeSupported(.continuousAutoExposure) { dev.exposureMode = .continuousAutoExposure }
         dev.unlockForConfiguration()
@@ -309,16 +315,24 @@ final class CameraModule: NSObject {
 
     private func adjustExposure(frameSec: Double) {
         guard let dev = device, let target = isoTarget else { return }
+        // カメラの設定は、組み立てと同じ列で 1 つずつ行う (レンズを替えている最中に触ると落ちるため)
+        queue.async { Self.adjust(dev, target: target, frameSec: frameSec) }
+    }
+
+    nonisolated private static func adjust(_ dev: AVCaptureDevice, target: Float, frameSec: Double) {
+        // ISO を決められない (手動の露出に対応していない) レンズでは、自動のまま
+        guard dev.isExposureModeSupported(.custom), (try? dev.lockForConfiguration()) != nil else { return }
+        defer { dev.unlockForConfiguration() }
         let f = dev.activeFormat
         let iso = min(max(target, f.minISO), f.maxISO)
         // 今の明るさのずれ (EV)。正なら明るすぎる
         let offset = Double(dev.exposureTargetOffset)
         let cur = CMTimeGetSeconds(dev.exposureDuration)
-        var next = cur.isFinite && cur > 0 ? cur * pow(2, -offset * 0.6) : frameSec / 2
-        next = min(max(next, CMTimeGetSeconds(f.minExposureDuration)), min(frameSec, CMTimeGetSeconds(f.maxExposureDuration)))
-        guard (try? dev.lockForConfiguration()) != nil else { return }
+        let lo = CMTimeGetSeconds(f.minExposureDuration), hi = min(frameSec, CMTimeGetSeconds(f.maxExposureDuration))
+        guard lo.isFinite, hi.isFinite, hi >= lo else { return }
+        var next = cur.isFinite && cur > 0 && offset.isFinite ? cur * pow(2, -offset * 0.6) : frameSec / 2
+        next = min(max(next, lo), hi)
         dev.setExposureModeCustom(duration: CMTime(seconds: next, preferredTimescale: 1_000_000), iso: iso, completionHandler: nil)
-        dev.unlockForConfiguration()
     }
 
     // MARK: - プレビュー (撮り始めの 5 秒だけ、右上に小さく)
@@ -349,6 +363,8 @@ final class CameraModule: NSObject {
     // MARK: - 撮る前の確かめ (設定の画面の枠に映像を出し、ISO をその場で変える)
 
     private func livePreview(params: [String: Any], done: @escaping (Result<[String: Any], NativeError>) -> Void) {
+        liveGen += 1
+        let gen = liveGen
         guard params["show"] as? Bool ?? false else {
             hideLive()
             if !wantRecording {
@@ -377,6 +393,9 @@ final class CameraModule: NSObject {
         let session = session, output = output
         Task { @MainActor in
             if self.liveConfig != config || !session.isRunning {
+                // 組み直す間は、ISO を保つ調整を止める
+                self.isoTimer?.invalidate()
+                self.isoTimer = nil
                 self.device = dev
                 self.frameSec = 1 / spec.fps
                 let error: NativeError? = await withCheckedContinuation { cont in
@@ -392,6 +411,8 @@ final class CameraModule: NSObject {
                 if let error { done(.failure(error)); return }
                 self.liveConfig = config
             }
+            // 待っている間に、次の頼み (別のレンズ・消す) が来ていたら、そちらに任せる
+            guard gen == self.liveGen else { done(.success([:])); return }
             self.placeLive(rect, angle: angle)
             self.applyIso(iso)
             self.startExposureReports()
@@ -439,9 +460,12 @@ final class CameraModule: NSObject {
         } else {
             isoTimer?.invalidate()
             isoTimer = nil
-            if let dev = device, dev.isExposureModeSupported(.continuousAutoExposure), (try? dev.lockForConfiguration()) != nil {
-                dev.exposureMode = .continuousAutoExposure
-                dev.unlockForConfiguration()
+            if let dev = device {
+                queue.async {
+                    guard dev.isExposureModeSupported(.continuousAutoExposure), (try? dev.lockForConfiguration()) != nil else { return }
+                    dev.exposureMode = .continuousAutoExposure
+                    dev.unlockForConfiguration()
+                }
             }
         }
     }
@@ -452,7 +476,10 @@ final class CameraModule: NSObject {
         exposureTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, let dev = self.device else { return }
-                self.core.emit("camera.exposure", ["iso": Double(dev.iso), "shutterSec": CMTimeGetSeconds(dev.exposureDuration)])
+                // レンズを替えた直後は、シャッターの速さが数でない (NaN) ことがある。数でないものは送らない (JSON にできず落ちるため)
+                let iso = Double(dev.iso), shutter = CMTimeGetSeconds(dev.exposureDuration)
+                guard iso.isFinite, shutter.isFinite else { return }
+                self.core.emit("camera.exposure", ["iso": iso, "shutterSec": shutter])
             }
         }
     }

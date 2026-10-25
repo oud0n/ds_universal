@@ -32,17 +32,20 @@ export const TimerCameraSettings: React.FC = () => {
     return () => { alive = false; };
   }, []);
 
-  // 映像を出す (設定を開いている間、録画をオンにしているとき)。枠が動いたら (メニューを動かした) 置き直す
+  // 映像を出す (設定を開いている間、録画をオンにしているとき)。枠が動いたら (メニューを動かした) 置き直す。
+  // レンズ・画質を替えたときは、消さずに新しい設定で出し直す (消して出すと、カメラを止めて組み直すので、重なると映像が消えたままになった)
   const live = ok && s.enabled;
   const lensKey = `${s.lensId}|${s.preset}`;
+  const placeRef = useRef<() => void>(() => {});
   useEffect(() => {
     if (!live) return;
     let alive = true;
     let raf = 0;
+    let allowed = false;
     const place = () => {
       const box = boxRef.current;
       const r = box?.getBoundingClientRect();
-      if (!box || !r || !alive) return;
+      if (!box || !r || !alive || !allowed) return;
       // メニューを動かして枠が少しでも隠れたら、映像は消す (アプリが画面の上に重ねるので、メニューの外にはみ出すため)
       const clip = box.closest('.overflow-y-auto')?.getBoundingClientRect();
       const inside = !clip || (r.top >= clip.top - 1 && r.bottom <= clip.bottom + 1);
@@ -50,10 +53,12 @@ export const TimerCameraSettings: React.FC = () => {
       void callNative('camera.preview', { show: true, lensId: cur.lensId, preset: cur.preset, iso: cur.iso, rect: inside ? { x: r.left, y: r.top, w: r.width, h: r.height } : { x: 0, y: 0, w: 0, h: 0 } })
         .then(() => setLiveError(''), e => setLiveError(e instanceof Error ? e.message : String(e)));
     };
+    placeRef.current = place;
     const onMove = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(place); };
     void callNative('camera.permission', { request: true, audio: false }).then(p => {
       if (!alive) return;
       if (p.camera !== 'granted') { setLiveError('permission'); return; }
+      allowed = true;
       place();
     }).catch(() => {});
     const off = onNative('camera.exposure', e => setExposure(e));
@@ -61,12 +66,19 @@ export const TimerCameraSettings: React.FC = () => {
     window.addEventListener('resize', onMove);
     return () => {
       alive = false;
+      placeRef.current = () => {};
       cancelAnimationFrame(raf);
       off();
       window.removeEventListener('scroll', onMove, true);
       window.removeEventListener('resize', onMove);
       void callNative('camera.preview', { show: false }).catch(() => {});
     };
+  }, [live]);
+  // レンズ・画質を替えた: 出し直す (少し待って、続けて押されたら最後のものだけ)
+  useEffect(() => {
+    if (!live) return;
+    const id = setTimeout(() => placeRef.current(), 150);
+    return () => clearTimeout(id);
   }, [live, lensKey]);
 
   if (!ok) return null;
