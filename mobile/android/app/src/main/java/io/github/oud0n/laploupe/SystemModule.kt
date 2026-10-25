@@ -233,8 +233,8 @@ class SystemModule(private val activity: MainActivity, private val bridge: Nativ
                 synchronized(openFiles) { openFiles.removeAll { all || (prefix != null && it.startsWith(prefix)) || it in paths } }
                 done(Result.success(JSONObject().put("open", openFiles.size)))
             }
-            "system.listLapFiles", "system.listRunFiles" -> bg(done) { JSONObject().put("files", listFiles()) }
-            "system.readLapFile", "system.readRunFile" -> bg(done) {
+            "system.listRunFiles" -> bg(done) { JSONObject().put("files", listFiles()) }
+            "system.readRunFile" -> bg(done) {
                 JSONObject().put("b64", Base64.encodeToString(readAll(p.optString("path")), Base64.NO_WRAP))
             }
             "system.writeRunFile" -> bg(done) {
