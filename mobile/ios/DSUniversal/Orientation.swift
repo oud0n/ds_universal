@@ -50,8 +50,10 @@ final class OrientationControl {
         default:
             mode = "system"
             stopMotion()
-            // 画面の向きのロックが入っていると、横のまま残るので、一度縦に戻してから向きを任せる
-            apply(Self.defaultMask, request: currentOrientation().isLandscape ? .portrait : nil)
+            // 画面の向きのロックが入っていると、横のまま残るので、一度縦に戻してから向きを任せる。
+            // iPad はどの向きでも使うので戻さない (戻すと、タイマーを閉じるたびに縦にされていた。PLAN-29 の (5))
+            let phone = UIDevice.current.userInterfaceIdiom == .phone
+            apply(Self.defaultMask, request: phone && currentOrientation().isLandscape ? .portrait : nil)
         }
         return currentOrientation().isLandscape ? "landscape" : "portrait"
     }
