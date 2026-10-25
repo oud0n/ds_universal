@@ -69,6 +69,8 @@ export interface RunRow {
   car?: string;
   /** タイヤ (銘柄・コンパウンドなど。自由に書く。2026-10-25) */
   tyre?: string;
+  /** 動画のメーターの並びの印 (同梱の並び std など、自分の並び user:<名前>。PLAN-08) */
+  overlayLayout?: string;
   /** 分かれた走行の何番目ごとの情報 (ログの時計の補正) */
   parts?: Record<string, { clockOffsetSec?: number; [key: string]: unknown }>;
   videos?: RunVideo[];
@@ -113,6 +115,7 @@ function cleanRow(e: Record<string, unknown>): RunRow | null {
   if (e.note !== undefined && typeof e.note !== 'string') delete row.note;
   if (e.car !== undefined && typeof e.car !== 'string') delete row.car;
   if (e.tyre !== undefined && typeof e.tyre !== 'string') delete row.tyre;
+  if (e.overlayLayout !== undefined && typeof e.overlayLayout !== 'string') delete row.overlayLayout;
   if (e.reference !== undefined) {
     if (isObj(e.reference)) {
       const r = e.reference as Record<string, unknown>;

@@ -69,6 +69,29 @@ async function seekRatio(p, ratio) {
   await sleep(1500);
 }
 
+/** 試験の並び (user:e2e_並び) を覚えた runs.json の行 */
+function runsWithLayout(root) {
+  const out = [];
+  for (const d of fs.readdirSync(root)) {
+    const f = path.join(root, d, 'runs.json');
+    if (!fs.existsSync(f)) continue;
+    try {
+      for (const [k, r] of Object.entries(JSON.parse(fs.readFileSync(f, 'utf8')).runs ?? {})) if (r?.overlayLayout === 'user:e2e_並び') out.push(`${d}/${k}`);
+    } catch { /* 書きかけ */ }
+  }
+  return out;
+}
+function clearRunsLayout(root) {
+  for (const d of fs.readdirSync(root)) {
+    const f = path.join(root, d, 'runs.json');
+    if (!fs.existsSync(f)) continue;
+    const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+    let changed = false;
+    for (const r of Object.values(j.runs ?? {})) if (r?.overlayLayout === 'user:e2e_並び') { delete r.overlayLayout; changed = true; }
+    if (changed) fs.writeFileSync(f, JSON.stringify(j, null, 1));
+  }
+}
+
 export const journeys = [
   {
     name: '走行を開くと Car 1 になる (別のコースの Car とログは外れ、同じコースのログは残る)',
@@ -348,14 +371,47 @@ export const journeys = [
         check(saved.parts.some(x => x.type === 'bar') && saved.parts.find(x => x.id === 'speed')?.x === 0.12, `保存した並びがおかしい: ${JSON.stringify(saved.parts.map(x => [x.id, x.type, x.x]))}`);
         const win = await p.ev(`Object.entries(localStorage).filter(([k]) => k.startsWith('ds_video_window_')).map(([, v]) => JSON.parse(v).overlayLayout)`);
         check(win.includes('user:e2e_並び'), `保存した並びがウインドウの並びにならない: ${JSON.stringify(win)}`);
+        // 開いている走行の runs.json の行にも覚える
+        for (let i = 0; i < 30 && !runsWithLayout(root).length; i++) await sleep(200);
+        check(runsWithLayout(root).length === 1, `走行の行に並びを覚えていない: ${JSON.stringify(runsWithLayout(root))}`);
+        // ウインドウの並びを自動に戻しても、走行を開き直すと覚えた並びになる
+        await p.click('overlay-edit-close');
+        await p.ev(`for (const [k, v] of Object.entries(localStorage)) if (k.startsWith('ds_video_window_')) localStorage.setItem(k, JSON.stringify({ ...JSON.parse(v), overlayLayout: 'auto' }))`);
+        await p.goto(`${APP}?r=${Date.now()}`);
+        await openRun(p, '8/15', 'run-open-video');
+        await p.waitFor(`Object.entries(localStorage).some(([k, v]) => k.startsWith('ds_video_window_') && JSON.parse(v).overlayLayout === 'user:e2e_並び')`, 15000, '開き直すと覚えた並び');
+        if (await p.exists('video-mode-watch')) await p.click('video-mode-watch');
+        await sleep(1000);
+        await p.click('overlay-edit-toggle');
+        await p.waitFor(`document.querySelector('[data-testid="overlay-edit-base"]')?.value === 'user:e2e_並び'`, 5000, '覚えた並びで編集が始まる');
+        // 小さな枠: 既定 (速度・周の時計・差) から始まり、保存すると small に入る
+        await p.click('overlay-edit-target-small');
+        await p.waitFor(`document.querySelector('[data-testid="overlay-edit-part-clock"]') && !document.querySelector('[data-testid="overlay-edit-part-map"]')`, 5000, '小さな枠の部品');
+        // 足すと小さな枠の並びになる (触らなければ既定のまま、保存しない)
+        await p.click('overlay-edit-add');
+        await p.click('overlay-edit-save');
+        for (let i = 0; i < 30 && !JSON.parse(fs.readFileSync(file, 'utf8')).small; i++) await sleep(200);
+        check(JSON.parse(fs.readFileSync(file, 'utf8')).small?.some(x => x.type === 'lapClock') && JSON.parse(fs.readFileSync(file, 'utf8')).small.length === 4, '小さな枠の部品が保存されない');
+        check(JSON.parse(fs.readFileSync(file, 'utf8')).parts.find(x => x.id === 'speed')?.x === 0.12, '小さな枠を直したら、ふつうの枠が変わった');
+        await p.click('overlay-edit-target-large');
+        // 名前だけ変える: 同じファイルの名前が変わる
+        await p.ev(`(()=>{const el=document.querySelector('[data-testid="overlay-edit-name"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'e2e 並び 改'); el.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+        await p.waitFor(`document.querySelector('[data-testid="overlay-edit-rename"]')`, 5000, '名前だけ変える');
+        await p.click('overlay-edit-rename');
+        for (let i = 0; i < 30 && JSON.parse(fs.readFileSync(file, 'utf8')).name?.[0] !== 'e2e 並び 改'; i++) await sleep(200);
+        check(JSON.parse(fs.readFileSync(file, 'utf8')).name?.[0] === 'e2e 並び 改', '名前が変わらない');
+        await p.waitFor(`[...document.querySelectorAll('[data-testid="overlay-edit-base"] option')].some(o => o.textContent === 'e2e 並び 改')`, 5000, '一覧の名前が変わる');
         // 消すと、自動に戻り、一覧にも出ない
         await p.ev(`window.confirm = () => true`);
         await p.click('overlay-edit-delete');
         await p.waitFor(`!document.querySelector('[data-testid="overlay-edit-panel"]')`, 5000, '消して閉じる');
         for (let i = 0; i < 30 && !fs.readFileSync(file, 'utf8').includes('deleted'); i++) await sleep(200);
         check(JSON.parse(fs.readFileSync(file, 'utf8')).deleted === true, '消した印が無い');
+        for (let i = 0; i < 30 && runsWithLayout(root).length; i++) await sleep(200);
+        check(!runsWithLayout(root).length, '消しても走行の行に並びが残っている');
       } finally {
         fs.rmSync(file, { force: true });
+        clearRunsLayout(root);
       }
     }
   },
