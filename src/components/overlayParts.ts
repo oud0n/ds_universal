@@ -7,6 +7,7 @@
  */
 
 import type { Lap, Session, TelemetryPoint } from '../types/telemetry';
+import type { OverlayLayout } from '../services/overlayLayout';
 
 /** 出す部品 (ウインドウごとに覚える) */
 export interface OverlayPartsOptions {
@@ -16,6 +17,10 @@ export interface OverlayPartsOptions {
   map: boolean;
   /** ラップの欄で比べる周 (Car で選んだ周など)。ないときは、そのログのベストラップ */
   reference?: { lap: Lap; label: string } | null;
+  /** メーターの並び (PLAN-08)。無ければ標準 */
+  layout?: OverlayLayout;
+  /** 並びの中で出さない部品の印 */
+  hidden?: readonly string[];
 }
 
 /** 周を終えたあと、その周のタイムと差を止めて出しておく秒 (9 の案) */
@@ -127,6 +132,27 @@ export function drawLapPanel(
   /** 比べる周 (Car で選んだ周など)。ないときは、そのログのベストラップ */
   reference: { lap: Lap; label: string } | null = null
 ): void {
+  drawLapPanelAt(ctx, w - LAP_PANEL_W - rightInset, 24, t, session, holdLap, reference);
+}
+
+/** ラップの欄の幅 (描く単位。メーターの配置では、これを置き場の幅に合わせて縮める) */
+export const LAP_PANEL_W = 236;
+
+/** ラップの欄の高さ (描く単位) */
+export function lapPanelHeight(sectorCount: number, withDelta: boolean): number {
+  return 14 + (2 + sectorCount + (withDelta ? 1 : 0)) * 22;
+}
+
+/** ラップの欄を (x, y) を左上にして描く (描く単位。大きさを変えるときは呼ぶ側で ctx.scale する) */
+export function drawLapPanelAt(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  t: number,
+  session: Session,
+  holdLap: Lap | null,
+  reference: { lap: Lap; label: string } | null = null
+): void {
   const ref = reference?.lap ?? referenceLap(session);
   const refLabel = reference?.label ?? 'Best';
   let lap = lapAt(session, t);
@@ -157,10 +183,8 @@ export function drawLapPanel(
   const sectors = lap?.sectors ?? [];
   const rows = 2 + sectors.length + (ref && lap && !frozen && !waiting ? 1 : 0);
   const rowH = 22;
-  const boxW = 236;
+  const boxW = LAP_PANEL_W;
   const boxH = 14 + rows * rowH;
-  const x = w - boxW - rightInset;
-  const y = 24;
   ctx.save();
   plate(ctx, x, y, boxW, boxH);
   ctx.textBaseline = 'middle';
@@ -281,13 +305,25 @@ export function mapLap(session: Session): Lap | null {
 
 /** コース図 (左上)。きれいに走れた周の軌跡と、今の位置の点 */
 export function drawCourseMap(ctx: CanvasRenderingContext2D, h: number, t: number, session: Session, current: TelemetryPoint | null, leftInset = 24): void {
+  drawCourseMapAt(ctx, leftInset, 24, Math.round(Math.min(220, h * 0.3)), t, session, current);
+}
+
+/** コース図を (x0, y0) から size の正方形に描く。others: ほかの車の今の位置 (比べる周など。色つきの点) */
+export function drawCourseMapAt(
+  ctx: CanvasRenderingContext2D,
+  x0: number,
+  y0: number,
+  size: number,
+  t: number,
+  session: Session,
+  current: TelemetryPoint | null,
+  others: Array<{ point: TelemetryPoint; color: string }> = []
+): void {
   const lap = mapLap(session) ?? lapAt(session, t);
   if (!lap || lap.points.length < 10) return;
   const m = mapOf(lap.points);
-  const size = Math.round(Math.min(220, h * 0.3));
-  const pad = 12;
-  const x0 = leftInset;
-  const y0 = 24;
+  size = Math.round(size);
+  const pad = Math.max(4, Math.round(size * 0.055));
   const inner = size - pad * 2;
   const scale = inner / Math.max(m.spanX, m.spanY);
   const offX = x0 + pad + (inner - m.spanX * scale) / 2;
@@ -314,12 +350,23 @@ export function drawCourseMap(ctx: CanvasRenderingContext2D, h: number, t: numbe
     m.paths.set(key, path);
   }
   ctx.strokeStyle = 'rgba(248, 250, 252, 0.75)';
-  ctx.lineWidth = 3;
+  ctx.lineWidth = Math.max(1.5, size / 73);
   ctx.stroke(path);
+  // ほかの車 (比べる周) の点は、自分の点の下に描く
+  for (const o of others) {
+    const [ox, oy] = toScreen(o.point.longitude * m.cosLat, -o.point.latitude);
+    ctx.beginPath();
+    ctx.arc(ox, oy, Math.max(3, size / 44), 0, Math.PI * 2);
+    ctx.fillStyle = o.color;
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+  }
   if (current) {
     const [cx, cy] = toScreen(current.longitude * m.cosLat, -current.latitude);
     ctx.beginPath();
-    ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+    ctx.arc(cx, cy, Math.max(3.5, size / 37), 0, Math.PI * 2);
     ctx.fillStyle = '#ef4444';
     ctx.fill();
     ctx.lineWidth = 2;

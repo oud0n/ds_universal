@@ -32,7 +32,9 @@ import {
 } from '../services/telemetryVideoExporter';
 import { canUseEncodeExport, exportEncodedVideo } from '../services/encodeVideoExporter';
 import { canExportWebmAlpha, exportOverlayOnly } from '../services/overlayOnlyExporter';
-import { drawCourseMap, drawLapPanel, hasTimedLaps, type OverlayPartsOptions } from './overlayParts';
+import { type OverlayPartsOptions } from './overlayParts';
+import { renderOverlayParts } from './overlayRender';
+import { AUTO_LAYOUT, BUILTIN_LAYOUTS, availableChannels, partChannels, partLabel, resolveLayout, visibleParts, type OverlayPart } from '../services/overlayLayout';
 
 /** 走行比較の枠には、足した部品を出さない (枠が小さく、Car の札・比べる差と重なるため) */
 const NO_PARTS: OverlayPartsOptions = { lapPanel: false, map: false };
@@ -146,11 +148,9 @@ function compareSessionTimeAtDistance(aligned: Lap, original: Lap, d: number): n
 }
 
 /**
- * テレメトリオーバーレイを Canvas に描画する共通関数 (リアルタイム表示 & 動画エクスポートで共用)
+ * テレメトリオーバーレイを Canvas に描画する共通関数 (リアルタイム表示 & 動画エクスポートで共用)。
+ * 部品はメーターの並び (PLAN-08。overlayLayout.ts) のとおりに置く。並びが無ければ標準 (速度・G・ラップの欄・コース図)
  */
-/** G メーターの大きさ (速度の枠に対する倍率) */
-const G_METER_SCALE = 1.3;
-
 export function drawTelemetryOverlayOnCanvas(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -159,166 +159,28 @@ export function drawTelemetryOverlayOnCanvas(
   baseSession: Session | undefined,
   baseLap: any,
   showGForce: boolean = true,
-  // PinP の小窓がある隅と、小窓がメインの映像に重なる幅 (canvas の座標)。その隅のメーターを小窓の横へずらす (BUG-23)
+  // PinP の小窓がある隅と、小窓がメインの映像に重なる幅 (canvas の座標)。その隅の部品を小窓の横へずらす (BUG-23)
   avoidCorner: PipPosition | null = null,
   pipOverlapW = 0,
   // 書き出す周 (前後を足して書き出すとき)。周の前は前の周のタイム (前の周がなければ 0:00.00)、周のあとはその周のタイムで止めておく
   holdLap: Lap | null = null,
-  // 足した部品 (ラップの欄・コース図。overlayParts.ts)
+  // 部品の出す・出さない (ラップの欄・コース図) と並び
   parts: OverlayPartsOptions = { lapPanel: false, map: false }
 ) {
-  const pipInset = Math.round(pipOverlapW) + 24;
-  if (pipOverlapW <= 0) avoidCorner = null;
-  const pts = baseSession?.points || baseLap?.points || [];
-  if (pts.length === 0) return;
-
-  // 二分探索で effectiveTime に最も近いポイントを高速検索 (O(log N))
-  let low = 0;
-  let high = pts.length - 1;
-  while (low < high - 1) {
-    const mid = Math.floor((low + high) / 2);
-    if (pts[mid].time < effectiveTime) {
-      low = mid;
-    } else {
-      high = mid;
-    }
-  }
-  const curPt: TelemetryPoint = Math.abs(pts[low].time - effectiveTime) <= Math.abs(pts[high].time - effectiveTime)
-    ? pts[low]
-    : pts[high];
-
-  // 1. デジタルスピードメーター (左下 - フラットデザイン)
-  ctx.save();
-  ctx.translate(avoidCorner === 'bottom-left' ? pipInset : 32, h - 96);
-
-  // フラット背景プレート
-  ctx.fillStyle = 'rgba(15, 20, 30, 0.85)';
-  ctx.beginPath();
-  ctx.roundRect(0, 0, 160, 72, 4);
-  ctx.fill();
-  ctx.strokeStyle = '#2d3852';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  // 速度数値
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 36px monospace';
-  ctx.textAlign = 'left';
-  ctx.fillText(`${curPt.speed.toFixed(0)}`, 14, 44);
-
-  ctx.font = 'bold 12px sans-serif';
-  ctx.fillStyle = '#94a3b8';
-  ctx.fillText('km/h', 105, 42);
-
-  // 速度カラーバー (フラット)
-  const maxScaleSpd = 200;
-  const spdRatio = Math.min(1, curPt.speed / maxScaleSpd);
-  ctx.fillStyle = '#1e293b';
-  ctx.fillRect(14, 54, 132, 6);
-  ctx.fillStyle = spdRatio > 0.8 ? '#ef4444' : spdRatio > 0.5 ? '#f59e0b' : '#3b82f6';
-  ctx.fillRect(14, 54, 132 * spdRatio, 6);
-
-  ctx.restore();
-
-  // 2. Gフォースメーター (右下 - フラットデザイン)
-  if (showGForce) {
-    ctx.save();
-    // G メーターだけ 1.3 倍に描く (2026-10-20。右下の角からの余白は変えない)
-    const gs = G_METER_SCALE;
-    ctx.translate(avoidCorner === 'bottom-right' ? w - pipInset - 96 * gs : w - 32 - 96 * gs, h - 24 - 72 * gs);
-    ctx.scale(gs, gs);
-
-    // フラット背景プレート
-    ctx.fillStyle = 'rgba(15, 20, 30, 0.85)';
-    ctx.beginPath();
-    ctx.roundRect(0, 0, 96, 72, 4);
-    ctx.fill();
-    ctx.strokeStyle = '#2d3852';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // フリクションサークル
-    const cX = 48;
-    const cY = 34;
-    const r = 22;
-
-    ctx.strokeStyle = '#334155';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(cX, cY, r, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(cX, cY, r * 0.5, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // 十字線
-    ctx.strokeStyle = '#1e293b';
-    ctx.beginPath();
-    ctx.moveTo(cX - r, cY); ctx.lineTo(cX + r, cY);
-    ctx.moveTo(cX, cY - r); ctx.lineTo(cX, cY + r);
-    ctx.stroke();
-
-    // 現在Gプロット (フラットソリッドレッド)
-    const scaleG = r / 1.5;
-    const gX = cX - (curPt.corneringG || 0) * scaleG;
-    const gY = cY + (curPt.accelG || 0) * scaleG;
-
-    ctx.fillStyle = '#ef4444';
-    ctx.beginPath();
-    ctx.arc(gX, gY, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.font = 'bold 8px monospace';
-    ctx.fillStyle = '#94a3b8';
-    ctx.textAlign = 'center';
-    ctx.fillText(`${(curPt.combinedG || 0).toFixed(2)}G`, cX, 66);
-
-    ctx.restore();
-  }
-
-  // コース図 (左上)。PinP の小窓が左上にあるときは、小窓の横へずらす
-  if (parts.map && baseSession) drawCourseMap(ctx, h, effectiveTime, baseSession, curPt, avoidCorner === 'top-left' ? pipInset : 24);
-
-  // ラップの欄 (右上、Best・Lap・セクター・タイム差)。出すときは、下の小さなラップタイムの箱の代わりにする
-  if (parts.lapPanel && baseSession && hasTimedLaps(baseSession)) {
-    drawLapPanel(ctx, w, effectiveTime, baseSession, holdLap, avoidCorner === 'top-right' ? pipInset : 24, parts.reference ?? null);
-    return;
-  }
-
-  // 3. ラップタイム情報 (右上 - フラットデザイン)
-  ctx.save();
-  ctx.translate(avoidCorner === 'top-right' ? w - pipInset - 150 : w - 170, 20);
-
-  ctx.fillStyle = 'rgba(15, 20, 30, 0.85)';
-  ctx.beginPath();
-  ctx.roundRect(0, 0, 150, 52, 4);
-  ctx.fill();
-  ctx.strokeStyle = '#2d3852';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  // 周の境目ちょうどは、あとの周
-  const currentLap = baseSession?.laps.filter(l => effectiveTime >= l.startTime && effectiveTime <= l.endTime).sort((a, b) => Number(!!a.isWholeSession) - Number(!!b.isWholeSession) || b.startTime - a.startTime)[0];
-  let lapLabel = currentLap ? `Lap ${currentLap.lapNumber}` : (baseLap ? `Lap ${baseLap.lapNumber}` : 'Out / In Lap');
-  let lapDisplayTime = currentLap ? (effectiveTime - currentLap.startTime) : (baseLap ? (effectiveTime - baseLap.startTime) : effectiveTime);
-  if (holdLap && effectiveTime > holdLap.endTime) {
-    lapLabel = `Lap ${holdLap.lapNumber}`;
-    lapDisplayTime = holdLap.lapTime;
-  } else if (holdLap && !currentLap && effectiveTime < holdLap.startTime) {
-    lapLabel = `Lap ${holdLap.lapNumber}`;
-    lapDisplayTime = 0;
-  }
-
-  ctx.fillStyle = '#94a3b8';
-  ctx.font = 'bold 10px sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText(lapLabel, 12, 18);
-
-  ctx.fillStyle = '#f8fafc';
-  ctx.font = 'bold 18px monospace';
-  ctx.fillText(formatMinSec(lapDisplayTime, 2), 12, 42);
-
-  ctx.restore();
+  if (!baseSession || baseSession.points.length === 0) return;
+  const layout = parts.layout ?? resolveLayout(AUTO_LAYOUT, baseSession);
+  const hidden = new Set(parts.hidden ?? []);
+  const shown = visibleParts(layout, baseSession, hidden).filter(p => (p.type !== 'gmeter' || showGForce) && (p.type !== 'map' || parts.map));
+  // ラップの欄を出さないときは、これまでの小さなラップタイムの箱にする
+  const list: OverlayPart[] = parts.lapPanel ? shown : shown.map(p => (p.type === 'lapPanel' ? { ...p, type: 'lapClock' } : p));
+  // PinP の小窓の四角 (その隅の、小窓がメインに重なる幅 × 高さの半分)
+  const avoid = avoidCorner && pipOverlapW > 0 ? {
+    x: avoidCorner.endsWith('left') ? 0 : w - pipOverlapW - 16,
+    y: avoidCorner.startsWith('top') ? 0 : h / 2,
+    w: pipOverlapW + 16,
+    h: h / 2
+  } : null;
+  renderOverlayParts(ctx, w, h, { t: effectiveTime, session: baseSession, lap: baseLap ?? null, holdLap, reference: parts.reference ?? null, avoid }, list);
 }
 
 export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
@@ -501,10 +363,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   useEffect(() => {
     if (win.lapRef !== 'best' && sessions.length > 0 && !refLapPicked) setWin({ lapRef: 'best' });
   }, [win.lapRef, sessions.length, refLapPicked]);
+  // メーターの並び (PLAN-08)
+  const overlayLayout = resolveLayout(win.overlayLayout ?? AUTO_LAYOUT, baseSession);
   const overlayParts: OverlayPartsOptions = {
     lapPanel: win.showLapPanel,
     map: win.showMap,
-    reference: refCar && refLapPicked ? { lap: refLapPicked, label: `Car${refCar.slot + 1}` } : null
+    reference: refCar && refLapPicked ? { lap: refLapPicked, label: `Car${refCar.slot + 1}` } : null,
+    layout: overlayLayout,
+    hidden: win.hiddenParts ?? []
   };
   const baseLap = targetLap || baseSession?.laps.find(l => l.lapNumber === baseSelected?.lapNumber) || baseSession?.laps[0];
   // グラフ画面の動画では、App の時刻は選んだ周の時刻 (0〜周のタイム)。周の外へは動かさない
@@ -2253,22 +2119,41 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               </div>
             )}
 
-            {/* 重ねる部品 (画面の重ね表示にも効く) */}
+            {/* 重ねる部品 (画面の重ね表示にも効く)。メーターの並び (テンプレート) を選び、部品ごとに出す・出さない (PLAN-08) */}
             <div className="space-y-1">
-              <label className="text-[10px] font-medium text-slate-400">{t('重ねる部品:', 'Parts:')}</label>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-300">
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="checkbox" checked={win.showLapPanel} onChange={e => setWin({ showLapPanel: e.target.checked })} data-testid="part-lap-panel" />
-                  {t('ラップの欄 (ベスト・セクター・タイム差)', 'Lap panel (best, sectors, delta)')}
-                </label>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="checkbox" checked={win.showMap} onChange={e => setWin({ showMap: e.target.checked })} data-testid="part-map" />
-                  {t('コース図', 'Course map')}
-                </label>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="checkbox" checked={win.showGForce} onChange={e => setWin({ showGForce: e.target.checked })} data-testid="part-g" />
-                  {t('G', 'G')}
-                </label>
+              <label className="text-[10px] font-medium text-slate-400">{t('メーターの並び:', 'Meter layout:')}</label>
+              <select
+                value={win.overlayLayout ?? AUTO_LAYOUT}
+                onChange={e => setWin({ overlayLayout: e.target.value })}
+                className="w-full bg-surface-1 border border-line-3 text-xs px-2 py-1 rounded outline-none text-slate-200 cursor-pointer"
+                data-testid="overlay-layout"
+              >
+                <option value={AUTO_LAYOUT}>{t(`自動 (${resolveLayout(AUTO_LAYOUT, baseSession).name[0]})`, `Auto (${resolveLayout(AUTO_LAYOUT, baseSession).name[1]})`)}</option>
+                {BUILTIN_LAYOUTS.map(l => <option key={l.id} value={l.id}>{t(l.name[0], l.name[1])}</option>)}
+              </select>
+              <label className="text-[10px] font-medium text-slate-400 block pt-1">{t('重ねる部品:', 'Parts:')}</label>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-300" data-testid="overlay-parts">
+                {(() => {
+                  const ch = availableChannels(baseSession);
+                  return overlayLayout.parts.map(p => {
+                    // ログに値が無い部品 (アクセルの無いログのアクセルの棒など) は出さない
+                    if (!partChannels(p).every(c => ch.has(c))) return null;
+                    const legacy = p.type === 'lapPanel' ? 'showLapPanel' : p.type === 'map' ? 'showMap' : p.type === 'gmeter' ? 'showGForce' : null;
+                    const checked = legacy ? win[legacy] : !(win.hiddenParts ?? []).includes(p.id);
+                    const toggle = (on: boolean) => {
+                      if (legacy) setWin({ [legacy]: on } as Partial<typeof win>);
+                      else setWin({ hiddenParts: on ? (win.hiddenParts ?? []).filter(id => id !== p.id) : [...(win.hiddenParts ?? []), p.id] });
+                    };
+                    const label = p.type === 'lapPanel' ? t('ラップの欄 (ベスト・セクター・タイム差)', 'Lap panel (best, sectors, delta)') : partLabel(p, t('ja', 'en') === 'ja');
+                    return (
+                      <label key={p.id} className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={checked} onChange={e => toggle(e.target.checked)}
+                          data-testid={p.type === 'lapPanel' ? 'part-lap-panel' : p.type === 'map' ? 'part-map' : p.type === 'gmeter' ? 'part-g' : `part-${p.id}`} />
+                        {label}
+                      </label>
+                    );
+                  });
+                })()}
               </div>
               {win.showLapPanel && (
                 <div className="flex items-center gap-2 pt-1">
