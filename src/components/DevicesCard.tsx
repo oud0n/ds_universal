@@ -151,10 +151,10 @@ export const DevicesCard: React.FC = () => {
       {list.length === 0 && !adding && <div className="text-xs text-slate-500">{t('まだありません', 'None yet')}</div>}
       {list.map(d => (
         <div key={d.id} className="rounded-lg bg-surface-3/60 px-3 py-2 space-y-1.5" data-testid="device-row">
-          <div className="flex items-center gap-2 text-xs">
-            <span className="font-bold text-slate-100 truncate">{d.displayName}</span>
-            <span className="text-slate-500 truncate">{t(DEVICE_KINDS[d.kind].ja, DEVICE_KINDS[d.kind].en)}{d.transport === 'spp' ? ' (Bluetooth Classic)' : ''} · {d.bleName}</span>
-            <span className="ml-auto flex gap-1">
+          <div className="flex items-center gap-2 text-xs min-w-0">
+            <span className="font-bold text-slate-100 truncate min-w-0">{d.displayName}</span>
+            <span className="text-slate-500 truncate min-w-0">{t(DEVICE_KINDS[d.kind].ja, DEVICE_KINDS[d.kind].en)}{d.transport === 'spp' ? ' (Bluetooth Classic)' : ''} · {d.bleName}</span>
+            <span className="ml-auto flex gap-1 shrink-0 whitespace-nowrap">
               {d.transport === 'spp' && (
                 <button onClick={() => { void shareSppLog().catch(e => setError(e instanceof Error ? e.message : String(e))); }} className="px-2 py-0.5 rounded bg-surface-4 hover:bg-surface-5 border border-line-4 text-[11px]" data-testid="device-share-log">
                   {t('記録を送る', 'Send log')}
