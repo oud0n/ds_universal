@@ -537,6 +537,26 @@ export function getOpenRun(): { store: RunStore; item: RunItem } | null {
   return current ? { store: current.store, item: current.item } : null;
 }
 
+/**
+ * 走行の名前・メモを runs.json の行に書く (PLAN-32・33)。ファイルの名前は変えない (同期・控え・runs.json の鍵がファイル名で引いているため)。
+ * 空にしたら消す。開いている走行の行も、書いた中身にそろえる
+ */
+export async function setRunMeta(store: RunStore, item: RunItem, patch: { name?: string | null; note?: string | null }): Promise<RunRow> {
+  const row = await updateRun(store, item.folder, item.file, prev => {
+    const next: Partial<RunRow> = { ...prev };
+    for (const k of ['name', 'note'] as const) {
+      if (!(k in patch)) continue;
+      const v = patch[k]?.trim();
+      if (v) next[k] = v;
+      else delete next[k];
+    }
+    return next;
+  });
+  item.entry = row;
+  for (const r of [current, ...companions.values()]) if (r && runPath(r.item) === runPath(item)) r.item.entry = row;
+  return row;
+}
+
 /** 走行の周を隠す・出す (控え laptimes.json に書く。ファイルは消さない) */
 export function setRunLapHidden(store: RunStore, item: RunItem, lap: LapRecord, hide: boolean): Promise<void> {
   const run = async () => {

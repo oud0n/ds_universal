@@ -41,7 +41,7 @@ import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
 import { RecentRunsList, RunsSheet, notifyRunsChanged } from './components/RecentRuns';
 import { canUseRunStore, getRunStore } from './services/runStore';
-import { attachCompanionVideos, attachRunVideos, closeOpenRun, companionRuns, dropCompanion, flushOpenRuns, listRuns, scheduleRunSave, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
+import { attachCompanionVideos, attachRunVideos, closeOpenRun, companionRuns, dropCompanion, flushOpenRuns, listRuns, scheduleRunSave, setRunMeta, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
 import { runStem } from './services/lapIndex';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLapTimer, canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
@@ -1029,6 +1029,13 @@ export const App: React.FC = () => {
     else { await loadFiles([file]); navStore.go('analysis'); }
   };
 
+  /** そのログが、保管場所から開いた走行のものなら、その走行とログ (読み込んだ順) */
+  const runOfSession = (id: string): { item: RunItem; ids: string[] } | null => {
+    const entry = [...runSessionsRef.current.entries()].find(([, ids]) => ids.includes(id));
+    const item = entry ? runItemsRef.current.get(entry[0]) : undefined;
+    return entry && item ? { item, ids: entry[1] } : null;
+  };
+
   // 過去の走行を開く: ログを読み込み、同じフォルダの動画と同期をそろえる (runOpener.ts)
   const openRun = async (item: RunItem) => {
     // 続けて押しても 1 回だけ開く
@@ -1049,6 +1056,16 @@ export const App: React.FC = () => {
       const added = already.length ? already : await loadFileData(item.file.slice(item.file.lastIndexOf('/') + 1), buffer);
       runSessionsRef.current.set(runPath, added.map(x => x.id));
       runItemsRef.current.set(runPath, item);
+      // 覚えている走行の名前・メモ (runs.json の行。PLAN-32・33) を、開いた走行の呼び名とメモにする
+      // (分かれた走行は、2 番目から「名前 (2)」)。比べる相手・ラップの一覧にも、この名前が出る
+      const meta = item.entry;
+      if (!already.length && added.length && (meta?.name || meta?.note)) {
+        added.forEach((x, i) => {
+          if (meta.name) x.sessionName = i > 0 ? `${meta.name} (${i + 1})` : meta.name;
+          if (meta.note) x.runNote = meta.note;
+        });
+        setSessions(prev => prev.map(x => { const a = added.find(y => y.id === x.id); return a ? { ...x, sessionName: a.sessionName, runNote: a.runNote } : x; }));
+      }
       // iPhone のラップタイマーで測った走行なら、G センサーの値 (<走行>.iphone_imu.csv) を読んで G に合わせる
       if (!already.length && added.length) {
         // テキストの読み方は、パソコン版では決まったファイルしか読めないので、ファイルとして読む (無ければ失敗 → null)
@@ -2307,6 +2324,16 @@ export const App: React.FC = () => {
             }}
             onEditSessionName={(id, name) => {
               setSessions(prev => prev.map(s => (s.id === id ? { ...s, sessionName: name } : s)));
+              // 保管場所から開いた走行なら、名前を runs.json の行に書く (分かれた走行は 1 番目のログの名前だけ。PLAN-32)
+              const run = runOfSession(id);
+              if (run && run.ids[0] === id) void getRunStore().then(store => store && setRunMeta(store, run.item, { name })).catch(() => undefined);
+            }}
+            onEditSessionNote={(id, note) => {
+              // メモは走行ごと (分かれた走行のログは、どれも同じメモ)
+              const run = runOfSession(id);
+              const ids = run ? run.ids : [id];
+              setSessions(prev => prev.map(s => (ids.includes(s.id) ? { ...s, runNote: note.trim() || undefined } : s)));
+              if (run) void getRunStore().then(store => store && setRunMeta(store, run.item, { note })).catch(() => undefined);
             }}
             onSetClockOffset={setSessionClockOffset}
             onEstimateClockOffset={estimateSessionClockOffset}

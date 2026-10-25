@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { RunNoteField } from './RunNoteField';
 import { Session, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { CIRCUIT_PRESETS } from '../services/circuitDatabase';
 import {
@@ -47,6 +48,8 @@ interface DataTabProps {
   onRemoveSession: (sessionId: string) => void;
   onOpenInConvert: (sessionId: string) => void;
   onEditSessionName: (sessionId: string, newName: string) => void;
+  /** 走行のメモを変えた (PLAN-33) */
+  onEditSessionNote?: (sessionId: string, note: string) => void;
   // ログの時計の補正 (秒) を変える / 同じ時間のほかのログとの比べから見積もる (BUG-08)
   onSetClockOffset?: (sessionId: string, sec: number) => void;
   onEstimateClockOffset?: (sessionId: string) => Promise<ClockEstimateResult | string>;
@@ -224,6 +227,7 @@ export const DataTab: React.FC<DataTabProps> = ({
   onRemoveSession,
   onOpenInConvert,
   onEditSessionName,
+  onEditSessionNote,
   onSetClockOffset,
   onEstimateClockOffset,
   onSelectCircuitPreset,
@@ -558,6 +562,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                   <ClockOffsetControl session={session} onSet={onSetClockOffset} onEstimate={onEstimateClockOffset} />
                 )}
               </div>
+              {onEditSessionNote && <RunNoteField note={session.runNote} onSave={note => onEditSessionNote(session.id, note)} testId="session-note" />}
 
               {/* 変換画面へ・削除 */}
               <div className="flex items-center gap-1.5 flex-wrap">

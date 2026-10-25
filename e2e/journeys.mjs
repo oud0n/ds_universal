@@ -94,6 +94,65 @@ export const journeys = [
     }
   },
   {
+    name: '走行の名前とメモ: 走行の画面で書くと一覧に出て、runs.json に入り、開いた走行の名前になる (ファイル名は変えない)',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      const select = async () => {
+        await p.click('nav-library');
+        await p.waitFor(`document.querySelectorAll('[data-testid="run-row"]').length > 0`, 20000, '走行の一覧');
+        await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].find(r=>r.innerText.includes('9/13'))?.click()`);
+        await p.waitFor(`document.querySelector('[data-testid="run-detail-name"]')`, 5000, '名前の欄');
+      };
+      // React の欄に書く (値を入れて input を起こし、離れて書かせる)
+      const fill = (id, v) => p.ev(`(() => {
+        const el = document.querySelector('[data-testid="${id}"]');
+        const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        el.focus();
+        Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${JSON.stringify(v)});
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.blur();
+      })()`);
+      await select();
+      await fill('run-detail-name', 'e2e 新品タイヤ');
+      await sleep(800);
+      await fill('run-detail-note', 'e2e 晴れ 22℃');
+      await p.waitFor(`[...document.querySelectorAll('[data-testid="run-row-note"]')].some(e => e.innerText.includes('e2e 晴れ'))`, 8000, '一覧のメモ');
+      check(await p.ev(`[...document.querySelectorAll('[data-testid="run-row-name"]')].some(e => e.innerText === 'e2e 新品タイヤ')`), '一覧に名前が出ない');
+      const runs = JSON.parse(fs.readFileSync(path.join(root, 'sodegaura/runs.json'), 'utf8')).runs;
+      const row = Object.entries(runs).find(([k]) => k.includes('20260913'))?.[1];
+      check(row?.name === 'e2e 新品タイヤ' && row?.note === 'e2e 晴れ 22℃', `runs.json に入っていない: ${JSON.stringify({ name: row?.name, note: row?.note })}`);
+      check(fs.readdirSync(path.join(root, 'sodegaura/20260913')).some(f => f.startsWith('20260913') && f.endsWith('.nmea')), 'ログのファイル名が変わった');
+      // 開くと、その名前の走行になり、メモも出る
+      await p.click('run-open-analysis');
+      await p.waitFor(`!document.querySelector('[data-testid="run-open-analysis"]')`, 30000, '走行を開き終わる');
+      await sleep(2000);
+      const s = await p.state();
+      check(s.sessions.some(x => x.sessionName === 'e2e 新品タイヤ'), `開いた走行の名前が違う: ${s.sessions.map(x => x.sessionName).join(', ')}`);
+      // 解析の「走行とコース」のメモからも書ける
+      await p.click('nav-analysis');
+      await sleep(800);
+      if (!(await p.exists('session-note'))) await p.click('toggle-data-drawer');
+      await p.waitFor(`document.querySelector('[data-testid="session-note"]')`, 8000, '走行とコースのメモ');
+      check(await p.ev(`[...document.querySelectorAll('[data-testid="session-note"]')].some(e => e.value === 'e2e 晴れ 22℃')`), '走行とコースにメモが出ない');
+      await p.ev(`(() => { const el = [...document.querySelectorAll('[data-testid="session-note"]')].find(e => e.value === 'e2e 晴れ 22℃'); el.focus(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, 'e2e 雨'); el.dispatchEvent(new Event('input', { bubbles: true })); el.blur(); })()`);
+      await sleep(1500);
+      const row2 = Object.entries(JSON.parse(fs.readFileSync(path.join(root, 'sodegaura/runs.json'), 'utf8')).runs).find(([k]) => k.includes('20260913'))?.[1];
+      check(row2?.note === 'e2e 雨', `走行とコースのメモが runs.json に入らない: ${row2?.note}`);
+      if (await p.exists('session-note')) await p.click('toggle-data-drawer');
+      // 片付け (名前・メモを消す)
+      await select();
+      await fill('run-detail-name', '');
+      await sleep(800);
+      await fill('run-detail-note', '');
+      await p.waitFor(`![...document.querySelectorAll('[data-testid="run-row-note"]')].some(e => e.innerText.includes('e2e'))`, 8000, 'メモが消える');
+      const after = Object.entries(JSON.parse(fs.readFileSync(path.join(root, 'sodegaura/runs.json'), 'utf8')).runs).find(([k]) => k.includes('20260913'))?.[1];
+      check(after && after.name === undefined && after.note === undefined, `名前・メモが消えない: ${JSON.stringify(after)}`);
+    }
+  },
+  {
     name: '動画: 全体で動かす・周に切り替える・画面を行き来しても、動画とログが合っている',
     target: 'electron',
     async run(p) {

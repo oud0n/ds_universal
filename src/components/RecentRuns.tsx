@@ -67,8 +67,12 @@ export const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 text-xs">
           <span className="font-mono text-slate-200 shrink-0">{fmtDate(run.startMs, ja)}</span>
+          {/* 名前を付けた走行は名前を先に (PLAN-32) */}
+          {run.entry?.name && <span className="text-slate-100 font-bold truncate min-w-0" data-testid="run-row-name">{run.entry.name}</span>}
           <span className="text-slate-400 truncate">{run.courseName != null ? circuitLabel(run.courseName) : (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</span>
         </div>
+        {/* メモの頭 (PLAN-33) */}
+        {run.entry?.note && <div className="mt-0.5 text-[11px] text-slate-500 truncate" data-testid="run-row-note">{run.entry.note.replace(/\s+/g, ' ')}</div>}
         <div className="flex items-center gap-3 mt-1 text-xs">
           {!run.pending && run.courseName === null ? (
             // 知らない場所の走行は、ここでは周を数えない (開くと計測線を自動で置いて数える。BUG-35 の (2))

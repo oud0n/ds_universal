@@ -8,7 +8,8 @@ import { RunRow, fmtDate, useRuns } from '../components/RecentRuns';
 import { LapHistoryPanel } from '../components/LapHistoryPanel';
 import { runStem } from '../services/lapIndex';
 import { useStorageLabel } from '../components/StorageSettings';
-import { baseName, setRunLapHidden, type RunItem } from '../services/runOpener';
+import { baseName, setRunLapHidden, setRunMeta, type RunItem } from '../services/runOpener';
+import { RunNoteField } from '../components/RunNoteField';
 import { navStore } from '../app/navStore';
 
 /** 一度に出す行の数 (数千件あっても固まらないよう、続きは「さらに表示」で足す) */
@@ -225,6 +226,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
         && !sameCourseName(selected.courseName, car1Course)}
       isCar1={car1Run === `${selected.folder}/${selected.file}`}
       onToggleLap={async (lap, hide) => { await setRunLapHidden(store, selected, lap, hide); reload(); }}
+      onSaveMeta={async patch => { await setRunMeta(store, selected, patch).catch(() => undefined); reload(); }}
       onClose={wide ? undefined : () => setSelectedKey(null)}
     />
   );
@@ -255,6 +257,28 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
 };
 
 /** 走行の詳細 (周の一覧・動画・解析で開く・動画を見る) */
+/** 走行の名前 (PLAN-32)。ファイルの名前は変えず、runs.json の行に書く。離れたとき・Enter で書く */
+const RunNameInput: React.FC<{ name: string; onSave: (name: string) => void }> = ({ name, onSave }) => {
+  const t = useT();
+  const [draft, setDraft] = useState(name);
+  const save = () => { if (draft.trim() !== name.trim()) onSave(draft); };
+  return (
+    <input
+      value={draft}
+      onChange={e => setDraft(e.target.value.slice(0, 60))}
+      onBlur={save}
+      onKeyDown={e => {
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+      }}
+      placeholder={t('名前を付ける (例: 新品タイヤ・雨)', 'Name this run (e.g. new tyres, wet)')}
+      aria-label={t('走行の名前', 'Run name')}
+      data-testid="run-detail-name"
+      className="mt-1 w-full bg-transparent border-b border-line-3 focus:border-sky-500 text-sm text-slate-100 placeholder:text-slate-500 outline-none py-0.5"
+    />
+  );
+};
+
 const RunDetail: React.FC<{
   run: RunItem;
   busy: boolean;
@@ -268,7 +292,9 @@ const RunDetail: React.FC<{
   onToggleLap: (lap: RunItem['laps'][number], hide: boolean) => Promise<void>;
   /** 狭い画面のシートを閉じる (広い画面では右の欄なので無い) */
   onClose?: () => void;
-}> = ({ run, busy, onOpen, onOpenVideo, onAddAsCar2, otherCourse = false, isCar1 = false, onToggleLap, onClose }) => {
+  /** 走行の名前・メモを書く (PLAN-32・33) */
+  onSaveMeta?: (patch: { name?: string; note?: string }) => Promise<void>;
+}> = ({ run, busy, onOpen, onOpenVideo, onAddAsCar2, otherCourse = false, isCar1 = false, onToggleLap, onClose, onSaveMeta }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const [order, setOrder] = useState<'run' | 'time'>('run');
@@ -287,6 +313,7 @@ const RunDetail: React.FC<{
       <div className="px-4 py-3 border-b border-line-2 flex items-start gap-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div className="flex-1 min-w-0">
           <div className="text-sm font-bold text-slate-100">{fmtDate(run.startMs, ja)} {run.courseName != null ? circuitLabel(run.courseName) : (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</div>
+          {onSaveMeta && <RunNameInput key={`${run.folder}/${run.file}`} name={run.entry?.name ?? ''} onSave={name => void onSaveMeta({ name })} />}
           <div className="text-xs text-slate-400 mt-0.5">
             {run.pending
               ? t('☁️ iCloud にだけあるので、開くと周を数えます', '☁️ Only in iCloud; laps are counted when opened')
@@ -301,6 +328,7 @@ const RunDetail: React.FC<{
         )}
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-4">
+        {onSaveMeta && <RunNoteField key={`${run.folder}/${run.file}`} note={run.entry?.note} onSave={note => void onSaveMeta({ note })} testId="run-detail-note" />}
         {run.laps.length > 0 && (
           <section>
             <div className="flex items-center gap-2 mb-2">

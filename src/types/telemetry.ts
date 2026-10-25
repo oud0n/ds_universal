@@ -96,6 +96,8 @@ export interface Session {
   id: string;
   fileName: string;
   sessionName: string;
+  /** 走行の条件のメモ (保管場所の runs.json の行の note。PLAN-33) */
+  runNote?: string;
   driverName?: string;
   vehicleName?: string;
   date: string;
