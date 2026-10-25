@@ -168,6 +168,19 @@ export const BUILTIN_LAYOUTS: OverlayLayout[] = [
   }
 ];
 
+/** 走行比較の小さな枠の並び (速度・G・小さなラップタイムだけ。前からの形) */
+export const COMPARE_LAYOUT: OverlayLayout = {
+  version: 1, id: 'builtin:compare', name: ['走行比較', 'Compare'], builtin: true,
+  parts: [
+    { id: 'speed', type: 'speed', x: 0.02, y: 0.83, w: 0.165, h: 0.13 },
+    { id: 'clock', type: 'lapClock', x: 0.82, y: 0.035, w: 0.16, h: 0.08 },
+    { id: 'g', type: 'gmeter', x: 0.85, y: 0.775, w: 0.13, h: 0.18 }
+  ]
+};
+
+/** 出さないことにした部品の印 (並びごと。ほかの並びの同じ印の部品は出したまま) */
+export const hiddenKey = (layoutId: string, partId: string) => `${layoutId}#${partId}`;
+
 /** テンプレートを選ぶ値の「自動」: アクセルのあるログはデータ多め、無ければ標準 */
 export const AUTO_LAYOUT = 'auto';
 
@@ -183,12 +196,13 @@ export function resolveLayout(id: string, session: Session | undefined | null, c
 /** 並びの中で、出す部品 (出さないことにした部品と、値の無い部品を除く) */
 export function visibleParts(layout: OverlayLayout, session: Session | undefined | null, hidden: ReadonlySet<string>): OverlayPart[] {
   const ch = availableChannels(session);
-  return layout.parts.filter(p => !hidden.has(p.id) && partChannels(p).every(c => ch.has(c)));
+  return layout.parts.filter(p => !hidden.has(hiddenKey(layout.id, p.id)) && partChannels(p).every(c => ch.has(c)));
 }
 
 const num = (v: unknown, lo: number, hi: number): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi ? v : null);
 const TYPES = new Set<OverlayPartType>(['speed', 'gmeter', 'lapPanel', 'lapClock', 'map', 'zoomMap', 'bar', 'steering', 'graph', 'value', 'delta']);
-const isChannel = (v: unknown): v is ChannelId => typeof v === 'string' && v in CHANNELS;
+// 'toString' などの Object の名前を値として通さない
+const isChannel = (v: unknown): v is ChannelId => typeof v === 'string' && Object.prototype.hasOwnProperty.call(CHANNELS, v);
 
 /** 並びのファイル (overlays/<名前>.overlay.json) を読む。おかしな部品は落とす。部品が 1 つも無ければ null */
 export function parseOverlayLayout(text: string | null, fallbackId: string): OverlayLayout | null {

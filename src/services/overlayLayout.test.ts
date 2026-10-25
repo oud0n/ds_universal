@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AUTO_LAYOUT, BUILTIN_LAYOUTS, availableChannels, parseOverlayLayout, resolveLayout, visibleParts } from './overlayLayout';
+import { AUTO_LAYOUT, BUILTIN_LAYOUTS, availableChannels, hiddenKey, parseOverlayLayout, resolveLayout, visibleParts } from './overlayLayout';
 import type { Session } from '../types/telemetry';
 
 const sess = (extra: Record<string, number> = {}) => ({
@@ -20,7 +20,7 @@ describe('メーターの並び (PLAN-08)', () => {
     const data = BUILTIN_LAYOUTS.find(l => l.id === 'builtin:data')!;
     const s = sess({ throttle: 50 });
     expect(availableChannels(s).has('brake')).toBe(false);
-    const ids = visibleParts(data, s, new Set(['map'])).map(p => p.id);
+    const ids = visibleParts(data, s, new Set([hiddenKey(data.id, 'map')])).map(p => p.id);
     expect(ids).toContain('throttle');
     expect(ids).not.toContain('brake');
     expect(ids).not.toContain('steer');
@@ -44,5 +44,12 @@ describe('メーターの並び (PLAN-08)', () => {
     expect(l?.parts[2]).toMatchObject({ channels: ['speed'], window: 5 });
     expect(parseOverlayLayout('{"version":2,"parts":[]}', 'x')).toBeNull();
     expect(parseOverlayLayout('{', 'x')).toBeNull();
+  });
+});
+
+describe('メーターの並びのレビューの指摘', () => {
+  it("'toString' などは値として通さない", () => {
+    const l = parseOverlayLayout(JSON.stringify({ version: 1, parts: [{ type: 'bar', channel: 'toString', x: 0, y: 0, w: 0.1, h: 0.1 }, { type: 'speed', x: 0, y: 0, w: 0.1, h: 0.1 }] }), 'x');
+    expect(l?.parts.map(p => p.type)).toEqual(['speed']);
   });
 });

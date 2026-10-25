@@ -21,6 +21,16 @@ export interface OverlayFrameInput {
   reference: { lap: Lap; label: string } | null;
   /** よける四角 (PinP の小窓。px) */
   avoid?: { x: number; y: number; w: number; h: number } | null;
+  /** 航空写真のタイルが読めたときに呼ぶ (止めている画面でも描き直すため) */
+  onTileLoad?: () => void;
+}
+
+/** 比べる周の線 (経度・緯度の列)。周ごとに 1 回だけ作る */
+const lapLineCache = new WeakMap<Lap, Array<[number, number]>>();
+function lapLine(lap: Lap): Array<[number, number]> {
+  let l = lapLineCache.get(lap);
+  if (!l) { l = lap.points.map(p => [p.longitude, p.latitude] as [number, number]); lapLineCache.set(lap, l); }
+  return l;
 }
 
 const PLATE = 'rgba(15, 20, 30, 0.85)';
@@ -406,6 +416,7 @@ function drawGraph(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: nu
 }
 
 const M_PER_DEG = 111320;
+const noop = () => {};
 /** コースの道幅の目安 (m。コースの形の線を、この太さの道として描く) */
 const TRACK_WIDTH_M = 11;
 /** 走った線を明るく描く、今から前の秒 */
@@ -422,8 +433,8 @@ function lateralOffset(lines: Array<Array<[number, number]>>, lat0: number, lon0
     for (let i = 1; i < line.length; i++) {
       const ax = (line[i - 1][0] - lon0) * cosLat * M_PER_DEG, ay = (line[i - 1][1] - lat0) * M_PER_DEG;
       const bx = (line[i][0] - lon0) * cosLat * M_PER_DEG, by = (line[i][1] - lat0) * M_PER_DEG;
-      // 遠い線は見ない (60 m より遠い線分)
-      if (Math.min(Math.abs(ax), Math.abs(bx)) > 60 || Math.min(Math.abs(ay), Math.abs(by)) > 60) continue;
+      // 遠い線は見ない (線分を囲む四角が 60 m より遠いもの。端の点が離れた長い線分 (直線) も見落とさないように)
+      if (Math.max(ax, bx) < -60 || Math.min(ax, bx) > 60 || Math.max(ay, by) < -60 || Math.min(ay, by) > 60) continue;
       const sx = bx - ax, sy = by - ay;
       const len2 = sx * sx + sy * sy;
       if (len2 < 1e-6) continue;
@@ -469,7 +480,7 @@ function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: 
     const tiles = tilesForView('photo', { north: lat0 + dLat, south: lat0 - dLat, west: lon0 - dLon, east: lon0 + dLon }, mpp);
     ctx.globalAlpha = 0.85;
     for (const tile of tiles) {
-      const img = getTileImage(tile, () => {});
+      const img = getTileImage(tile, input.onTileLoad ?? noop);
       if (!img) continue;
       const [x1, y1] = toLocal(tile.north, tile.west);
       const [x2, y2] = toLocal(tile.south, tile.east);
@@ -487,14 +498,13 @@ function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: 
   };
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
+  // 写真の有る無しで描き方を変えない (書き出しの途中で写真が読めたとき、ちらつかないように)。写真があれば道は写真の路面
   for (const line of lines) {
     if (line.length < 2) continue;
-    if (!drewPhoto) {
-      ctx.strokeStyle = 'rgba(100, 116, 139, 0.55)';
-      ctx.lineWidth = TRACK_WIDTH_M / mpp;
-      strokeLine(line);
-    }
-    ctx.strokeStyle = drewPhoto ? 'rgba(255, 255, 255, 0.35)' : 'rgba(148, 163, 184, 0.6)';
+    ctx.strokeStyle = drewPhoto ? 'rgba(100, 116, 139, 0.18)' : 'rgba(100, 116, 139, 0.55)';
+    ctx.lineWidth = TRACK_WIDTH_M / mpp;
+    strokeLine(line);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
     ctx.setLineDash([4, 4]);
     ctx.lineWidth = 1;
     strokeLine(line);
@@ -553,7 +563,7 @@ function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: 
   // 5. 左右の距離: コースの真ん中から (C) と、比べる周の線から (REF)。右が R
   const center = lines.length ? lateralOffset(lines, lat0, lon0, cosLat, heading) : null;
   const fromRef = ref && ref !== lap && ref.points.length > 1
-    ? lateralOffset([ref.points.map(p => [p.longitude, p.latitude] as [number, number])], lat0, lon0, cosLat, heading)
+    ? lateralOffset([lapLine(ref)], lat0, lon0, cosLat, heading)
     : null;
   const fmt = (v: number) => `${v >= 0 ? 'R' : 'L'}${Math.abs(v).toFixed(1)}m`;
   const texts = [center !== null ? `C ${fmt(center)}` : null, fromRef !== null ? `REF ${fmt(fromRef)}` : null].filter(Boolean) as string[];

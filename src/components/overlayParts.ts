@@ -21,6 +21,8 @@ export interface OverlayPartsOptions {
   layout?: OverlayLayout;
   /** 並びの中で出さない部品の印 */
   hidden?: readonly string[];
+  /** 航空写真のタイルが読めたとき (止めている画面を描き直す) */
+  onTileLoad?: () => void;
 }
 
 /** 周を終えたあと、その周のタイムと差を止めて出しておく秒 (9 の案) */
