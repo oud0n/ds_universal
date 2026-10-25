@@ -243,10 +243,6 @@ export interface NativeMethods {
    * .nmea・.bon4・センサーの .csv)。paths: そのファイル (取り込み終えたとき)。open は、まだ書いている最中のファイルの数
    */
   'system.closeFiles': { params: { all?: boolean; prefix?: string; paths?: string[] }; result: { open: number } };
-  /** LapTimer/ の下のファイルの一覧 (ラップタイムの一覧のため。exports/ は除く。2026-10-20 に足した) */
-  'system.listLapFiles': { params: Record<string, never>; result: { files: Array<{ path: string; size: number; mtimeMs: number }> } };
-  /** LapTimer/ の下のファイルを読む (base64) */
-  'system.readLapFile': { params: { path: string }; result: { b64: string } };
   /** 走行の置き場 (選んだフォルダ、なければ LapTimer/) と、動画を読む URL の頭 (lapfile://run/。2026-10-20) */
   'system.runRoot': { params: Record<string, never>; result: { urlBase: string; kind: 'folder' | 'local'; name: string } };
   /** 走行の置き場のファイルの一覧。local: false は iCloud にだけあるファイル */

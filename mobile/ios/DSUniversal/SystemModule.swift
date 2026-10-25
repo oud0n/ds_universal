@@ -142,16 +142,6 @@ final class SystemModule {
             openFiles.subtract(closing)
             closedFiles.formUnion(closing)
             done(.success(["open": openFiles.count]))
-        case "system.listLapFiles":
-            // ラップタイムの一覧のため、LapTimer/ の下のファイル (大きさと更新日時)
-            let fm = FileManager.default
-            let files: [[String: Any]] = Self.lapTimerFiles().map { file, rel in
-                let attrs = (try? fm.attributesOfItem(atPath: file.path)) ?? [:]
-                let size = (attrs[.size] as? Int) ?? 0
-                let mtime = ((attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0) * 1000
-                return ["path": rel, "size": size, "mtimeMs": mtime.rounded()]
-            }
-            done(.success(["files": files]))
         // 走行の置き場 (選んだフォルダ、なければ LapTimer/) のファイル (RunFiles.swift。2026-10-20)
         case "system.runRoot":
             let (root, scoped) = RunFiles.root()
@@ -208,20 +198,6 @@ final class SystemModule {
             guard let rel = params["path"] as? String else { return done(.failure(NativeError(.notFound, "no path"))) }
             do { try RunFiles.startDownload(rel); done(.success([:])) }
             catch { done(.failure(NativeError(.io, error.localizedDescription))) }
-        case "system.readLapFile":
-            // 読めるのは走行のログと控えだけ。大きいファイル (動画など) は読まない (base64 で Web に渡すとメモリが足りなくなるため)
-            let allowed = ["bon4", "nmea", "json"]
-            guard let rel = params["path"] as? String, let url = lapTimerURL(rel),
-                  allowed.contains(url.pathExtension.lowercased()) else {
-                done(.failure(NativeError(.notFound, "no file")))
-                return
-            }
-            let size = ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int) ?? 0
-            guard size <= 64 * 1024 * 1024, let data = try? Data(contentsOf: url) else {
-                done(.failure(NativeError(size > 64 * 1024 * 1024 ? .io : .notFound, size > 64 * 1024 * 1024 ? "file too large" : "no file")))
-                return
-            }
-            done(.success(["b64": data.base64EncodedString()]))
         default:
             done(.failure(NativeError(.notSupported, "unknown method \(method)")))
         }

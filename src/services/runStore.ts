@@ -56,15 +56,15 @@ export function lapFileUrl(path: string): string {
   return runUrlBase + path.split('/').map(encodeURIComponent).join('/');
 }
 
-/** アプリが lapfile:// を持っているか (system.runRoot に答えるか)。1 回だけ聞く */
+/**
+ * 動画の URL の頭をアプリに聞く (1 回だけ)。
+ * アプリには Web を入れて配っているので、Web とアプリの窓口はいつもそろっている (古いアプリ向けの別の道は 2026-10-25 に外した。PLAN-29)
+ */
 let nativeVideos: Promise<boolean> | null = null;
 const nativeSupportsVideos = () => (nativeVideos ??= callNative('system.runRoot', {}).then(r => {
   if (r.urlBase && /^(lapfile|https):\/\//.test(r.urlBase)) runUrlBase = r.urlBase.endsWith('/') ? r.urlBase : `${r.urlBase}/`;
   return true;
-}, e => !isOldApp(e)));
-
-/** 古いアプリ (走行の置き場の窓口がない) か */
-const isOldApp = (e: unknown) => e instanceof NativeError && e.code === 'not-supported';
+}, () => false));
 
 /** iPhone のアプリ。選んだフォルダがあればそこ、なければ書類の LapTimer/ */
 export function nativeRunStore(): RunStore | null {
@@ -74,25 +74,12 @@ export function nativeRunStore(): RunStore | null {
   let synced: Promise<unknown> | null = null;
   // 走っている間に書いた走行を、選んだフォルダへ写してから見る (写すのは 1 回だけ待つ)
   const sync = () => (synced ??= callNative('system.syncLapFiles', {}).catch(() => undefined));
-  const readBytes = async (path: string): Promise<Uint8Array> => {
-    try {
-      return fromBase64((await callNative('system.readRunFile', { path })).b64);
-    } catch (e) {
-      if (!isOldApp(e)) throw e;
-      return fromBase64((await callNative('system.readLapFile', { path })).b64);
-    }
-  };
+  const readBytes = async (path: string): Promise<Uint8Array> => fromBase64((await callNative('system.readRunFile', { path })).b64);
   const store: RunStore = {
     supportsVideos: nativeSupportsVideos,
     async listAll() {
       await sync();
-      try {
-        return (await callNative('system.listRunFiles', {})).files;
-      } catch (e) {
-        if (!isOldApp(e)) throw e;
-        const files: LapFileInfo[] = (await callNative('system.listLapFiles', {})).files;
-        return files.map(f => ({ ...f, local: true }));
-      }
+      return (await callNative('system.listRunFiles', {})).files;
     },
     // iCloud にだけあるファイルも local: false で渡す (周の控えは、それを落とさずに前の控えを残す。lapIndex.ts の reconcileFolder)
     list: () => store.listAll(),
@@ -113,12 +100,7 @@ export function nativeRunStore(): RunStore | null {
       }
     },
     async writeText(path, text) {
-      try {
-        await callNative('system.writeRunFile', { path, b64: toBase64(encoder.encode(text)) });
-      } catch (e) {
-        if (!isOldApp(e)) throw e;
-        await callNative('system.appendFile', { path, b64: toBase64(encoder.encode(text)), truncate: true });
-      }
+      await callNative('system.writeRunFile', { path, b64: toBase64(encoder.encode(text)) });
     },
     videoUrl: lapFileUrl,
     rangeReader: path => async (start, end) => {

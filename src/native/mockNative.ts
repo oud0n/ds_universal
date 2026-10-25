@@ -406,20 +406,25 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         for (const p of [...openFiles]) if ((prefix && p.startsWith(prefix)) || paths?.includes(p)) openFiles.delete(p);
         return { open: openFiles.size };
       }
-      // 選んだフォルダへ移したものも、同じ置き場にあるものとして見せる (このふりの窓口は、走行の置き場の窓口を持たないため)
       case 'system.deleteRunFiles': {
         const { paths } = req.params as { paths: string[] };
         const deleted: string[] = [];
         for (const p of paths) { lapTimerFiles.delete(p); syncedFiles.delete(p); deleted.push(p); }
         return { deleted, failed: [] };
       }
-      case 'system.listLapFiles':
-        return { files: [...visibleFiles().entries()].filter(([p]) => !p.startsWith('exports/')).map(([path, b64]) => ({ path, size: b64.length, mtimeMs: 0 })) };
-      case 'system.readLapFile': {
+      case 'system.listRunFiles':
+        return { files: [...visibleFiles().entries()].filter(([p]) => !p.startsWith('exports/')).map(([path, b64]) => ({ path, size: b64.length, mtimeMs: 0, local: true })) };
+      case 'system.readRunFile': {
         const { path } = req.params as { path: string };
         const files = visibleFiles();
         if (!files.has(path)) throw { code: 'not-found', message: 'no file' };
         return { b64: files.get(path)! };
+      }
+      case 'system.writeRunFile': {
+        // 走行の置き場 (選んだフォルダがあればそこ) に書く
+        const { path, b64 } = req.params as { path: string; b64: string };
+        (storage.kind === 'folder' ? syncedFiles : lapTimerFiles).set(path, b64);
+        return {};
       }
       case 'system.shareFile':
         shared.push({ fileName: (req.params as { path: string }).path });

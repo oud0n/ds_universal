@@ -591,7 +591,7 @@ export const journeys = [
       await p.click('lap-timer-start-stop');
       await p.click('lap-timer-stop-yes');
       await sleep(1000);
-      const files = await p.ev(`import('/src/native/bridge.ts').then(m => m.callNative('system.listLapFiles', {})).then(r => r.files.map(f => f.path).filter(x => x.endsWith('.mov')))`);
+      const files = await p.ev(`import('/src/native/bridge.ts').then(m => m.callNative('system.listRunFiles', {})).then(r => r.files.map(f => f.path).filter(x => x.endsWith('.mov')))`);
       check(files.some(f => f.endsWith('_front.mov')) && files.some(f => !f.endsWith('_front.mov')), `動画が揃わない: ${JSON.stringify(files)}`);
       await p.ev(`localStorage.removeItem('ds_timer_camera')`);
     }
