@@ -19,15 +19,20 @@ export interface CameraSettings {
   /** null は自動 */
   iso: number | null;
   preview: boolean;
+  /** 前のカメラ (自分側) も同時に撮る (前と後ろを同時に撮れる端末だけ。後ろのカメラは lensId のもの) */
+  front: { enabled: boolean; preset: CameraPreset; iso: number | null };
 }
 
 const KEY = 'ds_timer_camera';
-export const DEFAULT_CAMERA: CameraSettings = { enabled: false, lensId: null, preset: '1080p30', audio: true, iso: null, preview: true };
+export const DEFAULT_CAMERA: CameraSettings = {
+  enabled: false, lensId: null, preset: '1080p30', audio: true, iso: null, preview: true,
+  front: { enabled: false, preset: '1080p30', iso: null }
+};
 
 export function loadCameraSettings(): CameraSettings {
   try {
     const v = JSON.parse(localStorage.getItem(KEY) ?? 'null');
-    return v && typeof v === 'object' ? { ...DEFAULT_CAMERA, ...v } : DEFAULT_CAMERA;
+    return v && typeof v === 'object' ? { ...DEFAULT_CAMERA, ...v, front: { ...DEFAULT_CAMERA.front, ...(v.front ?? {}) } } : DEFAULT_CAMERA;
   } catch {
     return DEFAULT_CAMERA;
   }
@@ -43,8 +48,30 @@ export async function cameraAvailable(): Promise<boolean> {
   try { return !!(await nativeCapabilities())?.features.camera; } catch { return false; }
 }
 
-export async function listLenses(): Promise<CameraLens[]> {
-  try { return (await callNative('camera.lenses', {})).lenses; } catch { return []; }
+export async function listLenses(): Promise<{ lenses: CameraLens[]; multiCam: boolean }> {
+  try {
+    const r = await callNative('camera.lenses', {});
+    return { lenses: r.lenses, multiCam: !!r.multiCam };
+  } catch { return { lenses: [], multiCam: false }; }
+}
+
+/**
+ * 前も同時に撮るときの、後ろ・前のレンズと画質 (同時に撮れなければ null)。
+ * 後ろのレンズは選んだもの (前を選んでいたら広角)、画質は同時に撮れるもの
+ */
+export function dualPlan(s: CameraSettings, lenses: CameraLens[], multiCam: boolean): { back: CameraLens; front: CameraLens; backPresets: CameraPreset[]; frontPresets: CameraPreset[] } | null {
+  if (!multiCam) return null;
+  const front = lenses.find(l => l.position === 'front');
+  const backs = lenses.filter(l => l.position === 'back' && (l.multiCamPresets?.length ?? 0) > 0);
+  const back = backs.find(l => l.id === s.lensId) ?? backs.find(l => l.kind === 'wide') ?? backs[0];
+  if (!front || !back || !front.multiCamPresets?.length) return null;
+  return { back, front, backPresets: back.multiCamPresets!, frontPresets: front.multiCamPresets };
+}
+
+/** 撮るときに渡す前のカメラの設定 (前を撮らない・同時に撮れないときは null)。画質は同時に撮れるものに直す */
+export function frontParams(s: CameraSettings, plan: ReturnType<typeof dualPlan>): { preset: CameraPreset; iso: number | null } | null {
+  if (!s.front.enabled || !plan) return null;
+  return { preset: plan.frontPresets.includes(s.front.preset) ? s.front.preset : plan.frontPresets[0], iso: s.front.iso };
 }
 
 /** ISO の選べる値 (レンズの範囲の中) */
@@ -85,7 +112,13 @@ export class PhoneCameraRecorder {
       if (p.camera !== 'granted') { this.set({ error: 'permission' }); return; }
       this.active = true;
       this.gpsMinusWall = null;
-      await callNative('camera.start', { lensId: s.lensId, preset: s.preset, audio: s.audio && p.mic === 'granted', iso: s.iso, preview: s.preview });
+      // 前も同時に撮るときは、後ろのレンズ・画質も同時に撮れるものにする
+      const { lenses, multiCam } = s.front.enabled ? await listLenses() : { lenses: [], multiCam: false };
+      const plan = s.front.enabled ? dualPlan(s, lenses, multiCam) : null;
+      const front = frontParams(s, plan);
+      const lensId = front && plan ? plan.back.id : s.lensId;
+      const preset = front && plan && !plan.backPresets.includes(s.preset) ? plan.backPresets[0] : s.preset;
+      await callNative('camera.start', { lensId, preset, audio: s.audio && p.mic === 'granted', iso: s.iso, preview: s.preview, front });
       this.set({ recording: true, error: null });
     } catch (e) {
       this.active = false;
@@ -114,7 +147,8 @@ export class PhoneCameraRecorder {
     }
     let files: CameraFile[] = [];
     try {
-      files = (await callNative('camera.stop', { path: `${base}.mov` })).files;
+      const r = await callNative('camera.stop', { path: `${base}.mov`, frontPath: `${base}_front.mov` });
+      files = [...r.files, ...(r.frontFiles ?? []).map(f => ({ ...f, front: true }))];
     } catch (e) {
       this.set({ recording: false, error: e instanceof Error ? e.message : String(e) });
       return;
@@ -126,7 +160,7 @@ export class PhoneCameraRecorder {
 }
 
 /** 走行の行 (runs.json) に、撮った動画を GPS の時刻で書く */
-async function writeRunVideos(fileBase: string, files: CameraFile[], gpsMinusWall: number | null): Promise<void> {
+async function writeRunVideos(fileBase: string, files: Array<CameraFile & { front?: boolean }>, gpsMinusWall: number | null): Promise<void> {
   const store = await getRunStore();
   if (!store) return;
   const i = fileBase.indexOf('/');
@@ -140,6 +174,8 @@ async function writeRunVideos(fileBase: string, files: CameraFile[], gpsMinusWal
       durationSec: f.durationSec,
       recordedAt: new Date(utcMs).toISOString(),
       part: 1,
+      // 前のカメラ (自分側) の動画
+      ...(f.front ? { camera: 'front' } : {}),
       // 測位が届かなかった (GPS の時計が分からない) ときは、端末の時計での撮影日時の扱い
       clock: { source: gpsMinusWall === null ? 'creation' : 'gps', logPart: null, offsetSec: 0, utcMs }
     };

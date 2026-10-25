@@ -4,6 +4,8 @@ import UIKit
 /// 内蔵カメラでの録画 (ラップタイマーの測定開始で撮り始め、終了で止める。2026-10-25。設計は docs/iphone_app_design.md の 6)。
 ///
 /// - レンズは、その端末にあるもの (超広角・広角・望遠・前) から選ぶ。画質は 1080p30 / 1080p60 / 4K30 / 4K60 (レンズが対応するもの)
+/// - 後ろのカメラと一緒に、前のカメラ (自分側) も同時に撮れる (AVCaptureMultiCamSession。対応する端末だけ)。
+///   そのときの画質は、両方とも同時に撮れる形式 (多くは 1080p まで) から選ぶ。ISO はカメラごとに決める
 /// - 向きは、撮り始めたときの画面の向き (ラップタイマーの向き) に合わせ、撮っている間は変えない
 /// - ISO を決めたときは、シャッターの速さを自動で動かして明るさを保つ (ISO 優先)。決めないときはすべて自動
 /// - 撮っている間は一時ファイルに書き、止めたら Web が渡した LapTimer/ の下の場所 (.nmea と同じ所) へ移す
@@ -11,28 +13,52 @@ import UIKit
 /// - 熱くなりすぎたら (thermalState が critical) 録画を止めて、ログの記録は続ける
 @MainActor
 final class CameraModule: NSObject {
+    /// 1 つのカメラ (後ろ = main、前 = front) の録画と映像の枠
+    final class Channel {
+        let name: String
+        var output = AVCaptureMovieFileOutput()
+        var device: AVCaptureDevice?
+        var active = false
+        var segments: [(url: URL, startWallMs: Double)] = []
+        var currentStartWallMs: Double?
+        var isoTarget: Float?
+        var frameSec: Double = 1.0 / 30
+        var angle: CGFloat = 90
+        var liveView: UIView?
+        var liveLayer: AVCaptureVideoPreviewLayer?
+        init(name: String) { self.name = name }
+    }
+
+    /// カメラ用の列へ渡すためのもの (AVFoundation の物は Sendable でないものがあるが、カメラ用の列で 1 つずつ触るので安全)
+    struct Box<T>: @unchecked Sendable { let value: T }
+
+    /// カメラの組み立ての中身 (1 つのカメラ分)
+    struct Spec: @unchecked Sendable {
+        let device: AVCaptureDevice
+        let output: AVCaptureMovieFileOutput
+        let preset: String
+        let fps: Double
+        let angle: CGFloat
+        let layers: [AVCaptureVideoPreviewLayer]
+    }
+
     private unowned let core: NativeCore
     private let queue = DispatchQueue(label: "laploupe.camera")
-    private let session = AVCaptureSession()
-    private let output = AVCaptureMovieFileOutput()
-    private var device: AVCaptureDevice?
-    /// 撮り終えたファイル (止まるたびに足す) と、撮り始めた時刻 (端末の時計、UTC ミリ秒)
-    private var segments: [(url: URL, startWallMs: Double)] = []
-    private var currentStartWallMs: Double?
+    private var session: AVCaptureSession = AVCaptureSession()
+    private let main = Channel(name: "main")
+    private let front = Channel(name: "front")
+    private var channels: [Channel] { [main, front] }
+    private var isMulti: Bool { session is AVCaptureMultiCamSession }
     private var stopWaiters: [() -> Void] = []
     private var recording = false
     private var wantRecording = false
-    private var isoTarget: Float?
     private var isoTimer: Timer?
     private var previewView: UIView?
     private var thermalObserver: NSObjectProtocol?
     private var interruptObservers: [NSObjectProtocol] = []
     /// 撮る前の確かめ (設定の画面の枠に、今の映像を出す)
-    private var liveView: UIView?
-    private var liveLayer: AVCaptureVideoPreviewLayer?
     private var liveConfig: String?
     private var exposureTimer: Timer?
-    private var frameSec: Double = 1.0 / 30
     /** 確かめの映像の頼みの番号 (続けて頼まれたら、古い頼みの結果は使わない) */
     private var liveGen = 0
 
@@ -46,15 +72,15 @@ final class CameraModule: NSObject {
         case "camera.permission":
             permission(request: params["request"] as? Bool ?? false, audio: params["audio"] as? Bool ?? false, done: done)
         case "camera.lenses":
-            done(.success(["lenses": Self.lenses().map(\.json)]))
+            done(.success(["lenses": Self.lenses().map(\.json), "multiCam": AVCaptureMultiCamSession.isMultiCamSupported]))
         case "camera.start":
             start(params: params, done: done)
         case "camera.stop":
-            stop(path: params["path"] as? String, done: done)
+            stop(path: params["path"] as? String, frontPath: params["frontPath"] as? String, done: done)
         case "camera.preview":
             livePreview(params: params, done: done)
         case "camera.setIso":
-            applyIso((params["iso"] as? Double).map { Float($0) })
+            applyIso((params["which"] as? String) == "front" ? front : main, (params["iso"] as? Double).map { Float($0) })
             done(.success([:]))
         default:
             done(.failure(NativeError(.notSupported, "unknown method \(method)")))
@@ -95,12 +121,14 @@ final class CameraModule: NSObject {
         let kind: String
         let zoom: Double
         let presets: [String]
+        /// 前と後ろを同時に撮るときの画質 (同時に撮れない組み合わせなら空)
+        let multiPresets: [String]
 
         var json: [String: Any] {
             [
                 "id": id, "position": position, "kind": kind, "zoom": zoom,
                 "isoMin": Double(device.activeFormat.minISO), "isoMax": Double(device.activeFormat.maxISO),
-                "presets": presets
+                "presets": presets, "multiCamPresets": multiPresets
             ]
         }
     }
@@ -109,19 +137,20 @@ final class CameraModule: NSObject {
         "1080p30": (1920, 1080, 30), "1080p60": (1920, 1080, 60), "2160p30": (3840, 2160, 30), "2160p60": (3840, 2160, 60)
     ]
 
-    /// その画質で撮れる形式 (HDR でないもの・ビニングしたものを先に)
-    nonisolated static func format(for device: AVCaptureDevice, preset: String) -> AVCaptureDevice.Format? {
+    /// その画質で撮れる形式 (HDR でないもの・ビニングしたものを先に)。multi なら、前と後ろを同時に撮れる形式だけ
+    nonisolated static func format(for device: AVCaptureDevice, preset: String, multi: Bool = false) -> AVCaptureDevice.Format? {
         guard let spec = presetSpecs[preset] else { return nil }
         let ok = device.formats.filter { f in
             let d = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
-            return d.width == spec.w && d.height == spec.h && f.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= spec.fps - 0.01 }
+            return d.width == spec.w && d.height == spec.h && (!multi || f.isMultiCamSupported)
+                && f.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= spec.fps - 0.01 }
         }
         return ok.first { !$0.isVideoHDRSupported } ?? ok.first
     }
 
     static func lenses() -> [Lens] {
         let back = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInUltraWideCamera, .builtInWideAngleCamera, .builtInTelephotoCamera], mediaType: .video, position: .back).devices
-        let front = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera], mediaType: .video, position: .front).devices
+        let fronts = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera], mediaType: .video, position: .front).devices
         let wideFov = back.first { $0.deviceType == .builtInWideAngleCamera }.map { Double($0.activeFormat.videoFieldOfView) } ?? 70
         func zoom(_ d: AVCaptureDevice) -> Double {
             // 広角を 1 として、画角の比から倍率を出す (0.5x・3x・5x など)
@@ -129,16 +158,23 @@ final class CameraModule: NSObject {
             let z = tan(wideFov / 2 * .pi / 180) / tan(fov / 2 * .pi / 180)
             return (z * 10).rounded() / 10
         }
-        func presets(_ d: AVCaptureDevice) -> [String] {
-            ["1080p30", "1080p60", "2160p30", "2160p60"].filter { format(for: d, preset: $0) != nil }
+        let all = ["1080p30", "1080p60", "2160p30", "2160p60"]
+        func presets(_ d: AVCaptureDevice) -> [String] { all.filter { format(for: d, preset: $0) != nil } }
+        // 前と後ろを同時に撮れる組み合わせ (その端末が対応しているもの)
+        let sets = AVCaptureMultiCamSession.isMultiCamSupported
+            ? AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInUltraWideCamera, .builtInWideAngleCamera, .builtInTelephotoCamera], mediaType: .video, position: .unspecified).supportedMultiCamDeviceSets
+            : []
+        func multiPresets(_ d: AVCaptureDevice) -> [String] {
+            let pairOk = d.position == .front ? !sets.isEmpty : sets.contains { set in set.contains(d) && set.contains { $0.position == .front } }
+            return pairOk ? all.filter { format(for: d, preset: $0, multi: true) != nil } : []
         }
         var out: [Lens] = []
         for d in back {
             let kind = d.deviceType == .builtInUltraWideCamera ? "ultraWide" : d.deviceType == .builtInTelephotoCamera ? "tele" : "wide"
-            out.append(Lens(device: d, id: d.uniqueID, position: "back", kind: kind, zoom: kind == "wide" ? 1 : zoom(d), presets: presets(d)))
+            out.append(Lens(device: d, id: d.uniqueID, position: "back", kind: kind, zoom: kind == "wide" ? 1 : zoom(d), presets: presets(d), multiPresets: multiPresets(d)))
         }
-        for d in front {
-            out.append(Lens(device: d, id: d.uniqueID, position: "front", kind: "front", zoom: 1, presets: presets(d)))
+        for d in fronts {
+            out.append(Lens(device: d, id: d.uniqueID, position: "front", kind: "front", zoom: 1, presets: presets(d), multiPresets: multiPresets(d)))
         }
         return out.sorted { ($0.position == "back" ? 0 : 1, $0.zoom) < ($1.position == "back" ? 0 : 1, $1.zoom) }
     }
@@ -156,6 +192,60 @@ final class CameraModule: NSObject {
         }
     }
 
+    /// 前と後ろを同時に撮るか (multi) で、カメラのまとまり (session) を替える。録画の出力も作り直す (別のまとまりのものは使えないため)
+    private func useSession(multi: Bool) {
+        guard multi != isMulti else { return }
+        hideLive()
+        let old = Box(value: session)
+        queue.async {
+            let s = old.value
+            if s.isRunning { s.stopRunning() }
+            s.beginConfiguration()
+            s.connections.forEach { s.removeConnection($0) }
+            s.inputs.forEach { s.removeInput($0) }
+            s.outputs.forEach { s.removeOutput($0) }
+            s.commitConfiguration()
+        }
+        session = multi ? AVCaptureMultiCamSession() : AVCaptureSession()
+        for c in channels { c.output = AVCaptureMovieFileOutput() }
+        liveConfig = nil
+        resetInterruptObserver()
+    }
+
+    /// 映像を出す層 (前と後ろを同時に撮るときは、つなぎを自分で作るので、つながない層)
+    private func makeLayer() -> AVCaptureVideoPreviewLayer {
+        isMulti ? AVCaptureVideoPreviewLayer(sessionWithNoConnection: session) : AVCaptureVideoPreviewLayer(session: session)
+    }
+
+    /// カメラを組み立てる (カメラ用の列で)。specs[0] が後ろ (main)、specs[1] があれば前
+    private func build(_ specs: [Spec], audio: Bool) async -> NativeError? {
+        let s = Box(value: session)
+        let multi = isMulti
+        return await withCheckedContinuation { cont in
+            queue.async {
+                do {
+                    if multi, let m = s.value as? AVCaptureMultiCamSession {
+                        try Self.configureMulti(session: m, specs: specs, audio: audio)
+                    } else {
+                        try Self.configure(session: s.value, spec: specs[0], audio: audio)
+                    }
+                    cont.resume(returning: nil)
+                } catch {
+                    cont.resume(returning: error as? NativeError ?? NativeError(.io, error.localizedDescription))
+                }
+            }
+        }
+    }
+
+    private struct FrontParams { let preset: String; let iso: Float? }
+
+    private static func frontParams(_ any: Any?) -> FrontParams? {
+        guard let d = any as? [String: Any] else { return nil }
+        return FrontParams(preset: d["preset"] as? String ?? "1080p30", iso: (d["iso"] as? Double).map { Float($0) })
+    }
+
+    private func frontLens() -> Lens? { Self.lenses().first { $0.position == "front" } }
+
     private func start(params: [String: Any], done: @escaping (Result<[String: Any], NativeError>) -> Void) {
         guard !wantRecording else { done(.failure(NativeError(.busy, "already recording"))); return }
         guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
@@ -170,46 +260,54 @@ final class CameraModule: NSObject {
         guard let lens = all.first(where: { $0.id == wantLens }) ?? all.first(where: { $0.kind == "wide" }) ?? all.first else {
             done(.failure(NativeError(.notFound, "no camera"))); return
         }
-        let spec = Self.presetSpecs[preset] ?? Self.presetSpecs["1080p30"]!
-        let angle = Self.rotationAngle(front: lens.position == "front")
-        let dev = lens.device
-        let lensId = lens.id
-        device = dev
-        isoTarget = iso
-        frameSec = 1 / spec.fps
+        // 前も同時に撮る (後ろのレンズを選んでいて、端末が対応しているとき)
+        var fp = Self.frontParams(params["front"])
+        let fLens = fp != nil && lens.position == "back" && AVCaptureMultiCamSession.isMultiCamSupported ? frontLens() : nil
+        if fLens == nil { fp = nil }
         hideLive()
+        useSession(multi: fp != nil)
+        let spec = Self.presetSpecs[preset] ?? Self.presetSpecs["1080p30"]!
+        main.device = lens.device
+        main.active = true
+        main.isoTarget = iso
+        main.frameSec = 1 / spec.fps
+        main.angle = Self.rotationAngle(front: lens.position == "front")
+        front.active = fp != nil
+        front.device = fLens?.device
+        var specs: [Spec] = []
+        // 撮り始めの 5 秒の小さな映像 (同時に撮るときは、つなぎを組み立てのときに作るので、先に層を作る)
+        var previewLayer: AVCaptureVideoPreviewLayer?
+        if preview { previewLayer = makeLayer() }
+        specs.append(Spec(device: lens.device, output: main.output, preset: preset, fps: spec.fps, angle: main.angle, layers: isMulti ? previewLayer.map { [$0] } ?? [] : []))
+        if let fp, let fLens {
+            let fs = Self.presetSpecs[fp.preset] ?? Self.presetSpecs["1080p30"]!
+            front.isoTarget = fp.iso
+            front.frameSec = 1 / fs.fps
+            front.angle = Self.rotationAngle(front: true)
+            specs.append(Spec(device: fLens.device, output: front.output, preset: fp.preset, fps: fs.fps, angle: front.angle, layers: []))
+        }
         wantRecording = true
-        segments = []
+        for c in channels { c.segments = [] }
         observeEvents()
-        let session = session, output = output
         Task { @MainActor in
-            // カメラの組み立ては、カメラ用の列で行う (主スレッドを止めない)
-            let error: NativeError? = await withCheckedContinuation { cont in
-                queue.async {
-                    do {
-                        try Self.configure(session: session, output: output, device: dev, preset: preset, fps: spec.fps, audio: audio, angle: angle)
-                        cont.resume(returning: nil)
-                    } catch {
-                        cont.resume(returning: error as? NativeError ?? NativeError(.io, error.localizedDescription))
-                    }
-                }
-            }
-            if let error {
+            if let error = await self.build(specs, audio: audio) {
                 self.wantRecording = false
+                self.main.active = false
+                self.front.active = false
                 done(.failure(error))
                 return
             }
-            self.beginSegment()
-            if iso != nil { self.startIsoLoop(frameSec: 1 / spec.fps) }
-            if preview { self.showPreview() }
-            done(.success(["lensId": lensId, "preset": preset]))
+            for c in self.channels where c.active { self.beginSegment(c) }
+            if self.channels.contains(where: { $0.active && $0.isoTarget != nil }) { self.startIsoLoop() }
+            if let previewLayer { self.showPreview(previewLayer, angle: self.main.angle) }
+            done(.success(["lensId": lens.id, "preset": preset, "front": fp != nil]))
         }
     }
 
-    nonisolated private static func configure(session: AVCaptureSession, output: AVCaptureMovieFileOutput, device dev: AVCaptureDevice, preset: String, fps: Double, audio: Bool, angle: CGFloat) throws {
+    nonisolated private static func configure(session: AVCaptureSession, spec: Spec, audio: Bool) throws {
         session.beginConfiguration()
         do {
-            try configureLocked(session: session, output: output, device: dev, preset: preset, fps: fps, audio: audio, angle: angle)
+            try configureLocked(session: session, spec: spec, audio: audio)
         } catch {
             session.commitConfiguration()
             throw error
@@ -217,13 +315,14 @@ final class CameraModule: NSObject {
         session.commitConfiguration()
         // レンズを替えると、カメラから録画・映像の枠へのつなぎが作り直される。新しいつなぎにも向きを決め直す
         // (決めないと、既定の横向きで描かれる。前のカメラに替えると、縦の画面でも映像が横になっていた)
-        for conn in session.connections where conn.isVideoRotationAngleSupported(angle) {
-            conn.videoRotationAngle = angle
+        for conn in session.connections where conn.isVideoRotationAngleSupported(spec.angle) {
+            conn.videoRotationAngle = spec.angle
         }
         if !session.isRunning { session.startRunning() }
     }
 
-    nonisolated private static func configureLocked(session: AVCaptureSession, output: AVCaptureMovieFileOutput, device dev: AVCaptureDevice, preset: String, fps: Double, audio: Bool, angle: CGFloat) throws {
+    nonisolated private static func configureLocked(session: AVCaptureSession, spec: Spec, audio: Bool) throws {
+        let dev = spec.device, output = spec.output
         session.inputs.forEach { session.removeInput($0) }
         if session.canSetSessionPreset(.inputPriority) { session.sessionPreset = .inputPriority }
         let input = try AVCaptureDeviceInput(device: dev)
@@ -236,8 +335,19 @@ final class CameraModule: NSObject {
             guard session.canAddOutput(output) else { throw NativeError(.io, "movie output") }
             session.addOutput(output)
         }
+        try setFormat(dev, preset: spec.preset, fps: spec.fps, multi: false)
+        if let conn = output.connection(with: .video) { setupRecording(conn, output: output, angle: spec.angle) }
+    }
+
+    nonisolated private static func setFormat(_ dev: AVCaptureDevice, preset: String, fps: Double, multi: Bool) throws {
         try dev.lockForConfiguration()
-        if let f = format(for: dev, preset: preset) { dev.activeFormat = f }
+        defer { dev.unlockForConfiguration() }
+        if let f = format(for: dev, preset: preset, multi: multi) {
+            dev.activeFormat = f
+        } else if multi, let f = format(for: dev, preset: "1080p30", multi: true) {
+            // 同時に撮れる形式に、その画質が無ければ 1080p30
+            dev.activeFormat = f
+        }
         // その形式が対応していない fps を決めると落ちるので、対応しているときだけ決める (しないときは、その形式の既定のまま)
         let fpsOk = dev.activeFormat.videoSupportedFrameRateRanges.contains { $0.minFrameRate <= fps + 0.01 && $0.maxFrameRate >= fps - 0.01 }
         if fpsOk {
@@ -247,55 +357,118 @@ final class CameraModule: NSObject {
         }
         if dev.isFocusModeSupported(.continuousAutoFocus) { dev.focusMode = .continuousAutoFocus }
         if dev.isExposureModeSupported(.continuousAutoExposure) { dev.exposureMode = .continuousAutoExposure }
-        dev.unlockForConfiguration()
-        if let conn = output.connection(with: .video) {
-            if conn.isVideoRotationAngleSupported(angle) { conn.videoRotationAngle = angle }
-            if conn.isVideoStabilizationSupported { conn.preferredVideoStabilizationMode = .standard }
-            if output.availableVideoCodecTypes.contains(.hevc) { output.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc], for: conn) }
+    }
+
+    nonisolated private static func setupRecording(_ conn: AVCaptureConnection, output: AVCaptureMovieFileOutput, angle: CGFloat) {
+        if conn.isVideoRotationAngleSupported(angle) { conn.videoRotationAngle = angle }
+        if conn.isVideoStabilizationSupported { conn.preferredVideoStabilizationMode = .standard }
+        if output.availableVideoCodecTypes.contains(.hevc) { output.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc], for: conn) }
+    }
+
+    /// 前と後ろを同時に撮るときの組み立て。つなぎ (カメラ → 録画・映像の層) は自分で作る
+    nonisolated private static func configureMulti(session: AVCaptureMultiCamSession, specs: [Spec], audio: Bool) throws {
+        session.beginConfiguration()
+        var failed: NativeError?
+        do {
+            session.connections.forEach { session.removeConnection($0) }
+            session.inputs.forEach { session.removeInput($0) }
+            session.outputs.forEach { session.removeOutput($0) }
+            for spec in specs {
+                let input = try AVCaptureDeviceInput(device: spec.device)
+                guard session.canAddInput(input) else { throw NativeError(.io, "multicam input") }
+                session.addInputWithNoConnections(input)
+                guard session.canAddOutput(spec.output) else { throw NativeError(.io, "multicam output") }
+                session.addOutputWithNoConnections(spec.output)
+                try setFormat(spec.device, preset: spec.preset, fps: spec.fps, multi: true)
+                guard let port = input.ports(for: .video, sourceDeviceType: spec.device.deviceType, sourceDevicePosition: spec.device.position).first else {
+                    throw NativeError(.io, "multicam port")
+                }
+                let conn = AVCaptureConnection(inputPorts: [port], output: spec.output)
+                guard session.canAddConnection(conn) else { throw NativeError(.io, "multicam connection") }
+                session.addConnection(conn)
+                setupRecording(conn, output: spec.output, angle: spec.angle)
+                for layer in spec.layers {
+                    let lc = AVCaptureConnection(inputPort: port, videoPreviewLayer: layer)
+                    guard session.canAddConnection(lc) else { continue }
+                    session.addConnection(lc)
+                    if lc.isVideoRotationAngleSupported(spec.angle) { lc.videoRotationAngle = spec.angle }
+                }
+            }
+            // 音は後ろの動画に入れる
+            if audio, let mainOut = specs.first?.output, let mic = AVCaptureDevice.default(for: .audio),
+               let micIn = try? AVCaptureDeviceInput(device: mic), session.canAddInput(micIn) {
+                session.addInputWithNoConnections(micIn)
+                if let port = micIn.ports.first(where: { $0.mediaType == .audio }) {
+                    let ac = AVCaptureConnection(inputPorts: [port], output: mainOut)
+                    if session.canAddConnection(ac) { session.addConnection(ac) }
+                }
+            }
+        } catch {
+            failed = error as? NativeError ?? NativeError(.io, error.localizedDescription)
         }
+        session.commitConfiguration()
+        if let failed { throw failed }
+        // 同時に撮るには重すぎる組み合わせ (画質を下げる必要がある)
+        if session.hardwareCost > 1.0 { throw NativeError(.io, "multicam-cost") }
+        if !session.isRunning { session.startRunning() }
     }
 
-    private func beginSegment() {
-        guard wantRecording, !output.isRecording else { return }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("cam-\(UUID().uuidString).mov")
-        currentStartWallMs = nil
-        output.startRecording(to: url, recordingDelegate: self)
+    private func beginSegment(_ c: Channel) {
+        guard wantRecording, c.active, !c.output.isRecording else { return }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("cam-\(c.name)-\(UUID().uuidString).mov")
+        c.currentStartWallMs = nil
+        c.output.startRecording(to: url, recordingDelegate: self)
     }
 
-    /// 止める。path があれば、撮ったファイルを LapTimer/ の下のその場所へ移す (続きは _2・_3 を付ける)
-    private func stop(path: String?, done: @escaping (Result<[String: Any], NativeError>) -> Void) {
+    /// 止める。path (後ろ)・frontPath (前) があれば、撮ったファイルを LapTimer/ の下のその場所へ移す (続きは _2・_3 を付ける)
+    private func stop(path: String?, frontPath: String?, done: @escaping (Result<[String: Any], NativeError>) -> Void) {
         wantRecording = false
         isoTimer?.invalidate()
         isoTimer = nil
         hidePreview()
         let finish = { [weak self] in
             guard let self else { return }
-            let segs = self.segments
-            self.segments = []
-            self.queue.async { [session = self.session] in if session.isRunning { session.stopRunning() } }
-            var files: [[String: Any]] = []
-            for (i, seg) in segs.enumerated() {
-                var url = seg.url
-                if let path, let dest = Self.lapTimerURL(path, index: i) {
-                    try? FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    if (try? FileManager.default.moveItem(at: seg.url, to: dest)) != nil { url = dest }
-                }
-                let asset = AVURLAsset(url: url)
-                let duration = CMTimeGetSeconds(asset.duration)
-                let bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-                files.append([
-                    "path": path.map { Self.indexedPath($0, index: i) } ?? url.lastPathComponent,
-                    "startWallMs": seg.startWallMs, "durationSec": duration.isFinite ? duration : 0, "bytes": bytes
-                ])
-            }
-            done(.success(["files": files]))
+            let session = Box(value: self.session)
+            self.queue.async { if session.value.isRunning { session.value.stopRunning() } }
+            let files = self.moveSegments(self.main, path: path)
+            let frontFiles = self.moveSegments(self.front, path: frontPath ?? path.map { Self.frontPath($0) })
+            self.main.active = false
+            self.front.active = false
+            done(.success(["files": files, "frontFiles": frontFiles]))
         }
-        if output.isRecording {
-            stopWaiters.append(finish)
-            output.stopRecording()
-        } else {
+        let busy = channels.filter { $0.output.isRecording }
+        if busy.isEmpty {
             finish()
+        } else {
+            stopWaiters.append(finish)
+            busy.forEach { $0.output.stopRecording() }
         }
+    }
+
+    private static func frontPath(_ path: String) -> String {
+        let ns = path as NSString
+        return "\(ns.deletingPathExtension)_front.\(ns.pathExtension)"
+    }
+
+    private func moveSegments(_ c: Channel, path: String?) -> [[String: Any]] {
+        let segs = c.segments
+        c.segments = []
+        var files: [[String: Any]] = []
+        for (i, seg) in segs.enumerated() {
+            var url = seg.url
+            if let path, let dest = Self.lapTimerURL(path, index: i) {
+                try? FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+                if (try? FileManager.default.moveItem(at: seg.url, to: dest)) != nil { url = dest }
+            }
+            let asset = AVURLAsset(url: url)
+            let duration = CMTimeGetSeconds(asset.duration)
+            let bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+            files.append([
+                "path": path.map { Self.indexedPath($0, index: i) } ?? url.lastPathComponent,
+                "startWallMs": seg.startWallMs, "durationSec": duration.isFinite ? duration : 0, "bytes": bytes
+            ])
+        }
+        return files
     }
 
     private static func indexedPath(_ path: String, index: Int) -> String {
@@ -311,17 +484,20 @@ final class CameraModule: NSObject {
 
     // MARK: - ISO 優先 (シャッターの速さで明るさを保つ)
 
-    private func startIsoLoop(frameSec: Double) {
+    private func startIsoLoop() {
         isoTimer?.invalidate()
         isoTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.adjustExposure(frameSec: frameSec) }
+            MainActor.assumeIsolated { self?.adjustExposure() }
         }
     }
 
-    private func adjustExposure(frameSec: Double) {
-        guard let dev = device, let target = isoTarget else { return }
-        // カメラの設定は、組み立てと同じ列で 1 つずつ行う (レンズを替えている最中に触ると落ちるため)
-        queue.async { Self.adjust(dev, target: target, frameSec: frameSec) }
+    private func adjustExposure() {
+        for c in channels where c.active {
+            guard let dev = c.device, let target = c.isoTarget else { continue }
+            let d = Box(value: dev), frameSec = c.frameSec
+            // カメラの設定は、組み立てと同じ列で 1 つずつ行う (レンズを替えている最中に触ると落ちるため)
+            queue.async { Self.adjust(d.value, target: target, frameSec: frameSec) }
+        }
     }
 
     nonisolated private static func adjust(_ dev: AVCaptureDevice, target: Float, frameSec: Double) {
@@ -342,19 +518,21 @@ final class CameraModule: NSObject {
 
     // MARK: - プレビュー (撮り始めの 5 秒だけ、右上に小さく)
 
-    private func showPreview() {
+    private func showPreview(_ layer: AVCaptureVideoPreviewLayer, angle: CGFloat) {
         guard previewView == nil,
               let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first?.windows.first(where: \.isKeyWindow) else { return }
         let w: CGFloat = 160
-        let view = UIView(frame: CGRect(x: window.bounds.width - w - 12, y: window.safeAreaInsets.top + 60, width: w, height: w * 9 / 16))
+        let portrait = angle == 90 || angle == 270
+        let size = portrait ? CGSize(width: w * 9 / 16, height: w) : CGSize(width: w, height: w * 9 / 16)
+        let view = UIView(frame: CGRect(x: window.bounds.width - size.width - 12, y: window.safeAreaInsets.top + 60, width: size.width, height: size.height))
         view.layer.cornerRadius = 10
         view.clipsToBounds = true
         view.layer.borderWidth = 2
         view.layer.borderColor = UIColor.systemRed.cgColor
-        let layer = AVCaptureVideoPreviewLayer(session: session)
         layer.videoGravity = .resizeAspectFill
         layer.frame = view.bounds
         view.layer.addSublayer(layer)
+        if let conn = layer.connection, conn.isVideoRotationAngleSupported(angle) { conn.videoRotationAngle = angle }
         window.addSubview(view)
         previewView = view
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in self?.hidePreview() }
@@ -367,6 +545,11 @@ final class CameraModule: NSObject {
 
     // MARK: - 撮る前の確かめ (設定の画面の枠に映像を出し、ISO をその場で変える)
 
+    private static func rect(_ any: Any?) -> CGRect {
+        let r = any as? [String: Any] ?? [:]
+        return CGRect(x: r["x"] as? Double ?? 0, y: r["y"] as? Double ?? 0, width: r["w"] as? Double ?? 0, height: r["h"] as? Double ?? 0)
+    }
+
     private func livePreview(params: [String: Any], done: @escaping (Result<[String: Any], NativeError>) -> Void) {
         liveGen += 1
         let gen = liveGen
@@ -375,15 +558,17 @@ final class CameraModule: NSObject {
             if !wantRecording {
                 isoTimer?.invalidate()
                 isoTimer = nil
-                queue.async { [session] in if session.isRunning { session.stopRunning() } }
+                main.active = false
+                front.active = false
+                let s = Box(value: session)
+                queue.async { if s.value.isRunning { s.value.stopRunning() } }
             }
             done(.success([:]))
             return
         }
         guard !wantRecording else { done(.failure(NativeError(.busy, "recording"))); return }
         guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { done(.failure(NativeError(.permissionDenied, "camera"))); return }
-        let r = params["rect"] as? [String: Any] ?? [:]
-        let rect = CGRect(x: r["x"] as? Double ?? 0, y: r["y"] as? Double ?? 0, width: r["w"] as? Double ?? 0, height: r["h"] as? Double ?? 0)
+        let mainRect = Self.rect(params["rect"])
         let wantLens = params["lensId"] as? String
         let preset = params["preset"] as? String ?? "1080p30"
         let iso = (params["iso"] as? Double).map { Float($0) }
@@ -391,90 +576,120 @@ final class CameraModule: NSObject {
         guard let lens = all.first(where: { $0.id == wantLens }) ?? all.first(where: { $0.kind == "wide" }) ?? all.first else {
             done(.failure(NativeError(.notFound, "no camera"))); return
         }
+        let fd = params["front"] as? [String: Any]
+        var fp = Self.frontParams(fd)
+        let fLens = fp != nil && lens.position == "back" && AVCaptureMultiCamSession.isMultiCamSupported ? frontLens() : nil
+        if fLens == nil { fp = nil }
+        let frontRect = Self.rect(fd?["rect"])
         let spec = Self.presetSpecs[preset] ?? Self.presetSpecs["1080p30"]!
-        let angle = Self.rotationAngle(front: lens.position == "front")
-        let config = "\(lens.id)|\(preset)"
-        let dev = lens.device
-        let session = session, output = output
+        let mainAngle = Self.rotationAngle(front: lens.position == "front")
+        let config = "\(lens.id)|\(preset)|\(fp?.preset ?? "-")"
         Task { @MainActor in
-            if self.liveConfig != config || !session.isRunning {
+            self.useSession(multi: fp != nil)
+            if self.liveConfig != config || !self.session.isRunning {
                 // 組み直す間は、ISO を保つ調整を止める
                 self.isoTimer?.invalidate()
                 self.isoTimer = nil
-                self.device = dev
-                self.frameSec = 1 / spec.fps
-                let error: NativeError? = await withCheckedContinuation { cont in
-                    self.queue.async {
-                        do {
-                            try Self.configure(session: session, output: output, device: dev, preset: preset, fps: spec.fps, audio: false, angle: angle)
-                            cont.resume(returning: nil)
-                        } catch {
-                            cont.resume(returning: error as? NativeError ?? NativeError(.io, error.localizedDescription))
-                        }
-                    }
+                self.main.device = lens.device
+                self.main.active = true
+                self.main.frameSec = 1 / spec.fps
+                self.main.angle = mainAngle
+                self.front.active = fp != nil
+                self.front.device = fLens?.device
+                var specs: [Spec] = []
+                if self.isMulti {
+                    // 同時に撮るときは、層ごとにつなぎを作るので、層も作り直す
+                    self.hideLive()
+                    self.makeLive(self.main)
+                    self.makeLive(self.front)
                 }
-                if let error { done(.failure(error)); return }
+                specs.append(Spec(device: lens.device, output: self.main.output, preset: preset, fps: spec.fps, angle: mainAngle,
+                                  layers: self.isMulti ? self.main.liveLayer.map { [$0] } ?? [] : []))
+                if let fp, let fLens {
+                    let fs = Self.presetSpecs[fp.preset] ?? Self.presetSpecs["1080p30"]!
+                    self.front.frameSec = 1 / fs.fps
+                    self.front.angle = Self.rotationAngle(front: true)
+                    specs.append(Spec(device: fLens.device, output: self.front.output, preset: fp.preset, fps: fs.fps, angle: self.front.angle,
+                                      layers: self.front.liveLayer.map { [$0] } ?? []))
+                }
+                if let error = await self.build(specs, audio: false) {
+                    self.liveConfig = nil
+                    done(.failure(error))
+                    return
+                }
                 self.liveConfig = config
             }
             // 待っている間に、次の頼み (別のレンズ・消す) が来ていたら、そちらに任せる
             guard gen == self.liveGen else { done(.success([:])); return }
-            self.placeLive(rect, angle: angle)
-            self.applyIso(iso)
+            self.placeLive(self.main, mainRect)
+            self.applyIso(self.main, iso)
+            if let fp {
+                self.placeLive(self.front, frontRect)
+                self.applyIso(self.front, fp.iso)
+            }
             self.startExposureReports()
             done(.success([:]))
         }
     }
 
-    private func placeLive(_ rect: CGRect, angle: CGFloat) {
-        guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first?.windows.first(where: \.isKeyWindow) else { return }
-        if liveView == nil {
-            let view = UIView()
-            view.layer.cornerRadius = 10
-            view.clipsToBounds = true
-            view.backgroundColor = .black
-            let layer = AVCaptureVideoPreviewLayer(session: session)
-            layer.videoGravity = .resizeAspect
-            view.layer.addSublayer(layer)
-            // 映像は見るだけ (押しても下の画面のボタンに届くように)
-            view.isUserInteractionEnabled = false
-            window.addSubview(view)
-            liveView = view
-            liveLayer = layer
-        }
+    private func makeLive(_ c: Channel) {
+        guard c.liveView == nil,
+              let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first?.windows.first(where: \.isKeyWindow) else { return }
+        let view = UIView()
+        view.layer.cornerRadius = 10
+        view.clipsToBounds = true
+        view.backgroundColor = .black
+        view.isHidden = true
+        let layer = makeLayer()
+        layer.videoGravity = .resizeAspect
+        view.layer.addSublayer(layer)
+        // 映像は見るだけ (押しても下の画面のボタンに届くように)
+        view.isUserInteractionEnabled = false
+        window.addSubview(view)
+        c.liveView = view
+        c.liveLayer = layer
+    }
+
+    private func placeLive(_ c: Channel, _ rect: CGRect) {
+        makeLive(c)
+        let angle = c.angle
         // Web の CSS の座標は、WKWebView (画面いっぱい) の座標と同じ
-        liveView?.frame = rect
-        liveView?.isHidden = rect.width < 4 || rect.height < 4
-        liveLayer?.frame = CGRect(origin: .zero, size: rect.size)
-        if let conn = liveLayer?.connection, conn.isVideoRotationAngleSupported(angle) { conn.videoRotationAngle = angle }
+        c.liveView?.frame = rect
+        c.liveView?.isHidden = rect.width < 4 || rect.height < 4
+        c.liveLayer?.frame = CGRect(origin: .zero, size: rect.size)
+        if let conn = c.liveLayer?.connection, conn.isVideoRotationAngleSupported(angle) { conn.videoRotationAngle = angle }
         // 映像の枠のつなぎは、作ったあと少し遅れてできることがあるので、もう一度決める
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            if let conn = self?.liveLayer?.connection, conn.isVideoRotationAngleSupported(angle), conn.videoRotationAngle != angle { conn.videoRotationAngle = angle }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            if let conn = c.liveLayer?.connection, conn.isVideoRotationAngleSupported(angle), conn.videoRotationAngle != angle { conn.videoRotationAngle = angle }
         }
     }
 
     private func hideLive() {
         exposureTimer?.invalidate()
         exposureTimer = nil
-        liveView?.removeFromSuperview()
-        liveView = nil
-        liveLayer = nil
+        for c in channels {
+            c.liveView?.removeFromSuperview()
+            c.liveView = nil
+            c.liveLayer = nil
+        }
         liveConfig = nil
     }
 
     /// ISO を決める (nil は自動)。決めたときは、シャッターの速さで明るさを保つ
-    private func applyIso(_ iso: Float?) {
-        isoTarget = iso
-        if iso != nil {
-            startIsoLoop(frameSec: frameSec)
+    private func applyIso(_ c: Channel, _ iso: Float?) {
+        c.isoTarget = iso
+        if channels.contains(where: { $0.active && $0.isoTarget != nil }) {
+            if isoTimer == nil { startIsoLoop() }
         } else {
             isoTimer?.invalidate()
             isoTimer = nil
-            if let dev = device {
-                queue.async {
-                    guard dev.isExposureModeSupported(.continuousAutoExposure), (try? dev.lockForConfiguration()) != nil else { return }
-                    dev.exposureMode = .continuousAutoExposure
-                    dev.unlockForConfiguration()
-                }
+        }
+        if iso == nil, let dev = c.device {
+            let d = Box(value: dev)
+            queue.async {
+                guard d.value.isExposureModeSupported(.continuousAutoExposure), (try? d.value.lockForConfiguration()) != nil else { return }
+                d.value.exposureMode = .continuousAutoExposure
+                d.value.unlockForConfiguration()
             }
         }
     }
@@ -484,11 +699,14 @@ final class CameraModule: NSObject {
         guard exposureTimer == nil else { return }
         exposureTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, let dev = self.device else { return }
-                // レンズを替えた直後は、シャッターの速さが数でない (NaN) ことがある。数でないものは送らない (JSON にできず落ちるため)
-                let iso = Double(dev.iso), shutter = CMTimeGetSeconds(dev.exposureDuration)
-                guard iso.isFinite, shutter.isFinite else { return }
-                self.core.emit("camera.exposure", ["iso": iso, "shutterSec": shutter])
+                guard let self else { return }
+                for c in self.channels where c.active {
+                    guard let dev = c.device else { continue }
+                    // レンズを替えた直後は、シャッターの速さが数でない (NaN) ことがある。数でないものは送らない (JSON にできず落ちるため)
+                    let iso = Double(dev.iso), shutter = CMTimeGetSeconds(dev.exposureDuration)
+                    guard iso.isFinite, shutter.isFinite else { continue }
+                    self.core.emit("camera.exposure", ["iso": iso, "shutterSec": shutter, "which": c.name])
+                }
             }
         }
     }
@@ -501,16 +719,22 @@ final class CameraModule: NSObject {
                 MainActor.assumeIsolated { self?.thermalChanged() }
             }
         }
-        if interruptObservers.isEmpty {
-            // 裏から戻った・電話が終わったら、続きを撮る (ファイルは分かれる)
-            interruptObservers.append(NotificationCenter.default.addObserver(forName: AVCaptureSession.interruptionEndedNotification, object: session, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self, self.wantRecording else { return }
-                    self.queue.async { [session = self.session] in if !session.isRunning { session.startRunning() } }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.beginSegment() }
+        if interruptObservers.isEmpty { resetInterruptObserver() }
+    }
+
+    /// 裏から戻った・電話が終わったら、続きを撮る (ファイルは分かれる)。カメラのまとまりを替えたら、見張り直す
+    private func resetInterruptObserver() {
+        interruptObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        interruptObservers = [NotificationCenter.default.addObserver(forName: AVCaptureSession.interruptionEndedNotification, object: session, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.wantRecording else { return }
+                let s = Box(value: self.session)
+                self.queue.async { if !s.value.isRunning { s.value.startRunning() } }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    for c in self.channels where c.active { self.beginSegment(c) }
                 }
-            })
-        }
+            }
+        }]
     }
 
     private func thermalChanged() {
@@ -519,22 +743,30 @@ final class CameraModule: NSObject {
         if s == .critical && wantRecording {
             // 熱すぎる: 録画だけ止める (ログの記録は Web が続ける)。撮ったファイルは、測定終了のときに移す
             wantRecording = false
-            if output.isRecording { output.stopRecording() }
+            for c in channels where c.output.isRecording { c.output.stopRecording() }
             core.emit("camera.state", ["recording": false, "error": "thermal", "thermal": name])
         } else {
             core.emit("camera.state", ["recording": recording, "thermal": name])
         }
+    }
+
+    private func channel(for output: AVCaptureFileOutput) -> Channel? {
+        channels.first { $0.output === output }
     }
 }
 
 extension CameraModule: AVCaptureFileOutputRecordingDelegate {
     nonisolated func fileOutput(_ output: AVCaptureFileOutput, didStartRecordingTo fileURL: URL, from connections: [AVCaptureConnection]) {
         let now = Date().timeIntervalSince1970 * 1000
+        let out = Box(value: output)
         Task { @MainActor in
+            guard let c = self.channel(for: out.value) else { return }
             // iOS 18 からは、先頭のコマの時刻 (startPTS) で決め直す (下)
-            if self.currentStartWallMs == nil { self.currentStartWallMs = now }
-            self.recording = true
-            self.core.emit("camera.state", ["recording": true])
+            if c.currentStartWallMs == nil { c.currentStartWallMs = now }
+            if c === self.main {
+                self.recording = true
+                self.core.emit("camera.state", ["recording": true])
+            }
         }
     }
 
@@ -544,22 +776,31 @@ extension CameraModule: AVCaptureFileOutputRecordingDelegate {
         let hostNow = CMClockGetTime(CMClockGetHostTimeClock())
         let age = CMTimeGetSeconds(CMTimeSubtract(hostNow, startPTS))
         let wall = Date().timeIntervalSince1970 * 1000 - (age.isFinite && age > 0 && age < 5 ? age * 1000 : 0)
+        let out = Box(value: output)
         Task { @MainActor in
-            self.currentStartWallMs = wall
-            self.recording = true
-            self.core.emit("camera.state", ["recording": true])
+            guard let c = self.channel(for: out.value) else { return }
+            c.currentStartWallMs = wall
+            if c === self.main {
+                self.recording = true
+                self.core.emit("camera.state", ["recording": true])
+            }
         }
     }
 
     nonisolated func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
         // 止めた・止まった (裏に回った・熱・容量)。中身が書けていれば残す
         let ok = error == nil || ((error as NSError?)?.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool ?? false)
+        let message = error?.localizedDescription
+        let out = Box(value: output)
         Task { @MainActor in
-            self.recording = false
+            guard let c = self.channel(for: out.value) else { return }
             if ok, FileManager.default.fileExists(atPath: outputFileURL.path) {
-                self.segments.append((outputFileURL, self.currentStartWallMs ?? Date().timeIntervalSince1970 * 1000))
+                c.segments.append((outputFileURL, c.currentStartWallMs ?? Date().timeIntervalSince1970 * 1000))
             }
-            if let error, !ok { DebugLog.write("camera: recording failed \(error.localizedDescription)") }
+            if let message, !ok { DebugLog.write("camera(\(c.name)): recording failed \(message)") }
+            if c === self.main { self.recording = false }
+            // 全部のカメラが止まるまで待つ
+            guard !self.channels.contains(where: { $0.output.isRecording }) else { return }
             let waiters = self.stopWaiters
             self.stopWaiters = []
             if waiters.isEmpty {

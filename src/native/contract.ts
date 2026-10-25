@@ -73,6 +73,14 @@ export interface CameraLens {
   isoMin: number;
   isoMax: number;
   presets: CameraPreset[];
+  /** 前と後ろを同時に撮るときの画質 (同時に撮れないレンズ・前の版のアプリでは無いか空) */
+  multiCamPresets?: CameraPreset[];
+}
+
+/** 前のカメラも同時に撮るときの設定 (前のカメラはその端末の前のカメラ) */
+export interface CameraFrontParams {
+  preset: CameraPreset;
+  iso: number | null;
 }
 
 /** 撮り終えた動画のファイル (止まって分かれたら複数)。startWallMs は先頭のコマの端末の時計 (UTC ミリ秒) */
@@ -254,21 +262,22 @@ export interface NativeMethods {
   'system.openSettings': { params: Record<string, never>; result: Record<string, never> };
   /** 内蔵カメラ (とマイク) の許可。request なら、まだ聞いていないものを聞く */
   'camera.permission': { params: { request: boolean; audio: boolean }; result: { camera: PermissionState; mic: PermissionState } };
-  'camera.lenses': { params: Record<string, never>; result: { lenses: CameraLens[] } };
+  /** multiCam: 前と後ろを同時に撮れる端末 (前の版のアプリでは無い) */
+  'camera.lenses': { params: Record<string, never>; result: { lenses: CameraLens[]; multiCam?: boolean } };
   /**
    * 録画を始める (一時ファイルに書く)。向きは今の画面の向き。iso を決めたら、シャッターの速さで明るさを保つ (null は自動)。
    * preview なら、撮り始めの 5 秒だけ右上に小さく映す
    */
-  'camera.start': { params: { lensId: string | null; preset: CameraPreset; audio: boolean; iso: number | null; preview: boolean }; result: { lensId: string; preset: CameraPreset } };
+  'camera.start': { params: { lensId: string | null; preset: CameraPreset; audio: boolean; iso: number | null; preview: boolean; front?: CameraFrontParams | null }; result: { lensId: string; preset: CameraPreset; front?: boolean } };
   /** 止める。path (LapTimer/ の下の道。.nmea と同じ所の .mov) があれば、そこへ移す (止まって分かれたものは _2・_3 を付ける) */
-  'camera.stop': { params: { path: string | null }; result: { files: CameraFile[] } };
+  'camera.stop': { params: { path: string | null; frontPath?: string | null }; result: { files: CameraFile[]; frontFiles?: CameraFile[] } };
   /**
    * 撮る前の確かめ: 画面の rect (CSS の座標) に今の映像を出す (show: false で消す)。出している間は camera.exposure が届く。
    * レンズ・画質を変えたら、もう一度呼ぶ
    */
-  'camera.preview': { params: { show: boolean; lensId?: string | null; preset?: CameraPreset; iso?: number | null; rect?: { x: number; y: number; w: number; h: number } }; result: Record<string, never> };
+  'camera.preview': { params: { show: boolean; lensId?: string | null; preset?: CameraPreset; iso?: number | null; rect?: { x: number; y: number; w: number; h: number }; front?: (CameraFrontParams & { rect: { x: number; y: number; w: number; h: number } }) | null }; result: Record<string, never> };
   /** ISO をその場で変える (null は自動) */
-  'camera.setIso': { params: { iso: number | null }; result: Record<string, never> };
+  'camera.setIso': { params: { iso: number | null; which?: 'main' | 'front' }; result: Record<string, never> };
   /**
    * Bluetooth Classic のシリアル (SPP。Android だけ)。OS の機器を選ぶ画面を出し、選んだ機器とペアリングする。
    * namePrefixes を渡すと、その名前で始まる機器だけを出す (空なら全部)
@@ -318,7 +327,7 @@ export interface NativeEvents {
   /** 録画の様子。error: interrupted (裏に回った・電話など。戻ると続きを撮る)・thermal (熱すぎて止めた) */
   'camera.state': { recording: boolean; error?: 'interrupted' | 'thermal'; thermal?: 'nominal' | 'fair' | 'serious' | 'critical' };
   /** 今の ISO とシャッターの速さ (秒)。確かめの映像を出している間、0.3 秒ごと */
-  'camera.exposure': { iso: number; shutterSec: number };
+  'camera.exposure': { iso: number; shutterSec: number; which?: 'main' | 'front' };
   /** Bluetooth Classic のつなぎの様子 (ble.state と同じ形) */
   'spp.state': BleStateEvent;
   /** 受け取ったバイト列 (100 ms ごとにまとめる。t は受け取った時刻 (単調な時計のナノ秒)、b は base64) */

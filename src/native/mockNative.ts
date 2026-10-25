@@ -97,7 +97,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   // ラップタイマーの記録のファイル (名前 → base64 をつないだもの。ふりなので、つなぎ方は気にしない)
   const concatBytes = (a: Uint8Array, b: Uint8Array) => { const out = new Uint8Array(a.length + b.length); out.set(a); out.set(b, a.length); return out; };
   const lapTimerFiles = new Map<string, string>();
-  let mockCamera: { startWallMs: number } | null = null;
+  let mockCamera: { startWallMs: number; front: boolean } | null = null;
   let mockExposure: ReturnType<typeof setInterval> | null = null;
   let mockSpp: ReturnType<typeof setInterval> | null = null;
   /** 保管先 (選んだフォルダ) に写したファイル */
@@ -300,22 +300,26 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         return { camera: 'granted', mic: 'granted' };
       case 'camera.lenses':
         return { lenses: [
-          { id: 'mock-uw', position: 'back', kind: 'ultraWide', zoom: 0.5, isoMin: 32, isoMax: 2304, presets: ['1080p30', '1080p60', '2160p30'] },
-          { id: 'mock-w', position: 'back', kind: 'wide', zoom: 1, isoMin: 32, isoMax: 3072, presets: ['1080p30', '1080p60', '2160p30', '2160p60'] },
-          { id: 'mock-t', position: 'back', kind: 'tele', zoom: 5, isoMin: 32, isoMax: 2304, presets: ['1080p30', '2160p30'] },
-          { id: 'mock-f', position: 'front', kind: 'front', zoom: 1, isoMin: 32, isoMax: 2304, presets: ['1080p30', '1080p60'] }
-        ] };
+          { id: 'mock-uw', position: 'back', kind: 'ultraWide', zoom: 0.5, isoMin: 32, isoMax: 2304, presets: ['1080p30', '1080p60', '2160p30'], multiCamPresets: ['1080p30', '1080p60'] },
+          { id: 'mock-w', position: 'back', kind: 'wide', zoom: 1, isoMin: 32, isoMax: 3072, presets: ['1080p30', '1080p60', '2160p30', '2160p60'], multiCamPresets: ['1080p30', '1080p60'] },
+          { id: 'mock-t', position: 'back', kind: 'tele', zoom: 5, isoMin: 32, isoMax: 2304, presets: ['1080p30', '2160p30'], multiCamPresets: [] },
+          { id: 'mock-f', position: 'front', kind: 'front', zoom: 1, isoMin: 32, isoMax: 2304, presets: ['1080p30', '1080p60'], multiCamPresets: ['1080p30'] }
+        ], multiCam: true };
       case 'camera.start': {
-        const p = req.params as { lensId: string | null; preset: string };
-        mockCamera = { startWallMs: Date.now() };
+        const p = req.params as { lensId: string | null; preset: string; front?: unknown };
+        mockCamera = { startWallMs: Date.now(), front: !!p.front };
         setTimeout(() => emit('camera.state', { recording: true }), 50);
         return { lensId: p.lensId ?? 'mock-w', preset: p.preset };
       }
       case 'camera.preview': {
-        const { show, iso } = req.params as { show: boolean; iso?: number | null };
+        const { show, iso, front } = req.params as { show: boolean; iso?: number | null; front?: { iso: number | null } | null };
         if (mockExposure) clearInterval(mockExposure);
         mockExposure = null;
-        if (show) mockExposure = setInterval(() => emit('camera.exposure', { iso: iso ?? 125, shutterSec: iso ? 1 / Math.round(iso * 2.5) : 1 / 320 }), 300);
+        const ev = (v: number | null | undefined, which: 'main' | 'front') => ({ iso: v ?? (which === 'main' ? 125 : 400), shutterSec: v ? 1 / Math.round(v * 2.5) : which === 'main' ? 1 / 320 : 1 / 60, which });
+        if (show) mockExposure = setInterval(() => {
+          emit('camera.exposure', ev(iso, 'main'));
+          if (front) emit('camera.exposure', ev(front.iso, 'front'));
+        }, 300);
         return {};
       }
       case 'camera.setIso':
@@ -347,12 +351,14 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
       case 'spp.shareLog':
         return {};
       case 'camera.stop': {
-        const { path } = req.params as { path: string | null };
+        const { path, frontPath } = req.params as { path: string | null; frontPath?: string | null };
         const cam = mockCamera;
         mockCamera = null;
         if (!cam) return { files: [] };
         if (path) lapTimerFiles.set(path, '');
-        return { files: [{ path: path ?? 'cam.mov', startWallMs: cam.startWallMs, durationSec: (Date.now() - cam.startWallMs) / 1000, bytes: 0 }] };
+        if (cam.front && frontPath) lapTimerFiles.set(frontPath, '');
+        const file = (p: string) => ({ path: p, startWallMs: cam.startWallMs, durationSec: (Date.now() - cam.startWallMs) / 1000, bytes: 0 });
+        return { files: [file(path ?? 'cam.mov')], frontFiles: cam.front ? [file(frontPath ?? 'cam_front.mov')] : [] };
       }
       case 'system.motionStart':
       case 'system.motionStop':

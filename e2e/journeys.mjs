@@ -297,6 +297,46 @@ export const journeys = [
     }
   },
   {
+    name: 'スマートフォンのアプリ: 内蔵カメラで前も一緒に撮る (映像の窓が 2 つ・メニューと重ならない・_front.mov もできる)',
+    target: 'phone',
+    async run(p) {
+      await p.viewport(390, 844, true);
+      await p.goto(`${APP}?native=mock`);
+      await p.ev(`localStorage.setItem('ds_timer_camera', JSON.stringify({ enabled: true, front: { enabled: false, preset: '1080p30', iso: null } }))`);
+      await p.goto(`${APP}?native=mock&camera=1`);
+      await p.click('nav-timer');
+      await sleep(600);
+      await p.click('lap-timer-menu');
+      await p.click('lap-timer-src-phone');
+      await sleep(300);
+      await p.click('lap-timer-menu');
+      await p.waitFor(`document.querySelector('[data-testid="lap-timer-camera-front-on"]')`, 3000, '前のカメラのチェック');
+      check(!(await p.exists('lap-timer-camera-live-front')), '前を選ぶ前に前の枠がある');
+      await p.click('lap-timer-camera-front-on');
+      await p.waitFor(`document.querySelector('[data-testid="lap-timer-camera-exposure-front"]')`, 3000, '前の ISO・シャッター');
+      const g = await p.ev(`(() => {
+        const r = s => document.querySelector(s).getBoundingClientRect();
+        const wrap = r('[data-testid="lap-timer-camera-live-wrap"]'), menu = document.querySelector('[data-testid="lap-timer-camera"]').closest('.overflow-y-auto').getBoundingClientRect();
+        const a = r('[data-testid="lap-timer-camera-live"]'), b = r('[data-testid="lap-timer-camera-live-front"]');
+        return { gap: wrap.top - menu.bottom, side: b.left >= a.right - 1, tall: a.height > a.width, inView: wrap.bottom <= innerHeight };
+      })()`);
+      check(g.gap >= 0, `映像の窓がメニューと重なる: ${g.gap}`);
+      check(g.side && g.tall && g.inView, `前後の枠の並びがおかしい: ${JSON.stringify(g)}`);
+      check(await p.exists('lap-timer-camera-front'), '前のカメラの設定がない');
+      // 測って止めると、後ろと前の動画ができる
+      await p.click('lap-timer-menu-backdrop');
+      await sleep(300);
+      await p.click('lap-timer-start-stop');
+      await sleep(800);
+      await p.click('lap-timer-start-stop');
+      await p.click('lap-timer-stop-yes');
+      await sleep(1000);
+      const files = await p.ev(`import('/src/native/bridge.ts').then(m => m.callNative('system.listLapFiles', {})).then(r => r.files.map(f => f.path).filter(x => x.endsWith('.mov')))`);
+      check(files.some(f => f.endsWith('_front.mov')) && files.some(f => !f.endsWith('_front.mov')), `動画が揃わない: ${JSON.stringify(files)}`);
+      await p.ev(`localStorage.removeItem('ds_timer_camera')`);
+    }
+  },
+  {
     name: 'ブラウザ版: URL の末尾 #convert で変換が開き、上のタブがある',
     target: 'phone',
     async run(p) {
