@@ -88,6 +88,8 @@ interface VideoSyncWindowProps {
   onSetClockOffset?: (sessionId: string, sec: number) => void;
   // 比較の車 (距離の補正・1 周の長さの伸縮を反映した周)。サブの動画の「走行比較」に使う (LATER-11)
   compareCars?: { slot: SelectedCarSlot; lap: Lap }[];
+  /** 走行を開いている途中 (動画の情報を読んでいる)。動画がまだ無ければ、案内の代わりに「読み込んでいます」を出す */
+  loading?: boolean;
 }
 
 /** 周の点 (周の始めからの時刻) で、時刻 t の距離 (km) を補間で求める */
@@ -340,7 +342,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   onLoadFiles,
   viewKey,
   onSetClockOffset,
-  compareCars
+  compareCars,
+  loading = false
 }) => {
   const t = useT();
   // 動画の一覧と出すカメラは、どのウインドウでも同じにする (videoViewStore に 1 つだけ持つ)。
@@ -1702,6 +1705,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               </div>
             )}
           </>
+        ) : loading ? (
+          // 走行を開いている途中 (動画を探し、情報を読み、同期を戻している)。終わると動画が出る
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 text-sm" data-testid="video-loading">
+            <span className="w-6 h-6 rounded-full border-2 border-slate-500 border-t-transparent animate-spin" />
+            {t('走行の動画を読み込んでいます…', 'Loading the run videos…')}
+          </div>
         ) : (
           // 動画がないときの案内 (グラフ・変換の画面と同じ形)
           <EmptyLoadPrompt

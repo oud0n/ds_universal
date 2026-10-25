@@ -1037,7 +1037,7 @@ export const App: React.FC = () => {
   };
 
   // 過去の走行を開く: ログを読み込み、同じフォルダの動画と同期をそろえる (runOpener.ts)
-  const openRun = async (item: RunItem) => {
+  const openRun = async (item: RunItem, to: 'analysis' | 'video' = 'analysis') => {
     // 続けて押しても 1 回だけ開く
     if (runOpeningRef.current) return;
     // ほかの走行を開いたら、前の走行の取り込み待ちはやめる
@@ -1081,7 +1081,8 @@ export const App: React.FC = () => {
       }
       attachedRunRef.current = runPath;
       setRunsSheetOpen(false);
-      navStore.go('analysis');
+      // 「動画を見る」なら、はじめから動画の画面へ (動画を読み終わるまで「読み込んでいます」を出す)
+      navStore.go(to);
       if (added.length === 0) return;
       const removedIds = new Set<string>();
       // 開いた走行を Car 1 にする (いちばん速い周)。前に開いていた走行が Car 1 のままだと、解析と動画が別の走行になる。
@@ -2280,6 +2281,7 @@ export const App: React.FC = () => {
             viewKey="video-tab"
             onSetClockOffset={setSessionClockOffset}
             compareCars={activeCars}
+            loading={runBusy}
           />
           </Freeze>
         </div>
@@ -2393,7 +2395,7 @@ export const App: React.FC = () => {
             wide={profile.layout === 'wide'}
             onOpen={r => void openRun(r)}
             // 動画を見る: 走行を開いて (動画と同期もそろう)、動画の画面へ
-            onOpenVideo={r => void openRun(r).then(() => navStore.go('video'))}
+            onOpenVideo={r => void openRun(r, 'video').then(() => navStore.go('video'))}
             // 走行がもう開いているときだけ、比べる相手として足せる
             onAddAsCar2={sessions.length > 0 ? (r => void addRunAsCar2(r)) : undefined}
             // 比べられるのは Car 1 と同じコースの走行だけ
