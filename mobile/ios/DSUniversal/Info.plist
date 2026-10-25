@@ -40,6 +40,10 @@
 	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>デジスパイスから走行中の位置と速度を受け取るために Bluetooth を使います。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>ラップタイマーで測っている間、車載動画を撮るために使います (走行ログと同じフォルダに保存します)。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>車載動画にエンジンの音を入れるときに使います (設定で切れます)。</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>ラップタイマーで、デジスパイスを使わずに iPhone の GPS で周を数えるときに、位置を使います。</string>
 	<key>UIFileSharingEnabled</key>

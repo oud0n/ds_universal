@@ -424,6 +424,17 @@ final class SystemModule {
                 if done(file, rel) { r.moved += 1 } else { r.skipped += 1 }
                 continue
             }
+            // 動画 (内蔵カメラで撮ったもの。数 GB になる) は、読み込まずにそのまま移す (書き終えたものしか LapTimer/ に置かない)
+            if ["mov", "mp4"].contains(file.pathExtension.lowercased()) {
+                let outcome = await Task.detached(priority: .utility) { Self.moveCoordinated(file, to: target) }.value
+                switch outcome {
+                case .copied: r.moved += 1
+                case .failed(let message):
+                    r.failed += 1
+                    r.error = message
+                }
+                continue
+            }
             guard let data = try? Data(contentsOf: file) else {
                 r.failed += 1
                 r.error = "could not read \(rel)"
@@ -510,6 +521,29 @@ final class SystemModule {
             files.append((file, rel))
         }
         return files
+    }
+
+    /// 大きなファイルを、選んだフォルダへ移す (iCloud Drive などに、ファイルの手続きを通して)
+    nonisolated private static func moveCoordinated(_ file: URL, to target: URL) -> WriteOutcome {
+        let fm = FileManager()
+        do {
+            try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+        var outcome: WriteOutcome = .failed("could not move \(file.lastPathComponent)")
+        var coordError: NSError?
+        NSFileCoordinator().coordinate(writingItemAt: file, options: .forMoving, writingItemAt: target, options: .forReplacing, error: &coordError) { src, dst in
+            do {
+                if fm.fileExists(atPath: dst.path) { try fm.removeItem(at: dst) }
+                try fm.moveItem(at: src, to: dst)
+                outcome = .copied
+            } catch {
+                outcome = .failed(error.localizedDescription)
+            }
+        }
+        if let coordError { return .failed(coordError.localizedDescription) }
+        return outcome
     }
 
     nonisolated private static func writeCoordinated(_ data: Data, to target: URL) -> WriteOutcome {

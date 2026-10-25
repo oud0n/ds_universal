@@ -13,7 +13,7 @@
  * - バイト列は base64
  *
  * いま入っているのは、デジスパイスとのつなぎ (ペアリング) と、BLE の通知の記録に要る分だけ (caps・ble・recorder・system)。
- * files・camera などは、作るときにここへ足す
+ * files などは、作るときにここへ足す (camera は 2026-10-25 に足した)
  */
 
 export const CONTRACT_VERSION = 1;
@@ -56,7 +56,30 @@ export interface Capabilities {
   deviceKind: DeviceKind;
   /** 使える機能のまとまり。画面はこれで出し分け、端末の種類では分けない */
   /** iap: アプリ内課金 (投げ銭) が使える (2026-10-24 に足した。前の版のアプリには無いので、無いときは使えないとみなす) */
-  features: { ble: boolean; iap?: boolean };
+  /** camera: 内蔵カメラで録画できる (2026-10-25 に足した。前の版のアプリには無い) */
+  features: { ble: boolean; iap?: boolean; camera?: boolean };
+}
+
+/** 内蔵カメラの画質 */
+export type CameraPreset = '1080p30' | '1080p60' | '2160p30' | '2160p60';
+
+/** 内蔵カメラのレンズ (その端末にあるもの)。zoom は広角を 1 とした倍率 (超広角 0.5・望遠 3 など) */
+export interface CameraLens {
+  id: string;
+  position: 'back' | 'front';
+  kind: 'ultraWide' | 'wide' | 'tele' | 'front';
+  zoom: number;
+  isoMin: number;
+  isoMax: number;
+  presets: CameraPreset[];
+}
+
+/** 撮り終えた動画のファイル (止まって分かれたら複数)。startWallMs は先頭のコマの端末の時計 (UTC ミリ秒) */
+export interface CameraFile {
+  path: string;
+  startWallMs: number;
+  durationSec: number;
+  bytes: number;
 }
 
 /** アプリ内課金の商品 (値段はその国の通貨で、App Store が書いたもの) */
@@ -228,6 +251,16 @@ export interface NativeMethods {
   'system.downloadRunFile': { params: { path: string }; result: Record<string, never> };
   /** OS の設定の画面 (このアプリの許可) を開く。一度断られた許可は、OS がもう聞いてくれないため */
   'system.openSettings': { params: Record<string, never>; result: Record<string, never> };
+  /** 内蔵カメラ (とマイク) の許可。request なら、まだ聞いていないものを聞く */
+  'camera.permission': { params: { request: boolean; audio: boolean }; result: { camera: PermissionState; mic: PermissionState } };
+  'camera.lenses': { params: Record<string, never>; result: { lenses: CameraLens[] } };
+  /**
+   * 録画を始める (一時ファイルに書く)。向きは今の画面の向き。iso を決めたら、シャッターの速さで明るさを保つ (null は自動)。
+   * preview なら、撮り始めの 5 秒だけ右上に小さく映す
+   */
+  'camera.start': { params: { lensId: string | null; preset: CameraPreset; audio: boolean; iso: number | null; preview: boolean }; result: { lensId: string; preset: CameraPreset } };
+  /** 止める。path (LapTimer/ の下の道。.nmea と同じ所の .mov) があれば、そこへ移す (止まって分かれたものは _2・_3 を付ける) */
+  'camera.stop': { params: { path: string | null }; result: { files: CameraFile[] } };
 }
 
 // ---- 知らせ ----
@@ -264,6 +297,8 @@ export interface NativeEvents {
   'system.motion': MotionBatch;
   /** 保留だった購入などが、あとで終わった */
   'iap.purchased': { productId: string };
+  /** 録画の様子。error: interrupted (裏に回った・電話など。戻ると続きを撮る)・thermal (熱すぎて止めた) */
+  'camera.state': { recording: boolean; error?: 'interrupted' | 'thermal'; thermal?: 'nominal' | 'fair' | 'serious' | 'critical' };
 }
 
 export interface MotionBatch {

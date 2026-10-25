@@ -9,8 +9,8 @@ import { bleLoggerLink } from '../bleLoggerLink';
 import { LiveLapTimer, type LiveFix, type LiveLapEvent, type LiveLapState } from '../liveLapTimer';
 import { CIRCUIT_PRESETS, findMatchingCircuit } from '../circuitDatabase';
 import { LiveRunRecorder, closeRunFiles } from '../runRecorder';
-import { courseFolder } from '../../utils/courseNames';
-import { callNative, hasNative } from '../../native/bridge';
+import { courseFolder, UNSORTED_FOLDER } from '../../utils/courseNames';
+import { callNative, hasNative, onNative } from '../../native/bridge';
 import { PhoneImuRecorder } from '../phoneImu';
 import { getRunStore } from '../runStore';
 import { LAP_INDEX_FILE, lapKey, parseLapIndex } from '../lapIndex';
@@ -18,6 +18,7 @@ import { getLang } from '../../utils/i18n';
 import { setPositionSource, type PositionSource } from '../positionSource';
 import { digspiceFeed, distanceKm, phoneFeed, replayFeed, type PhoneInfo, type StopFeed } from './positionFeeds';
 import { LapDeviceSet, type LapDeviceStatus } from './lapDeviceSet';
+import { PhoneCameraRecorder, type CameraStatus } from './phoneCamera';
 import type { CircuitPreset, TelemetryPoint } from '../../types/telemetry';
 
 export type TimerSource = PositionSource | 'replay';
@@ -92,6 +93,8 @@ export interface TimerSnapshot {
   devices: LapDeviceStatus[];
   /** 周をはじめから数え直した回数 (画面が、出した経過の覚えを捨てるため) */
   epoch: number;
+  /** 内蔵カメラの録画の様子 */
+  camera: CameraStatus;
 }
 
 export interface TimerRuntimeDeps {
@@ -119,6 +122,8 @@ export class TimerRuntime {
   private onHide = () => { if (document.visibilityState === 'hidden') void this.sync(); };
   private running = false;
   private pastBestToken = 0;
+  readonly camera: PhoneCameraRecorder;
+  private offCamera: (() => void) | null = null;
 
   constructor(private readonly deps: TimerRuntimeDeps, initialSource: TimerSource) {
     const firstReplay = deps.replayLogs()[0]?.id ?? '';
@@ -126,8 +131,9 @@ export class TimerRuntime {
       source: initialSource, replayId: firstReplay, replaySpeed: 4, course: null, lap: null,
       lastPos: null, lastFixPerf: 0, flash: null, voice: true, measuring: false,
       savedRun: null, saveError: null, syncNote: null, phoneInfo: { accuracy: null, error: null },
-      pastBest: null, devices: [], epoch: 0
+      pastBest: null, devices: [], epoch: 0, camera: { recording: false, error: null }
     };
+    this.camera = new PhoneCameraRecorder(st => this.set({ camera: st }));
     this.imu = new PhoneImuRecorder(() => this.recorder?.current?.fileBase ?? null);
     this.devices = new LapDeviceSet({ onFix: f => this.handleFix(f), runBase: () => this.recorder?.current?.fileBase ?? null });
     this.devices.subscribe(() => this.set({ devices: this.devices.getSnapshot() }));
@@ -175,6 +181,7 @@ export class TimerRuntime {
     this.intervals.push(setInterval(() => { void this.flush(); }, SAVE_INTERVAL_MS));
     document.addEventListener('visibilitychange', this.onHide);
     window.addEventListener('pagehide', this.onHide);
+    if (hasNative()) this.offCamera = onNative('camera.state', e => this.camera.noteState(e.recording, e.error));
   }
 
   dispose(): void {
@@ -184,6 +191,10 @@ export class TimerRuntime {
     this.intervals = [];
     document.removeEventListener('visibilitychange', this.onHide);
     window.removeEventListener('pagehide', this.onHide);
+    this.offCamera?.();
+    this.offCamera = null;
+    // 画面を閉じたら録画も止める (測っていた走行の .mov として置く)
+    void this.camera.stop(this.recorder?.filesBase ?? null, this.cameraFolder());
     this.endFeed();
     void this.imu.stop();
     void this.devices.disconnect();
@@ -320,7 +331,14 @@ export class TimerRuntime {
   // ---- 測位 ----
 
   /** 測位を 1 つ受け取る (出どころによらず同じ) */
+  /** 動画を置く未分類のフォルダ (測位が無かったときだけ使う) */
+  private cameraFolder(): string {
+    const c = this.snap.course;
+    return c ? courseFolder(c.name) || UNSORTED_FOLDER : UNSORTED_FOLDER;
+  }
+
   handleFix(fix: LiveFix): void {
+    if (fix.valid && this.snap.source !== 'replay') this.camera.noteFix(fix.tMs);
     if (!fix.valid) return;
     this.snap = { ...this.snap, lastPos: fix, lastFixPerf: performance.now() };
     this.fixes.push(fix);
@@ -386,6 +404,8 @@ export class TimerRuntime {
     this.devices.startRun(new Date());
     // G センサーを読み始める (今の傾きを基準にするので、止まっているうちに押すのがよい)
     void this.imu.start();
+    // 内蔵カメラで録画を始める (設定でオンのとき。読み込んだログの再生で試すときは撮らない)
+    if (this.snap.source !== 'replay') void this.camera.start();
     this.chooseCourse(this.snap.course);
   }
 
@@ -402,6 +422,8 @@ export class TimerRuntime {
     const st = this.timer?.getState();
     await rec?.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true);
     if (rec) this.set({ savedRun: { laps: st?.laps.length ?? 0, best: st?.best?.timeSec ?? null } });
+    // 録画を止めて、.nmea と同じ所に .mov を置く (選んだフォルダへ写す前に)
+    await this.camera.stop(rec?.filesBase ?? null, this.cameraFolder());
     await sensors;
     // 書き終えたので、選んだフォルダへ移す (アプリの中に控えを残さない)
     await closeRunFiles(rec?.filesBase);
@@ -416,7 +438,11 @@ export class TimerRuntime {
     const rec = this.recorder;
     this.recorder = null;
     const st = this.timer?.getState();
+    const measuring = this.snap.measuring;
     void (rec ? rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true) : Promise.resolve())
+      // 測っている途中なら、録画もそこで区切り、新しい走行として撮り始める
+      .then(() => this.camera.stop(rec?.filesBase ?? null, this.cameraFolder()))
+      .then(() => { if (measuring && this.snap.measuring && this.snap.source !== 'replay') void this.camera.start(); })
       .then(() => sensors).then(() => closeRunFiles(rec?.filesBase)).then(() => this.sync());
     this.fixes = [];
     this.set({ lastPos: null, epoch: this.snap.epoch + 1 });

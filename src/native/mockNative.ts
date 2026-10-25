@@ -97,6 +97,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   // ラップタイマーの記録のファイル (名前 → base64 をつないだもの。ふりなので、つなぎ方は気にしない)
   const concatBytes = (a: Uint8Array, b: Uint8Array) => { const out = new Uint8Array(a.length + b.length); out.set(a); out.set(b, a.length); return out; };
   const lapTimerFiles = new Map<string, string>();
+  let mockCamera: { startWallMs: number } | null = null;
   /** 保管先 (選んだフォルダ) に写したファイル */
   const syncedFiles = new Map<string, string>();
   /** 書いている最中のファイル (system.closeFiles で閉じるまで) */
@@ -175,7 +176,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   const handle = (req: NativeRequest): unknown => {
     switch (req.method) {
       case 'caps.get':
-        return { contractVersion: CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, iap: true } };
+        return { contractVersion: CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, iap: true, camera: true } };
       // アプリ内課金の模擬 (値段は日本円の例。買うとすぐ買えたことにする)
       case 'iap.products': {
         const { ids } = req.params as { ids: string[] };
@@ -292,6 +293,30 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         return {};
       case 'system.keepAwake':
         return {};
+      // 内蔵カメラのふり (撮った動画は中身のない小さなファイルにする)
+      case 'camera.permission':
+        return { camera: 'granted', mic: 'granted' };
+      case 'camera.lenses':
+        return { lenses: [
+          { id: 'mock-uw', position: 'back', kind: 'ultraWide', zoom: 0.5, isoMin: 32, isoMax: 2304, presets: ['1080p30', '1080p60', '2160p30'] },
+          { id: 'mock-w', position: 'back', kind: 'wide', zoom: 1, isoMin: 32, isoMax: 3072, presets: ['1080p30', '1080p60', '2160p30', '2160p60'] },
+          { id: 'mock-t', position: 'back', kind: 'tele', zoom: 5, isoMin: 32, isoMax: 2304, presets: ['1080p30', '2160p30'] },
+          { id: 'mock-f', position: 'front', kind: 'front', zoom: 1, isoMin: 32, isoMax: 2304, presets: ['1080p30', '1080p60'] }
+        ] };
+      case 'camera.start': {
+        const p = req.params as { lensId: string | null; preset: string };
+        mockCamera = { startWallMs: Date.now() };
+        setTimeout(() => emit('camera.state', { recording: true }), 50);
+        return { lensId: p.lensId ?? 'mock-w', preset: p.preset };
+      }
+      case 'camera.stop': {
+        const { path } = req.params as { path: string | null };
+        const cam = mockCamera;
+        mockCamera = null;
+        if (!cam) return { files: [] };
+        if (path) lapTimerFiles.set(path, '');
+        return { files: [{ path: path ?? 'cam.mov', startWallMs: cam.startWallMs, durationSec: (Date.now() - cam.startWallMs) / 1000, bytes: 0 }] };
+      }
       case 'system.motionStart':
       case 'system.motionStop':
         return {};

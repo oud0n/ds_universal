@@ -5,6 +5,7 @@ import { formatDelta, formatLapTime } from '../services/liveLapTimer';
 import { CIRCUIT_PRESETS, userCircuitPresets } from '../services/circuitDatabase';
 import { triggerFileDownload } from '../services/nmeaExporter';
 import { downloadBlob } from '../services/telemetryVideoExporter';
+import { TimerCameraSettings } from './TimerCameraSettings';
 import { LapHistoryPanel } from './LapHistoryPanel';
 import { deleteRun, listRuns, loadFixes, type RunMeta } from '../services/liveRunStore';
 import { fixesToBon4, fixesToNmea, runFileBase } from '../services/runFiles';
@@ -339,6 +340,16 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
             {t('画面が消えます: 設定の自動ロックを「なし」に', 'Screen may sleep: set Auto-Lock to Never')}
           </span>
         )}
+        {/* 内蔵カメラの録画中の印 (止まったときは理由) */}
+        {(snap.camera.recording || snap.camera.error) && (
+          <span className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-bold ${snap.camera.recording ? 'bg-red-600 text-white' : 'bg-amber-500/20 text-amber-400'}`} data-testid="lap-timer-camera-rec">
+            {snap.camera.recording ? <><span className="w-2 h-2 rounded-full bg-white animate-pulse" />REC</>
+              : snap.camera.error === 'thermal' ? t('熱で録画停止', 'Rec stopped (heat)')
+              : snap.camera.error === 'interrupted' ? t('録画が中断', 'Rec paused')
+              : snap.camera.error === 'permission' ? t('カメラの許可なし', 'No camera access')
+              : t('録画できません', 'Cannot record')}
+          </span>
+        )}
         <button onClick={() => setVoice(v => !v)} className={`p-2 rounded-full border border-line-3 shrink-0 ${wakeLockOk === false ? '' : 'ml-auto'}`} aria-label={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')} title={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')}>
           {voice ? <Volume2 size={18} /> : <VolumeX size={18} className="text-slate-400" />}
         </button>
@@ -539,6 +550,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               </div>
             </div>
           )}
+          <TimerCameraSettings />
           <div data-testid="lap-timer-runs">
             <div className="text-slate-400 text-xs mb-1">{t('走行の記録 (走っている間に 2 秒ごとに保存)', 'Runs (saved every 2 s while driving)')}</div>
             {saveError && <div className="text-amber-500 text-[11px] mb-1">{t(`保存でエラー: ${saveError}`, `Save error: ${saveError}`)}</div>}

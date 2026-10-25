@@ -70,7 +70,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
                 "contractVersion": Self.contractVersion,
                 "platform": "ios",
                 "deviceKind": DeviceKind.current,
-                "features": ["ble": true, "iap": true]
+                "features": ["ble": true, "iap": true, "camera": true]
             ]))
         case let m where m.hasPrefix("ble.") || m.hasPrefix("recorder."):
             core.ble.handle(method: m, params: params, done: done)
@@ -78,6 +78,8 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
             core.system.handle(method: m, params: params, done: done)
         case let m where m.hasPrefix("iap."):
             core.iap.handle(method: m, params: params, done: done)
+        case let m where m.hasPrefix("camera."):
+            core.camera.handle(method: m, params: params, done: done)
         default:
             done(.failure(NativeError(.notSupported, "unknown method \(method)")))
         }
