@@ -47,7 +47,9 @@ export const TimerCameraSettings: React.FC = () => {
       const r = box?.getBoundingClientRect();
       if (!box || !r || !alive || !allowed) return;
       // メニューを動かして枠が少しでも隠れたら、映像は消す (アプリが画面の上に重ねるので、メニューの外にはみ出すため)
-      const clip = box.closest('.overflow-y-auto')?.getBoundingClientRect();
+      // 横向きのスマートフォンでは、枠はメニューの外 (画面の左) に固定して出すので、隠れることはない
+      const fixed = !!box.parentElement && getComputedStyle(box.parentElement).position === 'fixed';
+      const clip = fixed ? null : box.closest('.overflow-y-auto')?.getBoundingClientRect();
       const inside = !clip || (r.top >= clip.top - 1 && r.bottom <= clip.bottom + 1);
       const cur = loadCameraSettings();
       void callNative('camera.preview', { show: true, lensId: cur.lensId, preset: cur.preset, iso: cur.iso, rect: inside ? { x: r.left, y: r.top, w: r.width, h: r.height } : { x: 0, y: 0, w: 0, h: 0 } })
@@ -112,14 +114,17 @@ export const TimerCameraSettings: React.FC = () => {
       {s.enabled && (
         <div className="mt-2 space-y-2 pl-1">
           {/* 今の映像 (アプリが枠の上に重ねて出す)。ここで ISO を変えると、その場で映像に出る */}
-          <div ref={boxRef} className="w-full aspect-video rounded-lg bg-black/60 border border-line-3 flex items-center justify-center text-[11px] text-slate-500" data-testid="lap-timer-camera-live">
-            {liveError === 'permission' ? t('カメラの許可がありません (設定アプリで許可してください)', 'No camera access (allow it in Settings)') : liveError ? t('映像を出せません', 'Cannot show the camera') : t('カメラの映像', 'Camera view')}
-          </div>
-          {exposure && (
-            <div className="text-[11px] text-slate-400 font-mono" data-testid="lap-timer-camera-exposure">
-              ISO {Math.round(exposure.iso)} ・ {t('シャッター', 'Shutter')} {shutter(exposure.shutterSec)} {t('秒', 's')}
+          {/* 横向きのスマートフォンは高さが足りず、ISO のボタンまで動かすと枠が隠れるので、映像と ISO・シャッターの速さは画面の左の空いた所に固定して出す */}
+          <div className="space-y-1 [@media(orientation:landscape)_and_(max-height:500px)]:fixed [@media(orientation:landscape)_and_(max-height:500px)]:left-[max(0.75rem,calc(env(safe-area-inset-left)+0.5rem))] [@media(orientation:landscape)_and_(max-height:500px)]:top-16 [@media(orientation:landscape)_and_(max-height:500px)]:w-[min(42vw,calc(100vw-400px-env(safe-area-inset-left)))] [@media(orientation:landscape)_and_(max-height:500px)]:z-20 [@media(orientation:landscape)_and_(max-height:500px)]:bg-surface-1/95 [@media(orientation:landscape)_and_(max-height:500px)]:p-1.5 [@media(orientation:landscape)_and_(max-height:500px)]:rounded-xl [@media(orientation:landscape)_and_(max-height:500px)]:shadow-2xl" data-testid="lap-timer-camera-live-wrap">
+            <div ref={boxRef} className="w-full aspect-video rounded-lg bg-black/60 border border-line-3 flex items-center justify-center text-[11px] text-slate-500 [@media(orientation:landscape)_and_(max-height:500px)]:bg-black" data-testid="lap-timer-camera-live">
+              {liveError === 'permission' ? t('カメラの許可がありません (設定アプリで許可してください)', 'No camera access (allow it in Settings)') : liveError ? t('映像を出せません', 'Cannot show the camera') : t('カメラの映像', 'Camera view')}
             </div>
-          )}
+            {exposure && (
+              <div className="text-[11px] text-slate-400 font-mono" data-testid="lap-timer-camera-exposure">
+                ISO {Math.round(exposure.iso)} ・ {t('シャッター', 'Shutter')} {shutter(exposure.shutterSec)} {t('秒', 's')}
+              </div>
+            )}
+          </div>
           {lenses.length > 0 && (
             <div>
               <div className="text-[11px] text-slate-500 mb-1">{t('レンズ', 'Lens')}</div>
