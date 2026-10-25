@@ -5,6 +5,17 @@ import type { CameraLens, CameraPreset } from '../native/contract';
 import { callNative, onNative } from '../native/bridge';
 import { cameraAvailable, isoChoices, listLenses, loadCameraSettings, saveCameraSettings, type CameraSettings } from '../services/timer/phoneCamera';
 
+// クラスの名前は、Tailwind が見つけられるよう組み立てずにそのまま書く
+// 横向きのスマートフォン: 画面の左に固定
+const LAND = '[@media(orientation:landscape)_and_(max-height:500px)]:bg-black';
+const LAND_WRAP = '[@media(orientation:landscape)_and_(max-height:500px)]:fixed [@media(orientation:landscape)_and_(max-height:500px)]:left-[max(0.75rem,calc(env(safe-area-inset-left)+0.5rem))] [@media(orientation:landscape)_and_(max-height:500px)]:top-16 [@media(orientation:landscape)_and_(max-height:500px)]:w-[min(42vw,calc(100vw-400px-env(safe-area-inset-left)))] [@media(orientation:landscape)_and_(max-height:500px)]:z-20 [@media(orientation:landscape)_and_(max-height:500px)]:bg-surface-1/95 [@media(orientation:landscape)_and_(max-height:500px)]:p-1.5 [@media(orientation:landscape)_and_(max-height:500px)]:rounded-xl [@media(orientation:landscape)_and_(max-height:500px)]:shadow-2xl';
+// 縦のスマートフォン: メニューの下 (右下) に縦長の窓。幅は min(36vw,170px)、高さはその 16/9
+const PORT_WRAP = '[@media(orientation:portrait)_and_(max-width:500px)]:fixed [@media(orientation:portrait)_and_(max-width:500px)]:right-2 [@media(orientation:portrait)_and_(max-width:500px)]:bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] [@media(orientation:portrait)_and_(max-width:500px)]:w-[min(36vw,170px)] [@media(orientation:portrait)_and_(max-width:500px)]:z-20 [@media(orientation:portrait)_and_(max-width:500px)]:bg-surface-1/95 [@media(orientation:portrait)_and_(max-width:500px)]:p-1.5 [@media(orientation:portrait)_and_(max-width:500px)]:rounded-xl [@media(orientation:portrait)_and_(max-width:500px)]:shadow-2xl [@media(orientation:portrait)_and_(max-width:500px)]:border [@media(orientation:portrait)_and_(max-width:500px)]:border-line-2';
+const PORT_BOX = '[@media(orientation:portrait)_and_(max-width:500px)]:aspect-[9/16] [@media(orientation:portrait)_and_(max-width:500px)]:bg-black';
+const PORT_HIDE = '[@media(orientation:portrait)_and_(max-width:500px)]:hidden';
+/** 縦のスマートフォンで、カメラの窓が出ている間のメニューの高さ (窓と重ならないように) */
+export const CAMERA_FLOAT_MENU = '[@media(orientation:portrait)_and_(max-width:500px)]:has-[[data-camera-float]]:max-h-[calc(100svh-3.5rem-min(64vw,302px)-4.5rem-env(safe-area-inset-bottom))]';
+
 const PRESET_LABEL: Record<CameraPreset, string> = { '1080p30': '1080p · 30fps', '1080p60': '1080p · 60fps', '2160p30': '4K · 30fps', '2160p60': '4K · 60fps' };
 
 /**
@@ -114,14 +125,15 @@ export const TimerCameraSettings: React.FC = () => {
       {s.enabled && (
         <div className="mt-2 space-y-2 pl-1">
           {/* 今の映像 (アプリが枠の上に重ねて出す)。ここで ISO を変えると、その場で映像に出る */}
-          {/* 横向きのスマートフォンは高さが足りず、ISO のボタンまで動かすと枠が隠れるので、映像と ISO・シャッターの速さは画面の左の空いた所に固定して出す */}
-          <div className="space-y-1 [@media(orientation:landscape)_and_(max-height:500px)]:fixed [@media(orientation:landscape)_and_(max-height:500px)]:left-[max(0.75rem,calc(env(safe-area-inset-left)+0.5rem))] [@media(orientation:landscape)_and_(max-height:500px)]:top-16 [@media(orientation:landscape)_and_(max-height:500px)]:w-[min(42vw,calc(100vw-400px-env(safe-area-inset-left)))] [@media(orientation:landscape)_and_(max-height:500px)]:z-20 [@media(orientation:landscape)_and_(max-height:500px)]:bg-surface-1/95 [@media(orientation:landscape)_and_(max-height:500px)]:p-1.5 [@media(orientation:landscape)_and_(max-height:500px)]:rounded-xl [@media(orientation:landscape)_and_(max-height:500px)]:shadow-2xl" data-testid="lap-timer-camera-live-wrap">
-            <div ref={boxRef} className="w-full aspect-video rounded-lg bg-black/60 border border-line-3 flex items-center justify-center text-[11px] text-slate-500 [@media(orientation:landscape)_and_(max-height:500px)]:bg-black" data-testid="lap-timer-camera-live">
+          {/* 横向きのスマートフォンは高さが足りず、ISO のボタンまで動かすと枠が隠れるので、映像と ISO・シャッターの速さは画面の左の空いた所に固定して出す。
+              縦のスマートフォンは、メニューの下に縦長の窓で出す (メニューはその分短くする。LapTimerScreen の CAMERA_FLOAT_MENU) */}
+          <div className={`space-y-1 ${LAND_WRAP} ${PORT_WRAP}`} data-camera-float="" data-testid="lap-timer-camera-live-wrap">
+            <div ref={boxRef} className={`w-full aspect-video rounded-lg bg-black/60 border border-line-3 flex items-center justify-center text-center text-[11px] text-slate-500 ${LAND} ${PORT_BOX}`} data-testid="lap-timer-camera-live">
               {liveError === 'permission' ? t('カメラの許可がありません (設定アプリで許可してください)', 'No camera access (allow it in Settings)') : liveError ? t('映像を出せません', 'Cannot show the camera') : t('カメラの映像', 'Camera view')}
             </div>
             {exposure && (
               <div className="text-[11px] text-slate-400 font-mono" data-testid="lap-timer-camera-exposure">
-                ISO {Math.round(exposure.iso)} ・ {t('シャッター', 'Shutter')} {shutter(exposure.shutterSec)} {t('秒', 's')}
+                ISO {Math.round(exposure.iso)} ・ <span className={PORT_HIDE}>{t('シャッター', 'Shutter')} </span> {shutter(exposure.shutterSec)}<span className={PORT_HIDE}> {t('秒', 's')}</span>
               </div>
             )}
           </div>

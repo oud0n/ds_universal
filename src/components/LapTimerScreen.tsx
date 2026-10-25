@@ -5,7 +5,7 @@ import { formatDelta, formatLapTime } from '../services/liveLapTimer';
 import { CIRCUIT_PRESETS, userCircuitPresets } from '../services/circuitDatabase';
 import { triggerFileDownload } from '../services/nmeaExporter';
 import { downloadBlob } from '../services/telemetryVideoExporter';
-import { TimerCameraSettings } from './TimerCameraSettings';
+import { CAMERA_FLOAT_MENU, TimerCameraSettings } from './TimerCameraSettings';
 import { LapHistoryPanel } from './LapHistoryPanel';
 import { deleteRun, listRuns, loadFixes, type RunMeta } from '../services/liveRunStore';
 import { fixesToBon4, fixesToNmea, runFileBase } from '../services/runFiles';
@@ -512,7 +512,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       {/* メニューの外を押したら閉じる (透明な受け皿をメニューの後ろに敷く) */}
       {menuOpen && <div className="absolute inset-0 z-[9]" onClick={() => setMenuOpen(false)} aria-hidden="true" data-testid="lap-timer-menu-backdrop" />}
       {menuOpen && (
-        <div className="absolute right-2 top-14 z-10 w-[min(92vw,360px)] max-h-[80vh] overflow-y-auto rounded-2xl bg-surface-1 border border-line-2 p-3 space-y-3 text-sm shadow-2xl">
+        <div className={`absolute right-2 top-14 z-10 w-[min(92vw,360px)] max-h-[80vh] ${CAMERA_FLOAT_MENU} overflow-y-auto rounded-2xl bg-surface-1 border border-line-2 p-3 space-y-3 text-sm shadow-2xl`}>
           <div>
             <div className="text-slate-400 text-xs mb-1">{t('測位の出どころ', 'Position source')}</div>
             <div className="grid grid-cols-1 gap-1">
