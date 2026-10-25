@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Save, Upload } from 'lucide-react';
 import { useT } from '../utils/i18n';
 
@@ -15,6 +15,8 @@ export const SessionSaveBar: React.FC<{
 }> = ({ defaultName, onSave, onImport, canSave = true }) => {
   const t = useT();
   const fileRef = useRef<HTMLInputElement>(null);
+  // Car の割り当てが変わったら (名前の候補が変わる)、前の知らせは消す
+  useEffect(() => { setNote(null); }, [defaultName]);
   const importFile = async (file: File) => {
     setNote(null);
     const error = await onImport!(file).catch(e => (e instanceof Error ? e.message : String(e)));

@@ -77,9 +77,11 @@ export const VideoLapMarker: React.FC<{
   const [saving, setSaving] = useState(false);
   const laps = useMemo(() => lapsFromMarks(marks), [marks]);
   // 保存していない印があれば、閉じる前に確かめる (打ち直すのは手間なので)
-  const initial = useRef(JSON.stringify(videoLapsOf(existing?.row)?.marks ?? []));
+  const snapshot = () => JSON.stringify({ marks, name: name.trim(), driver: driver.trim(), car: car.trim() });
+  const initial = useRef<string | null>(null);
+  initial.current ??= snapshot();
   const close = () => {
-    if (JSON.stringify(marks) !== initial.current && !window.confirm(t('保存していない印があります。閉じますか？', 'You have unsaved marks. Close anyway?'))) return;
+    if (snapshot() !== initial.current && !window.confirm(t('保存していない変更 (印・名前など) があります。閉じますか？', 'You have unsaved changes (marks, name…). Close anyway?'))) return;
     onClose();
   };
   const best = laps.length ? Math.min(...laps.map(l => l.time)) : null;
@@ -88,6 +90,10 @@ export const VideoLapMarker: React.FC<{
     const v = video.current;
     if (!v) return;
     const tNow = Math.round(v.currentTime * 1000) / 1000;
+    // 計測線の続けての押し間違い (3 秒以内に 2 つ) は打たない。打つと次の周のタイムが黙って変わるため
+    const near = marks.find(x => x.kind === 'line' && kind === 'line' && Math.abs(x.t - tNow) < 3 && Math.abs(x.t - tNow) >= 0.05);
+    if (near) { setError(t(`計測線の印が近すぎます (${formatLapTime(near.t)} から 3 秒以内)。打ち直すときは、前の印を消してから`, `Too close to the timing-line mark at ${formatLapTime(near.t)} (within 3 s). Delete that mark first to redo it.`)); return; }
+    setError(null);
     // 同じ所に 2 回打たない
     setMarks(m => (m.some(x => Math.abs(x.t - tNow) < 0.05) ? m : [...m, { t: tNow, kind }].sort((a, b) => a.t - b.t)));
   };
@@ -101,14 +107,15 @@ export const VideoLapMarker: React.FC<{
       // 入力欄では何もしない。ボタンにいるときの Enter・空白は、そのボタンを押す (印を打たない)
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
       if (e.target instanceof HTMLButtonElement && (e.key === 'Enter' || e.key === ' ')) return;
-      if (e.key === 'l' || e.key === 'L' || e.key === 'Enter') { e.preventDefault(); add('line'); }
-      else if (e.key === 's' || e.key === 'S') { e.preventDefault(); add('sector'); }
-      else if (e.key === ' ') { e.preventDefault(); toggle(); }
-      else if (e.key === 'ArrowLeft') { e.preventDefault(); step(e.shiftKey ? -1 : -FRAME); }
-      else if (e.key === 'ArrowRight') { e.preventDefault(); step(e.shiftKey ? 1 : FRAME); }
+      if (e.key === 'l' || e.key === 'L' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); add('line'); }
+      else if (e.key === 's' || e.key === 'S') { e.preventDefault(); e.stopPropagation(); add('sector'); }
+      else if (e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggle(); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); step(e.shiftKey ? -1 : -FRAME); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); step(e.shiftKey ? 1 : FRAME); }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // 動画の操作部品 (controls) が矢印・空白を先に取らないよう、捕まえる段階で受ける
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   });
 
   const save = async () => {
@@ -130,6 +137,8 @@ export const VideoLapMarker: React.FC<{
       <div className="p-3 grid gap-3 lg:grid-cols-[1fr_280px]">
         <div className="space-y-2 min-w-0">
           <video ref={video} src={store.videoUrl(path)} controls playsInline preload="auto" className="w-full max-h-[55dvh] bg-black rounded-lg"
+            // 印を直すときは、最初の印から
+            onLoadedMetadata={e => { const first = marks[0]; if (first && e.currentTarget.currentTime === 0) e.currentTarget.currentTime = first.t; }}
             onTimeUpdate={e => setNow(e.currentTarget.currentTime)} onSeeked={e => setNow(e.currentTarget.currentTime)}
             onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} data-testid="video-lap-marker-video" />
           <div className="flex flex-wrap items-center gap-1.5">
@@ -161,7 +170,7 @@ export const VideoLapMarker: React.FC<{
           <div className="font-bold text-slate-300">{t(`周 ${laps.length}`, `Laps ${laps.length}`)}</div>
           <div className="space-y-0.5" data-testid="video-lap-laps">
             {laps.map(l => (
-              <button key={l.n} onClick={() => seek(l.start)} className="w-full flex gap-2 px-2 py-1 rounded hover:bg-surface-3 cursor-pointer text-left">
+              <button key={l.n} onClick={() => seek(l.start)} className="w-full flex gap-2 px-2 py-1.5 rounded hover:bg-surface-3 cursor-pointer text-left">
                 <span className="text-slate-500 w-8">L{l.n}</span>
                 <span className={`font-mono ${l.time === best ? 'text-purple-400 font-bold' : 'text-slate-200'}`}>{formatLapTime(l.time)}</span>
                 {l.sectors.length > 0 && <span className="text-slate-500 truncate">{l.sectors.map(s => s.toFixed(2)).join(' / ')}</span>}
@@ -172,11 +181,11 @@ export const VideoLapMarker: React.FC<{
           <div className="space-y-0.5 max-h-40 overflow-y-auto" data-testid="video-lap-marks">
             {marks.map((m, i) => (
               <div key={`${m.t}-${i}`} className="flex items-center gap-2">
-                <button onClick={() => seek(m.t)} className="flex-1 text-left px-2 py-0.5 rounded hover:bg-surface-3 cursor-pointer">
+                <button onClick={() => seek(m.t)} className="flex-1 text-left px-2 py-1.5 rounded hover:bg-surface-3 cursor-pointer">
                   <span className={m.kind === 'line' ? 'text-red-400' : 'text-amber-400'}>{m.kind === 'line' ? t('計測線', 'Line') : t('セクター', 'Sector')}</span>
                   <span className="font-mono text-slate-400 ml-2">{formatLapTime(m.t)}</span>
                 </button>
-                <button onClick={() => setMarks(ms => ms.filter((_, k) => k !== i))} className="p-1 text-slate-500 hover:text-red-400 cursor-pointer" aria-label={t('消す', 'Delete')}><X size={12} /></button>
+                <button onClick={() => setMarks(ms => ms.filter((_, k) => k !== i))} className="p-2 text-slate-500 hover:text-red-400 cursor-pointer" aria-label={t('消す', 'Delete')}><X size={14} /></button>
               </div>
             ))}
           </div>
@@ -214,7 +223,9 @@ export const VideoLapCompare: React.FC<{ store: RunStore; videoRef: VideoRef; ru
         if (v) out.push({ run: r, n: l.n, ...(l.part ? { part: l.part } : {}), time: l.time, sectors: l.sectors, startMs: l.startMs, video: { path: v.path, sec: v.sec } });
       }
     }
-    return out.sort((a, b) => a.time - b.time);
+    out.sort((a, b) => a.time - b.time);
+    // ピットに入った周・出た周など、とても遅い周は出さない (いちばん速い周の 1.3 倍まで)
+    return out.filter(o => o.time <= out[0].time * 1.3);
   }, [runs, videoRef.folder]);
   const [ownIdx, setOwnIdx] = useState(0);
   const refLap = refLaps.find(l => l.n === refN) ?? refLaps[0];
@@ -233,24 +244,37 @@ export const VideoLapCompare: React.FC<{ store: RunStore; videoRef: VideoRef; ru
     if (ownVideo.current && own) ownVideo.current.currentTime = own.video.sec + Math.min(s, own.time);
   };
   // 周を替えたら、始まりへ
-  useEffect(() => { refVideo.current?.pause(); ownVideo.current?.pause(); setPlaying(false); const id = setTimeout(() => seekBoth(0), 50); return () => clearTimeout(id); }, [refN, ownIdx]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { refVideo.current?.pause(); ownVideo.current?.pause(); setPlaying(false); clock.current = null; const id = setTimeout(() => seekBoth(0), 50); return () => clearTimeout(id); }, [refN, ownIdx]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 再生中: 参考ラップの動画を基準に、自分の動画をそろえる (ずれが 0.15 秒を超えたら合わせ直す)
+  // 再生中: 時計で周の中の位置を進め、2 つの動画をそれぞれの周の中でそろえる (止まっていれば再生し、ずれが 0.15 秒を超えたら合わせ直す)。
+  // 周の短いほうは、その周の終わりで止める (次の周の映像を出さない)
+  const clock = useRef<{ tau0: number; t0: number } | null>(null);
   useEffect(() => {
     if (!playing) return;
     let raf = 0;
-    const tick = () => {
-      const rv = refVideo.current, ov = ownVideo.current;
-      if (rv && refLap) {
-        const s = rv.currentTime - refLap.start;
-        setTau(s);
-        if (ov && own) {
-          const want = own.video.sec + Math.min(s, own.time);
-          if (s >= own.time) ov.pause();
-          else if (Math.abs(ov.currentTime - want) > 0.15) ov.currentTime = want;
-        }
-        if (s >= span) { rv.pause(); ov?.pause(); setPlaying(false); return; }
+    const follow = (v: HTMLVideoElement | null, start: number, time: number, s: number) => {
+      if (!v) return;
+      if (s < time) {
+        const want = start + s;
+        if (Math.abs(v.currentTime - want) > 0.15) v.currentTime = want;
+        if (v.paused) void v.play().catch(() => undefined);
+      } else if (!v.paused) {
+        v.pause();
+        v.currentTime = start + time;
       }
+    };
+    const tick = () => {
+      const c = clock.current;
+      if (!c) return;
+      const s = c.tau0 + (performance.now() - c.t0) / 1000;
+      if (s >= span) {
+        refVideo.current?.pause(); ownVideo.current?.pause();
+        setTau(span); setPlaying(false); clock.current = null;
+        return;
+      }
+      setTau(s);
+      if (refLap) follow(refVideo.current, refLap.start, refLap.time, s);
+      if (own) follow(ownVideo.current, own.video.sec, own.time, s);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -258,16 +282,20 @@ export const VideoLapCompare: React.FC<{ store: RunStore; videoRef: VideoRef; ru
   }, [playing, refLap, own, span]);
 
   const toggle = () => {
-    if (playing) { refVideo.current?.pause(); ownVideo.current?.pause(); setPlaying(false); return; }
-    if (tau >= span) seekBoth(0);
-    void refVideo.current?.play();
-    if (own && tau < own.time) void ownVideo.current?.play();
+    if (playing) { refVideo.current?.pause(); ownVideo.current?.pause(); setPlaying(false); clock.current = null; return; }
+    const from = tau >= span ? 0 : Math.max(0, tau);
+    seekBoth(from);
+    clock.current = { tau0: from, t0: performance.now() };
     setPlaying(true);
   };
 
   const diff = (a: number, b: number) => { const d = b - a; return `${d > 0 ? '+' : d < 0 ? '−' : '±'}${Math.abs(d).toFixed(3)}`; };
   const sameSectors = !!refLap && !!own && refLap.sectors.length > 0 && refLap.sectors.length === own.sectors.length;
-  const runLabel = (o: OwnLap) => `${o.run.entry?.name ?? nameOf(o.run.file)} L${o.part ? `${o.part}-` : ''}${o.n} ${formatLapTime(o.time)}`;
+  const runLabel = (o: OwnLap) => {
+    const d = o.run.startMs !== null ? new Date(o.run.startMs) : null;
+    const day = d ? `${d.getMonth() + 1}/${d.getDate()} ` : '';
+    return `${formatLapTime(o.time)} · ${day}${o.run.entry?.name ?? ''} L${o.part ? `${o.part}-` : ''}${o.n}`.replace(/  +/g, ' ');
+  };
 
   return (
     <Shell title={t(`参考ラップと比べる: ${videoRef.row.name ?? nameOf(videoRef.file)}`, `Compare with reference: ${videoRef.row.name ?? nameOf(videoRef.file)}`)} onClose={onClose} testid="video-lap-compare" wide>
@@ -306,7 +334,7 @@ export const VideoLapCompare: React.FC<{ store: RunStore; videoRef: VideoRef; ru
           <button onClick={toggle} className="p-2 rounded-lg bg-red-600 hover:bg-red-500 text-white cursor-pointer" aria-label={playing ? t('止める', 'Pause') : t('再生', 'Play')} data-testid="video-lap-compare-play">
             {playing ? <Pause size={16} /> : <Play size={16} />}
           </button>
-          <input type="range" min={0} max={span || 1} step={0.01} value={Math.min(tau, span)} onChange={e => { refVideo.current?.pause(); ownVideo.current?.pause(); setPlaying(false); seekBoth(+e.target.value); }} className="flex-1" aria-label={t('周の中の位置', 'Position in lap')} />
+          <input type="range" min={0} max={span || 1} step={0.01} value={Math.min(tau, span)} onChange={e => { refVideo.current?.pause(); ownVideo.current?.pause(); setPlaying(false); clock.current = null; seekBoth(+e.target.value); }} className="flex-1" aria-label={t('周の中の位置', 'Position in lap')} />
           <span className="font-mono text-slate-300 w-20 text-right">{formatLapTime(Math.max(0, tau), 2)}</span>
         </div>
         {refLap && (

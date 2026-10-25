@@ -112,19 +112,25 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
     return () => { alive = false; };
   }, [active, store, runs, onOpenSession]);
 
-  const folders = useMemo(() => {
-    const m = new Map<string, { label: string; count: number }>();
-    for (const r of runs ?? []) {
-      const cur = m.get(r.folder);
-      m.set(r.folder, { label: r.courseName ?? r.folder, count: (cur?.count ?? 0) + 1 });
-    }
-    return [...m.entries()];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runs]);
   const refCount = useMemo(() => (runs ?? []).filter(r => !!r.entry?.reference).length, [runs]) + videoRefs.length;
   // 参考ラップの区切りは、走行があれば出す (動画だけの参考ラップをそこから作れるように)
   const showOwner = !!store && (runs?.length ?? 0) > 0;
   const ownerNow = showOwner ? owner : 'mine';
+  // サーキットで絞る印: 今の区切り (自分の走行 / 参考ラップ) の走行の数 (参考ラップには動画だけの参考ラップも数える)
+  const ownerRuns = useMemo(() => (runs ?? []).filter(r => (ownerNow === 'ref') === !!r.entry?.reference), [runs, ownerNow]);
+  const folders = useMemo(() => {
+    const m = new Map<string, { label: string; count: number }>();
+    const label = (folder: string) => (runs ?? []).find(r => r.folder === folder)?.courseName ?? folder;
+    for (const r of ownerRuns) {
+      const cur = m.get(r.folder);
+      m.set(r.folder, { label: r.courseName ?? r.folder, count: (cur?.count ?? 0) + 1 });
+    }
+    if (ownerNow === 'ref') for (const v of videoRefs) {
+      const cur = m.get(v.folder);
+      m.set(v.folder, { label: cur?.label ?? label(v.folder), count: (cur?.count ?? 0) + 1 });
+    }
+    return [...m.entries()];
+  }, [runs, ownerRuns, ownerNow, videoRefs]);
   const filtered = useMemo(() => (runs ?? []).filter(r => (!folder || r.folder === folder) && (ownerNow === 'ref') === !!r.entry?.reference), [runs, folder, ownerNow]);
   const selected = filtered.find(r => `${r.folder}/${r.file}` === selectedKey) ?? null;
 
@@ -175,7 +181,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
       )}
       {folders.length > 1 && (
         <div className="flex gap-1.5 px-3 pt-3 overflow-x-auto shrink-0">
-          {[[null, { label: t('すべて', 'All'), count: runs?.length ?? 0 }] as const, ...folders].map(([f, { label, count }]) => (
+          {[[null, { label: t('すべて', 'All'), count: folders.reduce((n, [, f]) => n + f.count, 0) }] as const, ...folders].map(([f, { label, count }]) => (
             <button
               key={f ?? '*'}
               onClick={() => { setFolder(f); setShown(PAGE); setSelectedKey(null); }}
@@ -236,6 +242,11 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
                 <Video size={12} />{t('動画から作る', 'From a video')}
               </button>
             </div>
+            {refCount === 0 && (
+              <p className="text-[11px] text-slate-500 px-1" data-testid="library-ref-hint">
+                {t('ほかの人の走行のログは、自分の走行の詳細で「参考ラップ」に印を付けるとここに出ます。ログのない動画は「動画から作る」で。', 'Mark another driver’s log as "Reference lap" in its run details to list it here. For a video without a log, use "From a video".')}
+              </p>
+            )}
             {videoRefs.filter(r => !folder || r.folder === folder).map(r => {
               const best = r.laps.length ? Math.min(...r.laps.map(l => l.time)) : null;
               return (
@@ -248,14 +259,14 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
                       {` · ${t(`${r.laps.length} 周`, `${r.laps.length} lap${r.laps.length === 1 ? '' : 's'}`)}`}{best !== null ? ` · ${formatLapTime(best)}` : ''}{r.remote ? ' · iCloud' : ''}
                     </div>
                   </div>
-                  <button onClick={() => setComparing(r)} disabled={!r.laps.length || r.remote} title={r.remote ? t('iCloud から落としてから比べてください', 'Download it from iCloud first') : undefined} className="px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50" data-testid="library-video-ref-compare">{t('比べる', 'Compare')}</button>
-                  <button onClick={() => setMarking({ path: r.path, existing: r })} className="px-2 py-1 rounded border border-line-3 text-slate-300 text-[11px] cursor-pointer" data-testid="library-video-ref-edit">{t('印', 'Marks')}</button>
+                  <button onClick={() => setComparing(r)} disabled={!r.laps.length || r.remote} title={r.remote ? t('iCloud から落としてから比べてください', 'Download it from iCloud first') : undefined} className="px-3 py-2 rounded bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50" data-testid="library-video-ref-compare">{t('比べる', 'Compare')}</button>
+                  <button onClick={() => setMarking({ path: r.path, existing: r })} className="px-3 py-2 rounded border border-line-3 text-slate-300 text-[11px] cursor-pointer" data-testid="library-video-ref-edit">{t('印', 'Marks')}</button>
                   <button
                     onClick={() => {
                       if (!window.confirm(t('この参考ラップをやめますか？ (動画のファイルは消えません)', 'Remove this reference lap? (The video file is kept)'))) return;
-                      void removeVideoLaps(store, r).then(() => setRefsTick(n => n + 1));
+                      void removeVideoLaps(store, r).then(() => setRefsTick(n => n + 1), e => window.alert(t(`やめられませんでした: ${e instanceof Error ? e.message : String(e)}`, `Could not remove: ${e instanceof Error ? e.message : String(e)}`)));
                     }}
-                    className="p-1.5 rounded text-slate-500 hover:text-red-400 cursor-pointer" aria-label={t('消す', 'Delete')} data-testid="library-video-ref-delete"
+                    className="p-2.5 rounded text-slate-500 hover:text-red-400 cursor-pointer" aria-label={t('消す', 'Delete')} data-testid="library-video-ref-delete"
                   ><X size={14} /></button>
                 </div>
               );

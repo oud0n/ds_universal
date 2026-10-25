@@ -278,6 +278,14 @@ export const journeys = [
         check(st.ref - refStart > 1, `再生されていない: ${JSON.stringify(st)}`);
         check(await p.ev(`document.querySelector('[data-testid="video-lap-compare-table"]').innerText.includes('差')`), '差の行がない');
         p.notes.push(`参考 ${(st.ref - refStart).toFixed(2)} 秒・自分の動画 ${st.own.toFixed(2)} 秒`);
+        // 終わりまで動かしてからもう一度再生すると、2 つとも始まりから動く (GUI のレビューで、自分の動画が止まったままだった)
+        await p.ev(`(() => { const r = document.querySelector('[data-testid="video-lap-compare"] input[type=range]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(r, r.max); r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+        await sleep(500);
+        await p.click('video-lap-compare-play');
+        await sleep(1500);
+        const again = await p.ev(`({ ref: !document.querySelector('[data-testid="video-lap-compare-ref-video"]').paused, own: !document.querySelector('[data-testid="video-lap-compare-own-video"]').paused, t: document.querySelector('[data-testid="video-lap-compare-ref-video"]').currentTime })`);
+        check(again.ref && again.own && again.t - refStart < 3, `終わりから再生し直すと 2 つとも始まりから動かない: ${JSON.stringify(again)}`);
+        await p.click('video-lap-compare-play');
         await p.click('video-lap-compare-close');
         // やめる (行を消す。動画は残す)
         await p.ev(`window.confirm = () => true; [...document.querySelectorAll('[data-testid="library-video-ref-row"]')].find(r => r.innerText.includes('e2e 参考')).querySelector('[data-testid="library-video-ref-delete"]').click()`);
