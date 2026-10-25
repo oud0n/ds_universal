@@ -108,7 +108,8 @@ export const DevicesCard: React.FC = () => {
     const link = new DeviceLink(d, central);
     trialLink.current = link;
     setTrial({ id: d.id, state: 'connecting', last: '' });
-    link.onState(s => setTrial(v => (v && v.id === d.id ? { ...v, state: s } : v)));
+    // つなぎ直しているときは、つながらない理由も出す (確かめてもらうとき、記録を送ってもらわなくても分かるように)
+    link.onState(s => setTrial(v => (v && v.id === d.id ? { ...v, state: s, last: s === 'reconnecting' && link.error ? link.error : v.last } : v)));
     link.onSample((s: DeviceSample) => {
       const text = s.type === 'fix'
         ? `${s.fix.valid ? '' : t('(測位待ち) ', '(no fix) ')}${s.fix.speedKmh.toFixed(1)} km/h ${s.fix.latitude.toFixed(5)}, ${s.fix.longitude.toFixed(5)}`
@@ -152,8 +153,11 @@ export const DevicesCard: React.FC = () => {
       {list.map(d => (
         <div key={d.id} className="rounded-lg bg-surface-3/60 px-3 py-2 space-y-1.5" data-testid="device-row">
           <div className="flex items-center gap-2 text-xs min-w-0">
-            <span className="font-bold text-slate-100 truncate min-w-0">{d.displayName}</span>
-            <span className="text-slate-500 truncate min-w-0">{t(DEVICE_KINDS[d.kind].ja, DEVICE_KINDS[d.kind].en)}{d.transport === 'spp' ? ' (Bluetooth Classic)' : ''} · {d.bleName}</span>
+            {/* 名前と種類は 2 行にして、狭い画面でもボタンの場所を空ける */}
+            <span className="flex flex-col min-w-0 flex-1">
+              <span className="font-bold text-slate-100 truncate">{d.displayName}</span>
+              <span className="text-[11px] text-slate-500 truncate">{t(DEVICE_KINDS[d.kind].ja, DEVICE_KINDS[d.kind].en)}{d.transport === 'spp' ? ' (Bluetooth Classic)' : ''} · {d.bleName}</span>
+            </span>
             <span className="ml-auto flex gap-1 shrink-0 whitespace-nowrap">
               {d.transport === 'spp' && (
                 <button onClick={() => { void shareSppLog().catch(e => setError(e instanceof Error ? e.message : String(e))); }} className="px-2 py-0.5 rounded bg-surface-4 hover:bg-surface-5 border border-line-4 text-[11px]" data-testid="device-share-log">

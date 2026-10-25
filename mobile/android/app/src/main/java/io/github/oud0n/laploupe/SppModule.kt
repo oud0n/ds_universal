@@ -142,6 +142,7 @@ class SppModule(private val activity: MainActivity, private val bridge: NativeBr
     private inner class Link(private val dev: BluetoothDevice) {
         @Volatile private var wanted = true
         @Volatile private var socket: BluetoothSocket? = null
+        @Volatile private var lastError: String? = null
         private val buffer = ByteArrayOutputStream()
         private var firstT = 0L
         private val flusher = object : Runnable {
@@ -172,7 +173,9 @@ class SppModule(private val activity: MainActivity, private val bridge: NativeBr
         }
 
         private fun open(): BluetoothSocket {
-            adapter?.cancelDiscovery()
+            // 探している途中だとつながりにくいので止める。ただし Android 12 からは「付近の機器の検索」の許可が要り、
+            // 無いと例外になって、つなぐところまで進まなかった (このアプリは探さないので、許可は取らずに失敗を無視する)
+            try { adapter?.cancelDiscovery() } catch (e: SecurityException) { DebugLog.event("cancelDiscovery skipped: ${e.message}") }
             // ふつうの形 → 暗号化なしの形 → チャンネル 1 を決め打ち (つながらない機種があるため、順に試す)
             val tries = listOf<Pair<String, () -> BluetoothSocket>>(
                 "secure" to { dev.createRfcommSocketToServiceRecord(SPP_UUID) },
@@ -217,13 +220,16 @@ class SppModule(private val activity: MainActivity, private val bridge: NativeBr
                     DebugLog.event("stream ended")
                 } catch (e: Exception) {
                     if (wanted) DebugLog.event("link lost: ${e.javaClass.simpleName} ${e.message}")
+                    // 何で止まったかを画面にも出す (確かめてもらうとき、記録を送ってもらわなくても分かるように)
+                    lastError = "${e.javaClass.simpleName}: ${e.message ?: ""}".take(120)
                 } finally {
                     try { socket?.close() } catch (_: Exception) {}
                     socket = null
                 }
                 first = false
                 if (wanted) {
-                    main.post { state("reconnecting", "lost") }
+                    val why = lastError ?: "lost"
+                    main.post { state("reconnecting", why) }
                     SystemClock.sleep(RETRY_MS)
                 }
             }
