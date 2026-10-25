@@ -406,6 +406,9 @@ export const journeys = [
       // 地図を押してコーナーを足す: 走行の線 (Car 1 の赤) の上で、札から離れた所を押す
       await p.click('corner-edit');
       await p.waitFor(`document.querySelectorAll('[data-testid="corner-edit-row"]').length === ${saved.corners.length}`, 5000, '編集の一覧 (2 回目)');
+      // 編集中は地図の上のボタンが減って地図が大きくなるので、描き直してから線を探す (地図の大きさが落ち着くまで待つ)
+      await p.waitFor(`(() => { const cv = [...document.querySelectorAll('canvas')].find(c => c.parentElement?.contains(document.querySelector('[data-testid="corner-edit-panel"]'))); if (!cv) return false; const w = cv.getBoundingClientRect().height; const ok = window.__mapH === w; window.__mapH = w; return ok; })()`, 5000, '地図の大きさ');
+      await sleep(1500);
       const spot = await p.ev(`(()=>{
         const panel = document.querySelector('[data-testid="corner-edit-panel"]').getBoundingClientRect();
         const cv = [...document.querySelectorAll('canvas')].find(c => c.parentElement?.contains(document.querySelector('[data-testid="corner-edit-panel"]')));
@@ -439,11 +442,15 @@ export const journeys = [
         return best && { x: best.x, y: best.y, from };
       })()`);
       check(spot, '地図の上に走行の線が見つからない');
-      for (const type of ['mousePressed', 'mouseReleased']) await p.send('Input.dispatchMouseEvent', { type, x: spot.x, y: spot.y, button: 'left', clickCount: 1 });
+      await p.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: spot.x, y: spot.y, button: 'none', buttons: 0 });
+      await sleep(100);
+      for (const type of ['mousePressed', 'mouseReleased']) await p.send('Input.dispatchMouseEvent', { type, x: spot.x, y: spot.y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1 });
       await sleep(400);
       const rows = await p.ev(`document.querySelectorAll('[data-testid="corner-edit-row"]').length`);
       // 札の上を押したときは選ぶだけ (数は増えない)。そうでなければ 1 つ増える
-      check(rows === saved.corners.length + 1, `地図を押してもコーナーが足されない (${rows} 個、元 ${saved.corners.length} 個)`);
+      // コーナーの外を押したら 1 つ足し、中を押したらそのコーナーを選ぶ (日光はコースの多くがコーナーなので、どちらもある)
+      const tapPicked = await p.ev(`[...document.querySelectorAll('[data-testid="corner-edit-row"]')].some(r => r.className.includes('bg-amber-500'))`);
+      check(rows === saved.corners.length + 1 || (rows === saved.corners.length && tapPicked), `地図を押しても、コーナーが足されず選ばれもしない (${rows} 個、元 ${saved.corners.length} 個)`);
       // 走行の線をなぞる: なぞった範囲が 1 つのコーナーになり、選ばれる
       if (spot.from) {
         const steps = 12;

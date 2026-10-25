@@ -226,7 +226,14 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       return;
     }
     const r = applySpanCorner(cornerDraft, baseGeo, span.a, span.b);
-    if (!r) return;
+    if (!r) {
+      // 前後のコーナーが近くて足せる長さが無いときは、いちばん近いコーナーを選ぶ (何も起きないと分かりにくいため)
+      const placed = placeCorners(baseGeo, cornerDraft);
+      let k = -1, d = Infinity;
+      placed.forEach((p, i) => { if (p && Math.abs(p.apexIndex - best) < d) { d = Math.abs(p.apexIndex - best); k = i; } });
+      setSelectedCorner(k >= 0 ? k : null);
+      return;
+    }
     setCornerDraft(r.list);
     setSelectedCorner(r.index);
   };
