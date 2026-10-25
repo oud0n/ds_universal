@@ -19,6 +19,9 @@ import { hasNative } from '../native/bridge';
 import { listVideoRefs, removeVideoLaps, videoRefCandidates, type VideoRef } from '../services/videoLaps';
 import { VideoLapCompare, VideoLapMarker, VideoRefPicker } from '../components/VideoRefLaps';
 
+/** 空でない値を、重ならないように (並びはそのまま) */
+const uniqueValues = (list: Array<string | undefined>) => [...new Set(list.map(v => v?.trim()).filter((v): v is string => !!v))].slice(0, 30);
+
 /** 一度に出す行の数 (数千件あっても固まらないよう、続きは「さらに表示」で足す) */
 const PAGE = 150;
 
@@ -153,6 +156,8 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
   };
 
   const select = (r: RunItem) => setSelectedKey(`${r.folder}/${r.file}`);
+  /** 車種・タイヤの候補 (書いたことのあるもの。新しい走行のものから) */
+  const carTyreChoices = { cars: uniqueValues((runs ?? []).map(r => r.entry?.car ?? r.entry?.reference?.car)), tyres: uniqueValues((runs ?? []).map(r => r.entry?.tyre)) };
 
   const list = (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -376,6 +381,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
         reload();
       }}
       onClose={wide ? undefined : () => setSelectedKey(null)}
+      carTyreChoices={carTyreChoices}
       onDelete={canDelete ? () => {
         const item = selected;
         setDeleting({ item, plan: null });
@@ -511,6 +517,48 @@ const DeleteRunDialog: React.FC<{
   );
 };
 
+/**
+ * 車種・タイヤ (2026-10-25)。自由に書き、ほかの走行で書いたものを候補に出す。離れたとき・Enter で書く
+ */
+const CarTyreFields: React.FC<{
+  showCar: boolean;
+  car: string;
+  tyre: string;
+  choices?: { cars: string[]; tyres: string[] };
+  onSave: (patch: { car?: string; tyre?: string }) => void;
+}> = ({ showCar, car, tyre, choices, onSave }) => {
+  const t = useT();
+  const [c, setC] = useState(car);
+  const [ty, setTy] = useState(tyre);
+  const saved = useRef({ car, tyre });
+  const save = () => {
+    const patch: { car?: string; tyre?: string } = {};
+    if (showCar && c.trim() !== saved.current.car.trim()) patch.car = c;
+    if (ty.trim() !== saved.current.tyre.trim()) patch.tyre = ty;
+    if (Object.keys(patch).length) { saved.current = { car: showCar ? c : saved.current.car, tyre: ty }; onSave(patch); }
+  };
+  // 欄が消える (別の走行を選んだ) ときも、書きかけを書く
+  const latest = useRef(save);
+  latest.current = save;
+  useEffect(() => () => latest.current(), []);
+  const input = 'flex-1 min-w-0 bg-transparent border-b border-line-3 focus:border-sky-500 text-xs text-slate-200 placeholder:text-slate-500 outline-none py-0.5';
+  const enter = (e: React.KeyboardEvent<HTMLInputElement>) => { if (!e.nativeEvent.isComposing && e.key === 'Enter') e.currentTarget.blur(); };
+  return (
+    <div className="flex gap-2 mt-1.5" data-testid="run-detail-car-tyre">
+      {showCar && (
+        <>
+          <input value={c} onChange={e => setC(e.target.value.slice(0, 40))} onBlur={save} onKeyDown={enter} list="run-car-choices"
+            placeholder={t('車種', 'Car')} aria-label={t('車種', 'Car')} className={input} data-testid="run-detail-car" />
+          <datalist id="run-car-choices">{choices?.cars.map(v => <option key={v} value={v} />)}</datalist>
+        </>
+      )}
+      <input value={ty} onChange={e => setTy(e.target.value.slice(0, 40))} onBlur={save} onKeyDown={enter} list="run-tyre-choices"
+        placeholder={t('タイヤ', 'Tyres')} aria-label={t('タイヤ', 'Tyres')} className={input} data-testid="run-detail-tyre" />
+      <datalist id="run-tyre-choices">{choices?.tyres.map(v => <option key={v} value={v} />)}</datalist>
+    </div>
+  );
+};
+
 /** 走行の詳細 (周の一覧・動画・解析で開く・動画を見る) */
 /** 走行の名前 (PLAN-32)。ファイルの名前は変えず、runs.json の行に書く。離れたとき・Enter で書く */
 const RunNameInput: React.FC<{ name: string; onSave: (name: string) => void }> = ({ name, onSave }) => {
@@ -531,7 +579,7 @@ const RunNameInput: React.FC<{ name: string; onSave: (name: string) => void }> =
         if (e.nativeEvent.isComposing || e.keyCode === 229) return;
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
       }}
-      placeholder={t('名前を付ける (例: 新品タイヤ・雨)', 'Name this run (e.g. new tyres, wet)')}
+      placeholder={t('名前を付ける (例: 朝の走行・雨)', 'Name this run (e.g. morning session, wet)')}
       aria-label={t('走行の名前', 'Run name')}
       data-testid="run-detail-name"
       className="mt-1 w-full bg-transparent border-b border-line-3 focus:border-sky-500 text-sm text-slate-100 placeholder:text-slate-500 outline-none py-0.5"
@@ -581,12 +629,14 @@ const RunDetail: React.FC<{
   /** 狭い画面のシートを閉じる (広い画面では右の欄なので無い) */
   onClose?: () => void;
   /** 走行の名前・メモを書く (PLAN-32・33) */
-  onSaveMeta?: (patch: { name?: string; note?: string; reference?: { driver?: string; car?: string } | null }) => Promise<void>;
+  onSaveMeta?: (patch: { name?: string; note?: string; car?: string; tyre?: string; reference?: { driver?: string; car?: string } | null }) => Promise<void>;
+  /** 車種・タイヤの候補 (ほかの走行で書いたもの) */
+  carTyreChoices?: { cars: string[]; tyres: string[] };
   /** この走行を消す (確かめの画面を出す)。消せない置き場では無い */
   onDelete?: () => void;
   /** 解析で開いている走行 (消せない) */
   isOpen?: boolean;
-}> = ({ run, busy, onOpen, onOpenVideo, onAddAsCar2, otherCourse = false, isCar1 = false, onToggleLap, onClose, onSaveMeta, onDelete, isOpen = false }) => {
+}> = ({ run, busy, onOpen, onOpenVideo, onAddAsCar2, otherCourse = false, isCar1 = false, onToggleLap, onClose, onSaveMeta, onDelete, isOpen = false, carTyreChoices }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const [order, setOrder] = useState<'run' | 'time'>('run');
@@ -607,6 +657,17 @@ const RunDetail: React.FC<{
           <div className="text-sm font-bold text-slate-100">{fmtDate(run.startMs, ja)} {run.courseName != null ? circuitLabel(run.courseName) : (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</div>
           {onSaveMeta && <RunNameInput key={`${run.folder}/${run.file}`} name={run.entry?.name ?? ''} onSave={name => void onSaveMeta({ name })} />}
           {onSaveMeta && <ReferenceField key={`ref-${run.folder}/${run.file}`} reference={run.entry?.reference} onSave={reference => void onSaveMeta({ reference })} />}
+          {onSaveMeta && (
+            <CarTyreFields
+              key={`ct-${run.folder}/${run.file}`}
+              // 参考ラップの車は、参考ラップの欄 (誰・車) で書く
+              showCar={!run.entry?.reference}
+              car={run.entry?.car ?? ''}
+              tyre={run.entry?.tyre ?? ''}
+              choices={carTyreChoices}
+              onSave={patch => void onSaveMeta(patch)}
+            />
+          )}
           <div className="text-xs text-slate-400 mt-0.5">
             {run.pending
               ? t('☁️ iCloud にだけあるので、開くと周を数えます', '☁️ Only in iCloud; laps are counted when opened')

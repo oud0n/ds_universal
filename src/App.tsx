@@ -1158,12 +1158,15 @@ export const App: React.FC = () => {
       // 覚えている走行の名前・メモ (runs.json の行。PLAN-32・33) を、開いた走行の呼び名とメモにする
       // (分かれた走行は、2 番目から「名前 (2)」)。比べる相手・ラップの一覧にも、この名前が出る
       const meta = item.entry;
-      if (!already.length && added.length && (meta?.name || meta?.note)) {
+      // 車種 (runs.json の行。参考ラップは reference.car) は、ログの車の名前より先にする
+      const carName = meta?.car ?? meta?.reference?.car;
+      if (!already.length && added.length && (meta?.name || meta?.note || carName)) {
         added.forEach((x, i) => {
-          if (meta.name) x.sessionName = i > 0 ? `${meta.name} (${i + 1})` : meta.name;
-          if (meta.note) x.runNote = meta.note;
+          if (meta?.name) x.sessionName = i > 0 ? `${meta.name} (${i + 1})` : meta.name;
+          if (meta?.note) x.runNote = meta.note;
+          if (carName) x.vehicleName = carName;
         });
-        setSessions(prev => prev.map(x => { const a = added.find(y => y.id === x.id); return a ? { ...x, sessionName: a.sessionName, runNote: a.runNote } : x; }));
+        setSessions(prev => prev.map(x => { const a = added.find(y => y.id === x.id); return a ? { ...x, sessionName: a.sessionName, runNote: a.runNote, vehicleName: a.vehicleName } : x; }));
       }
       // iPhone のラップタイマーで測った走行なら、G センサーの値 (<走行>.iphone_imu.csv) を読んで G に合わせる
       // 読み終わるのを待たずに開く (30 分の走行で数 MB あり、開くのが遅くなっていた)。読めたら G を計算し直す

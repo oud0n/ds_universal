@@ -123,6 +123,22 @@ export const journeys = [
       await sleep(800);
       await fill('run-detail-note', 'e2e 晴れ 22℃');
       await p.waitFor(`[...document.querySelectorAll('[data-testid="run-row-note"]')].some(e => e.innerText.includes('e2e 晴れ'))`, 8000, '一覧のメモ');
+      // 車種・タイヤ: 書くと一覧に出て、runs.json の行に入る。ほかの走行で書いたものが候補に出る
+      await fill('run-detail-car', 'e2e ロードスター');
+      await sleep(600);
+      await fill('run-detail-tyre', 'e2e RE-71RS');
+      await p.waitFor(`[...document.querySelectorAll('[data-testid="run-row-car-tyre"]')].some(e => e.innerText.includes('e2e ロードスター') && e.innerText.includes('e2e RE-71RS'))`, 8000, '一覧の車種・タイヤ');
+      {
+        const runsPath = path.join(root, 'sodegaura/runs.json');
+        for (let i = 0; i < 40 && !fs.readFileSync(runsPath, 'utf8').includes('e2e RE-71RS'); i++) await sleep(200);
+        const row = Object.entries(JSON.parse(fs.readFileSync(runsPath, 'utf8')).runs).find(([k]) => k.includes('20260913'))?.[1];
+        check(row?.car === 'e2e ロードスター' && row?.tyre === 'e2e RE-71RS', `runs.json に車種・タイヤが入らない: ${JSON.stringify({ car: row?.car, tyre: row?.tyre })}`);
+        check(await p.ev(`[...document.querySelectorAll('#run-tyre-choices option')].some(o => o.value === 'e2e RE-71RS')`), 'タイヤの候補に出ない');
+      }
+      await fill('run-detail-car', '');
+      await sleep(600);
+      await fill('run-detail-tyre', '');
+      await p.waitFor(`![...document.querySelectorAll('[data-testid="run-row-car-tyre"]')].some(e => e.innerText.includes('e2e'))`, 8000, '車種・タイヤを消す');
       check(await p.ev(`[...document.querySelectorAll('[data-testid="run-row-name"]')].some(e => e.innerText === 'e2e 新品タイヤ')`), '一覧に名前が出ない');
       const runs = JSON.parse(fs.readFileSync(path.join(root, 'sodegaura/runs.json'), 'utf8')).runs;
       const row = Object.entries(runs).find(([k]) => k.includes('20260913'))?.[1];
