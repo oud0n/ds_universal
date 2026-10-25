@@ -99,6 +99,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   const lapTimerFiles = new Map<string, string>();
   let mockCamera: { startWallMs: number } | null = null;
   let mockExposure: ReturnType<typeof setInterval> | null = null;
+  let mockSpp: ReturnType<typeof setInterval> | null = null;
   /** 保管先 (選んだフォルダ) に写したファイル */
   const syncedFiles = new Map<string, string>();
   /** 書いている最中のファイル (system.closeFiles で閉じるまで) */
@@ -177,7 +178,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   const handle = (req: NativeRequest): unknown => {
     switch (req.method) {
       case 'caps.get':
-        return { contractVersion: CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, iap: true, camera: true } };
+        return { contractVersion: CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, iap: true, camera: true, spp: true } };
       // アプリ内課金の模擬 (値段は日本円の例。買うとすぐ買えたことにする)
       case 'iap.products': {
         const { ids } = req.params as { ids: string[] };
@@ -319,6 +320,32 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
       }
       case 'camera.setIso':
         return {};
+      // Bluetooth Classic の Drogger のふり (袖ヶ浦の近くで円を回る NMEA を 10 Hz で送る)
+      case 'spp.pick':
+        return { deviceId: '00:1A:7D:DA:71:13', name: 'DG-PRO1S_mock' };
+      case 'spp.connect': {
+        const { deviceId } = req.params as { deviceId: string };
+        if (mockSpp) clearInterval(mockSpp);
+        setTimeout(() => emit('spp.state', { deviceId, state: 'connecting' }), 30);
+        setTimeout(() => emit('spp.state', { deviceId, state: 'connected' }), 400);
+        let k = 0;
+        mockSpp = setInterval(() => {
+          const t = new Date();
+          const a = (k++ / 600) * 2 * Math.PI;
+          const lat = 35.3943 + 0.001 * Math.sin(a), lon = 140.0879 + 0.0013 * Math.cos(a);
+          emit('spp.data', { deviceId, items: [{ t: performance.now() * 1e6, b: toBase64(new TextEncoder().encode(mockNmea(t, lat, lon, 60))) }] });
+        }, 100);
+        return {};
+      }
+      case 'spp.disconnect': {
+        const { deviceId } = req.params as { deviceId: string };
+        if (mockSpp) clearInterval(mockSpp);
+        mockSpp = null;
+        setTimeout(() => emit('spp.state', { deviceId, state: 'disconnected' }), 10);
+        return {};
+      }
+      case 'spp.shareLog':
+        return {};
       case 'camera.stop': {
         const { path } = req.params as { path: string | null };
         const cam = mockCamera;
@@ -435,3 +462,16 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
     }
   };
 }
+
+/** ふりの Drogger の NMEA (GGA と RMC) */
+function mockNmea(t: Date, lat: number, lon: number, kmh: number): string {
+  const pad = (n: number, w: number) => String(Math.floor(n)).padStart(w, '0');
+  const tod = `${pad(t.getUTCHours(), 2)}${pad(t.getUTCMinutes(), 2)}${pad(t.getUTCSeconds(), 2)}.${pad(t.getUTCMilliseconds() / 10, 2)}`;
+  const dm = (v: number, w: number) => { const d = Math.floor(Math.abs(v)); return `${pad(d, w)}${((Math.abs(v) - d) * 60).toFixed(5).padStart(8, '0')}`; };
+  const date = `${pad(t.getUTCDate(), 2)}${pad(t.getUTCMonth() + 1, 2)}${pad(t.getUTCFullYear() % 100, 2)}`;
+  const sum = (b: string) => { let x = 0; for (let i = 0; i < b.length; i++) x ^= b.charCodeAt(i); return x.toString(16).toUpperCase().padStart(2, '0'); };
+  const gga = `GNGGA,${tod},${dm(lat, 2)},N,${dm(lon, 3)},E,4,24,0.6,30.0,M,39.0,M,,`;
+  const rmc = `GNRMC,${tod},A,${dm(lat, 2)},N,${dm(lon, 3)},E,${(kmh / 1.852).toFixed(2)},90.0,${date},,,D`;
+  return `$${gga}*${sum(gga)}\r\n$${rmc}*${sum(rmc)}\r\n`;
+}
+

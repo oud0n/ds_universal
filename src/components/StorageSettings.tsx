@@ -5,6 +5,9 @@ import { callNative, hasNative } from '../native/bridge';
 import type { StorageInfo } from '../native/contract';
 import { storageFolderChanged } from '../services/storageCourses';
 
+/** Android のアプリか (保管場所の言い方と、フォルダを選べるか) */
+const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+
 /**
  * 保管場所 (走行のファイルを置くフォルダ)。2026-10-21 に、ラップタイマーのメニューから設定の画面へ移した (PLAN-24 の 3)。
  * - iPhone のアプリ: この iPhone / 選んだフォルダ (iCloud Drive など)。フォルダを選んだら、すぐ移す (アプリの中に控えを残さない。2026-10-21)
@@ -66,16 +69,17 @@ export const StorageSettings: React.FC = () => {
         {native && info && (
           <>
             <button onClick={() => void choose('local')} disabled={busy} className={btn(info.kind === 'local')}>
-              <Smartphone size={16} className="shrink-0" />{t('この iPhone', 'This iPhone')}
+              <Smartphone size={16} className="shrink-0" />{isAndroid ? t('この端末', 'This device') : t('この iPhone', 'This iPhone')}
             </button>
-            <button onClick={() => void choose('folder')} disabled={busy} className={btn(info.kind === 'folder')} data-testid="storage-pick-folder">
+            {/* Android 版は、まずアプリの中だけ (フォルダを選ぶのは、あとの版で足す) */}
+            {!isAndroid && <button onClick={() => void choose('folder')} disabled={busy} className={btn(info.kind === 'folder')} data-testid="storage-pick-folder">
               <FolderOpen size={16} className="shrink-0" />
               <span className="truncate">
                 {info.kind === 'folder' && info.folderName
                   ? t(`フォルダ: ${info.folderName} (選び直す)`, `Folder: ${info.folderName} (change)`)
                   : t('フォルダを選ぶ (iCloud Drive など)', 'Choose a folder (iCloud Drive etc.)')}
               </span>
-            </button>
+            </button>}
           </>
         )}
         {desktop && (
@@ -114,5 +118,5 @@ export function useStorageLabel(active = true): string | null {
     }
   }, [active]);
   if (!info) return null;
-  return 'name' in info ? info.name : t('この iPhone', 'This iPhone');
+  return 'name' in info ? info.name : isAndroid ? t('この端末', 'This device') : t('この iPhone', 'This iPhone');
 }

@@ -7,6 +7,7 @@
  */
 
 import { getBleCentral } from '../bleCentral';
+import { sppCentral } from '../sppCentral';
 import { DeviceLink, type DeviceSample } from '../devices/deviceLink';
 import { loadDevices, type RegisteredDevice } from '../devices/deviceRegistry';
 import { SensorCsvRecorder } from '../sensorCsvRecorder';
@@ -101,10 +102,13 @@ export class LapDeviceSet {
     const wanted = this.devices.filter(d => (d.kind !== 'racebox' && d.kind !== 'drogger') || d.id === positionDevice?.id);
     if (wanted.length === 0) return;
     this.setStatuses(wanted.map(device => ({ device, state: 'connecting', text: '', ok: false })));
-    const central = await (this.deps.getCentral ?? getBleCentral)();
-    if (!central || gen !== this.generation) return;
+    // Bluetooth Classic の機器 (Android の Drogger DG-PRO1S など) は、BLE と同じ形の SPP の層でつなぐ
+    const central = wanted.some(d => d.transport !== 'spp') ? await (this.deps.getCentral ?? getBleCentral)() : null;
+    if (gen !== this.generation) return;
     for (const d of wanted) {
-      const link = new DeviceLink(d, central);
+      const c = d.transport === 'spp' ? sppCentral : central;
+      if (!c) continue;
+      const link = new DeviceLink(d, c);
       this.links.push(link);
       link.onState(s => {
         this.update(d.id, { state: s, ok: s === 'connected' });

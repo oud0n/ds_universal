@@ -6,7 +6,7 @@
 | フォルダ | 端末 | 言語 | 状態 |
 |---|---|---|---|
 | `ios/` | iPhone・iPad | Swift (SwiftUI は外側の枠だけ) | デジスパイスとのつなぎ (BLE) まで |
-| `android/` | Android | Kotlin | まだ作っていない |
+| `android/` | Android | Kotlin | Bluetooth Classic の GPS (Drogger DG-PRO1S) と保存 (2026-10-25 に最初の版) |
 
 ## 決まり
 

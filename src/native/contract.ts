@@ -57,7 +57,8 @@ export interface Capabilities {
   /** 使える機能のまとまり。画面はこれで出し分け、端末の種類では分けない */
   /** iap: アプリ内課金 (投げ銭) が使える (2026-10-24 に足した。前の版のアプリには無いので、無いときは使えないとみなす) */
   /** camera: 内蔵カメラで録画できる (2026-10-25 に足した。前の版のアプリには無い) */
-  features: { ble: boolean; iap?: boolean; camera?: boolean };
+  /** spp: Bluetooth Classic のシリアル (Android だけ。Drogger DG-PRO1S など。2026-10-25) */
+  features: { ble: boolean; iap?: boolean; camera?: boolean; spp?: boolean };
 }
 
 /** 内蔵カメラの画質 */
@@ -268,6 +269,16 @@ export interface NativeMethods {
   'camera.preview': { params: { show: boolean; lensId?: string | null; preset?: CameraPreset; iso?: number | null; rect?: { x: number; y: number; w: number; h: number } }; result: Record<string, never> };
   /** ISO をその場で変える (null は自動) */
   'camera.setIso': { params: { iso: number | null }; result: Record<string, never> };
+  /**
+   * Bluetooth Classic のシリアル (SPP。Android だけ)。OS の機器を選ぶ画面を出し、選んだ機器とペアリングする。
+   * namePrefixes を渡すと、その名前で始まる機器だけを出す (空なら全部)
+   */
+  'spp.pick': { params: { namePrefixes: string[] }; result: { deviceId: string; name: string } };
+  /** つなぐ。切れたら、spp.disconnect まで自分でつなぎ直す。受け取ったバイト列は spp.data で届く */
+  'spp.connect': { params: { deviceId: string }; result: Record<string, never> };
+  'spp.disconnect': { params: { deviceId: string }; result: Record<string, never> };
+  /** 確かめの記録 (受け取った行・つなぐ / 切れる / ペアリングの結果・機種と OS の版) を、共有の画面で送る */
+  'spp.shareLog': { params: Record<string, never>; result: Record<string, never> };
 }
 
 // ---- 知らせ ----
@@ -308,6 +319,10 @@ export interface NativeEvents {
   'camera.state': { recording: boolean; error?: 'interrupted' | 'thermal'; thermal?: 'nominal' | 'fair' | 'serious' | 'critical' };
   /** 今の ISO とシャッターの速さ (秒)。確かめの映像を出している間、0.3 秒ごと */
   'camera.exposure': { iso: number; shutterSec: number };
+  /** Bluetooth Classic のつなぎの様子 (ble.state と同じ形) */
+  'spp.state': BleStateEvent;
+  /** 受け取ったバイト列 (100 ms ごとにまとめる。t は受け取った時刻 (単調な時計のナノ秒)、b は base64) */
+  'spp.data': { deviceId: string; items: Array<{ t: number; b: string }> };
 }
 
 export interface MotionBatch {
