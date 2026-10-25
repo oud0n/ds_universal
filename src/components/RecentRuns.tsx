@@ -68,6 +68,11 @@ export const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy
         <div className="flex items-baseline gap-2 text-xs">
           <span className="font-mono text-slate-200 shrink-0">{fmtDate(run.startMs, ja)}</span>
           {/* 名前を付けた走行は名前を先に (PLAN-32) */}
+          {run.entry?.reference && (
+            <span className="shrink-0 px-1.5 rounded bg-amber-500/20 text-amber-400 text-[10px] font-bold" data-testid="run-row-reference">
+              {t('参考', 'Ref')}{run.entry.reference.driver ? ` · ${run.entry.reference.driver}` : ''}
+            </span>
+          )}
           {run.entry?.name && <span className="text-slate-100 font-bold truncate min-w-0" data-testid="run-row-name">{run.entry.name}</span>}
           <span className="text-slate-400 truncate">{run.courseName != null ? circuitLabel(run.courseName) : (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</span>
         </div>

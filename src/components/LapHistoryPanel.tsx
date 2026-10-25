@@ -93,10 +93,12 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
   const current = folders?.find(f => f.folder === selected) ?? null;
   const visible = useMemo(() => (current?.rows ?? []).filter(r => showHidden || !r.hidden), [current, showHidden]);
   // 速い順の上から 3 つのタイム (隠した周は数えない。同じタイムは同じ順位)
-  const top3 = useMemo(() => [...new Set((current?.rows ?? []).filter(r => !r.hidden).map(r => r.time))].sort((a, b) => a - b).slice(0, 3), [current]);
+  // 参考ラップ (自分のではない走行) は順位・ベストに数えない
+  const isRef = (r: LapRow) => !!current?.references && r.file in current.references;
+  const top3 = useMemo(() => [...new Set((current?.rows ?? []).filter(r => !r.hidden && !(current?.references && r.file in current.references)).map(r => r.time))].sort((a, b) => a - b).slice(0, 3), [current]);
   const best = top3[0] ?? null;
   /** 順位 (1〜3。それ以外・隠した周は 0) */
-  const rankOf = (r: LapRow) => (r.hidden ? 0 : top3.indexOf(r.time) + 1);
+  const rankOf = (r: LapRow) => (r.hidden || isRef(r) ? 0 : top3.indexOf(r.time) + 1);
   // 走行ごとのまとまり (日付順のとき)
   const runs = useMemo(() => {
     const m = new Map<string, LapRow[]>();
@@ -138,6 +140,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
       <span className={`font-mono font-bold w-20 ${RANK_STYLE[rankOf(r)]?.text ?? 'text-slate-100'}`}>{formatLapTime(r.time, 3)}</span>
       {withDate && <span className="text-slate-400 font-mono text-[11px]">{fmtDate(r.startMs || r.runStartMs)}</span>}
       {withDate && current?.names?.[r.file] && <span className="text-sky-300 text-[11px] truncate max-w-[8rem]">{current.names[r.file]}</span>}
+      {isRef(r) && <span className="px-1 rounded bg-amber-500/20 text-amber-400 text-[10px] font-bold whitespace-nowrap" data-testid="lap-history-reference">{t('参考', 'Ref')}{current?.references?.[r.file] ? ` · ${current.references[r.file]}` : ''}</span>}
       <span className="hidden sm:flex gap-2 text-slate-400 font-mono text-[11px] flex-1 min-w-0 truncate">
         {r.sectors.map((s, i) => <span key={i}>S{i + 1} {s.toFixed(3)}</span>)}
       </span>
@@ -187,7 +190,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
               <span>{t('ベスト', 'Best')} <b className="text-fuchsia-400 font-mono">{best !== null ? formatLapTime(best, 3) : '—'}</b></span>
               {top3[1] !== undefined && <span>2nd <b className="text-emerald-400 font-mono">{formatLapTime(top3[1], 3)}</b></span>}
               {top3[2] !== undefined && <span>3rd <b className="text-amber-400 font-mono">{formatLapTime(top3[2], 3)}</b></span>}
-              <span>{t(`${current.rows.filter(r => !r.hidden).length} 周`, `${current.rows.filter(r => !r.hidden).length} lap${(current.rows.filter(r => !r.hidden).length) === 1 ? '' : 's'}`)}</span>
+              <span>{t(`${current.rows.filter(r => !r.hidden && !isRef(r)).length} 周`, `${current.rows.filter(r => !r.hidden && !isRef(r)).length} lap${(current.rows.filter(r => !r.hidden && !isRef(r)).length) === 1 ? '' : 's'}`)}</span>
               <span>{t(`${current.fileCount} 走行`, `${current.fileCount} run${current.fileCount === 1 ? '' : 's'}`)}</span>
             </div>
           )}

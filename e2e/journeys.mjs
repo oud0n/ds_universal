@@ -151,6 +151,24 @@ export const journeys = [
       await p.waitFor(`[...document.querySelectorAll('[data-testid="lap-history-run-name"]')].some(e => e.innerText === 'e2e 新品タイヤ')`, 20000, 'ラップタイムの一覧の名前');
       await p.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
       await sleep(500);
+      // 参考ラップの印 (PLAN-31): 付けると自分の走行と分けて出し、runs.json に入る。ラップタイムの順位には数えない
+      await select();
+      await p.click('run-detail-reference');
+      await p.waitFor(`document.querySelector('[data-testid="run-detail-ref-driver"]')`, 5000, '参考ラップの誰の欄');
+      await fill('run-detail-ref-driver', 'e2e 速い人');
+      await p.waitFor(`document.querySelector('[data-testid="library-owner-ref"]')`, 8000, '参考ラップの切り替え');
+      const row3 = Object.entries(JSON.parse(fs.readFileSync(path.join(root, 'sodegaura/runs.json'), 'utf8')).runs).find(([k]) => k.includes('20260913'))?.[1];
+      check(row3?.reference?.driver === 'e2e 速い人', `参考ラップが runs.json に入らない: ${JSON.stringify(row3?.reference)}`);
+      // 印を付けると参考ラップの側に切り替わる。自分の走行の側には出ない
+      await p.click('library-owner-mine');
+      await sleep(300);
+      check(!(await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].some(r => r.innerText.includes('9/13'))`)), '参考ラップが自分の走行の一覧に残っている');
+      await p.click('library-owner-ref');
+      await p.waitFor(`[...document.querySelectorAll('[data-testid="run-row-reference"]')].some(e => e.innerText.includes('e2e 速い人'))`, 5000, '参考ラップの一覧の印');
+      await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].find(r => r.innerText.includes('9/13'))?.click()`);
+      await p.waitFor(`document.querySelector('[data-testid="run-detail-reference"]')`, 5000, '参考ラップの詳細');
+      await p.click('run-detail-reference');
+      await p.waitFor(`!document.querySelector('[data-testid="library-owner"]')`, 8000, '参考ラップの印を外すと切り替えが消える');
       // 片付け (名前・メモを消す)
       await select();
       await fill('run-detail-name', '');

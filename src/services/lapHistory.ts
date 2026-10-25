@@ -36,6 +36,8 @@ export interface LapFolder {
   index: LapIndex | null;
   /** 走行の名前 (runs.json の行の name。走行のファイル名 → 名前。PLAN-32) */
   names?: Record<string, string>;
+  /** 参考ラップ (自分のではない走行。走行のファイル名 → 誰の走行か。PLAN-31)。順位・ベストに数えない */
+  references?: Record<string, string>;
 }
 
 /**
@@ -70,8 +72,13 @@ export async function loadLapHistory(store: LapFileStore, onProgress?: (folder: 
     // 走行に付けた名前 (読めなくても一覧は出す)
     const runsFile = await readRunsFile(store, folder).catch(() => null);
     const names: Record<string, string> = {};
-    if (runsFile) for (const file of Object.keys(index.files)) { const n = findRunRow(runsFile, file)?.name; if (n) names[file] = n; }
-    out.push({ folder, courseName: course.name, fileCount: files.length, rows: lapRows(folder, index), index, names });
+    const references: Record<string, string> = {};
+    if (runsFile) for (const file of Object.keys(index.files)) {
+      const row = findRunRow(runsFile, file);
+      if (row?.name) names[file] = row.name;
+      if (row?.reference) references[file] = row.reference.driver ?? '';
+    }
+    out.push({ folder, courseName: course.name, fileCount: files.length, rows: lapRows(folder, index), index, names, references });
   }
   return out;
 }

@@ -21,6 +21,7 @@ import { LapDeviceSet, type LapDeviceStatus } from './lapDeviceSet';
 import { PhoneCameraRecorder, type CameraStatus } from './phoneCamera';
 import { GpsImuFusion } from './gpsImuFusion';
 import type { CircuitPreset, TelemetryPoint } from '../../types/telemetry';
+import { findRunRow, readRunsFile } from '../runsFile';
 
 const FUSION_KEY = 'ds_timer_phone_fusion';
 /** 端末の GPS の間を G センサーで埋めるか (既定はオン) */
@@ -318,8 +319,12 @@ export class TimerRuntime {
       const index = parseLapIndex(await store.readText(`${folder}/${LAP_INDEX_FILE}`).catch(() => null));
       if (!index || token !== this.pastBestToken) return;
       const hidden = new Set(index.hidden.map(h => lapKey(h.file, h.part, h.n)));
+      // 参考ラップ (自分のではない走行) は数えない (PLAN-31)
+      const runs = await readRunsFile(store, folder).catch(() => null);
+      if (token !== this.pastBestToken) return;
       let best: { time: number; startMs: number } | null = null;
       for (const [file, rec] of Object.entries(index.files)) {
+        if (runs && findRunRow(runs, file)?.reference) continue;
         for (const l of rec.laps) if (!hidden.has(lapKey(file, l.part, l.n)) && (!best || l.time < best.time)) best = { time: l.time, startMs: l.startMs };
       }
       if (token === this.pastBestToken) this.set({ pastBest: best });

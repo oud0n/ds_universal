@@ -62,6 +62,8 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
   const { store, runs, error, noFolder, reload } = useRuns(active);
   const storageLabel = useStorageLabel(active);
   const [folder, setFolder] = useState<string | null>(null);
+  /** 自分の走行か、参考ラップ (自分のではない走行。PLAN-31) か */
+  const [owner, setOwner] = useState<'mine' | 'ref'>('mine');
   const [shown, setShown] = useState(PAGE);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -77,7 +79,10 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
     return [...m.entries()];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runs]);
-  const filtered = useMemo(() => (runs ?? []).filter(r => !folder || r.folder === folder), [runs, folder]);
+  const refCount = useMemo(() => (runs ?? []).filter(r => !!r.entry?.reference).length, [runs]);
+  // 参考ラップが無くなったら (印を外した)、自分の走行に戻す
+  const ownerNow = refCount === 0 ? 'mine' : owner;
+  const filtered = useMemo(() => (runs ?? []).filter(r => (!folder || r.folder === folder) && (ownerNow === 'ref') === !!r.entry?.reference), [runs, folder, ownerNow]);
   const selected = filtered.find(r => `${r.folder}/${r.file}` === selectedKey) ?? null;
 
   if (!active) return null;
@@ -112,6 +117,18 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
           <span className="truncate flex-1 text-left" title={storageLabel}>{storageLabel}</span>
           <ChevronRight size={14} className="text-slate-500 shrink-0" />
         </button>
+      )}
+      {/* 参考ラップがあるときだけ、自分の走行と分けて出す */}
+      {refCount > 0 && (
+        <div className="flex gap-1 px-3 pt-3 shrink-0" data-testid="library-owner">
+          {(['mine', 'ref'] as const).map(o => (
+            <button key={o} onClick={() => { setOwner(o); setShown(PAGE); setSelectedKey(null); }}
+              className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer ${ownerNow === o ? 'bg-sky-600 border-sky-500 text-white' : 'bg-surface-2 border-line-2 text-slate-300'}`}
+              data-testid={`library-owner-${o}`}>
+              {o === 'mine' ? t('自分の走行', 'My runs') : t(`参考ラップ ${refCount}`, `Reference laps ${refCount}`)}
+            </button>
+          ))}
+        </div>
       )}
       {folders.length > 1 && (
         <div className="flex gap-1.5 px-3 pt-3 overflow-x-auto shrink-0">
@@ -226,7 +243,12 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
         && !sameCourseName(selected.courseName, car1Course)}
       isCar1={car1Run === `${selected.folder}/${selected.file}`}
       onToggleLap={async (lap, hide) => { await setRunLapHidden(store, selected, lap, hide); reload(); }}
-      onSaveMeta={async patch => { await setRunMeta(store, selected, patch).catch(() => undefined); reload(); }}
+      onSaveMeta={async patch => {
+        // 参考ラップの印を付けた・外したら、その走行が見える側の一覧に切り替える (詳細を開いたままにする)
+        if (patch.reference !== undefined) setOwner(patch.reference ? 'ref' : 'mine');
+        await setRunMeta(store, selected, patch).catch(() => undefined);
+        reload();
+      }}
       onClose={wide ? undefined : () => setSelectedKey(null)}
     />
   );
@@ -284,6 +306,34 @@ const RunNameInput: React.FC<{ name: string; onSave: (name: string) => void }> =
   );
 };
 
+/**
+ * 参考ラップの印 (自分のではない走行。PLAN-31)。印を付けると、誰の走行か・車を書ける。
+ * 参考ラップは、ラップタイムの一覧の順位・ベストと、ラップタイマーの「これまでのベスト」には数えない
+ */
+const ReferenceField: React.FC<{ reference: { driver?: string; car?: string } | undefined; onSave: (r: { driver?: string; car?: string } | null) => void }> = ({ reference, onSave }) => {
+  const t = useT();
+  const [driver, setDriver] = useState(reference?.driver ?? '');
+  const [car, setCar] = useState(reference?.car ?? '');
+  // 印はすぐ切り替える (一覧を読み直す前に誰・車を書いても、書けるように)
+  const [on, setOn] = useState(!!reference);
+  const save = () => { if (on && (driver.trim() !== (reference?.driver ?? '') || car.trim() !== (reference?.car ?? ''))) onSave({ driver, car }); };
+  const input = 'flex-1 min-w-0 bg-transparent border-b border-line-3 focus:border-sky-500 text-xs text-slate-200 placeholder:text-slate-500 outline-none py-0.5';
+  return (
+    <div className="mt-1.5 space-y-1">
+      <label className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer">
+        <input type="checkbox" checked={on} onChange={e => { setOn(e.target.checked); onSave(e.target.checked ? { driver, car } : null); }} data-testid="run-detail-reference" />
+        {t('参考ラップ (自分の走行ではない。ベスト・順位に数えない)', 'Reference lap (not my run; not counted in bests or rankings)')}
+      </label>
+      {on && (
+        <div className="flex gap-2 pl-5">
+          <input value={driver} onChange={e => setDriver(e.target.value.slice(0, 40))} onBlur={save} placeholder={t('誰の走行か', 'Driver')} aria-label={t('誰の走行か', 'Driver')} className={input} data-testid="run-detail-ref-driver" />
+          <input value={car} onChange={e => setCar(e.target.value.slice(0, 40))} onBlur={save} placeholder={t('車', 'Car')} aria-label={t('車', 'Car')} className={input} data-testid="run-detail-ref-car" />
+        </div>
+      )}
+    </div>
+  );
+};
+
 const RunDetail: React.FC<{
   run: RunItem;
   busy: boolean;
@@ -298,7 +348,7 @@ const RunDetail: React.FC<{
   /** 狭い画面のシートを閉じる (広い画面では右の欄なので無い) */
   onClose?: () => void;
   /** 走行の名前・メモを書く (PLAN-32・33) */
-  onSaveMeta?: (patch: { name?: string; note?: string }) => Promise<void>;
+  onSaveMeta?: (patch: { name?: string; note?: string; reference?: { driver?: string; car?: string } | null }) => Promise<void>;
 }> = ({ run, busy, onOpen, onOpenVideo, onAddAsCar2, otherCourse = false, isCar1 = false, onToggleLap, onClose, onSaveMeta }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
@@ -319,6 +369,7 @@ const RunDetail: React.FC<{
         <div className="flex-1 min-w-0">
           <div className="text-sm font-bold text-slate-100">{fmtDate(run.startMs, ja)} {run.courseName != null ? circuitLabel(run.courseName) : (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</div>
           {onSaveMeta && <RunNameInput key={`${run.folder}/${run.file}`} name={run.entry?.name ?? ''} onSave={name => void onSaveMeta({ name })} />}
+          {onSaveMeta && <ReferenceField key={`ref-${run.folder}/${run.file}`} reference={run.entry?.reference} onSave={reference => void onSaveMeta({ reference })} />}
           <div className="text-xs text-slate-400 mt-0.5">
             {run.pending
               ? t('☁️ iCloud にだけあるので、開くと周を数えます', '☁️ Only in iCloud; laps are counted when opened')

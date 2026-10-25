@@ -60,6 +60,11 @@ export interface RunRow {
   updatedAt: string;
   name?: string;
   note?: string;
+  /**
+   * 自分のではない走行 (参考ラップ。速い人のログなど。PLAN-31)。あれば自分の走行ではない。driver: 誰の走行か、car: 車。
+   * ラップタイムの一覧の順位・ベストと、ラップタイマーの「これまでのベスト」には数えない
+   */
+  reference?: { driver?: string; car?: string };
   /** 分かれた走行の何番目ごとの情報 (ログの時計の補正) */
   parts?: Record<string, { clockOffsetSec?: number; [key: string]: unknown }>;
   videos?: RunVideo[];
@@ -100,6 +105,12 @@ function cleanRow(e: Record<string, unknown>): RunRow | null {
   if (e.id !== undefined && typeof e.id !== 'string') delete row.id;
   if (e.name !== undefined && typeof e.name !== 'string') delete row.name;
   if (e.note !== undefined && typeof e.note !== 'string') delete row.note;
+  if (e.reference !== undefined) {
+    if (isObj(e.reference)) {
+      const r = e.reference as Record<string, unknown>;
+      row.reference = { ...(typeof r.driver === 'string' ? { driver: r.driver } : {}), ...(typeof r.car === 'string' ? { car: r.car } : {}) };
+    } else delete row.reference;
+  }
   if (e.parts !== undefined) {
     if (isObj(e.parts)) {
       const parts: NonNullable<RunRow['parts']> = {};

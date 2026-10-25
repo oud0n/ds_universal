@@ -541,9 +541,14 @@ export function getOpenRun(): { store: RunStore; item: RunItem } | null {
  * 走行の名前・メモを runs.json の行に書く (PLAN-32・33)。ファイルの名前は変えない (同期・控え・runs.json の鍵がファイル名で引いているため)。
  * 空にしたら消す。開いている走行の行も、書いた中身にそろえる
  */
-export async function setRunMeta(store: RunStore, item: RunItem, patch: { name?: string | null; note?: string | null }): Promise<RunRow> {
+export async function setRunMeta(store: RunStore, item: RunItem, patch: { name?: string | null; note?: string | null; reference?: { driver?: string; car?: string } | null }): Promise<RunRow> {
   const row = await updateRun(store, item.folder, item.file, prev => {
     const next: Partial<RunRow> = { ...prev };
+    // 参考ラップの印 (null で外す)。誰・車は前後の空白を落とす
+    if ('reference' in patch) {
+      if (patch.reference) next.reference = { driver: patch.reference.driver?.trim() || undefined, car: patch.reference.car?.trim() || undefined };
+      else delete next.reference;
+    }
     for (const k of ['name', 'note'] as const) {
       if (!(k in patch)) continue;
       const v = patch[k]?.trim();
