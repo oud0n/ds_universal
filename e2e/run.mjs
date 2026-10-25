@@ -35,6 +35,8 @@ for (const [i, j] of list.entries()) {
     p = j.target === 'electron'
       ? await Page.connect(electronPort, { urlPart: new URL(APP).host, outDir, label })
       : await Page.connect(chromePort, { newTab: true, outDir, label });
+    // Mac の外観 (朝はライトになる設定など) で色が変わらないよう、ダークに固定する (地図の線を色で探す試験があるため)
+    await p.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] }).catch(() => {});
     await j.run(p);
     const errs = p.errors.filter(e => !/Electron Security Warning|Download the React DevTools/.test(e));
     if (errs.length) throw new Error(`画面でエラー: ${errs[0]}`);
