@@ -68,24 +68,34 @@ class MainActivity : ComponentActivity() {
         senderCallback?.invoke(if (r.resultCode == RESULT_OK) r.data else null)
         senderCallback = null
     }
-    private var permissionCallback: ((Boolean) -> Unit)? = null
-    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        permissionCallback?.invoke(granted)
-        permissionCallback = null
-    }
+    // 許可を聞く画面は 1 つずつしか出せないので、頼みを列にして順に聞く (重ねて頼むと、前の頼みの答えが返らなかった)
+    private val permissionQueue = ArrayDeque<Pair<Array<String>, (Boolean) -> Unit>>()
+    private var permissionAsking = false
 
-    private var permissionsCallback: ((Boolean) -> Unit)? = null
     private val permissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
-        permissionsCallback?.invoke(r.values.all { it })
-        permissionsCallback = null
+        val (perms, cb) = permissionQueue.removeFirst()
+        permissionAsking = false
+        // 取り消されたとき (答えが空) は、もらえなかったとする
+        cb(r.isNotEmpty() && perms.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED })
+        askNextPermission()
     }
 
-    /** いくつかの許可をまとめて聞く (全部もらえたら true) */
+    private fun askNextPermission() {
+        if (permissionAsking) return
+        while (permissionQueue.isNotEmpty()) {
+            val (perms, cb) = permissionQueue.first()
+            val missing = perms.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+            if (missing.isEmpty()) { permissionQueue.removeFirst(); cb(true); continue }
+            permissionAsking = true
+            permissionsLauncher.launch(missing.toTypedArray())
+            return
+        }
+    }
+
+    /** いくつかの許可をまとめて聞く (全部もらえたら true)。ほかの頼みを聞いている最中なら、終わってから聞く */
     fun withPermissions(perms: Array<String>, cb: (Boolean) -> Unit) {
-        val missing = perms.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
-        if (missing.isEmpty()) { cb(true); return }
-        permissionsCallback = cb
-        permissionsLauncher.launch(missing.toTypedArray())
+        permissionQueue.addLast(perms to cb)
+        askNextPermission()
     }
 
     private var treeCallback: ((Uri?) -> Unit)? = null
@@ -107,12 +117,8 @@ class MainActivity : ComponentActivity() {
 
     /** Bluetooth の許可 (Android 12 からは BLUETOOTH_CONNECT。それより前は要らない) */
     fun withBluetoothPermission(cb: (Boolean) -> Unit) {
-        if (Build.VERSION.SDK_INT < 31 || ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
-            cb(true)
-            return
-        }
-        permissionCallback = cb
-        permissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
+        if (Build.VERSION.SDK_INT < 31) { cb(true); return }
+        withPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), cb)
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -163,8 +169,8 @@ class MainActivity : ComponentActivity() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url
                 if (url.host == HOST) return false
-                // 外のリンクはブラウザで開く
-                startActivity(Intent(Intent.ACTION_VIEW, url))
+                // 外のリンクはブラウザで開く (開けるアプリが無ければ何もしない)
+                try { startActivity(Intent(Intent.ACTION_VIEW, url)) } catch (e: android.content.ActivityNotFoundException) { DebugLog.event("no app for $url") }
                 return true
             }
         }
@@ -203,6 +209,12 @@ class MainActivity : ComponentActivity() {
             bridge.emit("system.appState", JSONObject().put("state", "active"))
             bridge.camera.onResume()
         }
+    }
+
+    override fun onDestroy() {
+        // 画面を閉じた・作り直すとき: つなぎ・センサー・録画を手放す (残すと、古いつなぎがつなぎ直し続けていた)
+        if (::bridge.isInitialized) bridge.shutdown()
+        super.onDestroy()
     }
 
     override fun onPause() {

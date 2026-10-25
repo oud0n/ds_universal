@@ -192,6 +192,8 @@ class BleModule(private val activity: MainActivity, private val bridge: NativeBr
         var discovered = false
         val ops = ArrayDeque<Op>()
         var current: Op? = null
+        /** 通知の設定に失敗した理由 (つないだと知らせる前に、これがあれば切る) */
+        var subscribeError: NativeError? = null
         val timeout = Runnable { finishOp(this, Result.failure(NativeError.io("timeout"))) }
         val id: String get() = device.address
 
@@ -209,7 +211,16 @@ class BleModule(private val activity: MainActivity, private val bridge: NativeBr
             }
 
             override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) {
-                main.post { if (current is Op.Subscribe) finishOp(this@Link, Result.success(JSONObject())) }
+                main.post {
+                    if (current !is Op.Subscribe) return@post
+                    if (status == BluetoothGatt.GATT_SUCCESS) finishOp(this@Link, Result.success(JSONObject()))
+                    else {
+                        // 通知を受け取れない (ペアリングが要る機器など)。つないだことにせず、理由を付けて切る
+                        val err = authError(status)
+                        finishOp(this@Link, Result.failure(err))
+                        subscribeError = err
+                    }
+                }
             }
 
             override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray, status: Int) {
@@ -293,8 +304,11 @@ class BleModule(private val activity: MainActivity, private val bridge: NativeBr
             emitState(id, "disconnected")
         } else {
             g.disconnect()
-            // 知らせが来ないことがあるので、少し待っても切れなければ閉じる
-            main.postDelayed({ if (links[id] === link) closeLink(link, null) }, 1500)
+            // 知らせが来ないことがあるので、少し待っても切れなければ閉じる (その間に同じ機器をつなぎ直していても、古いつなぎは閉じる)
+            main.postDelayed({
+                if (links[id] === link) closeLink(link, null)
+                else if (link.gatt === g) { try { g.close() } catch (_: Exception) {}; link.gatt = null }
+            }, 1500)
         }
     }
 
@@ -356,7 +370,11 @@ class BleModule(private val activity: MainActivity, private val bridge: NativeBr
             val op = link.ops.removeFirstOrNull() ?: return
             val started: Boolean = when (op) {
                 is Op.Mtu -> g.requestMtu(op.size)
-                is Op.Ready -> { emitState(link.id, "connected"); false }
+                is Op.Ready -> {
+                    val err = link.subscribeError
+                    if (err != null) { link.userClosed = true; link.subscribeError = null; DebugLog.event("ble subscribe failed: ${err.message}"); link.gatt?.disconnect(); closeLink(link, err); return }
+                    emitState(link.id, "connected"); false
+                }
                 is Op.Subscribe -> {
                     val c = characteristic(g, op.service, op.characteristic)
                     val d = c?.getDescriptor(CCCD)
@@ -439,6 +457,14 @@ class BleModule(private val activity: MainActivity, private val bridge: NativeBr
         val data = JSONObject().put("deviceId", id).put("state", state)
         if (error != null) data.put("error", JSONObject().put("code", error.code).put("message", error.message ?: ""))
         bridge.emit("ble.state", data)
+    }
+
+    /** 画面を閉じるとき: 全部のつなぎを閉じ、記録を書き終える */
+    fun shutdown() {
+        stopScan(notify = false)
+        recorder.stop()
+        for (link in links.values.toList()) { link.userClosed = true; try { link.gatt?.disconnect(); link.gatt?.close() } catch (_: Exception) {} }
+        links.clear()
     }
 
     // ---- 通知をまとめて送る ----

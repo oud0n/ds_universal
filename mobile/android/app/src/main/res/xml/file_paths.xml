@@ -2,5 +2,6 @@
 <paths>
     <files-path name="laptimer" path="LapTimer/" />
     <files-path name="debug" path="debug/" />
+    <files-path name="ble" path="ble-captures/" />
     <cache-path name="share" path="share/" />
 </paths>

@@ -76,7 +76,8 @@ class CameraModule(private val activity: MainActivity, private val bridge: Nativ
     /** 明るさの補正 (EV)。露出は自動のまま、全体を明るめ・暗めにする */
     private var ev = 0.0
 
-    data class Lens(val id: String, val cameraIndex: Int, val front: Boolean, val kind: String, val zoom: Float, val presets: List<String>)
+    /** zoom は画面に出す倍率 (丸めたもの)、ratio はカメラに渡す本当の倍率 */
+    data class Lens(val id: String, val cameraIndex: Int, val front: Boolean, val kind: String, val zoom: Float, val presets: List<String>, val ratio: Float = zoom)
 
     private val thermalListener = PowerManager.OnThermalStatusChangedListener { status ->
         main.post {
@@ -149,7 +150,8 @@ class CameraModule(private val activity: MainActivity, private val bridge: Nativ
             val info = infos[back]
             val presets = presets(info)
             val minZoom = info.zoomState.value?.minZoomRatio ?: 1f
-            if (minZoom < 0.9f) out.add(Lens("back@$minZoom", back, false, "ultraWide", (minZoom * 10).toInt() / 10f, presets))
+            // 渡す倍率は本当の値のまま (丸めると、撮れる範囲の外になって 1× のままになっていた)
+            if (minZoom < 0.9f) out.add(Lens("back@$minZoom", back, false, "ultraWide", Math.round(minZoom * 10) / 10f, presets, minZoom))
             out.add(Lens("back@1", back, false, "wide", 1f, presets))
         }
         if (front >= 0) out.add(Lens("front", front, true, "front", 1f, presets(infos[front])))
@@ -221,7 +223,7 @@ class CameraModule(private val activity: MainActivity, private val bridge: Nativ
         }
         val selector = CameraSelector.Builder().requireLensFacing(if (config.lens.front) CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK).build()
         camera = p.bindToLifecycle(activity, selector, *useCases.toTypedArray())
-        camera?.cameraControl?.setZoomRatio(config.lens.zoom)
+        camera?.cameraControl?.setZoomRatio(config.lens.ratio)
         applyEv()
         recorder = rec
         videoCapture = vc
@@ -332,10 +334,13 @@ class CameraModule(private val activity: MainActivity, private val bridge: Nativ
                     // MP4 で撮っているので、.mov を .mp4 にして置く
                     rel = indexedPath(path.replace(Regex("\\.mov$", RegexOption.IGNORE_CASE), ".mp4"), i)
                     val target = lapTimerFile(rel)
-                    if (target != null) {
+                    val moved = target != null && try {
                         target.parentFile?.mkdirs()
-                        if (file.renameTo(target) || run { file.copyTo(target, overwrite = true); file.delete() }) dest = target
-                    }
+                        file.renameTo(target) || run { file.copyTo(target, overwrite = true); file.delete(); true }
+                    } catch (e: Exception) { DebugLog.event("camera: could not move ${file.name}: ${e.message}"); false }
+                    // 移せなかった動画は、走行に書かない (無い動画を指してしまう)
+                    if (!moved) continue
+                    dest = target!!
                 }
                 files.put(JSONObject().put("path", rel).put("startWallMs", startMs).put("durationSec", durationSec(dest)).put("bytes", dest.length()))
             }
@@ -363,6 +368,14 @@ class CameraModule(private val activity: MainActivity, private val bridge: Nativ
     private fun lapTimerFile(rel: String): File? {
         if (rel.isEmpty() || rel.contains("..") || rel.startsWith("/")) return null
         return File(File(activity.filesDir, "LapTimer"), rel)
+    }
+
+    /** 画面を閉じるとき: 録画を止め、カメラを手放す */
+    fun shutdown() {
+        wantRecording = false
+        try { recording?.stop() } catch (_: Exception) {}
+        try { provider?.unbindAll() } catch (_: Exception) {}
+        try { (activity.getSystemService(Context.POWER_SERVICE) as PowerManager).removeThermalStatusListener(thermalListener) } catch (_: Exception) {}
     }
 
     // ---- 映像 (確かめの映像・撮り始めの 5 秒) ----

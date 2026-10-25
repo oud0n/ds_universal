@@ -83,6 +83,12 @@ class SppModule(private val activity: MainActivity, private val bridge: NativeBr
         }
     }
 
+    /** 画面を閉じるとき: 全部のつなぎを止める */
+    fun shutdown() {
+        for (l in links.values.toList()) l.stop()
+        links.clear()
+    }
+
     // ---- 選ぶ (OS の画面) ----
 
     private fun pick(prefixes: List<String>, doneOnce: Done) {
@@ -203,8 +209,10 @@ class SppModule(private val activity: MainActivity, private val bridge: NativeBr
                 main.post { state(if (first) "connecting" else "reconnecting", null) }
                 try {
                     val s = open()
+                    // つないでいる間に切られた (spp.disconnect・つなぎ直し) ら、使わずに閉じる
+                    if (!wanted) { try { s.close() } catch (_: Exception) {}; break }
                     socket = s
-                    main.post { state("connected", null) }
+                    main.post { if (wanted) state("connected", null) }
                     val input = s.inputStream
                     val chunk = ByteArray(4096)
                     while (wanted) {

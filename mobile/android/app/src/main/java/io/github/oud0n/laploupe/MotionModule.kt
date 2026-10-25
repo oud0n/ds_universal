@@ -27,6 +27,8 @@ class MotionModule(private val ctx: Context, private val bridge: NativeBridge) :
     private val sm = ctx.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val main = Handler(Looper.getMainLooper())
     private var running = false
+    /** 読み始めるたびに増やす (止めたあとに届いた前の回の値を捨てるため) */
+    private var generation = 0
     private val grav = DoubleArray(3)
     private val lin = DoubleArray(3)
     private var haveGrav = false
@@ -45,6 +47,9 @@ class MotionModule(private val ctx: Context, private val bridge: NativeBridge) :
                 if (gyro == null || gravity == null || linear == null) { done(Result.failure(NativeError.notSupported("no motion sensors"))); return }
                 if (!running) {
                     val us = (1_000_000.0 / params.optDouble("hz", 50.0).coerceIn(1.0, 100.0)).toInt()
+                    generation++
+                    haveGrav = false
+                    t.clear(); cols.forEach { it.clear() }
                     sm.registerListener(this, gravity, us)
                     sm.registerListener(this, linear, us)
                     // 回転の速さが来るたびに 1 行 (そのときの重力・加速度と組にする)
@@ -58,6 +63,7 @@ class MotionModule(private val ctx: Context, private val bridge: NativeBridge) :
                 if (running) {
                     sm.unregisterListener(this)
                     running = false
+                    generation++
                     main.removeCallbacks(drainer)
                     drain()
                 }
@@ -76,7 +82,9 @@ class MotionModule(private val ctx: Context, private val bridge: NativeBridge) :
                 // 時刻 (起動からのナノ秒) を UTC のミリ秒に
                 val utc = System.currentTimeMillis() - SystemClock.elapsedRealtime() + e.timestamp / 1_000_000.0
                 val row = doubleArrayOf(grav[0], grav[1], grav[2], lin[0], lin[1], lin[2], e.values[0].toDouble(), e.values[1].toDouble(), e.values[2].toDouble())
+                val gen = generation
                 main.post {
+                    if (gen != generation) return@post
                     t.add(Math.round(utc).toDouble())
                     for (i in 0..8) cols[i].add(row[i])
                     // ためすぎない (Web が受け取れない間)
@@ -87,6 +95,14 @@ class MotionModule(private val ctx: Context, private val bridge: NativeBridge) :
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    /** 画面を閉じるとき */
+    fun shutdown() {
+        sm.unregisterListener(this)
+        running = false
+        generation++
+        main.removeCallbacks(drainer)
+    }
 
     private fun drain() {
         if (t.isEmpty()) return

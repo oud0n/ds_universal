@@ -71,6 +71,14 @@ class NativeBridge(private val activity: MainActivity, private val webView: WebV
         }
     }
 
+    /** 画面を閉じるとき: すべての機器・センサー・録画を手放す */
+    fun shutdown() {
+        try { ble.shutdown() } catch (_: Exception) {}
+        try { spp.shutdown() } catch (_: Exception) {}
+        try { motion.shutdown() } catch (_: Exception) {}
+        try { camera.shutdown() } catch (_: Exception) {}
+    }
+
     fun emit(event: String, data: JSONObject) {
         send(JSONObject().put("event", event).put("data", data))
     }
