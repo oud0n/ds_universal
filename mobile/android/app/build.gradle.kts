@@ -33,12 +33,13 @@ android {
     }
 }
 
-val copyWeb by tasks.registering(Copy::class) {
+// 入れ替える (Sync。前に入れた古いファイルを残さない)。確かめ用の .map は入れない (大きいため)
+val copyWeb by tasks.registering(Sync::class) {
     val dist = rootProject.file("../../dist")
     doFirst {
         if (!dist.resolve("index.html").exists()) throw GradleException("dist がありません。先に npm run build を (リポジトリの一番上で)")
     }
-    from(dist)
+    from(dist) { exclude("**/*.map") }
     into(file("build/webAssets/web"))
 }
 tasks.named("preBuild") { dependsOn(copyWeb) }
