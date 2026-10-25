@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.graphics.Color
 import android.webkit.MimeTypeMap
 import android.widget.FrameLayout
@@ -85,6 +86,18 @@ class MainActivity : ComponentActivity() {
         if (missing.isEmpty()) { cb(true); return }
         permissionsCallback = cb
         permissionsLauncher.launch(missing.toTypedArray())
+    }
+
+    private var treeCallback: ((Uri?) -> Unit)? = null
+    private val treeLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        treeCallback?.invoke(uri)
+        treeCallback = null
+    }
+
+    /** フォルダを選ぶ画面 (保管場所にするフォルダ。やめたら null) */
+    fun pickTree(cb: (Uri?) -> Unit) {
+        treeCallback = cb
+        treeLauncher.launch(null)
     }
 
     fun launchIntentSender(sender: IntentSender, cb: (Intent?) -> Unit) {
@@ -215,6 +228,8 @@ class MainActivity : ComponentActivity() {
     private fun runFile(root: File, rel: String, headers: Map<String, String>): WebResourceResponse? {
         val path = Uri.decode(rel)
         if (path.contains("..")) return null
+        // 選んだフォルダがあればそちらが先 (まだ移していないものだけアプリの中)
+        if (::bridge.isInitialized && bridge.system.folder != null) safRunFile(path, headers)?.let { return it }
         val f = File(root, path)
         if (!f.isFile) return WebResourceResponse("text/plain", null, 404, "Not Found", emptyMap(), null)
         val len = f.length()
@@ -230,18 +245,42 @@ class MainActivity : ComponentActivity() {
         if (start >= len || end < start) return WebResourceResponse(mime(f.name), null, 416, "Range Not Satisfiable", common + ("Content-Range" to "bytes */$len"), null)
         val input = FileInputStream(f)
         input.channel.position(start)
-        val body = object : java.io.FilterInputStream(input) {
-            var left = end - start + 1
-            override fun read(): Int { if (left <= 0) return -1; val r = super.read(); if (r >= 0) left--; return r }
-            override fun read(buf: ByteArray, off: Int, n: Int): Int {
-                if (left <= 0) return -1
-                val r = super.read(buf, off, minOf(n.toLong(), left).toInt())
-                if (r > 0) left -= r
-                return r
-            }
-        }
+        val body = limited(input, end - start + 1)
         return WebResourceResponse(mime(f.name), null, 206, "Partial Content",
             common + mapOf("Content-Range" to "bytes $start-$end/$len", "Content-Length" to (end - start + 1).toString()), body)
+    }
+
+    /** 選んだフォルダの走行のファイル。Range にも答える。無ければ null (アプリの中を見る) */
+    private fun safRunFile(path: String, headers: Map<String, String>): WebResourceResponse? {
+        val store = bridge.system.folder ?: return null
+        val pfd = try { store.openFd(path) } catch (e: Exception) { null } ?: return null
+        val len = pfd.statSize
+        val name = path.substringAfterLast('/')
+        val common = mapOf("Accept-Ranges" to "bytes", "Access-Control-Allow-Origin" to "*")
+        val input = ParcelFileDescriptor.AutoCloseInputStream(pfd)
+        val range = headers.entries.firstOrNull { it.key.equals("Range", ignoreCase = true) }?.value
+        val m = range?.let { Regex("bytes=(\\d*)-(\\d*)").find(it) }
+        // 大きさが分からない (len < 0) ときは、全部を Content-Length なしで返す
+        if (m == null || len <= 0) return WebResourceResponse(mime(name), null, 200, "OK", if (len > 0) common + ("Content-Length" to len.toString()) else common, input)
+        val (a, b) = m.destructured
+        val start = if (a.isEmpty()) maxOf(0L, len - (b.toLongOrNull() ?: 0L)) else a.toLong()
+        val end = if (a.isEmpty() || b.isEmpty()) len - 1 else minOf(b.toLong(), len - 1)
+        if (start >= len || end < start) { input.close(); return WebResourceResponse(mime(name), null, 416, "Range Not Satisfiable", common + ("Content-Range" to "bytes */$len"), null) }
+        input.channel.position(start)
+        return WebResourceResponse(mime(name), null, 206, "Partial Content",
+            common + mapOf("Content-Range" to "bytes $start-$end/$len", "Content-Length" to (end - start + 1).toString()), limited(input, end - start + 1))
+    }
+
+    /** n バイトまでしか読ませない流れ */
+    private fun limited(input: java.io.InputStream, n: Long) = object : java.io.FilterInputStream(input) {
+        var left = n
+        override fun read(): Int { if (left <= 0) return -1; val r = super.read(); if (r >= 0) left--; return r }
+        override fun read(buf: ByteArray, off: Int, len: Int): Int {
+            if (left <= 0) return -1
+            val r = super.read(buf, off, minOf(len.toLong(), left).toInt())
+            if (r > 0) left -= r
+            return r
+        }
     }
 
     /** 走行のファイル (files/LapTimer)。動画の一部だけを読む頼み (Range) にも答える */

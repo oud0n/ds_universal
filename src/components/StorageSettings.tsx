@@ -71,15 +71,16 @@ export const StorageSettings: React.FC = () => {
             <button onClick={() => void choose('local')} disabled={busy} className={btn(info.kind === 'local')}>
               <Smartphone size={16} className="shrink-0" />{isAndroid ? t('この端末', 'This device') : t('この iPhone', 'This iPhone')}
             </button>
-            {/* Android 版は、まずアプリの中だけ (フォルダを選ぶのは、あとの版で足す) */}
-            {!isAndroid && <button onClick={() => void choose('folder')} disabled={busy} className={btn(info.kind === 'folder')} data-testid="storage-pick-folder">
+            <button onClick={() => void choose('folder')} disabled={busy} className={btn(info.kind === 'folder')} data-testid="storage-pick-folder">
               <FolderOpen size={16} className="shrink-0" />
               <span className="truncate">
                 {info.kind === 'folder' && info.folderName
                   ? t(`フォルダ: ${info.folderName} (選び直す)`, `Folder: ${info.folderName} (change)`)
-                  : t('フォルダを選ぶ (iCloud Drive など)', 'Choose a folder (iCloud Drive etc.)')}
+                  : isAndroid
+                    ? t('フォルダを選ぶ (端末の中・Google ドライブなど)', 'Choose a folder (on the device, Google Drive etc.)')
+                    : t('フォルダを選ぶ (iCloud Drive など)', 'Choose a folder (iCloud Drive etc.)')}
               </span>
-            </button>}
+            </button>
           </>
         )}
         {desktop && (
@@ -91,7 +92,10 @@ export const StorageSettings: React.FC = () => {
       </div>
       {note && <p className={`text-[11px] px-1 ${note.ok ? 'text-slate-400' : 'text-amber-500'}`}>{note.text}</p>}
       <p className="text-[11px] text-slate-500 px-1">
-        {native
+        {native && isAndroid
+          ? t('サーキットごとのフォルダが並ぶ場所を選びます。走っている間はこの端末に書き、測り終えたら選んだフォルダへ移します (この端末には残しません)。パソコンへ移す・ほかの端末と分けるときに使います。あとで「この端末」に戻しても、移した走行はフォルダに残ります。',
+            'Choose the folder that holds a folder per circuit. While driving, runs are written to this device and moved to the chosen folder when you stop (not kept on the device). Use it to move runs to a computer or share them. If you switch back to This device later, moved runs stay in the folder.')
+          : native
           ? t('サーキットごとのフォルダが並ぶ場所を選びます。走っている間はこの iPhone に書き、ときどき選んだフォルダへ写します。測り終えたら選んだフォルダへ移し、この iPhone には残しません (フォルダで消したものは消えたままです)。あとで「この iPhone」に戻しても、移した走行はフォルダに残ります。',
             'Choose the folder that holds a folder per circuit. While driving, runs are written to this iPhone and copied to the chosen folder from time to time. When you stop measuring they are moved to the folder and not kept on this iPhone (what you delete in the folder stays deleted). If you switch back to This iPhone later, moved runs stay in the folder.')
           : t('サーキットごとのフォルダが並ぶ場所を選びます (iPhone のアプリと同じ iCloud Drive のフォルダにすると、両方で同じ走行を開けます)。',
