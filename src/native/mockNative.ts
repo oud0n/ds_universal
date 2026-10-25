@@ -178,7 +178,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   const handle = (req: NativeRequest): unknown => {
     switch (req.method) {
       case 'caps.get':
-        return { contractVersion: CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, iap: true, camera: true, spp: true } };
+        return { contractVersion: CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, iap: true, camera: true, spp: true, deleteFiles: true } };
       // アプリ内課金の模擬 (値段は日本円の例。買うとすぐ買えたことにする)
       case 'iap.products': {
         const { ids } = req.params as { ids: string[] };
@@ -407,6 +407,12 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         return { open: openFiles.size };
       }
       // 選んだフォルダへ移したものも、同じ置き場にあるものとして見せる (このふりの窓口は、走行の置き場の窓口を持たないため)
+      case 'system.deleteRunFiles': {
+        const { paths } = req.params as { paths: string[] };
+        const deleted: string[] = [];
+        for (const p of paths) { lapTimerFiles.delete(p); syncedFiles.delete(p); deleted.push(p); }
+        return { deleted, failed: [] };
+      }
       case 'system.listLapFiles':
         return { files: [...visibleFiles().entries()].filter(([p]) => !p.startsWith('exports/')).map(([path, b64]) => ({ path, size: b64.length, mtimeMs: 0 })) };
       case 'system.readLapFile': {

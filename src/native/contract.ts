@@ -58,7 +58,8 @@ export interface Capabilities {
   /** iap: アプリ内課金 (投げ銭) が使える (2026-10-24 に足した。前の版のアプリには無いので、無いときは使えないとみなす) */
   /** camera: 内蔵カメラで録画できる (2026-10-25 に足した。前の版のアプリには無い) */
   /** spp: Bluetooth Classic のシリアル (Android だけ。Drogger DG-PRO1S など。2026-10-25) */
-  features: { ble: boolean; iap?: boolean; camera?: boolean; spp?: boolean };
+  /** deleteFiles: 走行のファイルを消せる (system.deleteRunFiles。2026-10-25) */
+  features: { ble: boolean; iap?: boolean; camera?: boolean; spp?: boolean; deleteFiles?: boolean };
 }
 
 /** 内蔵カメラの画質 */
@@ -255,6 +256,12 @@ export interface NativeMethods {
   /** 走行の置き場の runs.json・laptimes.json を書く */
   'system.writeRunFile': { params: { path: string; b64: string }; result: Record<string, never> };
   /** 動画の一部を読む (base64。8 MB まで) */
+  /**
+   * 走行のファイルを消す (走行の画面の「この走行を消す」。2026-10-25)。サーキットのフォルダの中のファイルだけ
+   * (runs.json・laptimes.json・コーナー・course/・sessions/ は消さない)。iPhone は「ファイル」の最近削除した項目へ移す。
+   * 選んだフォルダのときは、まだ移していないアプリの中の写しも消す
+   */
+  'system.deleteRunFiles': { params: { paths: string[] }; result: { deleted: string[]; failed: Array<{ path: string; error: string }> } };
   'system.readRunRange': { params: { path: string; offset: number; length: number }; result: { b64: string } };
   /** ファイルが端末にあるか・iCloud から取り込み中か */
   'system.runFileStatus': { params: { path: string }; result: { local: boolean; downloading: boolean } };

@@ -57,7 +57,7 @@ class NativeBridge(private val activity: MainActivity, private val webView: WebV
                         .put("contractVersion", CONTRACT_VERSION)
                         .put("platform", "android")
                         .put("deviceKind", "phone")
-                        .put("features", JSONObject().put("ble", true).put("iap", false).put("camera", true).put("spp", true))))
+                        .put("features", JSONObject().put("ble", true).put("iap", false).put("camera", true).put("spp", true).put("deleteFiles", true))))
                     method == "system.motionStart" || method == "system.motionStop" -> motion.handle(method, params, done)
                     method.startsWith("system.") -> system.handle(method, params, done)
                     method.startsWith("spp.") -> spp.handle(method, params, done)

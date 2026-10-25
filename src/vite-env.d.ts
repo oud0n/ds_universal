@@ -21,6 +21,8 @@ interface ElectronAPI {
     /** iCloud Drive にだけあるファイルか (古い版のアプリには無い) */
     fileStatus?: (path: string) => Promise<{ local: boolean; downloading: boolean }>;
     startDownload?: (path: string) => Promise<{ success: boolean }>;
+    /** 走行のファイルをゴミ箱へ移す (2026-10-25) */
+    remove?: (paths: string[]) => Promise<{ deleted: string[]; failed: Array<{ path: string; error: string }> }>;
   };
 }
 

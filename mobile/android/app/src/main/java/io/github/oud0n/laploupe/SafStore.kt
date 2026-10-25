@@ -111,6 +111,14 @@ class SafStore(private val ctx: Context, val tree: Uri) {
 
     fun openFd(rel: String): ParcelFileDescriptor? = withDoc(rel) { resolver.openFileDescriptor(it, "r") ?: throw NativeError.io("cannot open") }
 
+    /** 消す (無ければ false)。消したらそのフォルダの覚えを捨てる */
+    fun delete(rel: String): Boolean {
+        val (e, parent) = locate(rel) ?: return false
+        val ok = DocumentsContract.deleteDocument(resolver, docUri(e.id))
+        forget(parent)
+        return ok
+    }
+
     /** 中身がまったく同じか */
     fun sameContent(rel: String, local: java.io.File): Boolean {
         val there = size(rel) ?: return false

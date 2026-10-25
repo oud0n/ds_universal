@@ -301,6 +301,29 @@ export function updateRun(store: RunStore, folder: string, file: string, change:
   return next;
 }
 
+/** 走行の行を消す (走行を消したとき)。ほかの走行の行はそのまま。書き方は updateRun と同じく 1 つずつ */
+export function removeRunRow(store: RunStore, folder: string, file: string): Promise<void> {
+  const key = `${folder}/${RUNS_FILE}`;
+  const run = async () => {
+    const text = await store.readTextStrict(`${folder}/${RUNS_FILE}`);
+    if (text === null) return;
+    if (!isRunsFileText(text)) throw new Error('runs.json could not be read');
+    let current = parseRunsFile(text);
+    for (const p of conflictCopies.get(folder) ?? []) current = mergeRunsFiles(current, parseRunsFile(await store.readText(p).catch(() => null)));
+    const k = runKey(file);
+    const short = runStem(file);
+    if (!(k in current.runs) && !(short in current.runs)) return;
+    delete current.runs[k];
+    delete current.runs[short];
+    await store.writeText(`${folder}/${RUNS_FILE}`, JSON.stringify(current, null, 1));
+  };
+  const next = (runsWrites.get(key) ?? Promise.resolve()).then(run, run);
+  const tail = next.catch(() => undefined);
+  runsWrites.set(key, tail);
+  void tail.then(() => { if (runsWrites.get(key) === tail) runsWrites.delete(key); });
+  return next;
+}
+
 async function updateRunNow(store: RunStore, folder: string, file: string, change: (row: RunRow | undefined) => Partial<RunRow>): Promise<RunRow> {
   // 読めないとき (無いのではなく) は書かない (空とみなして書くと、ほかの走行の行を消すため)
   const text = await store.readTextStrict(`${folder}/${RUNS_FILE}`);

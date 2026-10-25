@@ -282,6 +282,27 @@ class SystemModule(private val activity: MainActivity, private val bridge: Nativ
                     JSONObject().put("b64", Base64.encodeToString(buf, Base64.NO_WRAP))
                 }
             }
+            // 走行のファイルを消す (サーキットのフォルダの中のものだけ。選んだフォルダにはゴミ箱が無いので、そのまま消える)
+            "system.deleteRunFiles" -> bg(done) {
+                val paths = p.optJSONArray("paths")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
+                val deleted = JSONArray(); val failed = JSONArray()
+                for (rel in paths) {
+                    val name = rel.substringAfterLast('/')
+                    val deletable = rel.contains('/') && !rel.startsWith("course/") && !rel.startsWith("sessions/") && !rel.startsWith("exports/") &&
+                        !name.startsWith(".") && name !in setOf("runs.json", "laptimes.json", "corners.json", "corners.json.bak")
+                    val local = file(rel)
+                    if (!deletable || local == null) { failed.put(JSONObject().put("path", rel).put("error", "not deletable")); continue }
+                    try {
+                        usableFolder()?.delete(rel)
+                        if (local.isFile) local.delete()
+                        openFiles.remove(rel); lastAppend.remove(rel)
+                        deleted.put(rel)
+                    } catch (e: Exception) {
+                        failed.put(JSONObject().put("path", rel).put("error", e.message ?: "error"))
+                    }
+                }
+                JSONObject().put("deleted", deleted).put("failed", failed)
+            }
             "system.runRoot" -> bg(done) {
                 val f = usableFolder()
                 JSONObject().put("urlBase", MainActivity.RUN_URL_BASE).put("kind", if (f != null) "folder" else "local").put("name", f?.name() ?: "LapTimer")

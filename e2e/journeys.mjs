@@ -220,6 +220,58 @@ export const journeys = [
     }
   },
   {
+    name: '走行を消す: 同じ日の別の走行・付けていない動画は残し、その走行のファイルと runs.json の行だけを消す',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      // 試験用の写しに、同じ日の走行を 2 本と、付けていない動画を作る
+      const dir = path.join(root, 'sodegaura/20200101');
+      fs.mkdirSync(dir, { recursive: true });
+      const src = fs.readFileSync(path.join(root, 'sodegaura/20260913/20260913092357.nmea'));
+      const A = '20200101090000', B = '20200101100000';
+      fs.writeFileSync(path.join(dir, `${A}.nmea`), src);
+      fs.writeFileSync(path.join(dir, `${A}.iphone_imu.csv`), 'time_utc_ms,g_long,g_lat,g_vert\n');
+      fs.writeFileSync(path.join(dir, `${A}.mov`), 'x');
+      fs.writeFileSync(path.join(dir, `${B}.nmea`), src);
+      fs.writeFileSync(path.join(dir, `${B}.mov`), 'y');
+      fs.writeFileSync(path.join(dir, 'GX099999.MP4'), 'z');
+      const runsPath = path.join(root, 'sodegaura/runs.json');
+      const runs = JSON.parse(fs.readFileSync(runsPath, 'utf8'));
+      runs.runs[`20200101/${A}`] = { updatedAt: new Date().toISOString(), id: 'r_e2edelA', name: 'e2e 消す走行', videos: [{ name: `${A}.mov` }] };
+      runs.runs[`20200101/${B}`] = { updatedAt: new Date().toISOString(), id: 'r_e2edelB', name: 'e2e 残す走行', videos: [{ name: `${B}.mov` }] };
+      fs.writeFileSync(runsPath, JSON.stringify(runs, null, 1));
+      try {
+        // 作ったファイルを読み直す (一覧は開いたときに読む)
+        await p.goto(`${APP}?r=${Date.now()}`);
+        await p.click('nav-library');
+        await p.waitFor(`[...document.querySelectorAll('[data-testid="run-row-name"]')].some(e => e.innerText === 'e2e 消す走行')`, 20000, '試験の走行の行');
+        await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].find(r => r.innerText.includes('e2e 消す走行')).click()`);
+        await p.waitFor(`document.querySelector('[data-testid="run-delete"]')`, 5000, 'この走行を消す');
+        await p.click('run-delete');
+        await p.waitFor(`document.querySelector('[data-testid="run-delete-remove"]')`, 10000, '消すファイルの一覧');
+        const listed = await p.ev(`({ remove: document.querySelector('[data-testid="run-delete-remove"]').innerText, keep: document.querySelector('[data-testid="run-delete-keep"]')?.innerText ?? '' })`);
+        check(listed.remove.includes(`${A}.nmea`) && listed.remove.includes(`${A}.mov`) && listed.remove.includes(`${A}.iphone_imu.csv`), `消すファイルが足りない: ${listed.remove}`);
+        check(!listed.remove.includes(B) && !listed.remove.includes('GX099999'), `ほかの走行・付けていない動画まで消そうとしている: ${listed.remove}`);
+        check(listed.keep.includes('GX099999'), `付けていない動画が残すほうに出ない: ${listed.keep}`);
+        await p.click('run-delete-confirm');
+        await p.waitFor(`!document.querySelector('[data-testid="run-delete-dialog"]')`, 10000, '消し終わる');
+        const left = fs.readdirSync(dir).sort();
+        check(JSON.stringify(left) === JSON.stringify([`${B}.mov`, `${B}.nmea`, 'GX099999.MP4']), `残ったファイルが違う: ${left.join(', ')}`);
+        const after = JSON.parse(fs.readFileSync(runsPath, 'utf8')).runs;
+        check(!after[`20200101/${A}`] && !!after[`20200101/${B}`], 'runs.json の行の消え方が違う');
+        await p.waitFor(`![...document.querySelectorAll('[data-testid="run-row-name"]')].some(e => e.innerText === 'e2e 消す走行')`, 10000, '一覧から消える');
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+        const r2 = JSON.parse(fs.readFileSync(runsPath, 'utf8'));
+        delete r2.runs[`20200101/${A}`];
+        delete r2.runs[`20200101/${B}`];
+        fs.writeFileSync(runsPath, JSON.stringify(r2, null, 1));
+      }
+    }
+  },
+  {
     name: '動画: 全体で動かす・周に切り替える・画面を行き来しても、動画とログが合っている',
     target: 'electron',
     async run(p) {

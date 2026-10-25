@@ -4,7 +4,7 @@
  * 動画は lapfile://run/<道> で読む (丸ごと読まず、頼んだ範囲だけ読む。iPhone: RunFiles.swift、デスクトップ版: electron/main.cjs)
  */
 
-import { callNative, fromBase64, hasNative, NativeError, toBase64 } from '../native/bridge';
+import { callNative, fromBase64, hasNative, nativeCapabilities, NativeError, toBase64 } from '../native/bridge';
 import type { LapFileInfo, LapFileStore } from './lapIndex';
 
 export interface RunFileInfo extends LapFileInfo {
@@ -27,6 +27,18 @@ export interface RunStore extends LapFileStore {
   fileStatus(path: string): Promise<{ local: boolean; downloading: boolean }>;
   /** 動画を lapfile:// で読めるか (古いアプリは読めない) */
   supportsVideos(): Promise<boolean>;
+  /**
+   * 走行のファイルを消す (iPhone・デスクトップ版はゴミ箱へ)。消せない環境 (前の版のアプリ・ブラウザ版) では無い。
+   * サーキットのフォルダの中のものだけ (共有の控え・コース・セッションは消せない)
+   */
+  remove?(paths: string[]): Promise<{ deleted: string[]; failed: Array<{ path: string; error: string }> }>;
+}
+
+/** この置き場で走行のファイルを消せるか */
+export async function canRemoveRunFiles(store: RunStore | null): Promise<boolean> {
+  if (!store?.remove) return false;
+  if (!hasNative()) return true;
+  try { return !!(await nativeCapabilities())?.features.deleteFiles; } catch { return false; }
 }
 
 const encoder = new TextEncoder();
@@ -115,6 +127,9 @@ export function nativeRunStore(): RunStore | null {
     },
     async startDownload(path) {
       await callNative('system.downloadRunFile', { path }).catch(() => undefined);
+    },
+    async remove(paths) {
+      return callNative('system.deleteRunFiles', { paths });
     }
   };
   return store;
@@ -157,7 +172,8 @@ export async function electronRunStore(): Promise<RunStore | null> {
     },
     async startDownload(path) {
       await api.startDownload?.(path);
-    }
+    },
+    ...(api.remove ? { remove: (paths: string[]) => api.remove!(paths) } : {})
   };
   return store;
 }

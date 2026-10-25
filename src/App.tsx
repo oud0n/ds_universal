@@ -2472,6 +2472,8 @@ export const App: React.FC = () => {
             // 比べられるのは Car 1 と同じコースの走行だけ
             car1Course={baseSession?.circuitName ?? null}
             car1Run={baseSession ? ([...runSessionsRef.current].find(([, ids]) => ids.includes(baseSession.id))?.[0] ?? null) : null}
+            // 解析で開いている走行 (消せない)
+            openRuns={[...runSessionsRef.current].filter(([, ids]) => ids.some(id => sessions.some(s => s.id === id))).map(([p]) => p)}
             onPickFiles={() => fileInputRef.current?.click()}
             onOpenFile={file => { void loadFiles([file]).then(() => navStore.go('analysis')); }}
             canTime={plan.available.has('timer') && profile.host === 'native'}

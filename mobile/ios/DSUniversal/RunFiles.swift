@@ -222,6 +222,51 @@ enum RunFiles {
     /// コーナー (Corner/<フォルダ>.json と .bak)・コース編集で直したコースの計測線・セクター線・その一覧 (courses.json)
     static func isCourseText(_ rel: String) -> Bool {
         rel.range(of: #"^course/(Corner/[a-z0-9_]+\.json(\.bak)?|ControlLine/[^/]+\.cln|Sector/[^/]+\.sci|courses\.json)$"#, options: .regularExpression) != nil
+            // 解析用のセッション (保存した比べ方。PLAN-18。2026-10-25)
+            || rel.range(of: #"^sessions/[^/]+\.lapsession\.json$"#, options: .regularExpression) != nil
+    }
+
+    /// 消してよい走行のファイルか (サーキットのフォルダの中のもの。共有の控え・コース・セッションは消さない)
+    static func isDeletableRunFile(_ rel: String) -> Bool {
+        let name = (rel as NSString).lastPathComponent
+        guard rel.contains("/"), !rel.hasPrefix("course/"), !rel.hasPrefix("sessions/"), !rel.hasPrefix("exports/") else { return false }
+        return !["runs.json", "laptimes.json", "corners.json", "corners.json.bak"].contains(name) && !name.hasPrefix(".")
+    }
+
+    /// 走行のファイルを消す (「ファイル」の最近削除した項目へ移す。移せないときは消す)。選んだフォルダのときは、アプリの中の写しも消す
+    static func delete(_ paths: [String]) -> (deleted: [String], failed: [(String, String)]) {
+        var deleted: [String] = []
+        var failed: [(String, String)] = []
+        let fm = FileManager.default
+        withRoot { root in
+            let (_, scoped) = Self.root()
+            for rel in paths {
+                guard isDeletableRunFile(rel), let url = resolve(rel, in: root) else { failed.append((rel, "not deletable")); continue }
+                // iCloud にだけあるもの (.名前.icloud) は、その置き場所のファイルを消す
+                let placeholder = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).icloud")
+                let target = fm.fileExists(atPath: url.path) ? url : (fm.fileExists(atPath: placeholder.path) ? placeholder : nil)
+                var ok = target == nil
+                var message = ""
+                if let target {
+                    var coordError: NSError?
+                    NSFileCoordinator().coordinate(writingItemAt: target, options: .forDeleting, error: &coordError) { u in
+                        do {
+                            do { try fm.trashItem(at: u, resultingItemURL: nil) } catch { try fm.removeItem(at: u) }
+                            ok = true
+                        } catch {
+                            message = error.localizedDescription
+                        }
+                    }
+                    if let coordError { ok = false; message = coordError.localizedDescription }
+                }
+                // 選んだフォルダのとき: まだ移していない、アプリの中の写しも消す (残すと、次に写したときに戻ってくる)
+                if scoped, let local = resolve(rel, in: lapTimerRoot), fm.fileExists(atPath: local.path) {
+                    do { try fm.removeItem(at: local) } catch { if ok { ok = false; message = error.localizedDescription } }
+                }
+                if ok { deleted.append(rel) } else { failed.append((rel, message)) }
+            }
+        }
+        return (deleted, failed)
     }
 
     /// runs.json・laptimes.json・corners.json (コーナーの名前。前の中身の控え .bak も)・course/ のコースデータだけを書く (一時ファイルに書いてから入れ替える)

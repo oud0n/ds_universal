@@ -12,6 +12,8 @@ import { baseName, setRunLapHidden, setRunMeta, type RunItem } from '../services
 import { RunNoteField } from '../components/RunNoteField';
 import { navStore } from '../app/navStore';
 import { deleteSession, listSessions, type LapSession, type SavedSession } from '../services/analysisSessions';
+import { deleteRun, planRunDelete, type RunDeletePlan } from '../services/runDelete';
+import { canRemoveRunFiles } from '../services/runStore';
 
 /** 一度に出す行の数 (数千件あっても固まらないよう、続きは「さらに表示」で足す) */
 const PAGE = 150;
@@ -30,6 +32,8 @@ interface Props {
   car1Course?: string | null;
   /** Car 1 の走行 (folder/file)。同じ走行は Car 2 にできない */
   car1Run?: string | null;
+  /** 解析で開いている走行 (folder/file)。開いている走行は消せない */
+  openRuns?: string[];
   onPickFiles: () => void;
   /** ラップタイムの記録から、走行のファイルを解析で開く */
   onOpenFile: (file: File) => void;
@@ -59,7 +63,7 @@ const sameRunFile = (a: string, b: string) => {
   return dir(a) === dir(b) && runStem(a) === runStem(b);
 };
 
-export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSession, onOpenVideo, onAddAsCar2, car1Course = null, car1Run = null, onPickFiles, onOpenFile, busy, canTime = false }) => {
+export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSession, onOpenVideo, onAddAsCar2, car1Course = null, car1Run = null, openRuns = [], onPickFiles, onOpenFile, busy, canTime = false }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const { store, runs, error, noFolder, reload } = useRuns(active);
@@ -72,6 +76,11 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
   const [historyOpen, setHistoryOpen] = useState(false);
   /** 中身のない走行 (周も動画もない) を開いて見せている日 */
   const [showEmpty, setShowEmpty] = useState<Set<string>>(() => new Set());
+  /** 走行のファイルを消せる置き場か (前の版のアプリ・ブラウザ版では消せない) */
+  const [canDelete, setCanDelete] = useState(false);
+  useEffect(() => { let alive = true; void canRemoveRunFiles(store).then(v => { if (alive) setCanDelete(v); }); return () => { alive = false; }; }, [store]);
+  /** 消す確かめの画面 (走行と、消すファイルの案) */
+  const [deleting, setDeleting] = useState<{ item: RunItem; plan: RunDeletePlan | null; error?: string; running?: boolean } | null>(null);
   /** 保存した比べ方 (解析用のセッション)。走行を読み直すたびに読み直す */
   const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
   const [sessionsOpen, setSessionsOpen] = useState(true);
@@ -292,6 +301,13 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
         reload();
       }}
       onClose={wide ? undefined : () => setSelectedKey(null)}
+      onDelete={canDelete ? () => {
+        const item = selected;
+        setDeleting({ item, plan: null });
+        void store.listAll().then(files => setDeleting(d => (d && d.item === item ? { ...d, plan: planRunDelete(item, files, runs ?? []) } : d)),
+          e => setDeleting(d => (d ? { ...d, error: e instanceof Error ? e.message : String(e) } : d)));
+      } : undefined}
+      isOpen={openRuns.includes(`${selected.folder}/${selected.file}`)}
     />
   );
 
@@ -316,6 +332,95 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
         const item = runs?.find(r => r.folder === run.folder && sameRunFile(r.file, run.file));
         if (item) onOpen(item); else onOpenFile(file);
       }} />}
+      {deleting && store && (
+        <DeleteRunDialog
+          state={deleting}
+          onCancel={() => setDeleting(null)}
+          onConfirm={async () => {
+            if (!deleting.plan) return;
+            setDeleting(d => (d ? { ...d, running: true, error: undefined } : d));
+            try {
+              const failed = await deleteRun(store, deleting.item, deleting.plan);
+              if (failed.length) {
+                setDeleting(d => (d ? { ...d, running: false, error: t(`消せなかったファイルがあります: ${failed.map(f => baseName(f.path)).join(', ')}`, `Some files could not be deleted: ${failed.map(f => baseName(f.path)).join(', ')}`) } : d));
+              } else {
+                setDeleting(null);
+                setSelectedKey(null);
+              }
+            } catch (e) {
+              setDeleting(d => (d ? { ...d, running: false, error: e instanceof Error ? e.message : String(e) } : d));
+            }
+            reload();
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+/** 走行を消す確かめの画面 (消すファイルと、残すファイルを理由つきで出す) */
+const DeleteRunDialog: React.FC<{
+  state: { item: RunItem; plan: RunDeletePlan | null; error?: string; running?: boolean };
+  onCancel: () => void;
+  onConfirm: () => void;
+}> = ({ state, onCancel, onConfirm }) => {
+  const t = useT();
+  useEscapeKey(true, onCancel);
+  const { plan } = state;
+  const total = plan ? plan.remove.reduce((n, f) => n + f.size, 0) : 0;
+  const size = (b: number) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1e3))} KB`);
+  const kind = (k: RunDeletePlan['remove'][number]['kind']) => ({ log: t('ログ', 'Log'), sensor: t('センサー', 'Sensor'), camera: t('内蔵カメラ', 'Camera'), video: t('付けた動画', 'Attached video') }[k]);
+  const reason = (r: RunDeletePlan['keep'][number]['reason']) => ({
+    'other-run': t('ほかの走行のファイル', 'Belongs to another run'),
+    'shared-video': t('ほかの走行にも付いている動画', 'Also attached to another run'),
+    'unattached-video': t('この走行に付けていない動画', 'Not attached to this run')
+  }[r]);
+  const trash = typeof navigator !== 'undefined' && !/Android/i.test(navigator.userAgent);
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" data-testid="run-delete-dialog">
+      <div className="w-full max-w-md max-h-[85vh] flex flex-col rounded-2xl bg-surface-1 border border-line-2 shadow-2xl">
+        <div className="px-4 py-3 border-b border-line-2">
+          <div className="text-sm font-bold text-slate-100">{t('この走行を消しますか？', 'Delete this run?')}</div>
+          <div className="text-xs text-slate-400 mt-0.5 truncate">{state.item.folder}/{state.item.file}</div>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3 text-xs">
+          {!plan && !state.error && <div className="flex items-center gap-2 text-slate-400"><Loader2 size={14} className="animate-spin" />{t('消すファイルを調べています…', 'Checking files…')}</div>}
+          {plan && (
+            <>
+              <div>
+                <div className="font-bold text-slate-300 mb-1">{t(`消すファイル (${plan.remove.length} 件・${size(total)})`, `Files to delete (${plan.remove.length}, ${size(total)})`)}</div>
+                <div className="space-y-0.5" data-testid="run-delete-remove">
+                  {plan.remove.map(f => (
+                    <div key={f.path} className="flex gap-2 text-slate-300"><span className="truncate flex-1">{baseName(f.path)}</span><span className="text-slate-500 shrink-0">{kind(f.kind)} · {size(f.size)}</span></div>
+                  ))}
+                </div>
+              </div>
+              {plan.keep.length > 0 && (
+                <div>
+                  <div className="font-bold text-slate-300 mb-1">{t('同じフォルダで残すファイル', 'Kept in the same folder')}</div>
+                  <div className="space-y-0.5" data-testid="run-delete-keep">
+                    {plan.keep.map(f => (
+                      <div key={f.path} className="flex gap-2 text-slate-400"><span className="truncate flex-1">{baseName(f.path)}</span><span className="text-slate-500 shrink-0">{reason(f.reason)}</span></div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <p className="text-[11px] text-slate-500">
+                {trash
+                  ? t('ファイルはゴミ箱 (iPhone は「ファイル」の最近削除した項目) へ移します。名前・メモ・同期などの走行の記録も消えます。', 'Files are moved to the Trash (Recently Deleted in Files on iPhone). The run’s name, notes and sync are removed too.')
+                  : t('ファイルはすぐに消え、戻せません。名前・メモ・同期などの走行の記録も消えます。', 'Files are deleted right away and cannot be restored. The run’s name, notes and sync are removed too.')}
+              </p>
+            </>
+          )}
+          {state.error && <p className="text-amber-500">{state.error}</p>}
+        </div>
+        <div className="flex gap-2 px-4 py-3 border-t border-line-2">
+          <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl bg-surface-3 text-slate-200 text-sm font-bold cursor-pointer" data-testid="run-delete-cancel">{t('やめる', 'Cancel')}</button>
+          <button onClick={onConfirm} disabled={!plan || plan.remove.length === 0 || state.running} className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold cursor-pointer disabled:opacity-50" data-testid="run-delete-confirm">
+            {state.running ? t('消しています…', 'Deleting…') : t('消す', 'Delete')}
+          </button>
+        </div>
+      </div>
     </div>
   );
 };
@@ -391,7 +496,11 @@ const RunDetail: React.FC<{
   onClose?: () => void;
   /** 走行の名前・メモを書く (PLAN-32・33) */
   onSaveMeta?: (patch: { name?: string; note?: string; reference?: { driver?: string; car?: string } | null }) => Promise<void>;
-}> = ({ run, busy, onOpen, onOpenVideo, onAddAsCar2, otherCourse = false, isCar1 = false, onToggleLap, onClose, onSaveMeta }) => {
+  /** この走行を消す (確かめの画面を出す)。消せない置き場では無い */
+  onDelete?: () => void;
+  /** 解析で開いている走行 (消せない) */
+  isOpen?: boolean;
+}> = ({ run, busy, onOpen, onOpenVideo, onAddAsCar2, otherCourse = false, isCar1 = false, onToggleLap, onClose, onSaveMeta, onDelete, isOpen = false }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const [order, setOrder] = useState<'run' | 'time'>('run');
@@ -469,6 +578,14 @@ const RunDetail: React.FC<{
             ))}
           </div>
         </section>
+        {onDelete && (
+          <section className="pt-2 border-t border-line-2">
+            <button onClick={onDelete} disabled={busy || isOpen} className="text-xs text-red-400 hover:text-red-300 disabled:text-slate-500 cursor-pointer disabled:cursor-not-allowed" data-testid="run-delete">
+              {t('この走行を消す…', 'Delete this run…')}
+            </button>
+            {isOpen && <p className="text-[11px] text-slate-500 mt-1">{t('解析で開いている走行は消せません (解析の「走行とコース」から外してください)', 'A run open in Analysis cannot be deleted (remove it from Runs & course first)')}</p>}
+          </section>
+        )}
       </div>
       {onAddAsCar2 && visible.length > 0 && (
         <div className="shrink-0 px-4 pt-3 border-t border-line-2">

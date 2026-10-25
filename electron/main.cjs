@@ -561,6 +561,32 @@ ipcMain.handle('laps-file-status', async (_event, rel) => {
   const placeholder = path.join(path.dirname(full), `.${path.basename(full)}.icloud`);
   return { local: false, downloading: await fs.promises.stat(placeholder).then(() => true, () => false) };
 });
+// 走行のファイルを消す (走行の画面の「この走行を消す」。2026-10-25)。ゴミ箱へ移す (戻せるように)。
+// サーキットのフォルダの中のものだけ (共有の控え・コース・セッションは消さない)
+const lapDeletable = rel => {
+  const r = String(rel).replace(/\\/g, '/');
+  const name = path.posix.basename(r);
+  return r.includes('/') && !/^(course|sessions|exports)\//.test(r) && !name.startsWith('.') && !['runs.json', 'laptimes.json', 'corners.json', 'corners.json.bak'].includes(name);
+};
+ipcMain.handle('laps-delete', async (_event, rels) => {
+  const deleted = [];
+  const failed = [];
+  for (const rel of Array.isArray(rels) ? rels : []) {
+    const full = lapDeletable(rel) ? await lapPath(rel) : null;
+    if (!full) { failed.push({ path: String(rel), error: 'not deletable' }); continue; }
+    // iCloud にだけあるもの (.名前.icloud) は、その置き場所のファイルを消す
+    const placeholder = path.join(path.dirname(full), `.${path.basename(full)}.icloud`);
+    const target = await fs.promises.stat(full).then(() => full, () => fs.promises.stat(placeholder).then(() => placeholder, () => null));
+    if (!target) { deleted.push(rel); continue; }
+    try {
+      await shell.trashItem(target);
+      deleted.push(rel);
+    } catch (e) {
+      failed.push({ path: rel, error: String(e && e.message || e) });
+    }
+  }
+  return { deleted, failed };
+});
 ipcMain.handle('laps-start-download', async (_event, rel) => {
   const full = await lapPath(rel);
   if (!full || process.platform !== 'darwin') return { success: false };
