@@ -76,7 +76,12 @@ export function planRunDelete(item: RunItem, files: RunFileInfo[], runs: RunItem
       continue;
     }
     if (VIDEO.test(name)) {
-      if (!attached.has(name)) { plan.keep.push({ path: f.path, reason: 'unattached-video' }); continue; }
+      if (!attached.has(name)) {
+        // ほかの走行の内蔵カメラの動画 (その走行の名前の形) なら、そう出す
+        const other = otherRes.some(o => o.re.some(x => x.test(name)));
+        plan.keep.push({ path: f.path, reason: other ? 'other-run' : 'unattached-video' });
+        continue;
+      }
       if (sharedVideos.has(name)) { plan.keep.push({ path: f.path, reason: 'shared-video' }); continue; }
       plan.remove.push({ path: f.path, size: f.size, kind: 'video' });
     }

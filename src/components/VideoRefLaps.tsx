@@ -18,6 +18,18 @@ const size = (b: number) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.m
 /** 動画の 1 コマ (30 fps とみなす) */
 const FRAME = 1 / 30;
 
+/**
+ * iPhone (WebKit) は、一度再生するまで止めた動画のコマを描かない (黒いまま)。音を消して一瞬再生して止め、コマを出す。
+ * 終わったら then (止めた位置を決め直すなど)
+ */
+function primeFrame(v: HTMLVideoElement, then?: () => void): void {
+  if (v.dataset.primed) { then?.(); return; }
+  v.dataset.primed = '1';
+  v.muted = true;
+  const at = v.currentTime;
+  void v.play().then(() => { v.pause(); v.currentTime = at; then?.(); }, () => then?.());
+}
+
 const Shell: React.FC<{ title: string; onClose: () => void; children: React.ReactNode; testid: string; wide?: boolean }> = ({ title, onClose, children, testid, wide }) => {
   const t = useT();
   useEscapeKey(true, onClose);
@@ -70,6 +82,16 @@ export const VideoLapMarker: React.FC<{
   const [marks, setMarks] = useState<VideoLapMark[]>(() => videoLapsOf(existing?.row)?.marks ?? []);
   const [now, setNow] = useState(0);
   const [playing, setPlaying] = useState(false);
+  // 今の位置と再生中かは、0.1 秒ごとに読む (iPhone では動画の時刻の知らせが届かないことがあるため)
+  useEffect(() => {
+    const id = setInterval(() => {
+      const v = video.current;
+      if (!v) return;
+      setNow(v.currentTime);
+      setPlaying(!v.paused);
+    }, 100);
+    return () => clearInterval(id);
+  }, []);
   const [name, setName] = useState(existing?.row.name ?? '');
   const [driver, setDriver] = useState(existing?.row.reference?.driver ?? '');
   const [car, setCar] = useState(existing?.row.reference?.car ?? '');
@@ -138,9 +160,9 @@ export const VideoLapMarker: React.FC<{
         <div className="space-y-2 min-w-0">
           <video ref={video} src={store.videoUrl(path)} controls playsInline preload="auto" className="w-full max-h-[55dvh] bg-black rounded-lg"
             // 印を直すときは、最初の印から
-            onLoadedMetadata={e => { const first = marks[0]; if (first && e.currentTarget.currentTime === 0) e.currentTarget.currentTime = first.t; }}
-            onTimeUpdate={e => setNow(e.currentTarget.currentTime)} onSeeked={e => setNow(e.currentTarget.currentTime)}
-            onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} data-testid="video-lap-marker-video" />
+            // コマを出してから、印を直すときは最初の印へ (iPhone は再生するまでコマを読まないので、長さが分かった時点で)
+            onLoadedMetadata={e => { const v = e.currentTarget; primeFrame(v, () => { const first = marks[0]; if (first && v.currentTime < 0.5) v.currentTime = first.t; }); }}
+            muted data-testid="video-lap-marker-video" />
           <div className="flex flex-wrap items-center gap-1.5">
             <button className={btn} onClick={() => step(-1)} aria-label={t('1 秒戻す', 'Back 1 s')}>−1s</button>
             <button className={btn} onClick={() => step(-FRAME)} aria-label={t('1 コマ戻す', 'Back 1 frame')}><ChevronLeft size={14} /></button>
@@ -321,12 +343,12 @@ export const VideoLapCompare: React.FC<{ store: RunStore; videoRef: VideoRef; ru
         <div className="grid gap-2 md:grid-cols-2">
           <div className="space-y-1 min-w-0">
             <div className="text-slate-400">{t('参考ラップ', 'Reference')} {videoRef.row.reference?.driver ? `· ${videoRef.row.reference.driver}` : ''}</div>
-            <video ref={refVideo} src={store.videoUrl(videoRef.path)} playsInline muted preload="auto" className="w-full aspect-video bg-black rounded-lg" data-testid="video-lap-compare-ref-video" />
+            <video ref={refVideo} src={store.videoUrl(videoRef.path)} playsInline muted preload="auto" onLoadedMetadata={e => { const v = e.currentTarget; primeFrame(v, () => { if (refLap && !playing) v.currentTime = refLap.start + Math.min(tau, refLap.time); }); }} className="w-full aspect-video bg-black rounded-lg" data-testid="video-lap-compare-ref-video" />
           </div>
           <div className="space-y-1 min-w-0">
             <div className="text-slate-400">{t('自分', 'Mine')}</div>
             {own
-              ? <video ref={ownVideo} src={store.videoUrl(own.video.path)} playsInline muted preload="auto" className="w-full aspect-video bg-black rounded-lg" data-testid="video-lap-compare-own-video" />
+              ? <video key={own.video.path} ref={ownVideo} src={store.videoUrl(own.video.path)} playsInline muted preload="auto" onLoadedMetadata={e => { const v = e.currentTarget; primeFrame(v, () => { if (own && !playing) v.currentTime = own.video.sec + Math.min(tau, own.time); }); }} className="w-full aspect-video bg-black rounded-lg" data-testid="video-lap-compare-own-video" />
               : <div className="w-full aspect-video bg-black/50 rounded-lg" />}
           </div>
         </div>
