@@ -181,15 +181,37 @@ final class CameraModule: NSObject {
 
     // MARK: - 撮る
 
-    /// 画面の向き (ラップタイマーの向き) から、録画の回転 (度)
-    private static func rotationAngle(front: Bool) -> CGFloat {
+    /// 画面の向き (ラップタイマーの向き) から、録画の回転 (度)。カメラの取り付けの向きの違い (下の mountOffset) も足す
+    private static func rotationAngle(for device: AVCaptureDevice) -> CGFloat {
+        let front = device.position == .front
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let base: CGFloat
         switch scene?.effectiveGeometry.interfaceOrientation ?? .portrait {
-        case .landscapeRight: return front ? 180 : 0
-        case .landscapeLeft: return front ? 0 : 180
-        case .portraitUpsideDown: return 270
-        default: return 90
+        case .landscapeRight: base = front ? 180 : 0
+        case .landscapeLeft: base = front ? 0 : 180
+        case .portraitUpsideDown: base = 270
+        default: base = 90
         }
+        let a = (base + mountOffset(device)).truncatingRemainder(dividingBy: 360)
+        return a < 0 ? a + 360 : a
+    }
+
+    /// カメラの取り付けの向きが、ふつう (後ろの広角と同じ) から何度ずれているか (90 度刻み)。
+    /// iPhone 17 の前のカメラ (正方形のセンサー) は、ほかのカメラと取り付けの向きが違い、同じ角度で回すと映像が 90 度傾いていた。
+    /// その端末の向きでの「水平に撮る角度」を、後ろの広角とそのカメラで iPhone に聞き (RotationCoordinator)、ふつうのカメラなら
+    /// なるはずの角度との差をずれとする (同じときに聞くので、端末の持ち方によらない)
+    private static func mountOffset(_ device: AVCaptureDevice) -> CGFloat {
+        guard let ref = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back), ref != device else { return 0 }
+        let refAngle = AVCaptureDevice.RotationCoordinator(device: ref, previewLayer: nil).videoRotationAngleForHorizonLevelCapture
+        let angle = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil).videoRotationAngleForHorizonLevelCapture
+        // ふつうの前のカメラは、横のときだけ後ろと 180 度違う (縦は同じ)
+        let flat = refAngle.truncatingRemainder(dividingBy: 180) == 0
+        let expected = device.position == .front && flat ? (refAngle + 180).truncatingRemainder(dividingBy: 360) : refAngle
+        var d = (angle - expected).truncatingRemainder(dividingBy: 360)
+        if d < 0 { d += 360 }
+        let snapped = (d / 90).rounded() * 90
+        DebugLog.write("camera: mount offset \(device.localizedName) ref=\(refAngle) angle=\(angle) offset=\(snapped)")
+        return snapped.truncatingRemainder(dividingBy: 360)
     }
 
     /// 前と後ろを同時に撮るか (multi) で、カメラのまとまり (session) を替える。録画の出力も作り直す (別のまとまりのものは使えないため)
@@ -271,7 +293,7 @@ final class CameraModule: NSObject {
         main.active = true
         main.isoTarget = iso
         main.frameSec = 1 / spec.fps
-        main.angle = Self.rotationAngle(front: lens.position == "front")
+        main.angle = Self.rotationAngle(for: lens.device)
         front.active = fp != nil
         front.device = fLens?.device
         var specs: [Spec] = []
@@ -283,7 +305,7 @@ final class CameraModule: NSObject {
             let fs = Self.presetSpecs[fp.preset] ?? Self.presetSpecs["1080p30"]!
             front.isoTarget = fp.iso
             front.frameSec = 1 / fs.fps
-            front.angle = Self.rotationAngle(front: true)
+            front.angle = Self.rotationAngle(for: fLens.device)
             specs.append(Spec(device: fLens.device, output: front.output, preset: fp.preset, fps: fs.fps, angle: front.angle, layers: []))
         }
         wantRecording = true
@@ -582,7 +604,7 @@ final class CameraModule: NSObject {
         if fLens == nil { fp = nil }
         let frontRect = Self.rect(fd?["rect"])
         let spec = Self.presetSpecs[preset] ?? Self.presetSpecs["1080p30"]!
-        let mainAngle = Self.rotationAngle(front: lens.position == "front")
+        let mainAngle = Self.rotationAngle(for: lens.device)
         let config = "\(lens.id)|\(preset)|\(fp?.preset ?? "-")"
         Task { @MainActor in
             self.useSession(multi: fp != nil)
@@ -608,7 +630,7 @@ final class CameraModule: NSObject {
                 if let fp, let fLens {
                     let fs = Self.presetSpecs[fp.preset] ?? Self.presetSpecs["1080p30"]!
                     self.front.frameSec = 1 / fs.fps
-                    self.front.angle = Self.rotationAngle(front: true)
+                    self.front.angle = Self.rotationAngle(for: fLens.device)
                     specs.append(Spec(device: fLens.device, output: self.front.output, preset: fp.preset, fps: fs.fps, angle: self.front.angle,
                                       layers: self.front.liveLayer.map { [$0] } ?? []))
                 }
