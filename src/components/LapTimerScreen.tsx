@@ -509,7 +509,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
         </div>
       )}
       {confirmStop && measuring && (
-        <StopConfirm lapCount={state?.laps.length ?? 0} onYes={confirmStopYes} onNo={cancelStop} />
+        <StopConfirm lapCount={state?.laps.length ?? 0} nothingToSave={!rt.hasRunFile} onYes={confirmStopYes} onNo={cancelStop} />
       )}
 
       {/* メニュー: 出どころ・再生の設定・記録 */}

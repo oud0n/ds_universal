@@ -1,5 +1,5 @@
 import { sameCourseName } from '../utils/courseNames';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart2, Bluetooth, ChevronRight, Cloud, EyeOff, FolderOpen, GitCompare, Loader2, Timer, Trophy, Video, X } from 'lucide-react';
 import { circuitLabel, useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
@@ -261,7 +261,12 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
 const RunNameInput: React.FC<{ name: string; onSave: (name: string) => void }> = ({ name, onSave }) => {
   const t = useT();
   const [draft, setDraft] = useState(name);
-  const save = () => { if (draft.trim() !== name.trim()) onSave(draft); };
+  const saved = useRef(name);
+  const save = () => { if (draft.trim() !== saved.current.trim()) { saved.current = draft; onSave(draft); } };
+  // 欄が消える (別の走行を選んだ) ときも、書きかけを書く
+  const latest = useRef({ draft, onSave });
+  latest.current = { draft, onSave };
+  useEffect(() => () => { const l = latest.current; if (l.draft.trim() !== saved.current.trim()) l.onSave(l.draft); }, []);
   return (
     <input
       value={draft}

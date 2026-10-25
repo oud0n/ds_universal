@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StickyNote } from 'lucide-react';
 import { useT } from '../utils/i18n';
 
@@ -11,7 +11,14 @@ export const RunNoteField: React.FC<{ note: string | undefined; onSave: (note: s
   const [draft, setDraft] = useState(note ?? '');
   // ほかの所で書き換えたら (開き直した・別の画面で書いた) 欄も合わせる
   useEffect(() => setDraft(note ?? ''), [note]);
-  const save = () => { if (draft.trim() !== (note ?? '').trim()) onSave(draft); };
+  // 書いた中身 (親が読み直すまで、note は古いままのことがある。同じものを 2 回書かないように)
+  const saved = useRef(note ?? '');
+  useEffect(() => { saved.current = note ?? ''; }, [note]);
+  const save = () => { if (draft.trim() !== saved.current.trim()) { saved.current = draft; onSave(draft); } };
+  // 欄が消える (別の走行を選んだ・画面を替えた) ときも、書きかけを書く (離れる前に消えると、書かれなかった)
+  const latest = useRef({ draft, onSave });
+  latest.current = { draft, onSave };
+  useEffect(() => () => { const l = latest.current; if (l.draft.trim() !== saved.current.trim()) l.onSave(l.draft); }, []);
   return (
     <label className="flex items-start gap-1.5 w-full text-xs">
       <StickyNote size={13} className="shrink-0 mt-1.5 text-slate-500" />

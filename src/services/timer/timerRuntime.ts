@@ -360,6 +360,11 @@ export class TimerRuntime {
 
   /** 動画を置く未分類のフォルダ (測位が無かったときだけ使う) */
   /** 内蔵カメラで撮るか。読み込んだログの再生では撮らない (試すときだけ、localStorage の ds_timer_camera_replay を 1 にすると撮る) */
+  /** この測定で走行のファイルを書き始めたか (測位が 1 つでも届いたか) */
+  get hasRunFile(): boolean {
+    return !!this.recorder;
+  }
+
   private cameraOn(): boolean {
     if (this.snap.source !== 'replay') return true;
     try { return localStorage.getItem('ds_timer_camera_replay') === '1'; } catch { return false; }
@@ -377,9 +382,10 @@ export class TimerRuntime {
     if (!fix.valid) return;
     this.snap = { ...this.snap, lastPos: fix, lastFixPerf: performance.now() };
     this.fixes.push(fix);
-    // 持つのは直近の 10 分ほど (コースの選び直しに使うだけ。走った測位は全部、記録の保存先にある)。
+    // 測っている間は、測定開始からの測位を 3 時間ほど (20 Hz で 216000 点) 持つ (途中でコースを選び直したとき、
+    // はじめから数え直せるように。前は 10 分ほどで、それより前の周が数え直せなかった。PLAN-29 の (4))。
     // 測る前は少なめにする (長く待っても、コースの選び直し (4800 点まで) が止まらないように)
-    if (this.fixes.length > (this.snap.measuring ? 12000 : 4000)) this.fixes.splice(0, 2000);
+    if (this.fixes.length > (this.snap.measuring ? 216000 : 4000)) this.fixes.splice(0, 2000);
     // コースを決めていなければ、初めの測位の所で選ぶ。周を数える前は、ときどき選び直す
     if (!this.snap.course) {
       const found = findMatchingCircuit(fix.latitude, fix.longitude);

@@ -10,7 +10,7 @@ export const STOP_CONFIRM_SEC = 10;
  * 走りながら誤って押したときのために、「いいえ (続ける)」を下 (測定終了のボタンと同じ場所) に置き、
  * 何もしなければ 10 秒で閉じる。出している間も周は数え続ける (閉じるだけで、測るのは止めない)
  */
-export const StopConfirm: React.FC<{ lapCount: number; onYes: () => void; onNo: () => void }> = ({ lapCount, onYes, onNo }) => {
+export const StopConfirm: React.FC<{ lapCount: number; onYes: () => void; onNo: () => void; nothingToSave?: boolean }> = ({ lapCount, onYes, onNo, nothingToSave = false }) => {
   const t = useT();
   const [left, setLeft] = useState(STOP_CONFIRM_SEC);
   // 親が描き直しても 10 秒を数え直さないよう、閉じる処理は ref で持つ
@@ -37,7 +37,9 @@ export const StopConfirm: React.FC<{ lapCount: number; onYes: () => void; onNo: 
     >
       <div className="flex-1 min-h-0 flex flex-col items-center justify-center text-center gap-2 landscape:basis-1/3">
         <div className="font-bold" style={{ fontSize: 'min(8vw, 9vh)' }}>{t('測定を終了しますか？', 'Stop timing?')}</div>
-        <div className="text-slate-400 text-lg">{t(`ここまでの ${lapCount} 周を保存します`, `${lapCount} laps so far will be saved`)}</div>
+        <div className="text-slate-400 text-lg">{nothingToSave
+          ? t('まだ測位が届いていないので、保存する走行はありません', 'No position received yet, so there is no run to save')
+          : t(`ここまでの ${lapCount} 周を保存します`, `${lapCount} laps so far will be saved`)}</div>
         <div className="text-slate-500 text-base">{t(`${left} 秒で「続ける」に戻ります`, `Back to timing in ${left} s`)}</div>
       </div>
       <div className="flex flex-col landscape:flex-row landscape:basis-2/3 gap-4">
