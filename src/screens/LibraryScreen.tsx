@@ -15,6 +15,7 @@ import { deleteSession, listSessions, type LapSession, type SavedSession } from 
 import { deleteRun, planRunDelete, type RunDeletePlan } from '../services/runDelete';
 import { canRemoveRunFiles, type RunFileInfo } from '../services/runStore';
 import { isRunBeingWritten } from '../services/runRecorder';
+import { hasNative } from '../native/bridge';
 import { listVideoRefs, removeVideoLaps, videoRefCandidates, type VideoRef } from '../services/videoLaps';
 import { VideoLapCompare, VideoLapMarker, VideoRefPicker } from '../components/VideoRefLaps';
 
@@ -418,7 +419,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
             setDeleting(d => (d ? { ...d, running: true, error: undefined } : d));
             try {
               const { failed, permanent } = await deleteRun(store, deleting.item, deleting.plan);
-              if (permanent.length) window.alert(t(`${permanent.length} 件はゴミ箱 (最近削除した項目) へ移せない場所だったので、すぐに消しました。`, `${permanent.length} file(s) could not be moved to the Trash and were deleted right away.`));
+              if (permanent.length && !hasNative()) window.alert(t(`${permanent.length} 件はゴミ箱 (最近削除した項目) へ移せない場所だったので、すぐに消しました。`, `${permanent.length} file(s) could not be moved to the Trash and were deleted right away.`));
               if (failed.length) {
                 setDeleting(d => (d ? { ...d, running: false, error: t(`消せなかったファイルがあります: ${failed.map(f => baseName(f.path)).join(', ')}`, `Some files could not be deleted: ${failed.map(f => baseName(f.path)).join(', ')}`) } : d));
               } else {
@@ -453,7 +454,8 @@ const DeleteRunDialog: React.FC<{
     'shared-video': t('ほかの走行にも付いている動画', 'Also attached to another run'),
     'unattached-video': t('この走行に付けていない動画', 'Not attached to this run')
   }[r]);
-  const trash = typeof navigator !== 'undefined' && !/Android/i.test(navigator.userAgent);
+  // ゴミ箱から戻せるのはデスクトップ版だけ。iPhone は「ファイル」の最近削除した項目に入るが、アプリが消したものは戻せない (2026-10-25 実機で確認)
+  const trash = !hasNative();
   return (
     <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" data-testid="run-delete-dialog">
       <div className="w-full max-w-md max-h-[85vh] flex flex-col rounded-2xl bg-surface-1 border border-line-2 shadow-2xl">
@@ -485,7 +487,7 @@ const DeleteRunDialog: React.FC<{
               )}
               <p className="text-[11px] text-slate-500">
                 {trash
-                  ? t('ファイルはゴミ箱 (iPhone は「ファイル」の最近削除した項目) へ移します。ただし iPhone のアプリの中の保管場所など、移せない場所ではすぐに消えます。名前・メモ・同期などの走行の記録も消えます。', 'Files are moved to the Trash (Recently Deleted in Files on iPhone). Where that is not possible (e.g. storage inside the iPhone app) they are deleted right away. The run’s name, notes and sync are removed too.')
+                  ? t('ファイルはゴミ箱へ移します (ゴミ箱から戻せます)。名前・メモ・同期などの走行の記録は消えます。', 'Files are moved to the Trash (you can restore them from there). The run’s name, notes and sync are removed.')
                   : t('ファイルはすぐに消え、戻せません。名前・メモ・同期などの走行の記録も消えます。', 'Files are deleted right away and cannot be restored. The run’s name, notes and sync are removed too.')}
               </p>
             </>
