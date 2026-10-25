@@ -293,8 +293,12 @@ class SystemModule(private val activity: MainActivity, private val bridge: Nativ
                     val local = file(rel)
                     if (!deletable || local == null) { failed.put(JSONObject().put("path", rel).put("error", "not deletable")); continue }
                     try {
-                        usableFolder()?.delete(rel)
-                        if (local.isFile) local.delete()
+                        // 選んだフォルダがあるのに使えない (許可が切れた・読み込み中) ときは、消したことにしない (行だけ消えて走行が残るため)
+                        if (folder != null) {
+                            val f = usableFolder() ?: throw NativeError.io("folder not available")
+                            if (!f.delete(rel)) throw NativeError.io("cannot delete")
+                        }
+                        if (local.isFile && !local.delete()) throw NativeError.io("cannot delete local copy")
                         openFiles.remove(rel); lastAppend.remove(rel)
                         deleted.put(rel)
                     } catch (e: Exception) {

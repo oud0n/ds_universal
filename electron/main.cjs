@@ -566,6 +566,8 @@ ipcMain.handle('laps-file-status', async (_event, rel) => {
 const lapDeletable = rel => {
   const r = String(rel).replace(/\\/g, '/');
   const name = path.posix.basename(r);
+  // . や .. の区切りは断る (道を解いたあとに、守っているフォルダ・ファイルを指せないように)
+  if (r.split('/').some(s => s === '' || s === '.' || s === '..')) return false;
   return r.includes('/') && !/^(course|sessions|exports)\//.test(r) && !name.startsWith('.') && !['runs.json', 'laptimes.json', 'corners.json', 'corners.json.bak'].includes(name);
 };
 ipcMain.handle('laps-delete', async (_event, rels) => {

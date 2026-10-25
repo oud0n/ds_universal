@@ -187,7 +187,7 @@ final class SystemModule {
             let paths = params["paths"] as? [String] ?? []
             Task {
                 let r = await Task.detached(priority: .userInitiated) { RunFiles.delete(paths) }.value
-                done(.success(["deleted": r.deleted, "failed": r.failed.map { ["path": $0.0, "error": $0.1] }]))
+                done(.success(["deleted": r.deleted, "failed": r.failed.map { ["path": $0.0, "error": $0.1] }, "permanent": r.permanent]))
             }
         case "system.readRunRange":
             guard let rel = params["path"] as? String, let offset = params["offset"] as? Double, let length = params["length"] as? Int, offset >= 0 else {

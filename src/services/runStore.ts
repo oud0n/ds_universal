@@ -31,7 +31,8 @@ export interface RunStore extends LapFileStore {
    * 走行のファイルを消す (iPhone・デスクトップ版はゴミ箱へ)。消せない環境 (前の版のアプリ・ブラウザ版) では無い。
    * サーキットのフォルダの中のものだけ (共有の控え・コース・セッションは消せない)
    */
-  remove?(paths: string[]): Promise<{ deleted: string[]; failed: Array<{ path: string; error: string }> }>;
+  /** 消す (permanent: ゴミ箱へ移せず、すぐに消したもの。iPhone のアプリの中の保管場所など) */
+  remove?(paths: string[]): Promise<{ deleted: string[]; failed: Array<{ path: string; error: string }>; permanent?: string[] }>;
 }
 
 /** この置き場で走行のファイルを消せるか */

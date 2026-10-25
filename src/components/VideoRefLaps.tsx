@@ -76,6 +76,12 @@ export const VideoLapMarker: React.FC<{
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const laps = useMemo(() => lapsFromMarks(marks), [marks]);
+  // 保存していない印があれば、閉じる前に確かめる (打ち直すのは手間なので)
+  const initial = useRef(JSON.stringify(videoLapsOf(existing?.row)?.marks ?? []));
+  const close = () => {
+    if (JSON.stringify(marks) !== initial.current && !window.confirm(t('保存していない印があります。閉じますか？', 'You have unsaved marks. Close anyway?'))) return;
+    onClose();
+  };
   const best = laps.length ? Math.min(...laps.map(l => l.time)) : null;
 
   const add = (kind: VideoLapMark['kind']) => {
@@ -92,7 +98,9 @@ export const VideoLapMarker: React.FC<{
   // キー: L / Enter 計測線、S セクター、空白 再生・止める、← → 1 コマ (Shift で 1 秒)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return;
+      // 入力欄では何もしない。ボタンにいるときの Enter・空白は、そのボタンを押す (印を打たない)
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      if (e.target instanceof HTMLButtonElement && (e.key === 'Enter' || e.key === ' ')) return;
       if (e.key === 'l' || e.key === 'L' || e.key === 'Enter') { e.preventDefault(); add('line'); }
       else if (e.key === 's' || e.key === 'S') { e.preventDefault(); add('sector'); }
       else if (e.key === ' ') { e.preventDefault(); toggle(); }
@@ -118,7 +126,7 @@ export const VideoLapMarker: React.FC<{
 
   const btn = 'inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-lg bg-surface-3 border border-line-2 text-slate-200 text-xs cursor-pointer hover:border-sky-500';
   return (
-    <Shell title={t(`参考ラップの印を打つ: ${nameOf(path)}`, `Mark laps: ${nameOf(path)}`)} onClose={onClose} testid="video-lap-marker" wide>
+    <Shell title={t(`参考ラップの印を打つ: ${nameOf(path)}`, `Mark laps: ${nameOf(path)}`)} onClose={close} testid="video-lap-marker" wide>
       <div className="p-3 grid gap-3 lg:grid-cols-[1fr_280px]">
         <div className="space-y-2 min-w-0">
           <video ref={video} src={store.videoUrl(path)} controls playsInline preload="auto" className="w-full max-h-[55dvh] bg-black rounded-lg"

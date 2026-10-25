@@ -234,8 +234,10 @@ enum RunFiles {
     }
 
     /// 走行のファイルを消す (「ファイル」の最近削除した項目へ移す。移せないときは消す)。選んだフォルダのときは、アプリの中の写しも消す
-    static func delete(_ paths: [String]) -> (deleted: [String], failed: [(String, String)]) {
+    /// permanent: 最近削除した項目へ移せず、すぐに消したもの (アプリの中の保管場所など)
+    static func delete(_ paths: [String]) -> (deleted: [String], failed: [(String, String)], permanent: [String]) {
         var deleted: [String] = []
+        var permanent: [String] = []
         var failed: [(String, String)] = []
         let fm = FileManager.default
         withRoot { root in
@@ -251,7 +253,7 @@ enum RunFiles {
                     var coordError: NSError?
                     NSFileCoordinator().coordinate(writingItemAt: target, options: .forDeleting, error: &coordError) { u in
                         do {
-                            do { try fm.trashItem(at: u, resultingItemURL: nil) } catch { try fm.removeItem(at: u) }
+                            do { try fm.trashItem(at: u, resultingItemURL: nil) } catch { try fm.removeItem(at: u); permanent.append(rel) }
                             ok = true
                         } catch {
                             message = error.localizedDescription
@@ -266,7 +268,7 @@ enum RunFiles {
                 if ok { deleted.append(rel) } else { failed.append((rel, message)) }
             }
         }
-        return (deleted, failed)
+        return (deleted, failed, permanent)
     }
 
     /// runs.json・laptimes.json・corners.json (コーナーの名前。前の中身の控え .bak も)・course/ のコースデータだけを書く (一時ファイルに書いてから入れ替える)

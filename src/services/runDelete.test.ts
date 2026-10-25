@@ -50,6 +50,22 @@ describe('走行を消すときに消すファイル (同じ日に何本も走�
     expect(plan.keep).toEqual([{ path: `${E}session_2.mov`, reason: 'other-run' }]);
   });
 
+  it('session_2 を消すときは、session_2 のファイルを消し、session のものは残す', () => {
+    const E = 'nikko/20261020/';
+    const fs2 = [file(`${E}session.nmea`), file(`${E}session.mov`), file(`${E}session_2.nmea`), file(`${E}session_2.mov`), file(`${E}session_2_front.mov`)];
+    const s1 = run('nikko', '20261020/session.nmea');
+    const s2 = run('nikko', '20261020/session_2.nmea');
+    expect(paths(planRunDelete(s2, fs2, [s1, s2]).remove)).toEqual([`${E}session_2.mov`, `${E}session_2.nmea`, `${E}session_2_front.mov`].sort());
+  });
+
+  it('走行名に . があっても、ほかの走行の録画を消さない', () => {
+    const E = 'unsorted/20261020/';
+    const a = run('unsorted', '20261020/2026.10.25 run.nmea');
+    const b = run('unsorted', '20261020/2026.10.25 run_2.nmea');
+    const plan = planRunDelete(a, [file(`${E}2026.10.25 run.nmea`), file(`${E}2026.10.25 run_2.nmea`), file(`${E}2026.10.25 run_2.mov`)], [a, b]);
+    expect(paths(plan.remove)).toEqual([`${E}2026.10.25 run.nmea`]);
+  });
+
   it('走行名に記号があっても、ほかのファイルに広がらない', () => {
     const E = 'unsorted/20261020/';
     const r = run('unsorted', '20261020/a.b(1).nmea');

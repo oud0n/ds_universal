@@ -44,24 +44,33 @@ export function planRunDelete(item: RunItem, files: RunFileInfo[], runs: RunItem
   const others = runs.filter(r => r.folder === item.folder && `${r.folder}/${r.file}` !== runPath && split(`${r.folder}/${r.file}`).dir === dir);
   const otherStems = new Set(others.map(r => stemOf(split(r.file).name)).filter(s => s !== base));
   // ほかの走行に付いている動画 (同じフォルダの名前)
-  const sharedVideos = new Set(others.flatMap(r => r.entry?.videos?.map(v => v.name) ?? []));
-  const attached = new Set(item.entry?.videos?.map(v => v.name) ?? []);
+  // 付けた動画は runs.json の行、無ければ控え (laptimes.json) のもの (一覧の videos はその 2 つを合わせたもの)
+  const sharedVideos = new Set(others.flatMap(r => r.videos));
+  const attached = new Set(item.videos);
   const b = esc(base);
   const logRe = new RegExp(`^${b}\\.[^.]+$`, 'i');
   const sensorRe = new RegExp(`^${b}\\.[^.]+\\.csv$`, 'i');
   const cameraRe = new RegExp(`^${b}(_front)?(_\\d+)?(_v\\d+)?\\.(mov|mp4)$`, 'i');
 
+  const patterns = (stem: string) => {
+    const e = esc(stem);
+    return [new RegExp(`^${e}\\.[^.]+$`, 'i'), new RegExp(`^${e}\\.[^.]+\\.csv$`, 'i'), new RegExp(`^${e}(_front)?(_\\d+)?(_v\\d+)?\\.(mov|mp4)$`, 'i')];
+  };
+  const otherRes = [...otherStems].map(stem => ({ stem, re: patterns(stem) }));
+
   const plan: RunDeletePlan = { remove: [], keep: [] };
   for (const f of files) {
     const { dir: fdir, name } = split(f.path);
     if (fdir !== dir || name.startsWith('.')) continue;
-    const ownStem = name.split('.')[0];
+    // ほかの走行の名前の形にも合うファイル (例: 別の走行 base_2 の base_2.mov)。両方に合うときは、長い名前の走行のもの
+    // (base_2 を消すときの base_2.mov は、base の 2 つめの録画ではなく base_2 のもの)。走行名に . があっても合うように、形で見る
+    const otherOwner = otherRes.some(o => o.stem.length > base.length && o.re.some(x => x.test(name)));
     const isCamera = cameraRe.test(name);
     const isLog = !isCamera && logRe.test(name);
     const isSensor = sensorRe.test(name);
     if (isLog || isSensor || isCamera) {
       // 名前の形は合っても、ほかの走行のもの (例: 別の走行の base_2.nmea・base_2.mov)
-      if (ownStem !== base && otherStems.has(ownStem)) { plan.keep.push({ path: f.path, reason: 'other-run' }); continue; }
+      if (otherOwner) { plan.keep.push({ path: f.path, reason: 'other-run' }); continue; }
       if (isCamera && sharedVideos.has(name)) { plan.keep.push({ path: f.path, reason: 'shared-video' }); continue; }
       plan.remove.push({ path: f.path, size: f.size, kind: isCamera ? 'camera' : isSensor ? 'sensor' : 'log' });
       continue;
@@ -75,12 +84,12 @@ export function planRunDelete(item: RunItem, files: RunFileInfo[], runs: RunItem
   return plan;
 }
 
-/** 消す (ファイルを消してから、走行の行を消す)。消せなかったファイルを返す */
-export async function deleteRun(store: RunStore, item: RunItem, plan: RunDeletePlan): Promise<Array<{ path: string; error: string }>> {
+/** 消す (ファイルを消してから、走行の行を消す)。消せなかったファイルと、ゴミ箱へ移せずすぐに消したファイルを返す */
+export async function deleteRun(store: RunStore, item: RunItem, plan: RunDeletePlan): Promise<{ failed: Array<{ path: string; error: string }>; permanent: string[] }> {
   if (!store.remove) throw new Error('cannot delete files here');
   const r = await store.remove(plan.remove.map(f => f.path));
   // ログが消えたときだけ、走行の行を消す (消せなかったら、行は残して次に開けるようにする)
   const logGone = plan.remove.filter(f => f.kind === 'log').every(f => r.deleted.includes(f.path));
   if (logGone) await removeRunRow(store, item.folder, item.file);
-  return r.failed;
+  return { failed: r.failed, permanent: r.permanent ?? [] };
 }

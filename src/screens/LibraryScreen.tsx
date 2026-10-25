@@ -14,6 +14,7 @@ import { navStore } from '../app/navStore';
 import { deleteSession, listSessions, type LapSession, type SavedSession } from '../services/analysisSessions';
 import { deleteRun, planRunDelete, type RunDeletePlan } from '../services/runDelete';
 import { canRemoveRunFiles, type RunFileInfo } from '../services/runStore';
+import { isRunBeingWritten } from '../services/runRecorder';
 import { listVideoRefs, removeVideoLaps, videoRefCandidates, type VideoRef } from '../services/videoLaps';
 import { VideoLapCompare, VideoLapMarker, VideoRefPicker } from '../components/VideoRefLaps';
 
@@ -247,7 +248,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
                       {` · ${t(`${r.laps.length} 周`, `${r.laps.length} lap${r.laps.length === 1 ? '' : 's'}`)}`}{best !== null ? ` · ${formatLapTime(best)}` : ''}{r.remote ? ' · iCloud' : ''}
                     </div>
                   </div>
-                  <button onClick={() => setComparing(r)} disabled={!r.laps.length} className="px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50" data-testid="library-video-ref-compare">{t('比べる', 'Compare')}</button>
+                  <button onClick={() => setComparing(r)} disabled={!r.laps.length || r.remote} title={r.remote ? t('iCloud から落としてから比べてください', 'Download it from iCloud first') : undefined} className="px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50" data-testid="library-video-ref-compare">{t('比べる', 'Compare')}</button>
                   <button onClick={() => setMarking({ path: r.path, existing: r })} className="px-2 py-1 rounded border border-line-3 text-slate-300 text-[11px] cursor-pointer" data-testid="library-video-ref-edit">{t('印', 'Marks')}</button>
                   <button
                     onClick={() => {
@@ -363,7 +364,8 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
         void store.listAll().then(files => setDeleting(d => (d && d.item === item ? { ...d, plan: planRunDelete(item, files, runs ?? []) } : d)),
           e => setDeleting(d => (d ? { ...d, error: e instanceof Error ? e.message : String(e) } : d)));
       } : undefined}
-      isOpen={openRuns.includes(`${selected.folder}/${selected.file}`)}
+      // 解析で開いている走行と、ラップタイマーがいま書いている走行は消せない
+      isOpen={openRuns.includes(`${selected.folder}/${selected.file}`) || isRunBeingWritten(`${selected.folder}/${selected.file}`.replace(/\.(nmea|bon4)$/i, ''))}
     />
   );
 
@@ -404,7 +406,8 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
             if (!deleting.plan) return;
             setDeleting(d => (d ? { ...d, running: true, error: undefined } : d));
             try {
-              const failed = await deleteRun(store, deleting.item, deleting.plan);
+              const { failed, permanent } = await deleteRun(store, deleting.item, deleting.plan);
+              if (permanent.length) window.alert(t(`${permanent.length} 件はゴミ箱 (最近削除した項目) へ移せない場所だったので、すぐに消しました。`, `${permanent.length} file(s) could not be moved to the Trash and were deleted right away.`));
               if (failed.length) {
                 setDeleting(d => (d ? { ...d, running: false, error: t(`消せなかったファイルがあります: ${failed.map(f => baseName(f.path)).join(', ')}`, `Some files could not be deleted: ${failed.map(f => baseName(f.path)).join(', ')}`) } : d));
               } else {
@@ -471,7 +474,7 @@ const DeleteRunDialog: React.FC<{
               )}
               <p className="text-[11px] text-slate-500">
                 {trash
-                  ? t('ファイルはゴミ箱 (iPhone は「ファイル」の最近削除した項目) へ移します。名前・メモ・同期などの走行の記録も消えます。', 'Files are moved to the Trash (Recently Deleted in Files on iPhone). The run’s name, notes and sync are removed too.')
+                  ? t('ファイルはゴミ箱 (iPhone は「ファイル」の最近削除した項目) へ移します。ただし iPhone のアプリの中の保管場所など、移せない場所ではすぐに消えます。名前・メモ・同期などの走行の記録も消えます。', 'Files are moved to the Trash (Recently Deleted in Files on iPhone). Where that is not possible (e.g. storage inside the iPhone app) they are deleted right away. The run’s name, notes and sync are removed too.')
                   : t('ファイルはすぐに消え、戻せません。名前・メモ・同期などの走行の記録も消えます。', 'Files are deleted right away and cannot be restored. The run’s name, notes and sync are removed too.')}
               </p>
             </>
@@ -647,7 +650,7 @@ const RunDetail: React.FC<{
             <button onClick={onDelete} disabled={busy || isOpen} className="text-xs text-red-400 hover:text-red-300 disabled:text-slate-500 cursor-pointer disabled:cursor-not-allowed" data-testid="run-delete">
               {t('この走行を消す…', 'Delete this run…')}
             </button>
-            {isOpen && <p className="text-[11px] text-slate-500 mt-1">{t('解析で開いている走行は消せません (解析の「走行とコース」から外してください)', 'A run open in Analysis cannot be deleted (remove it from Runs & course first)')}</p>}
+            {isOpen && <p className="text-[11px] text-slate-500 mt-1">{t('解析で開いている走行と、ラップタイマーで書いている走行は消せません (解析の「走行とコース」から外す・測定を終える)', 'A run open in Analysis or being recorded by the lap timer cannot be deleted (remove it from Runs & course, or stop measuring)')}</p>}
           </section>
         )}
       </div>

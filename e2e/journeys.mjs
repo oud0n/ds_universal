@@ -159,7 +159,9 @@ export const journeys = [
       await p.click('run-detail-reference');
       await p.waitFor(`document.querySelector('[data-testid="run-detail-ref-driver"]')`, 5000, '参考ラップの誰の欄');
       await fill('run-detail-ref-driver', 'e2e 速い人');
-      await p.waitFor(`document.querySelector('[data-testid="library-owner-ref"]')`, 8000, '参考ラップの切り替え');
+      // runs.json に誰が入るまで待つ (区切りのタブは走行があればいつも出るので、タブでは待てない)
+      const runsPath3 = path.join(root, 'sodegaura/runs.json');
+      for (let i = 0; i < 40 && !fs.readFileSync(runsPath3, 'utf8').includes('e2e 速い人'); i++) await sleep(200);
       const row3 = Object.entries(JSON.parse(fs.readFileSync(path.join(root, 'sodegaura/runs.json'), 'utf8')).runs).find(([k]) => k.includes('20260913'))?.[1];
       check(row3?.reference?.driver === 'e2e 速い人', `参考ラップが runs.json に入らない: ${JSON.stringify(row3?.reference)}`);
       // 印を付けると参考ラップの側に切り替わる。自分の走行の側には出ない
@@ -171,7 +173,8 @@ export const journeys = [
       await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].find(r => r.innerText.includes('9/13'))?.click()`);
       await p.waitFor(`document.querySelector('[data-testid="run-detail-reference"]')`, 5000, '参考ラップの詳細');
       await p.click('run-detail-reference');
-      await p.waitFor(`!document.querySelector('[data-testid="library-owner"]')`, 8000, '参考ラップの印を外すと切り替えが消える');
+      // 印を外すと、自分の走行の一覧に戻り、9/13 がそこに出る (切り替えは走行があればいつも出る)
+      await p.waitFor(`document.querySelector('[data-testid="library-owner-mine"]')?.className.includes('bg-sky-600') && [...document.querySelectorAll('[data-testid="run-row"]')].some(r => r.innerText.includes('9/13'))`, 8000, '参考ラップの印を外すと自分の走行に戻る');
       // 片付け (名前・メモを消す)
       await select();
       await fill('run-detail-name', '');

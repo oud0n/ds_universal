@@ -116,7 +116,8 @@ export function videoRefCandidates(files: RunFileInfo[], runs: RunItem[], refs: 
   const runStems = new Set<string>();
   for (const r of runs) {
     const dir = dirOf(`${r.folder}/${r.file}`);
-    for (const v of r.videos) used.add(`${dir}/${v}`);
+    // 日付のフォルダの走行には、サーキットのフォルダにじかに置いた動画も付けられる (前の置き方)
+    for (const v of r.videos) { used.add(`${dir}/${v}`); used.add(`${r.folder}/${v}`); }
     runStems.add(`${dir}/${runStem(r.file)}`);
   }
   return files.filter(f => {
@@ -157,7 +158,8 @@ export function ownLapInVideo(run: RunItem, lap: { startMs: number; part?: numbe
     const c = v.clock;
     if (!c) continue;
     let startUtc: number | null = null;
-    if (c.logPart === null || c.logPart === undefined) startUtc = c.utcMs ?? null;
+    // 世界の時刻の動画: 周の始まり (ログの時刻のまま) を、ログの時計の補正で本当の時刻にしてから比べる
+    if (c.logPart === null || c.logPart === undefined) startUtc = c.utcMs === null || c.utcMs === undefined ? null : c.utcMs + (run.entry?.parts?.[String(lap.part ?? 1)]?.clockOffsetSec ?? 0) * 1000;
     else if (c.logPart === 1 && (lap.part ?? 1) === 1 && run.startMs !== null) startUtc = run.startMs + c.offsetSec * 1000;
     if (startUtc === null) continue;
     const sec = (lap.startMs - startUtc) / 1000;

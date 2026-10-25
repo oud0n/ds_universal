@@ -68,6 +68,8 @@ export interface RunRow {
   /** 分かれた走行の何番目ごとの情報 (ログの時計の補正) */
   parts?: Record<string, { clockOffsetSec?: number; [key: string]: unknown }>;
   videos?: RunVideo[];
+  /** 消した印 (iCloud のぶつかったときの写しから行が戻らないように残す。読むときは無いものとする) */
+  deleted?: boolean;
   /** 2 版に読み替えられなかった 1 版の行 (捨てずに残す) */
   legacy?: unknown;
   [key: string]: unknown;
@@ -281,8 +283,12 @@ export async function readRunsFile(store: LapFileStore, folder: string): Promise
 
 /** 1 つの走行の行を探す (行の名前で。日付のフォルダへ移す前の、名前だけの行も) */
 export function findRunRow(file: RunsFile, runFile: string): RunRow | null {
-  return file.runs[runKey(runFile)] ?? file.runs[runStem(runFile)] ?? null;
+  const row = file.runs[runKey(runFile)] ?? (isLogName(runFile) ? file.runs[runStem(runFile)] : undefined) ?? null;
+  return row?.deleted ? null : row;
 }
+
+/** 走行のログ (.nmea・.bon4)。名前だけの古い行 (日付のフォルダへ移す前) を引くのはログだけ (動画の行は名前に拡張子が付き、サーキットのフォルダの同じ名前の動画と取り違えるため) */
+const isLogName = (file: string) => /\.(nmea|bon4)$/i.test(file);
 
 /** runs.json ごとの書き換えの順番 (2 つの走行の書き換えが同じ中身を読んで、互いの行を消さないように) */
 const runsWrites = new Map<string, Promise<unknown>>();
@@ -312,9 +318,15 @@ export function removeRunRow(store: RunStore, folder: string, file: string): Pro
     for (const p of conflictCopies.get(folder) ?? []) current = mergeRunsFiles(current, parseRunsFile(await store.readText(p).catch(() => null)));
     const k = runKey(file);
     const short = runStem(file);
-    if (!(k in current.runs) && !(short in current.runs)) return;
-    delete current.runs[k];
-    delete current.runs[short];
+    // 名前だけの古い行は、新しい行が無いときだけ (ログだけ)
+    const keys = k in current.runs ? [k] : isLogName(file) && short in current.runs ? [short] : [];
+    if (!keys.length) return;
+    // ぶつかったときの写しがあると、写しの行が次に読むときに戻るので、消した印 (新しい時刻) を残す
+    const tomb = (conflictCopies.get(folder) ?? []).length > 0;
+    for (const x of keys) {
+      if (tomb) current.runs[x] = { deleted: true, updatedAt: new Date().toISOString() };
+      else delete current.runs[x];
+    }
     await store.writeText(`${folder}/${RUNS_FILE}`, JSON.stringify(current, null, 1));
   };
   const next = (runsWrites.get(key) ?? Promise.resolve()).then(run, run);
@@ -333,9 +345,11 @@ async function updateRunNow(store: RunStore, folder: string, file: string, chang
   const key = runKey(file);
   // 日付のフォルダへ移す前に、名前だけで書いた行は、新しい名前 (日付/名前) の行へ移す
   const short = runStem(file);
-  const old = short !== key ? current.runs[short] : undefined;
+  const old = short !== key && isLogName(file) && !(key in current.runs) ? current.runs[short] : undefined;
   if (old) delete current.runs[short];
-  const prev = current.runs[key] ?? old;
+  const found = current.runs[key] ?? old;
+  // 消した印の行は、無いものとして書き直す
+  const prev = found?.deleted ? undefined : found;
   const changed = change(prev);
   const row: RunRow = { ...changed, id: (typeof changed.id === 'string' ? changed.id : undefined) ?? prev?.id ?? newRunId(), updatedAt: new Date().toISOString() };
   current.runs[key] = row;

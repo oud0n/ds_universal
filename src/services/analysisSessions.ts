@@ -7,11 +7,21 @@
  */
 import type { RunStore } from './runStore';
 import type { Session } from '../types/telemetry';
-import { sessionStartUtcMs } from './mediaClock';
 
-/** 周の始まりの時刻 (UTC ミリ秒。ログに時刻が無ければ undefined) */
+/**
+ * ログの先頭の時刻 (ログに書いてあるまま。時計の補正は入れない)。
+ * 補正は開いたあとで後から入ることがあるので、保存と開くときで同じ値になるよう、補正の前の時刻で比べる
+ */
+function rawStartMs(session: Session): number | null {
+  const ts = session.points[0]?.timestamp;
+  if (!ts) return null;
+  const ms = Date.parse(ts);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** 周の始まりの時刻 (ログの時刻のまま、ミリ秒。ログに時刻が無ければ undefined) */
 export function lapStartUtcMs(session: Session, lapNumber: number): number | undefined {
-  const start = sessionStartUtcMs(session);
+  const start = rawStartMs(session);
   const lap = session.laps.find(l => l.lapNumber === lapNumber);
   return start !== null && lap ? Math.round(start + lap.startTime * 1000) : undefined;
 }
@@ -21,7 +31,7 @@ export function lapStartUtcMs(session: Session, lapNumber: number): number | und
  * moved: 番号が変わった (計測線を直したなど)
  */
 export function resolveSessionLap(session: Session, car: Pick<LapSessionCar, 'lap' | 'lapStartMs'>): { lap: number; moved: boolean } {
-  const start = sessionStartUtcMs(session);
+  const start = rawStartMs(session);
   if (car.lapStartMs === undefined || start === null || !session.laps.length) return { lap: car.lap, moved: false };
   let best = car.lap, bestDiff = Infinity;
   for (const l of session.laps) {
@@ -45,7 +55,7 @@ export interface LapSessionCar {
   /** 何周目か */
   lap: number;
   /**
-   * その周が始まった時刻 (UTC ミリ秒。ログに時刻があるとき)。計測線を直して周の番号が変わっても、開くときにこの時刻で周を選び直す
+   * その周が始まった時刻 (ログの時刻のまま、ミリ秒。時計の補正は入れない。ログに時刻があるとき)。計測線を直して周の番号が変わっても、開くときにこの時刻で周を選び直す
    */
   lapStartMs?: number;
 }
@@ -138,7 +148,8 @@ export async function listSessions(store: RunStore): Promise<SavedSession[]> {
 export async function saveSession(store: RunStore, session: { name: string; course?: { name: string }; cars: LapSessionCar[] }): Promise<string> {
   const now = new Date();
   const p = (n: number) => String(n).padStart(2, '0');
-  const stamp = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
+  // 同じ秒に同じ名前で保存しても上書きしないよう、ミリ秒まで
+  const stamp = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}${String(now.getMilliseconds()).padStart(3, '0')}`;
   const path = `${SESSIONS_DIR}/${stamp}_${safeName(session.name)}.lapsession.json`;
   const data: LapSession = { version: 1, createdAt: now.toISOString(), ...session };
   await store.writeText(path, JSON.stringify(data, null, 1));
