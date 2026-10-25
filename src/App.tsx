@@ -69,6 +69,7 @@ import { applyPlan, type PartResult } from './services/import/importApply';
 import { electronWriter, nativeWriter } from './services/import/importWriters';
 import { LOG_EXTENSIONS } from './services/logLoader';
 import { getWriteBon4 } from './services/runFormatSettings';
+import { applyImuToSession, getGSource, parseImuCsv, setGSource, type GSource, type ImuTrack } from './services/imuG';
 
 /**
  * 距離を補正した周で、補正後の距離が 0 になる時刻 (秒)。
@@ -399,16 +400,40 @@ export const App: React.FC = () => {
 
   // G のならし方。変えたら、読み込み済みのログの G を計算し直す (周回の区切りは変わらないが、周の点も作り直す)
   const [gFilterLevel, setGFilterLevelState] = useState<GFilterLevel>(getGFilterLevel());
-  const handleChangeGFilterLevel = (level: GFilterLevel) => {
-    if (level === gFilterLevel) return;
-    setGFilterLevel(level);
-    setGFilterLevelState(level);
-    const updated = new Map(latestRef.current.sessions.map(s => {
-      const points = applyGFilter(s.points.map(p => ({ ...p })), level);
+  // iPhone の G センサーの値 (<走行>.iphone_imu.csv。ログごと)。G の出どころを「G センサー」にしているときは、計算した G と合わせる (imuG.ts)
+  const imuTracksRef = useRef(new Map<string, ImuTrack>());
+  const [imuSessionIds, setImuSessionIds] = useState<string[]>([]);
+  const [gSource, setGSourceState] = useState<GSource>(getGSource());
+  const imuPendingRef = useRef(new Set<string>());
+  useEffect(() => {
+    const ready = sessions.filter(s => imuPendingRef.current.has(s.id)).map(s => s.id);
+    if (!ready.length) return;
+    ready.forEach(id => imuPendingRef.current.delete(id));
+    recomputeG(gFilterLevel, gSource, new Set(ready));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, imuSessionIds]);
+  /** G を計算し直す (ならし方・G の出どころを変えた・G センサーの値を読んだ)。ids を渡したら、そのログだけ */
+  const recomputeG = (level: GFilterLevel, source: GSource, ids?: Set<string>) => {
+    const updated = new Map(latestRef.current.sessions.filter(s => !ids || ids.has(s.id)).map(s => {
+      let points = applyGFilter(s.points.map(p => ({ ...p })), level);
+      const track = imuTracksRef.current.get(s.id);
+      if (track && source === 'sensor') points = applyImuToSession(points, s, track).points;
       const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(points, s.controlLine, s.sectors, s.finishLine);
       return [s.id, { points, laps, bestLapIndex, theoreticalBestTime }] as const;
     }));
     setSessions(prev => prev.map(s => (updated.has(s.id) ? { ...s, ...updated.get(s.id)! } : s)));
+  };
+  const handleChangeGFilterLevel = (level: GFilterLevel) => {
+    if (level === gFilterLevel) return;
+    setGFilterLevel(level);
+    setGFilterLevelState(level);
+    recomputeG(level, gSource);
+  };
+  const handleChangeGSource = (source: GSource) => {
+    if (source === gSource) return;
+    setGSource(source);
+    setGSourceState(source);
+    recomputeG(gFilterLevel, source, new Set(imuTracksRef.current.keys()));
   };
 
   // 有効な選択中車両一覧。比較車両には、距離の手動補正と 1 周の長さの伸縮をここで適用する
@@ -1024,6 +1049,19 @@ export const App: React.FC = () => {
       const added = already.length ? already : await loadFileData(item.file.slice(item.file.lastIndexOf('/') + 1), buffer);
       runSessionsRef.current.set(runPath, added.map(x => x.id));
       runItemsRef.current.set(runPath, item);
+      // iPhone のラップタイマーで測った走行なら、G センサーの値 (<走行>.iphone_imu.csv) を読んで G に合わせる
+      if (!already.length && added.length) {
+        // テキストの読み方は、パソコン版では決まったファイルしか読めないので、ファイルとして読む (無ければ失敗 → null)
+        const imuPath = `${item.folder}/${item.file.replace(/\.[^./]+$/, '')}.iphone_imu.csv`;
+        const imuText = await store.read(imuPath).then(b => new TextDecoder().decode(b), () => null);
+        const track = parseImuCsv(imuText);
+        if (track) {
+          added.forEach(x => imuTracksRef.current.set(x.id, track));
+          setImuSessionIds(ids => [...new Set([...ids, ...added.map(x => x.id)])]);
+          // 読み込んだばかりのログは、まだ一覧に入っていないことがあるので、入ってから計算し直す (下の useEffect)
+          if (gSource === 'sensor') added.forEach(x => imuPendingRef.current.add(x.id));
+        }
+      }
       attachedRunRef.current = runPath;
       setRunsSheetOpen(false);
       navStore.go('analysis');
@@ -1658,6 +1696,8 @@ export const App: React.FC = () => {
       currentTimeSec,
       isPlaying,
       sessions: sessions.map(x => ({ id: x.id, fileName: x.fileName, sessionName: x.sessionName, circuitName: x.circuitName, laps: x.laps.length })),
+      // G の試験のため: ログの点の時刻と G (と、先頭の時刻)
+      pointsOf: (i: number) => { const x = sessions[i]; return x ? { timestamp: x.points[0]?.timestamp, clockOffsetSec: x.clockOffsetSec ?? 0, pts: x.points.map(q => [q.time, q.accelG, q.corneringG]) } : null; },
       cars: selectedCars.map(c => ({ slot: c.slot, sessionId: c.sessionId, lapNumber: c.lapNumber })),
       baseLap: baseLap ? { lapNumber: baseLap.lapNumber, startTime: baseLap.startTime, lapTime: baseLap.lapTime, isWholeSession: !!baseLap.isWholeSession } : null,
       videos: placedVideos.map(v => ({ fileName: v.fileName, syncOffsetSec: v.syncOffsetSec, isPlaced: v.isPlaced, matchedSessionId: v.matchedSessionId }))
@@ -2279,6 +2319,9 @@ export const App: React.FC = () => {
             onOpenFile={() => fileInputRef.current?.click()}
             gFilterLevel={gFilterLevel}
             onChangeGFilterLevel={handleChangeGFilterLevel}
+            hasImu={sessions.some(s => imuSessionIds.includes(s.id))}
+            gSource={gSource}
+            onChangeGSource={handleChangeGSource}
           />
           </Freeze>
           </div>
