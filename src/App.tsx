@@ -1743,6 +1743,19 @@ export const App: React.FC = () => {
       alignStartTime={baseAlignTime}
     />
   );
+  // セクターからの一斉スタート (アニメの窓とコースの窓で同じもの。PLAN-28)
+  const sectorStartProps = {
+    onSyncSectorStart: handleSyncSectorStart,
+    sectorStartMode,
+    onChangeSectorStartMode: (mode: 'base' | 'all') => {
+      setSectorStartMode(mode);
+      if (mode === 'base') setAlignedSector(null);
+    },
+    alignedSectorName: alignedSector !== null ? `S${alignedSector + 2}` : undefined,
+    alignFailedCount,
+    alignBaseMissing,
+    onClearAlignedSector: () => setAlignedSector(null)
+  };
   const replayEl = (
     <ReplayWindow
       cars={activeCars}
@@ -1779,6 +1792,7 @@ export const App: React.FC = () => {
       compareAxis={compareAxis}
       onSeekDistance={handleSeekDistance}
       circuitName={baseSession?.circuitName}
+      sectorStart={sectorStartProps}
     />
   );
   const frictionEl = (
