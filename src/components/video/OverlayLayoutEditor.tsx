@@ -63,6 +63,8 @@ export const OverlayEditLayer: React.FC<{
       const p = ps.find(x => x.id === sel);
       if (!p) return;
       e.preventDefault();
+      // 動画の 0.1 秒送り (画面全体の矢印キー) には渡さない
+      e.stopPropagation();
       const dx = e.key === 'ArrowLeft' ? -SNAP : e.key === 'ArrowRight' ? SNAP : 0;
       const dy = e.key === 'ArrowUp' ? -SNAP : e.key === 'ArrowDown' ? SNAP : 0;
       const next = e.shiftKey
@@ -70,8 +72,8 @@ export const OverlayEditLayer: React.FC<{
         : { ...p, x: clamp(snap(p.x + dx), 0, 1 - p.w), y: clamp(snap(p.y + dy), 0, 1 - p.h) };
       change(ps.map(x => (x.id === sel ? next : x)));
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, []);
   return (
     <div
@@ -118,6 +120,22 @@ export const OverlayEditLayer: React.FC<{
   );
 };
 
+/** 数字の欄: 打っている間はそのまま、離れたとき・Enter で範囲に収めて書く (打つ途中で 0.5 が 1 になっていた) */
+const NumberField: React.FC<{ value: number; min: number; max: number; step?: number; onCommit: (v: number) => void; className: string }> = ({ value, min, max, step, onCommit, className }) => {
+  const [text, setText] = useState(String(value));
+  useEffect(() => setText(String(value)), [value]);
+  const commit = () => {
+    const v = Number(text);
+    const next = Number.isFinite(v) && text.trim() !== '' ? Math.max(min, Math.min(max, v)) : value;
+    setText(String(next));
+    if (next !== value) onCommit(next);
+  };
+  return (
+    <input type="number" step={step} value={text} onChange={e => setText(e.target.value)} onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} className={className} />
+  );
+};
+
 /** 足せる部品と、その既定の形 (映像の真ん中あたりに置く) */
 function newPart(type: OverlayPartType, id: string, channel: ChannelId): OverlayPart {
   const base = { id, x: 0.4, y: 0.4, w: 0.15, h: 0.12 };
@@ -155,7 +173,7 @@ export const OverlayEditPanel: React.FC<{
 }> = ({ draft, baseId, custom, channels, selected, onSelect, onChange, onPickBase, onSave, onDelete, onExport, onImport, onClose }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
-  const [name, setName] = useState(baseId.startsWith('user:') ? draft.name[0] : '');
+  const [name, setName] = useState(baseId.startsWith('user:') || baseId === 'import' ? draft.name[0] : '');
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [addType, setAddType] = useState<OverlayPartType>('bar');
   // 欄を左右どちらに出すか (下に隠れた部品を動かせるように)
@@ -190,7 +208,7 @@ export const OverlayEditPanel: React.FC<{
   };
   const input = 'w-full bg-surface-1 border border-line-3 text-xs px-2 py-1 rounded text-slate-200 outline-none focus:border-sky-500';
   return (
-    <div className={`absolute top-2 bottom-2 ${side === 'right' ? 'right-2' : 'left-2'} z-30 w-72 max-w-[45%] flex flex-col bg-surface-1/95 border border-line-2 rounded-xl shadow-2xl text-xs`} data-testid="overlay-edit-panel" onPointerDown={e => e.stopPropagation()}>
+    <div className={`absolute top-2 bottom-2 ${side === 'right' ? 'right-2' : 'left-2'} z-30 w-72 max-w-[45%] flex flex-col bg-surface-1/95 border border-line-2 rounded-xl shadow-2xl text-xs text-slate-300`} data-testid="overlay-edit-panel" onPointerDown={e => e.stopPropagation()}>
       <div className="flex items-center gap-2 px-3 py-2 border-b border-line-2">
         <span className="font-bold text-slate-100 flex-1">{t('メーターの配置', 'Meter layout')}</span>
         <button onClick={() => setSide(s => (s === 'right' ? 'left' : 'right'))} className="p-1 rounded hover:bg-surface-3 text-slate-400 cursor-pointer" title={t('この欄を反対側へ (下に隠れた部品を動かすとき)', 'Move this panel to the other side (to reach parts under it)')} data-testid="overlay-edit-side"><ArrowLeftRight size={14} /></button>
@@ -200,6 +218,7 @@ export const OverlayEditPanel: React.FC<{
         <label className="block space-y-1">
           <span className="text-[10px] text-slate-400">{t('元にする並び', 'Start from')}</span>
           <select value={baseId} onChange={e => onPickBase(e.target.value)} className={input} data-testid="overlay-edit-base">
+            {baseId === 'import' && <option value="import">{t('(読み込んだ並び)', '(imported layout)')}</option>}
             {BUILTIN_LAYOUTS.map(l => <option key={l.id} value={l.id}>{t(l.name[0], l.name[1])}</option>)}
             {custom.map(l => <option key={l.id} value={l.id}>{l.name[0]}</option>)}
           </select>
@@ -251,7 +270,7 @@ export const OverlayEditPanel: React.FC<{
             )}
             {sel.type === 'zoomMap' && (
               <>
-                <label className="block">{t('横幅に入る距離 (m)', 'Width shown (m)')}<input type="number" min={20} max={2000} value={sel.spanM ?? 140} onChange={e => update({ spanM: Math.max(20, Math.min(2000, Number(e.target.value) || 140)) } as Partial<OverlayPart>)} className={input} /></label>
+                <label className="block">{t('横幅に入る距離 (m)', 'Width shown (m)')}<NumberField min={20} max={2000} value={sel.spanM ?? 140} onCommit={v => update({ spanM: v } as Partial<OverlayPart>)} className={input} /></label>
                 <label className="flex items-center gap-1.5 text-slate-300 cursor-pointer">
                   <input type="checkbox" checked={sel.headingUp === true} onChange={e => update({ headingUp: e.target.checked } as Partial<OverlayPart>)} />
                   {t('進む向きを上にする (地図の左右が車の左右になる)', 'Direction of travel up (map left/right = car left/right)')}
@@ -271,8 +290,8 @@ export const OverlayEditPanel: React.FC<{
             {sel.type === 'bar' && (
               <>
                 <div className="flex gap-1">
-                  <label className="flex-1">{t('最小', 'Min')}<input type="number" value={sel.min ?? CHANNELS[sel.channel].min} onChange={e => { const v = Number(e.target.value); if (Number.isFinite(v) && v < (sel.max ?? CHANNELS[sel.channel].max)) update({ min: v } as Partial<OverlayPart>); }} className={input} /></label>
-                  <label className="flex-1">{t('最大', 'Max')}<input type="number" value={sel.max ?? CHANNELS[sel.channel].max} onChange={e => { const v = Number(e.target.value); if (Number.isFinite(v) && v > (sel.min ?? CHANNELS[sel.channel].min)) update({ max: v } as Partial<OverlayPart>); }} className={input} /></label>
+                  <label className="flex-1">{t('最小', 'Min')}<NumberField min={-100000} max={(sel.max ?? CHANNELS[sel.channel].max) - 0.01} value={sel.min ?? CHANNELS[sel.channel].min} onCommit={v => update({ min: v } as Partial<OverlayPart>)} className={input} /></label>
+                  <label className="flex-1">{t('最大', 'Max')}<NumberField min={(sel.min ?? CHANNELS[sel.channel].min) + 0.01} max={100000} value={sel.max ?? CHANNELS[sel.channel].max} onCommit={v => update({ max: v } as Partial<OverlayPart>)} className={input} /></label>
                 </div>
                 <div className="flex gap-2 items-center">
                   <label className="flex items-center gap-1">{t('色', 'Color')}<input type="color" value={sel.color ?? '#38bdf8'} onChange={e => update({ color: e.target.value } as Partial<OverlayPart>)} /></label>
@@ -284,10 +303,10 @@ export const OverlayEditPanel: React.FC<{
               <label className="block">{t('札', 'Label')}<input value={sel.label ?? ''} placeholder={CHANNELS[sel.channel].short} onChange={e => update({ label: e.target.value.slice(0, 12) || undefined } as Partial<OverlayPart>)} className={input} /></label>
             )}
             {sel.type === 'steering' && (
-              <label className="block">{t('絵の振れの上限 (度)', 'Max rotation (deg)')}<input type="number" value={sel.maxDeg ?? 540} onChange={e => update({ maxDeg: Math.max(30, Math.min(1080, Number(e.target.value) || 540)) } as Partial<OverlayPart>)} className={input} /></label>
+              <label className="block">{t('絵の振れの上限 (度)', 'Max rotation (deg)')}<NumberField min={30} max={1080} value={sel.maxDeg ?? 540} onCommit={v => update({ maxDeg: v } as Partial<OverlayPart>)} className={input} /></label>
             )}
             {sel.type === 'delta' && (
-              <label className="block">{t('振れの上限 (秒)', 'Full scale (s)')}<input type="number" step="0.1" value={sel.maxSec ?? 1} onChange={e => update({ maxSec: Math.max(0.1, Math.min(10, Number(e.target.value) || 1)) } as Partial<OverlayPart>)} className={input} /></label>
+              <label className="block">{t('振れの上限 (秒)', 'Full scale (s)')}<NumberField step={0.1} min={0.1} max={10} value={sel.maxSec ?? 1} onCommit={v => update({ maxSec: v } as Partial<OverlayPart>)} className={input} /></label>
             )}
             <label className="block">{t('不透明度', 'Opacity')}<input type="range" min={0.2} max={1} step={0.05} value={sel.opacity ?? 1} onChange={e => update({ opacity: Number(e.target.value) } as Partial<OverlayPart>)} className="w-full" /></label>
             <div className="text-[10px] text-slate-500 font-mono">x {sel.x.toFixed(2)} · y {sel.y.toFixed(2)} · w {sel.w.toFixed(2)} · h {sel.h.toFixed(2)}</div>

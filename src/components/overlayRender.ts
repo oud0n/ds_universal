@@ -81,6 +81,15 @@ function pointAtLapDistance(lap: Lap, d: number): TelemetryPoint | null {
   return Math.abs(pts[lo].distance - base - d) <= Math.abs(pts[hi].distance - base - d) ? pts[lo] : pts[hi];
 }
 
+/**
+ * 周の中の距離 (km)。周の点 (lap.points) は周の始まりを 0 にした距離・時刻なので、ログの点の距離からは、
+ * 周の始まりの時刻のログの距離を引く
+ */
+function distanceInLap(session: Session, lap: Lap, pt: TelemetryPoint): number {
+  const start = pointAt(session.points, lap.startTime);
+  return pt.distance - (start?.distance ?? 0);
+}
+
 /** 時刻 t を走っている周 (周の境目ちょうどは、あとの周。走行全体の周は最後) */
 function lapAtTime(session: Session, t: number): Lap | null {
   return session.laps.filter(l => t >= l.startTime && t <= l.endTime)
@@ -145,8 +154,12 @@ function drawG(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, p
   ctx.moveTo(cX, cY - r); ctx.lineTo(cX, cY + r);
   ctx.stroke();
   const k = r / 1.5;
+  // 1.5 G を超えたら、円の縁に止める (円の外に描かない)
+  let gx = -(pt.corneringG || 0) * k, gy = (pt.accelG || 0) * k;
+  const gl = Math.hypot(gx, gy);
+  if (gl > r) { gx *= r / gl; gy *= r / gl; }
   ctx.fillStyle = '#ef4444';
-  ctx.beginPath(); ctx.arc(cX - (pt.corneringG || 0) * k, cY + (pt.accelG || 0) * k, 3.5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cX + gx, cY + gy, 3.5, 0, Math.PI * 2); ctx.fill();
   ctx.font = 'bold 8px monospace';
   ctx.fillStyle = LABEL;
   ctx.textAlign = 'center';
@@ -372,7 +385,7 @@ function drawGraph(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: nu
         ctx.strokeStyle = GRAPH_COLORS[c] ?? '#38bdf8';
         ctx.stroke(lapPath(lap, c, gx, gy, gw, gh, span, min, max));
       }
-      const cur = (pt.distance - lap.points[0].distance) / span;
+      const cur = distanceInLap(input.session, lap, pt) / span;
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(gx + gw * Math.max(0, Math.min(1, cur)) - 1, gy, 2, gh);
     }
@@ -579,8 +592,11 @@ export function partRect(part: OverlayPart, w: number, h: number, avoid?: Overla
   let x = part.x * w, y = part.y * h;
   const rw = part.w * w, rh = part.h * h;
   if (avoid && x < avoid.x + avoid.w && x + rw > avoid.x && y < avoid.y + avoid.h && y + rh > avoid.y) {
-    const toLeft = x + rw / 2 < avoid.x + avoid.w / 2;
-    x = toLeft ? avoid.x - rw - 8 : avoid.x + avoid.w + 8;
+    const left = avoid.x - rw - 8, right = avoid.x + avoid.w + 8;
+    const fitsLeft = left >= 4, fitsRight = right + rw <= w - 4;
+    // 近い側へずらす。収まらなければ反対側へ (隅の小窓の外側に収まらず、小窓の下に戻っていた)
+    const preferLeft = x + rw / 2 < avoid.x + avoid.w / 2;
+    x = (preferLeft ? fitsLeft || !fitsRight : !fitsRight && fitsLeft) ? left : right;
     x = Math.max(4, Math.min(w - rw - 4, x));
   }
   return { x, y, w: rw, h: rh };
@@ -624,7 +640,7 @@ export function renderOverlayParts(ctx: CanvasRenderingContext2D, w: number, h: 
           const lap = lapAtTime(input.session, input.t);
           const ref = input.reference?.lap ?? bestLap(input.session);
           if (lap && ref && ref !== lap && !lap.isWholeSession && lap.points.length) {
-            const p2 = pointAtLapDistance(ref, pt.distance - lap.points[0].distance);
+            const p2 = pointAtLapDistance(ref, distanceInLap(input.session, lap, pt));
             if (p2) others.push({ point: p2, color: COMPARE_COLOR });
           }
         }

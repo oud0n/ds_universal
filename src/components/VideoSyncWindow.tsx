@@ -399,10 +399,15 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     hidden: editLayout ? [] : win.hiddenParts ?? [],
     onTileLoad
   };
+  // 編集を始めた (保存した) ときの部品 (変えたまま閉じるときに確かめるため)
+  const [editOrig, setEditOrig] = useState('');
+  const confirmDiscard = () => !editLayout || JSON.stringify(editLayout.parts) === editOrig
+    || window.confirm(t('保存していない変更があります。捨てますか？', 'You have unsaved changes. Discard them?'));
   const startLayoutEdit = () => {
     const base = resolveLayout(win.overlayLayout ?? AUTO_LAYOUT, baseSession, customLayouts);
     setEditBase(base.id);
     setEditLayout({ ...base, parts: base.parts.map(p => ({ ...p })) });
+    setEditOrig(JSON.stringify(base.parts));
     setEditSel(null);
   };
   const layoutStore = () => (canUseRunStore() ? getRunStore().catch(() => null) : Promise.resolve(null));
@@ -1298,7 +1303,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           {/* メーターの配置 (パソコンだけ。PLAN-08) */}
           {media.length > 0 && !isCompactLayout && !isGraphEmbedded && win.showOverlay && !isCompare && (
             <button
-              onClick={() => (editLayout ? setEditLayout(null) : startLayoutEdit())}
+              onClick={() => (editLayout ? (confirmDiscard() && setEditLayout(null)) : startLayoutEdit())}
               aria-pressed={!!editLayout}
               className={`flex items-center gap-1 px-2 py-1 rounded text-xs border transition-colors cursor-pointer ${editLayout ? 'bg-sky-600 border-sky-500 text-white' : 'bg-surface-3 hover:bg-surface-5 text-slate-300 border-line-3'}`}
               title={t('メーターの配置: 部品をつかんで動かし、大きさを変えて、並びとして保存する', 'Meter layout: drag parts, resize them and save the layout')}
@@ -1365,6 +1370,20 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           >
             {showOverlay ? <Eye size={14} /> : <EyeOff size={14} />}
           </button>
+          {/* スマートフォン: メーターの並びを選ぶ (編集はパソコンだけ。書き出しの画面が無いので、ここで選ぶ) */}
+          {phoneToolbar && showOverlay && media.length > 0 && (
+            <select
+              value={win.overlayLayout ?? AUTO_LAYOUT}
+              onChange={e => setWin({ overlayLayout: e.target.value })}
+              className="order-1 bg-surface-3 border border-line-3 text-[11px] px-1.5 py-1 rounded text-slate-200 max-w-[7.5rem]"
+              aria-label={t('メーターの並び', 'Meter layout')}
+              data-testid="overlay-layout-phone"
+            >
+              <option value={AUTO_LAYOUT}>{t('メーター: 自動', 'Meters: auto')}</option>
+              {BUILTIN_LAYOUTS.map(l => <option key={l.id} value={l.id}>{t(l.name[0], l.name[1])}</option>)}
+              {customLayouts.map(l => <option key={l.id} value={l.id}>{l.name[0]}</option>)}
+            </select>
+          )}
         </div>
       </div>
 
@@ -1538,7 +1557,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     avoidRef={isMain && win.layout === 'pip' ? pipRef : undefined}
                     accent={isCompare ? x.color : undefined}
                     emptyText={isCompare ? t('この周を映している動画がありません', 'No video covers this lap') : undefined}
-                    onClick={win.layout === 'grid' && tileCount > 1 && size !== 'pip' ? () => setWin({ focus: win.focus === i ? null : i }) : undefined}
+                    onClick={win.layout === 'grid' && tileCount > 1 && size !== 'pip' && !editLayout ? () => setWin({ focus: win.focus === i ? null : i }) : undefined}
                     className="flex-1 w-full h-full"
                     children={isMain && gpsMismatchM !== null ? (
                       <button
@@ -1617,20 +1636,23 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 onChange={parts => setEditLayout(l => (l ? { ...l, parts } : l))}
                 key={`${editBase}:${editKey}`}
                 onPickBase={id => {
+                  if (!confirmDiscard()) return;
                   const base = resolveLayout(id, baseSession, customLayouts);
                   setEditKey(n => n + 1);
                   setEditBase(base.id);
                   setEditLayout({ ...base, parts: base.parts.map(p => ({ ...p })) });
+                  setEditOrig(JSON.stringify(base.parts));
                   setEditSel(null);
                 }}
                 onSave={async name => {
                   try {
                     const saved = await saveCustomLayout(await layoutStore(), editLayout, name);
-                    setEditKey(n => n + 1);
+                    // 欄は作り直さない (保存しましたの知らせを消さないように)。名前の欄は今のままで同じ
                     setEditBase(saved.id);
                     setEditLayout({ ...saved, parts: saved.parts.map(p => ({ ...p })) });
-                    // 保存した並びを、このウインドウの並びにする (出さないことにした部品は戻す)
-                    setWin({ overlayLayout: saved.id, hiddenParts: [] });
+                    setEditOrig(JSON.stringify(saved.parts));
+                    // 保存した並びを、このウインドウの並びにする (出さないことにした部品・ラップの欄・コース図・G も出す。編集で見えたとおりにする)
+                    setWin({ overlayLayout: saved.id, hiddenParts: [], showLapPanel: true, showMap: true, showGForce: true });
                     setLayoutTick(n => n + 1);
                     return null;
                   } catch (e) {
@@ -1662,7 +1684,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     setEditKey(n => n + 1);
                   });
                 }}
-                onClose={() => setEditLayout(null)}
+                onClose={() => { if (confirmDiscard()) setEditLayout(null); }}
               />
             )}
 
