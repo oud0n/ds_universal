@@ -65,6 +65,10 @@ export interface RunRow {
    * ラップタイムの一覧の順位・ベストと、ラップタイマーの「これまでのベスト」には数えない
    */
   reference?: { driver?: string; car?: string };
+  /** 車種 (自分の走行。参考ラップの車は reference.car。2026-10-25) */
+  car?: string;
+  /** タイヤ (銘柄・コンパウンドなど。自由に書く。2026-10-25) */
+  tyre?: string;
   /** 分かれた走行の何番目ごとの情報 (ログの時計の補正) */
   parts?: Record<string, { clockOffsetSec?: number; [key: string]: unknown }>;
   videos?: RunVideo[];
@@ -107,6 +111,8 @@ function cleanRow(e: Record<string, unknown>): RunRow | null {
   if (e.id !== undefined && typeof e.id !== 'string') delete row.id;
   if (e.name !== undefined && typeof e.name !== 'string') delete row.name;
   if (e.note !== undefined && typeof e.note !== 'string') delete row.note;
+  if (e.car !== undefined && typeof e.car !== 'string') delete row.car;
+  if (e.tyre !== undefined && typeof e.tyre !== 'string') delete row.tyre;
   if (e.reference !== undefined) {
     if (isObj(e.reference)) {
       const r = e.reference as Record<string, unknown>;

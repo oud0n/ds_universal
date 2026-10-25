@@ -76,6 +76,12 @@ export const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy
           {run.entry?.name && <span className="text-slate-100 font-bold truncate min-w-0" data-testid="run-row-name">{run.entry.name}</span>}
           <span className="text-slate-400 truncate">{run.courseName != null ? circuitLabel(run.courseName) : (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</span>
         </div>
+        {/* 車種・タイヤ */}
+        {(run.entry?.car || run.entry?.reference?.car || run.entry?.tyre) && (
+          <div className="mt-0.5 text-[11px] text-slate-400 truncate" data-testid="run-row-car-tyre">
+            {[run.entry?.car ?? run.entry?.reference?.car, run.entry?.tyre].filter(Boolean).join(' · ')}
+          </div>
+        )}
         {/* メモの頭 (PLAN-33) */}
         {run.entry?.note && <div className="mt-0.5 text-[11px] text-slate-500 truncate" data-testid="run-row-note">{run.entry.note.replace(/\s+/g, ' ')}</div>}
         <div className="flex items-center gap-3 mt-1 text-xs">
