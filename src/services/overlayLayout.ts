@@ -91,7 +91,19 @@ export interface OverlayLayout {
   name: [string, string];
   builtin?: boolean;
   parts: OverlayPart[];
+  /** 小さな枠 (スマートフォンの枠・走行比較の枠) の部品。無ければ SMALL_PARTS (走行比較は COMPARE_LAYOUT) */
+  small?: OverlayPart[];
 }
+
+/** この幅 (画面の px) より狭い枠は、小さな枠の並びにする */
+export const SMALL_TILE_PX = 560;
+
+/** 小さな枠の既定の部品: 大きく読めるものだけ (速度・ラップタイム・タイム差) */
+export const SMALL_PARTS: OverlayPart[] = [
+  { id: 'speed', type: 'speed', x: 0.03, y: 0.72, w: 0.32, h: 0.24 },
+  { id: 'clock', type: 'lapClock', x: 0.6, y: 0.04, w: 0.37, h: 0.14 },
+  { id: 'delta', type: 'delta', maxSec: 1, x: 0.38, y: 0.84, w: 0.34, h: 0.12 }
+];
 
 /** 部品の種類の名前 (画面に出す) */
 export const PART_LABELS: Record<OverlayPartType, [string, string]> = {
@@ -212,9 +224,23 @@ export function parseOverlayLayout(text: string | null, fallbackId: string): Ove
   if (!v || typeof v !== 'object') return null;
   const o = v as Record<string, unknown>;
   if (o.version !== 1 || !Array.isArray(o.parts)) return null;
+  const parts = parseParts(o.parts);
+  if (!parts.length) return null;
+  // 小さな枠の部品 (空の列は「何も出さない」として残す)
+  const small = Array.isArray(o.small) ? parseParts(o.small) : null;
+  const nm = Array.isArray(o.name) && typeof o.name[0] === 'string' ? [o.name[0], typeof o.name[1] === 'string' ? o.name[1] : o.name[0]] as [string, string]
+    : typeof o.name === 'string' ? [o.name, o.name] as [string, string] : [fallbackId, fallbackId] as [string, string];
+  return {
+    version: 1, id: typeof o.id === 'string' && o.id && !o.id.startsWith('builtin:') ? o.id : fallbackId, name: nm, parts,
+    ...(small ? { small } : {})
+  };
+}
+
+/** 部品の列を読む (おかしな部品は落とす) */
+function parseParts(list: unknown[]): OverlayPart[] {
   const parts: OverlayPart[] = [];
   const seen = new Set<string>();
-  for (const raw of o.parts) {
+  for (const raw of list) {
     if (!raw || typeof raw !== 'object') continue;
     const r = raw as Record<string, unknown>;
     const type = r.type as OverlayPartType;
@@ -261,8 +287,5 @@ export function parseOverlayLayout(text: string | null, fallbackId: string): Ove
       parts.push({ ...base, type } as OverlayPart);
     }
   }
-  if (!parts.length) return null;
-  const nm = Array.isArray(o.name) && typeof o.name[0] === 'string' ? [o.name[0], typeof o.name[1] === 'string' ? o.name[1] : o.name[0]] as [string, string]
-    : typeof o.name === 'string' ? [o.name, o.name] as [string, string] : [fallbackId, fallbackId] as [string, string];
-  return { version: 1, id: typeof o.id === 'string' && o.id && !o.id.startsWith('builtin:') ? o.id : fallbackId, name: nm, parts };
+  return parts;
 }

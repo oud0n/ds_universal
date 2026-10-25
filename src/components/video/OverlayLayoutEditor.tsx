@@ -5,7 +5,7 @@
  * - OverlayEditPanel: 並びの選び・部品の一覧 (足す・消す・出す / 出さない)・選んだ部品の設定・保存
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { Plus, Save, Trash2, X, Download, Upload, ArrowLeftRight } from 'lucide-react';
+import { Pencil, Plus, Save, Trash2, X, Download, Upload, ArrowLeftRight } from 'lucide-react';
 import { useT } from '../../utils/i18n';
 import {
   BUILTIN_LAYOUTS, CHANNELS, PART_LABELS, partChannels, partLabel,
@@ -156,7 +156,11 @@ function newPart(type: OverlayPartType, id: string, channel: ChannelId): Overlay
 const ADDABLE: OverlayPartType[] = ['bar', 'value', 'steering', 'graph', 'map', 'zoomMap', 'delta', 'speed', 'gmeter', 'lapPanel', 'lapClock'];
 
 export const OverlayEditPanel: React.FC<{
+  /** 直している並び (parts は、今直している枠の部品) */
   draft: OverlayLayout;
+  /** 直している枠: large (ふつうの枠) / small (小さな枠) */
+  target: 'large' | 'small';
+  onTarget: (target: 'large' | 'small') => void;
   /** 元の並び (同梱か自分の並び) */
   baseId: string;
   custom: OverlayLayout[];
@@ -166,11 +170,13 @@ export const OverlayEditPanel: React.FC<{
   onChange: (parts: OverlayPart[]) => void;
   onPickBase: (id: string) => void;
   onSave: (name: string) => Promise<string | null>;
+  /** 自分の並びの名前だけを変える (印・ファイルは変えないので、走行に覚えた並びもそのまま) */
+  onRename: (name: string) => Promise<string | null>;
   onDelete: () => Promise<void>;
   onExport?: () => void;
   onImport?: (file: File) => void;
   onClose: () => void;
-}> = ({ draft, baseId, custom, channels, selected, onSelect, onChange, onPickBase, onSave, onDelete, onExport, onImport, onClose }) => {
+}> = ({ draft, target, onTarget, baseId, custom, channels, selected, onSelect, onChange, onPickBase, onSave, onRename, onDelete, onExport, onImport, onClose }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const [name, setName] = useState(baseId.startsWith('user:') || baseId === 'import' ? draft.name[0] : '');
@@ -206,6 +212,13 @@ export const OverlayEditPanel: React.FC<{
     const e = await onSave(n);
     setNote(e ? { ok: false, text: e } : { ok: true, text: t(`「${n}」を保存しました`, `Saved "${n}"`) });
   };
+  const savedName = custom.find(l => l.id === baseId)?.name[0];
+  const canRename = baseId.startsWith('user:') && !!savedName && !!name.trim() && name.trim() !== savedName;
+  const rename = async () => {
+    const n = name.trim();
+    const e = await onRename(n);
+    setNote(e ? { ok: false, text: e } : { ok: true, text: t(`名前を「${n}」に変えました`, `Renamed to "${n}"`) });
+  };
   const input = 'w-full bg-surface-1 border border-line-3 text-xs px-2 py-1 rounded text-slate-200 outline-none focus:border-sky-500';
   return (
     <div className={`absolute top-2 bottom-2 ${side === 'right' ? 'right-2' : 'left-2'} z-30 w-72 max-w-[45%] flex flex-col bg-surface-1/95 border border-line-2 rounded-xl shadow-2xl text-xs text-slate-300`} data-testid="overlay-edit-panel" onPointerDown={e => e.stopPropagation()}>
@@ -223,6 +236,17 @@ export const OverlayEditPanel: React.FC<{
             {custom.map(l => <option key={l.id} value={l.id}>{l.name[0]}</option>)}
           </select>
         </label>
+        {/* 直す枠: ふつうの枠 / 小さな枠 (スマートフォン・走行比較など、狭く映る枠はこちらの部品で描く) */}
+        <div className="space-y-1">
+          <div className="flex rounded border border-line-3 overflow-hidden" data-testid="overlay-edit-target">
+            {(['large', 'small'] as const).map(v => (
+              <button key={v} onClick={() => onTarget(v)} className={`flex-1 py-1 cursor-pointer ${target === v ? 'bg-sky-600 text-white font-bold' : 'text-slate-300 hover:bg-surface-3'}`} data-testid={`overlay-edit-target-${v}`}>
+                {v === 'large' ? t('ふつうの枠', 'Normal view') : t('小さな枠', 'Small view')}
+              </button>
+            ))}
+          </div>
+          {target === 'small' && <p className="text-[10px] text-slate-500">{t('スマートフォンの枠・走行比較の枠など、狭く映る枠 (幅 560 px 未満) で使う部品です。大きく読める部品だけにするのがおすすめです。', 'Parts for narrow views (under 560 px wide), such as phones and compare tiles. Keep to parts that stay readable.')}</p>}
+        </div>
         <div className="space-y-1">
           <span className="text-[10px] text-slate-400">{t('部品 (押すと選ぶ。動画の上でつかんで動かし、右下の角で大きさを変える)', 'Parts (click to select; drag on the video to move, drag the corner to resize)')}</span>
           <div className="space-y-0.5" data-testid="overlay-edit-parts">
@@ -319,6 +343,9 @@ export const OverlayEditPanel: React.FC<{
           <button onClick={() => void save()} className="shrink-0 flex items-center gap-1 px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white font-bold cursor-pointer" data-testid="overlay-edit-save"><Save size={12} />{t('保存', 'Save')}</button>
         </div>
         <div className="flex gap-1 flex-wrap">
+          {canRename && (
+            <button onClick={() => void rename()} className="flex items-center gap-1 px-2 py-1 rounded border border-line-3 text-slate-300 hover:text-sky-300 cursor-pointer" data-testid="overlay-edit-rename"><Pencil size={12} />{t('名前だけ変える', 'Rename only')}</button>
+          )}
           {baseId.startsWith('user:') && (
             <button onClick={() => { if (window.confirm(t(`「${draft.name[0]}」を消しますか？`, `Delete "${draft.name[0]}"?`))) void onDelete(); }} className="flex items-center gap-1 px-2 py-1 rounded border border-line-3 text-slate-400 hover:text-red-400 cursor-pointer" data-testid="overlay-edit-delete"><Trash2 size={12} />{t('この並びを消す', 'Delete layout')}</button>
           )}

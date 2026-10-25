@@ -423,6 +423,7 @@ async function attachRunVideosNow(opts: {
   };
   if (opts.fromRuns) restoreRowVideos(run, row, opts.setClockOffset);
   current = run;
+  for (const f of openRunListeners) f();
   // runs.json から開いたときは、今の中身を「書いたもの」とする (開いただけでは書かない)。
   // runs.json に無い動画を付けたときは書く (付けたことを覚える)
   const content = rowContent(run, row);
@@ -535,6 +536,42 @@ export async function addVideoToOpenRun(video: RemoteVideo): Promise<boolean> {
 /** 開いている走行 (動画の画面で、同じフォルダの動画を出すため) */
 export function getOpenRun(): { store: RunStore; item: RunItem } | null {
   return current ? { store: current.store, item: current.item } : null;
+}
+
+const openRunListeners = new Set<() => void>();
+/** 走行を開いたことを知らせてもらう (動画の窓が、その走行に覚えた並びにするため)。外す関数を返す */
+export function onOpenRun(f: () => void): () => void {
+  openRunListeners.add(f);
+  return () => { openRunListeners.delete(f); };
+}
+
+/**
+ * 開いている走行に覚えたメーターの並び (PLAN-08)。sessionId がその走行のログのときだけ。覚えていなければ null
+ */
+export function openRunOverlayLayout(sessionId: string | undefined): string | null {
+  if (!current || !sessionId || !current.sessionIds.includes(sessionId)) return null;
+  const v = current.item.entry?.overlayLayout;
+  return typeof v === 'string' && v ? v : null;
+}
+
+/**
+ * 開いている走行 (sessionId がそのログのとき) の行に、メーターの並びを覚える (PLAN-08)。null は覚えたのを外す (標準に戻す)
+ */
+export async function setOpenRunOverlayLayout(sessionId: string | undefined, id: string | null): Promise<void> {
+  const run = current;
+  if (!run || !sessionId || !run.sessionIds.includes(sessionId)) return;
+  if ((run.item.entry?.overlayLayout ?? null) === id) return;
+  try {
+    const row = await updateRun(run.store, run.item.folder, run.item.file, prev => {
+      const next: Partial<RunRow> = { ...prev };
+      if (id) next.overlayLayout = id;
+      else delete next.overlayLayout;
+      return next;
+    });
+    run.item.entry = row;
+  } catch {
+    // 書けなくても、今のウインドウではその並びで出す
+  }
 }
 
 /**

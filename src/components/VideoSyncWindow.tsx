@@ -33,8 +33,8 @@ import { canUseEncodeExport, exportEncodedVideo } from '../services/encodeVideoE
 import { canExportWebmAlpha, exportOverlayOnly } from '../services/overlayOnlyExporter';
 import { type OverlayPartsOptions } from './overlayParts';
 import { renderOverlayParts } from './overlayRender';
-import { AUTO_LAYOUT, BUILTIN_LAYOUTS, COMPARE_LAYOUT, availableChannels, hiddenKey, parseOverlayLayout, partChannels, partLabel, resolveLayout, visibleParts, type OverlayLayout, type OverlayPart } from '../services/overlayLayout';
-import { deleteCustomLayout, layoutFileText, listCustomLayouts, saveCustomLayout } from '../services/overlayStore';
+import { AUTO_LAYOUT, BUILTIN_LAYOUTS, COMPARE_LAYOUT, SMALL_PARTS, SMALL_TILE_PX, availableChannels, hiddenKey, parseOverlayLayout, partChannels, partLabel, resolveLayout, visibleParts, type OverlayLayout, type OverlayPart } from '../services/overlayLayout';
+import { deleteCustomLayout, renameCustomLayout, layoutFileText, listCustomLayouts, saveCustomLayout } from '../services/overlayStore';
 import { canUseRunStore, getRunStore } from '../services/runStore';
 import { OverlayEditLayer, OverlayEditPanel } from './video/OverlayLayoutEditor';
 
@@ -56,7 +56,7 @@ import { RunFolderVideos } from './RunFolderVideos';
 import { SKIP_SEC, Skip10Icon } from './Skip10Icon';
 import { useWheelScrollX } from '../hooks/useWheelScrollX';
 import { useEscapeKey } from '../hooks/useEscapeKey';
-import { companionSessionsOfVideo } from '../services/runOpener';
+import { companionSessionsOfVideo, onOpenRun, openRunOverlayLayout, setOpenRunOverlayLayout } from '../services/runOpener';
 
 /** 動画の音を消したか (この端末に覚えておく) */
 const VIDEO_MUTED_KEY = 'ds_video_muted';
@@ -171,7 +171,9 @@ export function drawTelemetryOverlayOnCanvas(
   parts: OverlayPartsOptions = { lapPanel: false, map: false }
 ) {
   if (!baseSession || baseSession.points.length === 0) return;
-  const layout = parts.layout ?? resolveLayout(AUTO_LAYOUT, baseSession);
+  const full = parts.layout ?? resolveLayout(AUTO_LAYOUT, baseSession);
+  // 小さな枠は、並びの小さな枠の部品 (出さない部品の印は「並び/small」で別に持つ)
+  const layout = parts.small ? { ...full, id: `${full.id}/small`, parts: full.small ?? parts.smallDefault ?? SMALL_PARTS } : full;
   const hidden = new Set(parts.hidden ?? []);
   const shown = visibleParts(layout, baseSession, hidden).filter(p => (p.type !== 'gmeter' || showGForce) && (p.type !== 'map' || parts.map));
   // ラップの欄を出さないときは、これまでの小さなラップタイムの箱にする
@@ -385,10 +387,25 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   }, []);
   // 配置の編集 (パソコンだけ): 直している並び (下書き)・元の並び・選んだ部品
   const [editLayout, setEditLayout] = useState<OverlayLayout | null>(null);
+  // 直している枠: large (ふつうの枠) / small (小さな枠。スマートフォン・走行比較の枠など)
+  const [editTarget, setEditTarget] = useState<'large' | 'small'>('large');
   const [editBase, setEditBase] = useState('');
   const [editSel, setEditSel] = useState<string | null>(null);
   // 編集の欄を作り直す印 (元の並びを替えた・保存した・読み込んだとき、名前の欄などを新しくする)
   const [editKey, setEditKey] = useState(0);
+  /** メーターの並びを選ぶ。開いている走行の runs.json の行にも覚え、次に開いたときもその並びにする (PLAN-08) */
+  const chooseLayout = (id: string, extra: Partial<typeof win> = {}) => {
+    setWin({ overlayLayout: id, ...extra });
+    void setOpenRunOverlayLayout(baseSession?.id, id === AUTO_LAYOUT ? null : id);
+  };
+  // 走行を開いたら (窓を開いたときに開いている走行も)、その走行に覚えた並びにする
+  const applyRunLayoutRef = useRef<() => void>(() => {});
+  applyRunLayoutRef.current = () => {
+    const id = openRunOverlayLayout(baseSession?.id);
+    if (id && id !== win.overlayLayout) setWin({ overlayLayout: id });
+  };
+  useEffect(() => onOpenRun(() => applyRunLayoutRef.current()), []);
+  useEffect(() => { applyRunLayoutRef.current(); }, [baseSession?.id]);
   const overlayLayout = editLayout ?? resolveLayout(win.overlayLayout ?? AUTO_LAYOUT, baseSession, customLayouts);
   const overlayParts: OverlayPartsOptions = {
     // 編集の間は、出さないことにした部品も出す (置き場所が見えるように)
@@ -401,13 +418,18 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   };
   // 編集を始めた (保存した) ときの部品 (変えたまま閉じるときに確かめるため)
   const [editOrig, setEditOrig] = useState('');
-  const confirmDiscard = () => !editLayout || JSON.stringify(editLayout.parts) === editOrig
+  const snapshot = (l: OverlayLayout) => JSON.stringify({ parts: l.parts, small: l.small ?? null });
+  /** 直している枠の部品 (小さな枠の部品がまだ無ければ既定を使う) */
+  const editParts = editLayout ? (editTarget === 'small' ? editLayout.small ?? SMALL_PARTS : editLayout.parts) : [];
+  const setEditParts = (parts: OverlayPart[]) => setEditLayout(l => (l ? (editTarget === 'small' ? { ...l, small: parts } : { ...l, parts }) : l));
+  const confirmDiscard = () => !editLayout || snapshot(editLayout) === editOrig
     || window.confirm(t('保存していない変更があります。捨てますか？', 'You have unsaved changes. Discard them?'));
   const startLayoutEdit = () => {
     const base = resolveLayout(win.overlayLayout ?? AUTO_LAYOUT, baseSession, customLayouts);
     setEditBase(base.id);
     setEditLayout({ ...base, parts: base.parts.map(p => ({ ...p })) });
-    setEditOrig(JSON.stringify(base.parts));
+    setEditOrig(snapshot(base));
+    setEditTarget('large');
     setEditSel(null);
   };
   const layoutStore = () => (canUseRunStore() ? getRunStore().catch(() => null) : Promise.resolve(null));
@@ -767,7 +789,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               ctx.save();
               ctx.translate(r.x, r.y);
               ctx.scale(r.w / 1280, r.h / 720);
-              ov.draw(ctx, 1280, 720, 0);
+              ov.draw(ctx, 1280, 720, 0, r.w);
               ctx.restore();
             }
             if (isCompare && tile) {
@@ -1044,7 +1066,11 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     return {
       tick: g.time,
       // 配置の編集の間は、G も出し、小窓をよけない (編集の枠と描いた位置をそろえる)
-      draw: (ctx, w, h, avoidW) => drawTelemetryOverlayOnCanvas(ctx, w, h, g.time, g.session, g.lap, editLayout ? true : showGForce, i === 0 && win.layout === 'pip' && tileCount > 1 && !editLayout ? pipPosition : null, avoidW, null, isCompare ? NO_PARTS : overlayParts)
+      // 小さな枠 (狭く映っている枠・走行比較の枠) は、小さな枠の並び。編集で小さな枠を直している間は、メインの枠も小さな枠の並び
+      draw: (ctx, w, h, avoidW, displayW) => drawTelemetryOverlayOnCanvas(ctx, w, h, g.time, g.session, g.lap, editLayout ? true : showGForce, i === 0 && win.layout === 'pip' && tileCount > 1 && !editLayout ? pipPosition : null, avoidW, null,
+        isCompare
+          ? { ...NO_PARTS, layout: overlayLayout, small: true, smallDefault: COMPARE_LAYOUT.parts }
+          : { ...overlayParts, small: editLayout ? editTarget === 'small' : displayW < SMALL_TILE_PX })
     };
   };
 
@@ -1374,7 +1400,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           {phoneToolbar && showOverlay && media.length > 0 && (
             <select
               value={win.overlayLayout ?? AUTO_LAYOUT}
-              onChange={e => setWin({ overlayLayout: e.target.value })}
+              onChange={e => chooseLayout(e.target.value)}
               className="order-1 bg-surface-3 border border-line-3 text-[11px] px-1.5 py-1 rounded text-slate-200 max-w-[7.5rem]"
               aria-label={t('メーターの並び', 'Meter layout')}
               data-testid="overlay-layout-phone"
@@ -1552,7 +1578,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     onSeeked={handleSeeked}
                     overlay={overlayFor(x, i)}
                     editLayer={isMain && editLayout && size === 'full' ? (
-                      <OverlayEditLayer parts={editLayout.parts} selected={editSel} onSelect={setEditSel} onChange={parts => setEditLayout(l => (l ? { ...l, parts } : l))} />
+                      <OverlayEditLayer parts={editParts} selected={editSel} onSelect={setEditSel} onChange={setEditParts} />
                     ) : undefined}
                     avoidRef={isMain && win.layout === 'pip' ? pipRef : undefined}
                     accent={isCompare ? x.color : undefined}
@@ -1627,13 +1653,15 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
             {editLayout && (
               <OverlayEditPanel
-                draft={editLayout}
+                draft={{ ...editLayout, parts: editParts }}
+                target={editTarget}
+                onTarget={target => { setEditTarget(target); setEditSel(null); }}
                 baseId={editBase}
                 custom={customLayouts}
                 channels={availableChannels(baseSession)}
                 selected={editSel}
                 onSelect={setEditSel}
-                onChange={parts => setEditLayout(l => (l ? { ...l, parts } : l))}
+                onChange={setEditParts}
                 key={`${editBase}:${editKey}`}
                 onPickBase={id => {
                   if (!confirmDiscard()) return;
@@ -1641,18 +1669,32 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   setEditKey(n => n + 1);
                   setEditBase(base.id);
                   setEditLayout({ ...base, parts: base.parts.map(p => ({ ...p })) });
-                  setEditOrig(JSON.stringify(base.parts));
+                  setEditOrig(snapshot(base));
                   setEditSel(null);
                 }}
                 onSave={async name => {
                   try {
-                    const saved = await saveCustomLayout(await layoutStore(), editLayout, name);
+                    // 開いている自分の並びと同じ名前なら、その並びに上書きする (名前だけ変えた並びはファイルの名前と違うため)
+                    const same = editBase.startsWith('user:') && customLayouts.find(l => l.id === editBase)?.name[0] === name ? editBase : undefined;
+                    const saved = await saveCustomLayout(await layoutStore(), editLayout, name, same);
                     // 欄は作り直さない (保存しましたの知らせを消さないように)。名前の欄は今のままで同じ
                     setEditBase(saved.id);
                     setEditLayout({ ...saved, parts: saved.parts.map(p => ({ ...p })) });
-                    setEditOrig(JSON.stringify(saved.parts));
+                    setEditOrig(snapshot(saved));
                     // 保存した並びを、このウインドウの並びにする (出さないことにした部品・ラップの欄・コース図・G も出す。編集で見えたとおりにする)
-                    setWin({ overlayLayout: saved.id, hiddenParts: [], showLapPanel: true, showMap: true, showGForce: true });
+                    chooseLayout(saved.id, { hiddenParts: [], showLapPanel: true, showMap: true, showGForce: true });
+                    setLayoutTick(n => n + 1);
+                    return null;
+                  } catch (e) {
+                    return e instanceof Error ? e.message : String(e);
+                  }
+                }}
+                onRename={async name => {
+                  const cur = customLayouts.find(l => l.id === editBase);
+                  if (!cur) return t('保存した並びが見つかりません', 'Saved layout not found');
+                  try {
+                    await renameCustomLayout(await layoutStore(), cur, name);
+                    setEditLayout(l => (l ? { ...l, name: [name, name] } : l));
                     setLayoutTick(n => n + 1);
                     return null;
                   } catch (e) {
@@ -1661,7 +1703,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 }}
                 onDelete={async () => {
                   await deleteCustomLayout(await layoutStore(), editBase).catch(() => {});
-                  setWin({ overlayLayout: AUTO_LAYOUT });
+                  chooseLayout(AUTO_LAYOUT);
                   setEditLayout(null);
                   setLayoutTick(n => n + 1);
                 }}
@@ -2261,7 +2303,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               <label className="text-[10px] font-medium text-slate-400">{t('メーターの並び:', 'Meter layout:')}</label>
               <select
                 value={win.overlayLayout ?? AUTO_LAYOUT}
-                onChange={e => setWin({ overlayLayout: e.target.value })}
+                onChange={e => chooseLayout(e.target.value)}
                 className="w-full bg-surface-1 border border-line-3 text-xs px-2 py-1 rounded outline-none text-slate-200 cursor-pointer"
                 data-testid="overlay-layout"
               >

@@ -7,7 +7,7 @@
  */
 
 import type { Lap, Session, TelemetryPoint } from '../types/telemetry';
-import type { OverlayLayout } from '../services/overlayLayout';
+import type { OverlayLayout, OverlayPart } from '../services/overlayLayout';
 
 /** 出す部品 (ウインドウごとに覚える) */
 export interface OverlayPartsOptions {
@@ -23,6 +23,10 @@ export interface OverlayPartsOptions {
   hidden?: readonly string[];
   /** 航空写真のタイルが読めたとき (止めている画面を描き直す) */
   onTileLoad?: () => void;
+  /** 小さな枠の並びで描く (スマートフォンの枠・走行比較の枠) */
+  small?: boolean;
+  /** 並びに小さな枠の部品が無いときの部品 (無ければ SMALL_PARTS) */
+  smallDefault?: OverlayPart[];
 }
 
 /** 周を終えたあと、その周のタイムと差を止めて出しておく秒 (9 の案) */

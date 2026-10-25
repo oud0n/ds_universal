@@ -11,8 +11,8 @@ import { useT } from '../../utils/i18n';
 export interface TileOverlay {
   /** 描き直すきっかけ (時刻など)。変わったら描き直す */
   tick: unknown;
-  /** canvas は 1280 × 720。avoidW は、小窓が映像に重なる幅 (canvas の座標) */
-  draw: (ctx: CanvasRenderingContext2D, w: number, h: number, avoidW: number) => void;
+  /** canvas は 1280 × 720。avoidW は、小窓が映像に重なる幅 (canvas の座標)。displayW は、映像が画面に映っている幅 (px) */
+  draw: (ctx: CanvasRenderingContext2D, w: number, h: number, avoidW: number, displayW: number) => void;
 }
 
 interface VideoTileProps {
@@ -124,7 +124,7 @@ export const VideoTile: React.FC<VideoTileProps> = ({
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.setTransform(canvas.width / logical.w, 0, 0, canvas.height / logical.h, 0, 0);
-    overlay?.draw(ctx, logical.w, logical.h, avoidW);
+    overlay?.draw(ctx, logical.w, logical.h, avoidW, box?.width ?? logical.w);
   }, [overlay?.tick, overlay?.draw, avoidW, logical.w, logical.h, canvasPx.w, canvasPx.h]);
 
   return (

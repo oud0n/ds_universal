@@ -52,10 +52,11 @@ function isDeleted(text: string): boolean {
 
 /**
  * 並びを保存する。名前から印を決める (同じ名前は上書き)。保存した並び (印つき) を返す
+ * overwriteId: 名前だけ変えた自分の並びを同じ名前で保存するときの、その並びの印 (ファイルの名前と並びの名前が違うため)
  */
-export async function saveCustomLayout(store: RunStore | null, layout: OverlayLayout, name: string): Promise<OverlayLayout> {
-  const stem = safeName(name.trim());
-  const saved: OverlayLayout = { version: 1, id: userLayoutId(stem), name: [name.trim(), name.trim()], parts: layout.parts };
+export async function saveCustomLayout(store: RunStore | null, layout: OverlayLayout, name: string, overwriteId?: string): Promise<OverlayLayout> {
+  const stem = overwriteId?.startsWith('user:') ? overwriteId.slice(5) : safeName(name.trim());
+  const saved: OverlayLayout = { version: 1, id: userLayoutId(stem), name: [name.trim(), name.trim()], parts: layout.parts, ...(layout.small ? { small: layout.small } : {}) };
   if (!store) {
     const list = readLocal().filter(l => l.id !== saved.id);
     writeLocal([...list, saved]);
@@ -64,6 +65,21 @@ export async function saveCustomLayout(store: RunStore | null, layout: OverlayLa
   const { builtin: _b, ...body } = saved;
   await store.writeText(`${OVERLAYS_DIR}/${stem}.overlay.json`, JSON.stringify(body, null, 1));
   return saved;
+}
+
+/**
+ * 自分の並びの名前だけを変える。印 (ファイルの名前) は変えないので、ほかのウインドウや走行に覚えた並びもそのまま使える
+ */
+export async function renameCustomLayout(store: RunStore | null, layout: OverlayLayout, name: string): Promise<OverlayLayout> {
+  if (!layout.id.startsWith('user:')) throw new Error('not a custom layout');
+  const renamed: OverlayLayout = { ...layout, name: [name.trim(), name.trim()] };
+  if (!store) {
+    writeLocal(readLocal().map(l => (l.id === layout.id ? renamed : l)));
+    return renamed;
+  }
+  const { builtin: _b, ...body } = renamed;
+  await store.writeText(`${OVERLAYS_DIR}/${layout.id.slice(5)}.overlay.json`, JSON.stringify(body, null, 1));
+  return renamed;
 }
 
 /** 並びを消す (保管場所では消した印を書く) */

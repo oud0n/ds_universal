@@ -53,3 +53,34 @@ describe('メーターの並びのレビューの指摘', () => {
     expect(l?.parts.map(p => p.type)).toEqual(['speed']);
   });
 });
+
+describe('小さな枠の部品と、名前を変える (PLAN-08)', () => {
+  it('small を読み、壊れた部品は落とす', () => {
+    const l = parseOverlayLayout(JSON.stringify({
+      version: 1, name: ['a', 'a'],
+      parts: [{ id: 'p1', type: 'speed', x: 0, y: 0, w: 0.2, h: 0.2 }],
+      small: [{ id: 's1', type: 'lapClock', x: 0.1, y: 0.1, w: 0.3, h: 0.1 }, { id: 'bad', type: 'nope' }]
+    }), 'user:a');
+    expect(l?.small?.map(p => p.id)).toEqual(['s1']);
+    const one = [{ id: 'p1', type: 'speed', x: 0, y: 0, w: 0.2, h: 0.2 }];
+    expect(parseOverlayLayout(JSON.stringify({ version: 1, name: ['a', 'a'], parts: one }), 'user:a')?.small).toBeUndefined();
+    // 小さな枠の部品を全部外した並びは、何も出さない (既定に戻さない)
+    expect(parseOverlayLayout(JSON.stringify({ version: 1, name: ['a', 'a'], parts: one, small: [] }), 'user:a')?.small).toEqual([]);
+  });
+
+  it('名前だけ変えると、同じファイル (同じ印) に新しい名前で書く', async () => {
+    const { renameCustomLayout, saveCustomLayout } = await import('./overlayStore');
+    const files = new Map<string, string>();
+    const store = { writeText: async (p: string, t: string) => { files.set(p, t); } } as never;
+    const saved = await saveCustomLayout(store, { version: 1, id: 'x', name: ['x', 'x'], parts: [], small: [] }, '筑波');
+    expect(saved.id).toBe('user:筑波');
+    const r = await renameCustomLayout(store, saved, '筑波 2');
+    expect(r.id).toBe('user:筑波');
+    expect(JSON.parse(files.get('overlays/筑波.overlay.json')!).name).toEqual(['筑波 2', '筑波 2']);
+    expect(JSON.parse(files.get('overlays/筑波.overlay.json')!).small).toEqual([]);
+    // 名前を変えた並びを同じ名前で保存し直すと、同じファイルに上書き
+    const again = await saveCustomLayout(store, r, '筑波 2', r.id);
+    expect(again.id).toBe('user:筑波');
+    expect([...files.keys()]).toEqual(['overlays/筑波.overlay.json']);
+  });
+});
