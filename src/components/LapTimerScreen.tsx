@@ -377,10 +377,11 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
         </div>
       )}
       <main className="flex-1 min-h-0 flex flex-col landscape:flex-row items-stretch gap-2 px-3 pb-3">
-        <section className="flex-1 min-w-0 min-h-0 flex flex-col items-center justify-center" data-testid="lap-timer-main">
+        <section className="flex-1 min-w-0 min-h-0 flex flex-col items-center justify-center overflow-hidden" data-testid="lap-timer-main">
           {!measuring && source !== 'replay' ? (
-            <div className="text-center space-y-2" data-testid="lap-timer-idle">
-              <div className="font-bold" style={{ fontSize: needsRegister ? 'min(5.5vw, 7vh)' : 'min(7vw, 9vh)' }}>
+            <div className="text-center space-y-2 max-w-full min-w-0" data-testid="lap-timer-idle">
+              {/* 横向きのスマートフォンは高さが足りないので、コース名は 1 行にして入りきらない分は … にする (長い名前が 2 行になって、上下に重なっていた) */}
+              <div className="font-bold [@media(max-height:500px)]:truncate" style={{ fontSize: needsRegister ? 'min(5.5vw, 7vh)' : 'min(7vw, 9vh)' }}>
                 {needsRegister ? t('位置の機器を登録してください', 'Register a position device') : course ? circuitLabel(course.name) : t('コースを決めています', 'Finding the course')}
               </div>
               {needsRegister && (
@@ -395,7 +396,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
                   <span className="text-slate-500 text-sm"> ({new Date(pastBest.startMs).getMonth() + 1}/{new Date(pastBest.startMs).getDate()})</span>
                 </div>
               )}
-              <div className="text-slate-400 text-sm">{t('下の「測定開始」を押すと、周を数えて記録します', 'Tap Start below to time laps and record')}</div>
+              <div className="text-slate-400 text-sm [@media(max-height:500px)]:hidden">{t('下の「測定開始」を押すと、周を数えて記録します', 'Tap Start below to time laps and record')}</div>
               {/* 測り終えたあと: 保存したことと、走行を見る入口 */}
               {savedRun && (
                 <div className="mt-3 inline-flex items-center gap-3 px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/40 text-sm" data-testid="lap-timer-saved">
@@ -453,7 +454,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
         </section>
 
         {/* 横: 前の周・ベスト・セクター・速度 */}
-        <aside className="shrink-0 landscape:w-[34vw] grid grid-cols-2 landscape:grid-cols-1 gap-2 content-center font-mono tabular-nums">
+        {/* 横向きのスマートフォン (高さが足りない) は、前の周とベストを横に並べ、区間はその下 (3 段だと上下にはみ出していた) */}
+        <aside className="shrink-0 min-h-0 landscape:w-[34vw] grid grid-cols-2 landscape:grid-cols-1 [@media(orientation:landscape)_and_(max-height:500px)]:grid-cols-2 gap-2 content-center font-mono tabular-nums">
           <div className="rounded-xl bg-surface-2 px-3 py-2">
             <div className="text-[11px] text-slate-400 font-sans">{t('前の周', 'Last')}</div>
             <div className="text-2xl sm:text-3xl font-bold">{lastLap ? formatLapTime(lastLap.timeSec, 2) : '--:--'}</div>
@@ -465,7 +467,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
             <div className="text-lg text-slate-400"><span className="text-[11px] font-sans text-slate-500 mr-1">{t('速度', 'Speed')}</span>{lastFix ? `${Math.round(lastFix.speedKmh)} km/h` : '---'}</div>
           </div>
           {sectorCount > 0 && (
-            <div className="col-span-2 landscape:col-span-1 rounded-xl bg-surface-2 px-3 py-2 flex gap-2" data-testid="lap-timer-sectors">
+            <div className="col-span-2 landscape:col-span-1 [@media(orientation:landscape)_and_(max-height:500px)]:col-span-2 rounded-xl bg-surface-2 px-3 py-2 flex gap-2" data-testid="lap-timer-sectors">
               {Array.from({ length: sectorCount }, (_, i) => {
                 // 周を終えて大きく出している間は、終えた周のセクターを出しておく
                 const cur = flashing
