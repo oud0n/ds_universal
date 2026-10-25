@@ -7,7 +7,7 @@
 import type { Session, TelemetryPoint } from '../types/telemetry';
 
 /** 部品の種類 */
-export type OverlayPartType = 'speed' | 'gmeter' | 'lapPanel' | 'lapClock' | 'map' | 'bar' | 'steering' | 'graph' | 'value' | 'delta';
+export type OverlayPartType = 'speed' | 'gmeter' | 'lapPanel' | 'lapClock' | 'map' | 'zoomMap' | 'bar' | 'steering' | 'graph' | 'value' | 'delta';
 
 /** 値 (チャンネル)。部品の棒・グラフ・数字で選ぶ */
 export type ChannelId = 'speed' | 'accelG' | 'corneringG' | 'combinedG' | 'throttle' | 'brake' | 'steering' | 'rpm' | 'gear' | 'altitude';
@@ -76,6 +76,8 @@ export type OverlayPart =
   | (PartBase & { type: 'lapPanel' })
   | (PartBase & { type: 'lapClock' })
   | (PartBase & { type: 'map'; compare?: boolean })
+  /** 車のまわりを拡大した地図 (航空写真・コースの形・走った線・比べる周の線)。spanM: 横幅に入る距離 (m)。headingUp: 進む向きを上にする */
+  | (PartBase & { type: 'zoomMap'; spanM?: number; headingUp?: boolean; compare?: boolean; photo?: boolean })
   | (PartBase & { type: 'bar'; channel: ChannelId; min?: number; max?: number; color?: string; label?: string; horizontal?: boolean })
   | (PartBase & { type: 'steering'; maxDeg?: number })
   | (PartBase & { type: 'graph'; channels: ChannelId[]; window?: 'lap' | number; compare?: boolean })
@@ -98,6 +100,7 @@ export const PART_LABELS: Record<OverlayPartType, [string, string]> = {
   lapPanel: ['ラップの欄', 'Lap panel'],
   lapClock: ['ラップタイム', 'Lap time'],
   map: ['コース図', 'Course map'],
+  zoomMap: ['拡大した地図', 'Close-up map'],
   bar: ['値の棒', 'Bar'],
   steering: ['ハンドル', 'Steering wheel'],
   graph: ['グラフの帯', 'Graph strip'],
@@ -125,6 +128,8 @@ export function partChannels(p: OverlayPart): ChannelId[] {
 // 部品は下の帯と上の隅に寄せる (設計の 5)
 const STANDARD: OverlayPart[] = [
   { id: 'map', type: 'map', x: 0.02, y: 0.035, w: 0.2, h: 0.32, compare: true },
+  // コース図の下に、車のまわりを拡大した地図 (道幅の中のどこを走っているか)
+  { id: 'zoom', type: 'zoomMap', x: 0.02, y: 0.375, w: 0.2, h: 0.3, spanM: 140, headingUp: true, compare: true, photo: true },
   { id: 'lap', type: 'lapPanel', x: 0.735, y: 0.035, w: 0.245, h: 0.4 },
   { id: 'speed', type: 'speed', x: 0.02, y: 0.83, w: 0.165, h: 0.13 },
   { id: 'g', type: 'gmeter', x: 0.85, y: 0.775, w: 0.13, h: 0.18 }
@@ -147,6 +152,7 @@ export const BUILTIN_LAYOUTS: OverlayLayout[] = [
     version: 1, id: 'builtin:graph', name: ['グラフ', 'Graph'], builtin: true,
     parts: [
       { id: 'map', type: 'map', x: 0.02, y: 0.035, w: 0.2, h: 0.32, compare: true },
+      { id: 'zoom', type: 'zoomMap', x: 0.02, y: 0.375, w: 0.2, h: 0.3, spanM: 140, headingUp: true, compare: true, photo: true },
       { id: 'lap', type: 'lapPanel', x: 0.735, y: 0.035, w: 0.245, h: 0.4 },
       { id: 'speed', type: 'speed', x: 0.02, y: 0.83, w: 0.165, h: 0.13 },
       { id: 'graph', type: 'graph', channels: ['speed'], window: 'lap', compare: true, x: 0.2, y: 0.8, w: 0.63, h: 0.17 },
@@ -181,7 +187,7 @@ export function visibleParts(layout: OverlayLayout, session: Session | undefined
 }
 
 const num = (v: unknown, lo: number, hi: number): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi ? v : null);
-const TYPES = new Set<OverlayPartType>(['speed', 'gmeter', 'lapPanel', 'lapClock', 'map', 'bar', 'steering', 'graph', 'value', 'delta']);
+const TYPES = new Set<OverlayPartType>(['speed', 'gmeter', 'lapPanel', 'lapClock', 'map', 'zoomMap', 'bar', 'steering', 'graph', 'value', 'delta']);
 const isChannel = (v: unknown): v is ChannelId => typeof v === 'string' && v in CHANNELS;
 
 /** 並びのファイル (overlays/<名前>.overlay.json) を読む。おかしな部品は落とす。部品が 1 つも無ければ null */
@@ -228,6 +234,14 @@ export function parseOverlayLayout(text: string | null, fallbackId: string): Ove
       parts.push({ ...base, type, ...(num(r.maxSec, 0.1, 10) !== null ? { maxSec: r.maxSec as number } : {}) });
     } else if (type === 'map') {
       parts.push({ ...base, type, ...(r.compare === true ? { compare: true } : {}) });
+    } else if (type === 'zoomMap') {
+      parts.push({
+        ...base, type,
+        ...(num(r.spanM, 20, 2000) !== null ? { spanM: r.spanM as number } : {}),
+        ...(r.headingUp === false ? { headingUp: false } : { headingUp: true }),
+        ...(r.compare === true ? { compare: true } : {}),
+        ...(r.photo === false ? { photo: false } : { photo: true })
+      });
     } else {
       parts.push({ ...base, type } as OverlayPart);
     }

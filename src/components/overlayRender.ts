@@ -7,6 +7,7 @@
 import type { Lap, Session, TelemetryPoint } from '../types/telemetry';
 import { CHANNELS, type ChannelId, type OverlayPart } from '../services/overlayLayout';
 import { drawCourseMapAt, drawLapPanelAt, hasTimedLaps, LAP_PANEL_W, liveDelta } from './overlayParts';
+import { getTileImage, tilesForView } from '../services/mapTiles';
 
 export interface OverlayFrameInput {
   /** ログの時刻 (秒) */
@@ -40,15 +41,21 @@ function plate(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h
   ctx.stroke();
 }
 
-/** 時刻にいちばん近い点 (二分探索) */
-export function pointAt(pts: TelemetryPoint[], t: number): TelemetryPoint | null {
-  if (!pts.length) return null;
+/** 時刻にいちばん近い点の番号 (二分探索。点が無ければ -1) */
+function indexAt(pts: TelemetryPoint[], t: number): number {
+  if (!pts.length) return -1;
   let lo = 0, hi = pts.length - 1;
   while (lo < hi - 1) {
     const mid = (lo + hi) >> 1;
     if (pts[mid].time < t) lo = mid; else hi = mid;
   }
-  return Math.abs(pts[lo].time - t) <= Math.abs(pts[hi].time - t) ? pts[lo] : pts[hi];
+  return Math.abs(pts[lo].time - t) <= Math.abs(pts[hi].time - t) ? lo : hi;
+}
+
+/** 時刻にいちばん近い点 (二分探索) */
+export function pointAt(pts: TelemetryPoint[], t: number): TelemetryPoint | null {
+  const i = indexAt(pts, t);
+  return i < 0 ? null : pts[i];
 }
 
 /** 周の中の距離 d (km) にいちばん近い点 */
@@ -369,8 +376,7 @@ function drawGraph(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: nu
       ctx.strokeStyle = GRAPH_COLORS[c] ?? '#38bdf8';
       ctx.beginPath();
       let started = false;
-      const from = pointAt(pts, input.t - half);
-      let i = from ? pts.indexOf(from) : 0;
+      let i = Math.max(0, indexAt(pts, input.t - half));
       for (; i < pts.length && pts[i].time <= input.t + half; i++) {
         const v = ch.get(pts[i]);
         if (typeof v !== 'number' || !Number.isFinite(v)) { started = false; continue; }
@@ -397,6 +403,165 @@ function drawGraph(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: nu
     ctx.fillText(text, lx, ry + pad);
     lx += ctx.measureText(text).width + 10;
   }
+}
+
+const M_PER_DEG = 111320;
+/** コースの道幅の目安 (m。コースの形の線を、この太さの道として描く) */
+const TRACK_WIDTH_M = 11;
+/** 走った線を明るく描く、今から前の秒 */
+const TRAIL_SEC = 6;
+
+/**
+ * 線 (経度・緯度の点の列) のうち、点 (x, y。m・東と北) にいちばん近いところへの、進む向きに対する横の距離 (m。右が +)。
+ * 近くに線が無ければ null。heading は進む向き (度、北から右回り)
+ */
+function lateralOffset(lines: Array<Array<[number, number]>>, lat0: number, lon0: number, cosLat: number, heading: number): number | null {
+  let best: { d: number; side: number } | null = null;
+  const hx = Math.sin((heading * Math.PI) / 180), hy = Math.cos((heading * Math.PI) / 180);
+  for (const line of lines) {
+    for (let i = 1; i < line.length; i++) {
+      const ax = (line[i - 1][0] - lon0) * cosLat * M_PER_DEG, ay = (line[i - 1][1] - lat0) * M_PER_DEG;
+      const bx = (line[i][0] - lon0) * cosLat * M_PER_DEG, by = (line[i][1] - lat0) * M_PER_DEG;
+      // 遠い線は見ない (60 m より遠い線分)
+      if (Math.min(Math.abs(ax), Math.abs(bx)) > 60 || Math.min(Math.abs(ay), Math.abs(by)) > 60) continue;
+      const sx = bx - ax, sy = by - ay;
+      const len2 = sx * sx + sy * sy;
+      if (len2 < 1e-6) continue;
+      const f = Math.max(0, Math.min(1, -(ax * sx + ay * sy) / len2));
+      const px = ax + sx * f, py = ay + sy * f;
+      const d = Math.hypot(px, py);
+      if (best && d >= best.d) continue;
+      // 線の向きを進む向きにそろえ、点が線のどちら側か (右が +)
+      const dir = sx * hx + sy * hy >= 0 ? 1 : -1;
+      const cross = (sx * dir) * (0 - py) - (sy * dir) * (0 - px);
+      best = { d, side: cross < 0 ? 1 : -1 };
+    }
+  }
+  return best && best.d < 30 ? best.d * best.side : null;
+}
+
+/**
+ * 車のまわりを拡大した地図: 航空写真 (読めたら)・コースの形 (道幅の帯)・比べる周の線・この周の線 (今から前 TRAIL_SEC 秒は明るく)・車。
+ * 進む向きを上にすると、地図の左右が車の左右と同じになる。下に、コースの真ん中 (無ければ比べる周の線) からの左右の距離
+ */
+function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: number, rh: number, part: Extract<OverlayPart, { type: 'zoomMap' }>, input: OverlayFrameInput, pt: TelemetryPoint): void {
+  plate(ctx, rx, ry, rw, rh);
+  const spanM = part.spanM ?? 140;
+  const mpp = spanM / Math.max(1, rw);
+  const lat0 = pt.latitude, lon0 = pt.longitude;
+  if (!Number.isFinite(lat0) || !Number.isFinite(lon0)) return;
+  const cosLat = Math.cos((lat0 * Math.PI) / 180);
+  const toLocal = (lat: number, lon: number): [number, number] => [((lon - lon0) * cosLat * M_PER_DEG) / mpp, (-(lat - lat0) * M_PER_DEG) / mpp];
+  const heading = Number.isFinite(pt.heading) ? pt.heading : 0;
+  const textH = Math.max(10, Math.min(rh * 0.14, 18));
+  const cx = rx + rw / 2, cy = ry + (rh - textH) * 0.62;
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(rx + 1, ry + 1, rw - 2, rh - textH - 2, 3);
+  ctx.clip();
+  ctx.translate(cx, cy);
+  if (part.headingUp !== false) ctx.rotate((-heading * Math.PI) / 180);
+  // 0. 航空写真 (読めたタイルだけ。まだのものは次のコマで)
+  const radiusM = (Math.hypot(rw, rh) / 2) * mpp;
+  let drewPhoto = false;
+  if (part.photo !== false) {
+    const dLat = radiusM / M_PER_DEG, dLon = radiusM / (M_PER_DEG * cosLat);
+    const tiles = tilesForView('photo', { north: lat0 + dLat, south: lat0 - dLat, west: lon0 - dLon, east: lon0 + dLon }, mpp);
+    ctx.globalAlpha = 0.85;
+    for (const tile of tiles) {
+      const img = getTileImage(tile, () => {});
+      if (!img) continue;
+      const [x1, y1] = toLocal(tile.north, tile.west);
+      const [x2, y2] = toLocal(tile.south, tile.east);
+      ctx.drawImage(img, x1, y1, x2 - x1 + 0.5, y2 - y1 + 0.5);
+      drewPhoto = true;
+    }
+    ctx.globalAlpha = 1;
+  }
+  const lines = input.session.pathPolylines ?? [];
+  // 1. コースの形 (航空写真が無いときは道幅の帯、あるときは真ん中の細い線)
+  const strokeLine = (line: Array<[number, number]>) => {
+    ctx.beginPath();
+    line.forEach(([lon, lat], i) => { const [x, y] = toLocal(lat, lon); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+    ctx.stroke();
+  };
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  for (const line of lines) {
+    if (line.length < 2) continue;
+    if (!drewPhoto) {
+      ctx.strokeStyle = 'rgba(100, 116, 139, 0.55)';
+      ctx.lineWidth = TRACK_WIDTH_M / mpp;
+      strokeLine(line);
+    }
+    ctx.strokeStyle = drewPhoto ? 'rgba(255, 255, 255, 0.35)' : 'rgba(148, 163, 184, 0.6)';
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 1;
+    strokeLine(line);
+    ctx.setLineDash([]);
+  }
+  // 2. 比べる周の線
+  const lap = lapAtTime(input.session, input.t);
+  const ref = part.compare ? (input.reference?.lap ?? bestLap(input.session)) : null;
+  const near = (p: TelemetryPoint) => Math.abs(p.latitude - lat0) * M_PER_DEG < radiusM * 1.2 && Math.abs(p.longitude - lon0) * cosLat * M_PER_DEG < radiusM * 1.2;
+  const drawPoints = (pts: TelemetryPoint[], from: number, to: number) => {
+    ctx.beginPath();
+    let started = false;
+    for (let i = from; i <= to && i < pts.length; i++) {
+      if (!near(pts[i])) { started = false; continue; }
+      const [x, y] = toLocal(pts[i].latitude, pts[i].longitude);
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  };
+  if (ref && ref !== lap && ref.points.length > 1) {
+    ctx.strokeStyle = COMPARE_COLOR;
+    ctx.lineWidth = Math.max(1.5, 1.2 / mpp);
+    ctx.setLineDash([5, 4]);
+    drawPoints(ref.points, 0, ref.points.length - 1);
+    ctx.setLineDash([]);
+  }
+  // 3. この周の線 (うすく) と、今から前 TRAIL_SEC 秒 (明るく)
+  const pts = input.session.points;
+  const nowIdx = indexAt(pts, input.t);
+  if (nowIdx > 0) {
+    const lapStart = lap && !lap.isWholeSession ? indexAt(pts, lap.startTime) : Math.max(0, nowIdx - 2000);
+    const lapEnd = lap && !lap.isWholeSession ? indexAt(pts, lap.endTime) : Math.min(pts.length - 1, nowIdx + 2000);
+    ctx.strokeStyle = 'rgba(248, 250, 252, 0.35)';
+    ctx.lineWidth = Math.max(1, 0.8 / mpp);
+    drawPoints(pts, Math.max(0, lapStart), lapEnd);
+    let trailFrom = nowIdx;
+    while (trailFrom > 0 && pts[trailFrom - 1].time >= input.t - TRAIL_SEC) trailFrom--;
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = Math.max(2, 1.6 / mpp);
+    drawPoints(pts, trailFrom, nowIdx);
+  }
+  // 4. 車 (進む向きの三角)
+  ctx.rotate((heading * Math.PI) / 180);
+  const carL = Math.max(8, 4.5 / mpp);
+  ctx.fillStyle = '#ef4444';
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(0, -carL * 0.6);
+  ctx.lineTo(carL * 0.35, carL * 0.4);
+  ctx.lineTo(-carL * 0.35, carL * 0.4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+  // 5. 左右の距離: コースの真ん中から (C) と、比べる周の線から (REF)。右が R
+  const center = lines.length ? lateralOffset(lines, lat0, lon0, cosLat, heading) : null;
+  const fromRef = ref && ref !== lap && ref.points.length > 1
+    ? lateralOffset([ref.points.map(p => [p.longitude, p.latitude] as [number, number])], lat0, lon0, cosLat, heading)
+    : null;
+  const fmt = (v: number) => `${v >= 0 ? 'R' : 'L'}${Math.abs(v).toFixed(1)}m`;
+  const texts = [center !== null ? `C ${fmt(center)}` : null, fromRef !== null ? `REF ${fmt(fromRef)}` : null].filter(Boolean) as string[];
+  ctx.font = `bold ${Math.round(textH * 0.7)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = texts.length ? VALUE : LABEL;
+  ctx.fillText(texts.length ? texts.join('   ') : '--', rx + rw / 2, ry + rh - textH / 2 - 1);
 }
 
 /** 部品の四角 (px)。PinP の小窓に重なるときは、小窓の横へずらす */
@@ -456,6 +621,7 @@ export function renderOverlayParts(ctx: CanvasRenderingContext2D, w: number, h: 
         drawCourseMapAt(ctx, x, y, size, input.t, input.session, pt, others);
         break;
       }
+      case 'zoomMap': drawZoomMap(ctx, r.x, r.y, r.w, r.h, part, input, pt); break;
       case 'bar': drawBar(ctx, r.x, r.y, r.w, r.h, part, pt); break;
       case 'steering': drawSteering(ctx, r.x, r.y, r.w, r.h, part, pt); break;
       case 'value': drawValue(ctx, r.x, r.y, r.w, r.h, part, pt); break;
