@@ -3,6 +3,7 @@
  * 保管場所/<サーキットのフォルダ>/ ごとに、コースを見つけて控え (laptimes.json) を作り直し、一覧の行にする
  */
 
+import { conditionsOf, type RunConditions } from './runFilters';
 import { CIRCUIT_PRESETS } from './circuitDatabase';
 import { userCircuitStorage } from './userCircuitStorage';
 import { courseFolder } from '../utils/courseNames';
@@ -38,6 +39,8 @@ export interface LapFolder {
   names?: Record<string, string>;
   /** 参考ラップ (自分のではない走行。走行のファイル名 → 誰の走行か。PLAN-31)。順位・ベストに数えない */
   references?: Record<string, string>;
+  /** 車種・タイヤ・天候 (走行のファイル名 → 値。書いた走行だけ。PLAN-37) */
+  conditions?: Record<string, RunConditions>;
 }
 
 /**
@@ -73,12 +76,15 @@ export async function loadLapHistory(store: LapFileStore, onProgress?: (folder: 
     const runsFile = await readRunsFile(store, folder).catch(() => null);
     const names: Record<string, string> = {};
     const references: Record<string, string> = {};
+    const conditions: Record<string, RunConditions> = {};
     if (runsFile) for (const file of Object.keys(index.files)) {
       const row = findRunRow(runsFile, file);
       if (row?.name) names[file] = row.name;
       if (row?.reference) references[file] = row.reference.driver ?? '';
+      const c = conditionsOf(row);
+      if (Object.keys(c).length) conditions[file] = c;
     }
-    out.push({ folder, courseName: course.name, fileCount: files.length, rows: lapRows(folder, index), index, names, references });
+    out.push({ folder, courseName: course.name, fileCount: files.length, rows: lapRows(folder, index), index, names, references, conditions });
   }
   return out;
 }

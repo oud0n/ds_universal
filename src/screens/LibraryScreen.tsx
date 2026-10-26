@@ -1,4 +1,6 @@
 import { sameCourseName } from '../utils/courseNames';
+import { NO_FILTER, conditionsOf, effectiveFilter, filterOptions, hasValues, matchesFilter, type ConditionFilter } from '../services/runFilters';
+import { ConditionFilters } from '../components/ConditionFilters';
 import { WEATHERS, WEATHER_LABELS, isTempC, isWeather, type Weather } from '../services/runWeather';
 import type { RunMetaPatch } from '../services/runOpener';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -80,8 +82,8 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
   const [folder, setFolder] = useState<string | null>(null);
   /** 自分の走行か、参考ラップ (自分のではない走行。PLAN-31) か */
   const [owner, setOwner] = useState<'mine' | 'ref'>('mine');
-  // 天候で絞る (null: すべて、none: 未設定)
-  const [weatherFilter, setWeatherFilter] = useState<Weather | 'none' | null>(null);
+  // 車種・タイヤ・天候で絞る (PLAN-37。null: すべて、none: 未設定)
+  const [condFilter, setCondFilter] = useState<ConditionFilter>(NO_FILTER);
   const [shown, setShown] = useState(PAGE);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -139,16 +141,13 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
     }
     return [...m.entries()];
   }, [runs, ownerRuns, ownerNow, videoRefs]);
-  // 天候の絞り込み: 天候を書いた走行があるときだけ出す (使わない人には出さない)
-  const weatherOf = (r: RunItem): Weather | 'none' => (isWeather(r.entry?.weather) ? r.entry.weather : 'none');
-  const weatherCounts = useMemo(() => {
-    const m = new Map<Weather | 'none', number>();
-    for (const r of ownerRuns) if (!folder || r.folder === folder) m.set(weatherOf(r), (m.get(weatherOf(r)) ?? 0) + 1);
-    return m;
-  }, [ownerRuns, folder]);
-  const showWeather = [...weatherCounts.keys()].some(k => k !== 'none');
-  const weatherNow = showWeather ? weatherFilter : null;
-  const filtered = useMemo(() => (runs ?? []).filter(r => (!folder || r.folder === folder) && (ownerNow === 'ref') === !!r.entry?.reference && (!weatherNow || weatherOf(r) === weatherNow)), [runs, folder, ownerNow, weatherNow]);
+  // 車種・タイヤ・天候の絞り込み: 書いた走行がある項目だけ出す (使わない人には出さない)
+  const condOptions = useMemo(() => filterOptions(ownerRuns.filter(r => !folder || r.folder === folder).map(r => conditionsOf(r.entry))), [ownerRuns, folder]);
+  const condNow = effectiveFilter(condFilter, condOptions);
+  const showCond = hasValues(condOptions.car) || hasValues(condOptions.tyre) || hasValues(condOptions.weather);
+  const filtered = useMemo(() => (runs ?? []).filter(r => (!folder || r.folder === folder) && (ownerNow === 'ref') === !!r.entry?.reference && matchesFilter(conditionsOf(r.entry), condNow)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [runs, folder, ownerNow, condNow.car, condNow.tyre, condNow.weather]);
   const selected = filtered.find(r => `${r.folder}/${r.file}` === selectedKey) ?? null;
 
   if (!active) return null;
@@ -200,13 +199,13 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
       )}
       {/* 絞り込み: コース・天候をドロップダウンで 1 段に (コースの名前が長く、丸いボタンを並べると横に長くなるため)。
           天候は書いた走行があるときだけ出す (使わない人には出さない) */}
-      {(folders.length > 1 || showWeather) && (
-        <div className="flex gap-2 px-3 pt-3 shrink-0" data-testid="library-filters">
+      {(folders.length > 1 || showCond) && (
+        <div className="grid grid-cols-2 gap-2 px-3 pt-3 shrink-0" data-testid="library-filters">
           {folders.length > 1 && (
             <select
               value={folder ?? ''}
               onChange={e => { setFolder(e.target.value || null); setShown(PAGE); setSelectedKey(null); }}
-              className={`flex-1 min-w-0 bg-surface-2 border rounded-lg text-xs px-2 py-1.5 cursor-pointer ${folder ? 'border-sky-500 text-sky-200' : 'border-line-2 text-slate-200'}`}
+              className={`${showCond ? '' : 'col-span-2'} w-full min-w-0 bg-surface-2 border rounded-lg text-xs px-2 py-1.5 cursor-pointer ${folder ? 'border-sky-500 text-sky-200' : 'border-line-2 text-slate-200'}`}
               aria-label={t('コース', 'Course')}
               data-testid="library-course"
             >
@@ -216,20 +215,8 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
               ))}
             </select>
           )}
-          {showWeather && (
-            <select
-              value={weatherNow ?? ''}
-              onChange={e => { const v = e.target.value; setWeatherFilter(v === 'none' ? 'none' : isWeather(v) ? v : null); setShown(PAGE); setSelectedKey(null); }}
-              className={`shrink-0 max-w-[45%] bg-surface-2 border rounded-lg text-xs px-2 py-1.5 cursor-pointer ${weatherNow ? 'border-cyan-500 text-cyan-200' : 'border-line-2 text-slate-200'}`}
-              aria-label={t('天候', 'Weather')}
-              data-testid="library-weather"
-            >
-              <option value="">{t('天候: すべて', 'Weather: all')}</option>
-              {([...WEATHERS, 'none'] as const).filter(w => weatherCounts.has(w)).map(w => (
-                <option key={w} value={w}>{w === 'none' ? t('未設定', 'Not set') : WEATHER_LABELS[w][ja ? 0 : 1]} ({weatherCounts.get(w)})</option>
-              ))}
-            </select>
-          )}
+          <ConditionFilters filter={condNow} options={condOptions} testIdPrefix="library" selectClass="w-full"
+            onChange={f => { setCondFilter(f); setShown(PAGE); setSelectedKey(null); }} />
         </div>
       )}
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4" data-testid="library-list">
