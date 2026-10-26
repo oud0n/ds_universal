@@ -522,6 +522,63 @@ export const journeys = [
     }
   },
   {
+    name: '天候・気温・路面温度: 走行の詳細で選ぶと一覧に出て runs.json に入り、天候で絞り込める。書いた走行が無ければ絞り込みは出ない',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      const runsPath = path.join(root, 'sodegaura/runs.json');
+      const rowOf = () => Object.entries(JSON.parse(fs.readFileSync(runsPath, 'utf8')).runs).find(([k]) => k.includes('20260913'))?.[1];
+      const fill = (id, v) => p.ev(`(() => {
+        const el = document.querySelector('[data-testid="${id}"]');
+        el.focus();
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(v)});
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.blur();
+        el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      })()`);
+      const pick = v => p.ev(`(() => { const sel = document.querySelector('[data-testid="run-detail-weather"]'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, ${JSON.stringify(v)}); sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      try {
+        await p.click('nav-library');
+        await p.waitFor(`document.querySelectorAll('[data-testid="run-row"]').length > 0`, 20000, '走行の一覧');
+        check(!(await p.exists('library-weather')), '天候を書いた走行が無いのに絞り込みが出ている');
+        await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].find(r=>r.innerText.includes('9/13'))?.click()`);
+        await p.waitFor(`document.querySelector('[data-testid="run-detail-weather"]')`, 5000, '天候の欄');
+        check(await p.ev(`document.querySelector('[data-testid="run-detail-weather"]').value === ''`), '天候の既定が未設定でない');
+        await pick('wet');
+        await sleep(600);
+        await fill('run-detail-air-temp', '18');
+        await sleep(600);
+        await fill('run-detail-track-temp', '２２．５');
+        await p.waitFor(`[...document.querySelectorAll('[data-testid="run-row-conditions"]')].some(e => e.innerText.includes('ウェット') && e.innerText.includes('18℃') && e.innerText.includes('22.5℃'))`, 8000, '一覧の天候');
+        for (let i = 0; i < 40 && rowOf()?.trackTempC === undefined; i++) await sleep(200);
+        const row = rowOf();
+        check(row?.weather === 'wet' && row?.airTempC === 18 && row?.trackTempC === 22.5, `runs.json に入らない: ${JSON.stringify({ w: row?.weather, a: row?.airTempC, t: row?.trackTempC })}`);
+        // 範囲の外は書かない (前の値に戻す)
+        await fill('run-detail-air-temp', '500');
+        await sleep(800);
+        check(rowOf()?.airTempC === 18 && await p.ev(`document.querySelector('[data-testid="run-detail-air-temp"]').value === '18'`), '範囲の外の気温を書いた');
+        // 絞り込み: ウェットだけにすると 9/13 だけ
+        const filterWeather = v => p.ev(`(() => { const sel = document.querySelector('[data-testid="library-weather"]'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, ${JSON.stringify(v)}); sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+        await p.waitFor(`[...document.querySelectorAll('[data-testid="library-weather"] option')].some(o => o.value === 'wet')`, 5000, '天候の絞り込み');
+        await filterWeather('wet');
+        await sleep(500);
+        const rows = await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].map(r => r.innerText.split('\\n')[0])`);
+        check(rows.length === 1 && rows[0].includes('9/13'), `ウェットで絞ると 9/13 だけにならない: ${rows.join(' / ')}`);
+        await filterWeather('none');
+        await sleep(500);
+        check(!(await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].some(r => r.innerText.includes('9/13'))`)), '未設定で絞っても 9/13 が出る');
+        await filterWeather('');
+      } finally {
+        // 元に戻す
+        const j = JSON.parse(fs.readFileSync(runsPath, 'utf8'));
+        for (const r of Object.values(j.runs)) { delete r.weather; delete r.airTempC; delete r.trackTempC; }
+        fs.writeFileSync(runsPath, JSON.stringify(j, null, 1));
+      }
+    }
+  },
+  {
     name: '走行を消す: 同じ日の別の走行・付けていない動画は残し、その走行のファイルと runs.json の行だけを消す',
     target: 'electron',
     async run(p) {
