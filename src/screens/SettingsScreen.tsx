@@ -9,6 +9,7 @@ import type { NavPlan } from '../app/navPlan';
 import { navStore } from '../app/navStore';
 import { SCREEN_META, screenLabel } from '../app/screenMeta';
 import { StorageSettings } from '../components/StorageSettings';
+import { CsvFormatSettings } from '../components/CsvFormatSettings';
 import { getWriteBon4, setWriteBon4 } from '../services/runFormatSettings';
 import { hasNative } from '../native/bridge';
 
@@ -28,6 +29,7 @@ export const SettingsScreen: React.FC<{ plan: NavPlan; onOpenDonate?: () => void
       <div className="max-w-lg mx-auto p-3 space-y-5">
         <StorageSettings />
         {hasNative() && <RunFormatSetting />}
+        <CsvFormatSettings />
         {rows.length > 0 && (
           <section className="rounded-xl bg-surface-1 border border-line-2 overflow-hidden">
             {rows.map((s, i) => {

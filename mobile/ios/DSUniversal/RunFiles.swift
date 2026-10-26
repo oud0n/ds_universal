@@ -226,6 +226,8 @@ enum RunFiles {
             || rel.range(of: #"^sessions/[^/]+\.lapsession\.json$"#, options: .regularExpression) != nil
             // メーターの並び (PLAN-08。2026-10-25)
             || rel.range(of: #"^overlays/[^/]+\.overlay\.json$"#, options: .regularExpression) != nil
+            // CSV の形式の定義・計算式 (PLAN-36。2026-10-26)
+            || rel.range(of: #"^formats/([^/]+\.csvformat\.json|calc\.json)$"#, options: .regularExpression) != nil
     }
 
     /// 消してよい走行のファイルか (サーキットのフォルダの中のもの。共有の控え・コース・セッションは消さない)

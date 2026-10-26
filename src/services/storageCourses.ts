@@ -4,6 +4,7 @@
  * (circuitDatabase.ts の isShadowedByPreset)。内蔵のコースが無い場所のコースは、今までどおり自分のコースとして使う
  */
 
+import { loadCsvFormats } from './csvFormatStore';
 import { canUseRunStore, getRunStore } from './runStore';
 import { clearCourseCornersCache } from './courseCorners';
 import { userCircuitStorage, type CourseFile, type UserCircuitItem } from './userCircuitStorage';
@@ -16,6 +17,8 @@ const COURSE_FILE = /^(digspice|course)\/.+\.(cln|pth|sci)$/i;
 export async function storageFolderChanged(): Promise<void> {
   clearCourseCornersCache();
   await loadStorageCourses().catch(() => 0);
+  // CSV の形式の定義・計算式も、新しい保管場所のものにする (PLAN-36)
+  await loadCsvFormats().catch(() => undefined);
 }
 
 /** 保管場所の digspice/ のコースデータを読み直す。読んだファイルの数 (保管場所が無ければ 0) */

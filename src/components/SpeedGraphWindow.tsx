@@ -1,4 +1,11 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
+import { availableChannels, channelDef, type ChannelId } from '../services/overlayLayout';
+import { getLang } from '../utils/i18n';
+
+const STRIPS_KEY = 'ds_graph_strips';
+const MAX_STRIPS = 4;
+const STRIP_H = 34;
+const STRIP_GAP = 6;
 import { canvasColors, useResolvedTheme } from '../utils/theme';
 import { useCompactLayout } from '../hooks/useCompactLayout';
 import { usePinchPointers } from '../hooks/usePinchPointers';
@@ -61,6 +68,19 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
   const [showAltitude, setShowAltitude] = useState(false);
   // アクセル・ブレーキ (記録されているログだけ。いまは iRacing の .ibt)
   const [showPedals, setShowPedals] = useState(true);
+  // 速度グラフの下の値の帯 (自分で名前を付けた値・回転数など。値ごとに自分の目盛り。PLAN-36)
+  const [stripIds, setStripIdsState] = useState<ChannelId[]>(() => {
+    try { const v = JSON.parse(localStorage.getItem(STRIPS_KEY) ?? '[]'); return Array.isArray(v) ? v.filter((x): x is ChannelId => typeof x === 'string').slice(0, MAX_STRIPS) : []; } catch { return []; }
+  });
+  const setStripIds = (ids: ChannelId[]) => { setStripIdsState(ids); try { localStorage.setItem(STRIPS_KEY, JSON.stringify(ids)); } catch { /* 覚えられなくても今は出す */ } };
+  const [stripMenu, setStripMenu] = useState(false);
+  // 帯に出せる値 (どれかの車のログにあるもの。速度・G は上のグラフにあるので除く)
+  const stripChoices = useMemo(() => {
+    const ids = new Set<ChannelId>();
+    for (const c of cars) for (const id of availableChannels({ points: c.lap.points } as unknown as Parameters<typeof availableChannels>[0])) ids.add(id);
+    return [...ids].filter(id => !['speed', 'accelG', 'corneringG', 'combinedG', 'altitude'].includes(id));
+  }, [cars]);
+  const strips = stripIds.filter(id => stripChoices.includes(id));
 
   // ズーム & パン状態 (0..1 の正規化範囲)
   const [viewRange, setViewRange] = useState<[number, number]>([0, 1]);
@@ -194,8 +214,12 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     // デルタタイム領域の分割
     // (高さが足りず、タイム差の欄が 30px 取れないときは描かない。スマートフォンを横にしたときなど)
     const hasDelta = showDeltaTime && xAxisMode === 'distance' && cars.length > 1 && (height - paddingTop - paddingBottom) * 0.32 - 15 >= 30;
-    const speedHeight = hasDelta ? (height - paddingTop - paddingBottom) * 0.68 : height - paddingTop - paddingBottom;
-    const deltaTop = paddingTop + speedHeight + 15;
+    const speedFull = hasDelta ? (height - paddingTop - paddingBottom) * 0.68 : height - paddingTop - paddingBottom;
+    // 値の帯は速度グラフの下 (速度の高さが 80px より小さくならない分だけ)
+    const stripCount = Math.max(0, Math.min(strips.length, Math.floor((speedFull - 80) / (STRIP_H + STRIP_GAP))));
+    const stripTotal = stripCount * (STRIP_H + STRIP_GAP);
+    const speedHeight = speedFull - stripTotal;
+    const deltaTop = paddingTop + speedFull + 15;
     const deltaHeight = hasDelta ? height - deltaTop - paddingBottom : 0;
     const plotWidth = width - paddingLeft - paddingRight;
 
@@ -409,6 +433,55 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     });
     ctx.restore();
 
+    // 値の帯 (値ごとに、表示している範囲の最小〜最大を目盛りにする。尺度の違う値を速度の軸に重ねないため)
+    for (let si = 0; si < stripCount; si++) {
+      const id = strips[si];
+      const def = channelDef(id);
+      const top = paddingTop + speedHeight + STRIP_GAP + si * (STRIP_H + STRIP_GAP);
+      let lo = Infinity, hi = -Infinity;
+      for (const { lap } of cars) for (const p of lap.points) {
+        const xVal = xAxisMode === 'distance' ? p.distance : p.time;
+        const v = def.get(p);
+        if (v === undefined || !Number.isFinite(v) || xVal < activeDomainStart || xVal > activeDomainEnd) continue;
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+      if (!Number.isFinite(lo)) { lo = def.min; hi = def.max; }
+      if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
+      ctx.fillStyle = C.panel;
+      ctx.fillRect(paddingLeft, top, plotWidth, STRIP_H);
+      ctx.fillStyle = C.axis;
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'right';
+      const fmt = (v: number) => (Math.abs(v) >= 1000 ? v.toFixed(0) : v.toFixed(def.decimals));
+      ctx.fillText(fmt(hi), paddingLeft - 6, top + 9);
+      ctx.fillText(fmt(lo), paddingLeft - 6, top + STRIP_H - 2);
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillText(`${def.label[getLang() === 'en' ? 1 : 0]}${def.unit ? ` (${def.unit})` : ''}`, paddingLeft + 4, top + 11);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(paddingLeft, top, plotWidth, STRIP_H);
+      ctx.clip();
+      for (const { slot, lap } of cars) {
+        ctx.strokeStyle = slot.colorHex;
+        ctx.lineWidth = slot.slot === 0 ? 1.6 : 1.3;
+        ctx.beginPath();
+        let started = false;
+        for (const p of lap.points) {
+          const xVal = xAxisMode === 'distance' ? p.distance : p.time;
+          const v = def.get(p);
+          if (v === undefined || !Number.isFinite(v)) { started = false; continue; }
+          if (xVal < activeDomainStart - 0.1 || xVal > activeDomainEnd + 0.1) continue;
+          const x = getX(xVal);
+          const y = top + STRIP_H - 2 - ((v - lo) / (hi - lo)) * (STRIP_H - 4);
+          if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     // タイム差グラフ (Delta Time) 描画
     if (hasDelta) {
       // デルタ背景とゼロ線
@@ -491,6 +564,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     showAltitude,
     showPedals,
     hasPedals,
+    strips.join(','),
     viewRange,
     maxDomain,
     maxSpeedY,
@@ -722,6 +796,32 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
             >
               {compact ? t('ペダル', 'Pedals') : t('アクセル・ブレーキ', 'Throttle / brake')}
             </button>
+          )}
+
+          {/* 値の帯 (速度グラフの下に、値ごとに細い帯で出す。PLAN-36) */}
+          {stripChoices.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setStripMenu(v => !v)}
+                className={`px-2 py-0.5 rounded text-[11px] border transition-all ${strips.length ? 'bg-slate-800 border-slate-500 text-slate-200' : 'border-line-4 text-slate-400 hover:text-slate-200'}`}
+                title={t('速度グラフの下に、値 (回転数・自分で名前を付けた値など) を細い帯で出します。帯ごとに自分の目盛りです', 'Show values (RPM, custom values, ...) as thin strips under the speed graph, each with its own scale')}
+                data-testid="graph-strips-toggle"
+              >
+                {t('値の帯', 'Strips')}{strips.length ? ` ${strips.length}` : ''}
+              </button>
+              {stripMenu && (
+                <div className="absolute z-30 top-full mt-1 left-0 min-w-[10rem] bg-surface-1 border border-line-2 rounded-lg shadow-xl p-2 space-y-1 text-[11px]" data-testid="graph-strips-menu">
+                  {stripChoices.map(id => (
+                    <label key={id} className="flex items-center gap-1.5 text-slate-300 cursor-pointer whitespace-nowrap">
+                      <input type="checkbox" checked={strips.includes(id)} disabled={!strips.includes(id) && strips.length >= MAX_STRIPS}
+                        onChange={e => setStripIds(e.target.checked ? [...strips, id] : strips.filter(x => x !== id))} data-testid={`graph-strip-${id}`} />
+                      {channelDef(id).label[getLang() === 'en' ? 1 : 0]}
+                    </label>
+                  ))}
+                  <p className="text-[10px] text-slate-500">{t(`${MAX_STRIPS} つまで`, `Up to ${MAX_STRIPS}`)}</p>
+                </div>
+              )}
+            </div>
           )}
 
           {/* 標高切替 */}

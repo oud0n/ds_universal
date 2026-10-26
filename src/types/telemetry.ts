@@ -37,6 +37,8 @@ export interface TelemetryPoint {
   steering?: number;     // ハンドルの角度 (度: +右, -左)
   rpm?: number;          // エンジン回転数 (rpm)
   gear?: number;         // ギア (-1: R, 0: N)
+  /** 自分で名前を付けた値 (CSV の形式の定義・計算式。名前 → 値。PLAN-36) */
+  custom?: Record<string, number>;
 }
 
 export interface Sector {

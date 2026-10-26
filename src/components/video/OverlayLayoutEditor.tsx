@@ -8,7 +8,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Pencil, Plus, Save, Trash2, X, Download, Upload, ArrowLeftRight } from 'lucide-react';
 import { useT } from '../../utils/i18n';
 import {
-  BUILTIN_LAYOUTS, CHANNELS, MAX_IMAGE_SRC, PART_LABELS, isImageSrc, partChannels, partLabel,
+  BUILTIN_LAYOUTS, MAX_IMAGE_SRC, allChannels, channelDef, PART_LABELS, isImageSrc, partChannels, partLabel,
   type ChannelId, type OverlayLayout, type OverlayPart, type OverlayPartType
 } from '../../services/overlayLayout';
 
@@ -244,7 +244,7 @@ export const OverlayEditPanel: React.FC<{
   };
   const channelSelect = (value: ChannelId, set: (c: ChannelId) => void, testId: string) => (
     <select value={value} onChange={e => set(e.target.value as ChannelId)} className="w-full bg-surface-1 border border-line-3 text-xs px-2 py-1 rounded text-slate-200" data-testid={testId}>
-      {Object.values(CHANNELS).map(c => (
+      {allChannels().map(c => (
         <option key={c.id} value={c.id} disabled={!channels.has(c.id)}>{c.label[ja ? 0 : 1]}{channels.has(c.id) ? '' : t(' (このログに無い)', ' (not in this log)')}</option>
       ))}
     </select>
@@ -336,7 +336,7 @@ export const OverlayEditPanel: React.FC<{
                     if (next.length) update({ channels: next.filter(Boolean) } as Partial<OverlayPart>);
                   }} className={input} data-testid={`overlay-edit-graph-${i}`}>
                     {i > 0 && <option value="">{t('なし', 'None')}</option>}
-                    {Object.values(CHANNELS).map(c => <option key={c.id} value={c.id} disabled={!channels.has(c.id)}>{c.label[ja ? 0 : 1]}</option>)}
+                    {allChannels().map(c => <option key={c.id} value={c.id} disabled={!channels.has(c.id)}>{c.label[ja ? 0 : 1]}</option>)}
                   </select>
                 ))}
                 <label className="flex items-center gap-2 text-slate-300">
@@ -375,8 +375,8 @@ export const OverlayEditPanel: React.FC<{
             {sel.type === 'bar' && (
               <>
                 <div className="flex gap-1">
-                  <label className="flex-1">{t('最小', 'Min')}<NumberField min={-100000} max={(sel.max ?? CHANNELS[sel.channel].max) - 0.01} value={sel.min ?? CHANNELS[sel.channel].min} onCommit={v => update({ min: v } as Partial<OverlayPart>)} className={input} /></label>
-                  <label className="flex-1">{t('最大', 'Max')}<NumberField min={(sel.min ?? CHANNELS[sel.channel].min) + 0.01} max={100000} value={sel.max ?? CHANNELS[sel.channel].max} onCommit={v => update({ max: v } as Partial<OverlayPart>)} className={input} /></label>
+                  <label className="flex-1">{t('最小', 'Min')}<NumberField min={-100000} max={(sel.max ?? channelDef(sel.channel).max) - 0.01} value={sel.min ?? channelDef(sel.channel).min} onCommit={v => update({ min: v } as Partial<OverlayPart>)} className={input} /></label>
+                  <label className="flex-1">{t('最大', 'Max')}<NumberField min={(sel.min ?? channelDef(sel.channel).min) + 0.01} max={100000} value={sel.max ?? channelDef(sel.channel).max} onCommit={v => update({ max: v } as Partial<OverlayPart>)} className={input} /></label>
                 </div>
                 <div className="flex gap-2 items-center">
                   <label className="flex items-center gap-1">{t('色', 'Color')}<input type="color" value={sel.color ?? '#38bdf8'} onChange={e => update({ color: e.target.value } as Partial<OverlayPart>)} /></label>
@@ -385,7 +385,7 @@ export const OverlayEditPanel: React.FC<{
               </>
             )}
             {(sel.type === 'bar' || sel.type === 'value') && (
-              <label className="block">{t('札', 'Label')}<input value={sel.label ?? ''} placeholder={CHANNELS[sel.channel].short} onChange={e => update({ label: e.target.value.slice(0, 12) || undefined } as Partial<OverlayPart>)} className={input} /></label>
+              <label className="block">{t('札', 'Label')}<input value={sel.label ?? ''} placeholder={channelDef(sel.channel).short} onChange={e => update({ label: e.target.value.slice(0, 12) || undefined } as Partial<OverlayPart>)} className={input} /></label>
             )}
             {sel.type === 'steering' && (
               <label className="block">{t('絵の振れの上限 (度)', 'Max rotation (deg)')}<NumberField min={30} max={1080} value={sel.maxDeg ?? 540} onCommit={v => update({ maxDeg: v } as Partial<OverlayPart>)} className={input} /></label>
