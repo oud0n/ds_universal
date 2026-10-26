@@ -57,6 +57,8 @@ function texts(t) {
 function page(p, i) {
   let html = head(`${p.title[0]} — LapLoupe の使い方`, `${p.title[1]} — LapLoupe guide`);
   html += `\n  <h1>${both(p.title)}</h1>\n  <p class="lead">${both(p.lead)}</p>\n`;
+  // 操作の動画 (字幕は日本語・英語の両方が入っている。音なし)
+  if (p.video) html += `\n  <figure class="video"><video data-src="video/${p.video}.mp4" controls playsinline muted preload="metadata"></video></figure>\n`;
   for (const b of p.blocks) {
     const cls = devClass(b.dev);
     if (b.note) html += `\n  <div class="note ${cls}">${texts(b.note)}</div>\n`;
@@ -104,4 +106,5 @@ for (const p of PAGES) for (const b of p.blocks) for (const s of b.steps ?? []) 
   const [kind, n] = file.split('-');
   for (const lang of ['ja', 'en']) if (!fs.existsSync(path.join(OUT, 'img', dir, `${kind}-${lang}-${n}.webp`))) console.warn(`写真がない: ${p.id} img/${dir}/${kind}-${lang}-${n}.webp`);
 }
+for (const p of PAGES) if (p.video && !fs.existsSync(path.join(OUT, 'video', `${p.video}.mp4`))) console.warn(`動画がない: ${p.id} video/${p.video}.mp4`);
 console.log(`${PAGES.length} ページと目次を作りました`);

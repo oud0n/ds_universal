@@ -17,6 +17,7 @@ import { navStore } from '../app/navStore';
 import { distanceKm } from '../services/timer/positionFeeds';
 import { TimerRuntime, loadPhoneFusion, savePhoneFusion } from '../services/timer/timerRuntime';
 import { IdleRunConfirm, StopConfirm } from './LapTimerControls';
+import { openHelp } from './HelpOverlay';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
 import type { TelemetryPoint } from '../types/telemetry';
 
@@ -614,6 +615,9 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           )}
           <button onClick={() => { resetRun(); setMenuOpen(false); }} className="w-full px-3 py-2 rounded-lg bg-surface-2 text-slate-300">
             {t('周をはじめから数える (新しい走行として記録する)', 'Reset laps (start a new run)')}
+          </button>
+          <button onClick={() => { setMenuOpen(false); openHelp('timer'); }} className="w-full px-3 py-2 rounded-lg bg-surface-2 text-slate-300" data-testid="lap-timer-help">
+            {t('使い方', 'Guide')}
           </button>
           <p className="text-[11px] text-slate-500 leading-relaxed">
             {t('走っている間は、画面を消さずに、このアプリを前に出しておいてください (画面が消えると周を数えません)。',

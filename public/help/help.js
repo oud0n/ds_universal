@@ -20,6 +20,12 @@
     document.querySelectorAll('a[data-keep]').forEach(function (a) { var u = new URL(a.getAttribute('href'), location.href); u.searchParams.set('device', device); u.searchParams.set('lang', lang); a.href = u.pathname.split('/').pop() + u.search; });
   }
   apply();
+  // アプリの中 (laploupe://) では動画を入れていないので、公開しているページの動画を開く
+  if (location.protocol === 'laploupe:') {
+    document.querySelectorAll('video[data-src]').forEach(function (v) { v.src = 'https://oud0n.github.io/ds_universal/help/' + v.getAttribute('data-src'); });
+  } else {
+    document.querySelectorAll('video[data-src]').forEach(function (v) { v.src = v.getAttribute('data-src'); });
+  }
   document.addEventListener('click', function (e) {
     var b = e.target.closest('[data-set-device],[data-set-lang]');
     if (!b) return;

@@ -19,6 +19,7 @@ ol.steps > li::before { content: counter(s); position: absolute; left: 0; top: 0
 figure { margin: 10px 0 0; }
 figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 10px; }
 figure.phone img { max-width: 300px; }
+figure.video video { display: block; max-width: 100%; max-height: 70vh; margin: 0 auto; border: 1px solid var(--line); border-radius: 10px; background: #0f1117; }
 figcaption { color: var(--muted); font-size: 0.85rem; margin-top: 4px; }
 .note { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 12px 0; font-size: 0.93rem; }
 .note b { color: var(--accent); }

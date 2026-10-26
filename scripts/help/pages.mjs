@@ -86,7 +86,7 @@ export const PAGES = [
     }]
   },
   {
-    id: 'B1', file: 'b1-timer.html',
+    id: 'B1', file: 'b1-timer.html', video: 'V1_timer',
     title: ['サーキットで測る (ラップタイマー)', 'Timing at the circuit (lap timer)'],
     lead: [
       'スマートフォンをホルダーに付けて、周のタイムを測りながら記録します。測った走行は「走行」に入り、あとで解析・動画で見返せます。',
@@ -195,7 +195,7 @@ export const PAGES = [
     }]
   },
   {
-    id: 'C2', file: 'c2-organize.html',
+    id: 'C2', file: 'c2-organize.html', video: 'V7_organize',
     title: ['走行を整理する (名前・車種・タイヤ・天候)', 'Organise your runs (names, car, tyres, weather)'],
     lead: [
       '走行に名前・メモ・車種・タイヤ・天候・気温を書いておくと、一覧に出て、それで絞り込めます。どれも書かなくてかまいません (書いた人だけ使えます)。',
@@ -245,7 +245,7 @@ export const PAGES = [
     }]
   },
   {
-    id: 'D2', file: 'd2-compare.html',
+    id: 'D2', file: 'd2-compare.html', video: 'V3_compare',
     title: ['2 つの周を比べる', 'Comparing two laps'],
     lead: [
       '別の日の走行や、同じ走行の別の周を重ねて、どこで差がついたかを見ます。Car 1〜4 の 4 台まで重ねられます。',
@@ -321,7 +321,7 @@ export const PAGES = [
     }]
   },
   {
-    id: 'E2', file: 'e2-sync.html',
+    id: 'E2', file: 'e2-sync.html', video: 'V2_sync',
     title: ['動画とログを合わせる', 'Syncing video and log'],
     lead: [
       'ふつうは、動画の撮影の時刻や GoPro の GPS で自動で合います。ずれているときだけ、[合わせる] で直します。直した結果は走行に覚え、ほかの端末でも同じに開きます。',
@@ -339,7 +339,7 @@ export const PAGES = [
     }]
   },
   {
-    id: 'E3', file: 'e3-compare.html',
+    id: 'E3', file: 'e3-compare.html', video: 'V4_video_compare',
     title: ['動画で比べる', 'Comparing with video'],
     lead: [
       'Car 1 と Car 2 の周の動画を、同じ地点を走っているときの場面で並べます。ブレーキの位置やラインの違いが一目で分かります。',
@@ -358,7 +358,7 @@ export const PAGES = [
     }]
   },
   {
-    id: 'E4', file: 'e4-export.html',
+    id: 'E4', file: 'e4-export.html', video: 'V5_layout_export',
     title: ['動画を書き出す', 'Exporting video'],
     lead: [
       'メーターを焼き込んだ動画や、メーターだけの透明な動画を書き出して、YouTube や動画の編集ソフトで使えます。',
@@ -409,7 +409,7 @@ export const PAGES = [
     }]
   },
   {
-    id: 'G1', file: 'g1-csv.html',
+    id: 'G1', file: 'g1-csv.html', video: 'V6_csv',
     title: ['ほかの機器の CSV を読む', 'Reading CSV files from other devices'],
     lead: [
       'ほかのロガー・OBD・アプリの CSV の列が何の値かを 1 度決めておくと、ファイルや走行を開くときに自動で読みます。アクセル・回転数・水温などが、メーターや値の帯に出せるようになります。',
@@ -435,7 +435,7 @@ export const PAGES = [
     }]
   },
   {
-    id: 'H1', file: 'h1-duo.html',
+    id: 'H1', file: 'h1-duo.html', video: 'V8_duo',
     title: ['折りたたみの iPhone (Duo)', 'The folding iPhone (Duo)'],
     lead: [
       '画面を閉じているときはふつうの iPhone と同じです。開くと、グラフ・動画・コースマップを同時に出す広い配置になります。',

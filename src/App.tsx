@@ -32,6 +32,7 @@ import { useVideoTracks, useVideoView, videoEndSessionSec } from './services/vid
 import { DataTab } from './components/DataTab';
 import { LoggerTab } from './components/LoggerTab';
 import { LapTimerScreen, type ReplayLog } from './components/LapTimerScreen';
+import { HelpOverlay } from './components/HelpOverlay';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
 import { DonateModal } from './components/DonateModal';
 import { TipModal } from './components/TipModal';
@@ -2751,6 +2752,8 @@ export const App: React.FC = () => {
           onClose={closeImport}
         />
       )}
+      {/* 使い方のページ (今の画面の上に重ねる) */}
+      <HelpOverlay />
       {inApp ? (
         <TipModal isOpen={isDonateModalOpen} onClose={() => setIsDonateModalOpen(false)} />
       ) : (

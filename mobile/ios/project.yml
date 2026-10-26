@@ -44,6 +44,12 @@ targets:
             echo "warning: package.json の版 ($VERSION) とアプリの版 (${MARKETING_VERSION}) が違います"
           fi
         basedOnDependencyAnalysis: false
+    # 使い方のページの動画 (help/video) はアプリに入れない (19 MB ほどある。アプリの中のページは、公開しているページの動画を開く。help.js)
+    postBuildScripts:
+      - name: Remove help videos from the bundled web
+        script: |
+          rm -rf "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/dist/help/video"
+        basedOnDependencyAnalysis: false
     # Info.plist は手で書いたものを使う (XcodeGen の info: を使うと、作るたびに上書きされる)
     settings:
       base:
