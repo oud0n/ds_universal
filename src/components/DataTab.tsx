@@ -505,7 +505,7 @@ export const DataTab: React.FC<DataTabProps> = ({
           <div className="flex flex-wrap items-center gap-3" data-testid="g-source">
             <span className="text-xs font-bold text-slate-300">{t('G の出どころ', 'G source')}</span>
             <div className="flex bg-surface-1 rounded p-0.5 border border-line-3" role="radiogroup" aria-label={t('G の出どころ', 'G source')}>
-              {([['sensor', t('iPhone の G センサー', 'iPhone sensor')], ['calc', t('計算', 'Calculated')]] as const).map(([value, label]) => (
+              {([['sensor', t('端末の G センサー', 'Phone sensor')], ['calc', t('計算', 'Calculated')]] as const).map(([value, label]) => (
                 <button key={value} role="radio" aria-checked={gSource === value} onClick={() => onChangeGSource(value)}
                   className={`px-3 py-1 rounded text-xs font-medium transition-colors ${gSource === value ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
                   {label}
@@ -513,8 +513,8 @@ export const DataTab: React.FC<DataTabProps> = ({
               ))}
             </div>
             <p className="w-full text-[11px] text-slate-400 leading-relaxed">
-              {t('iPhone のラップタイマーで測った走行は、iPhone の G センサーの値も記録しています。「G センサー」にすると、ゆっくりした変化は計算した G、速い変化 (ブレーキの踏み始め・切り返し) は G センサーから取って合わせます。坂や iPhone の付け方のずれは残りません。',
-                'Runs timed with the iPhone lap timer also record the iPhone G sensor. With "iPhone sensor", slow changes come from the calculated G and fast changes (start of braking, direction changes) from the sensor. Slopes and mounting angle do not leak in.')}
+              {t('アプリのラップタイマーで測った走行は、端末の G センサーの値も記録しています。「G センサー」にすると、ゆっくりした変化は計算した G、速い変化 (ブレーキの踏み始め・切り返し) は G センサーから取って合わせます。坂や端末の付け方のずれは残りません。',
+                'Runs timed with the app\'s lap timer also record the phone\'s G sensor. With "Phone sensor", slow changes come from the calculated G and fast changes (start of braking, direction changes) from the sensor. Slopes and mounting angle do not leak in.')}
             </p>
           </div>
         )}

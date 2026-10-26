@@ -146,7 +146,7 @@ export const DevicesCard: React.FC = () => {
       <p className="text-[11px] text-slate-500">
         {genre === 'position' && t('ラップタイマーの位置の出どころ (デジスパイスは上の欄で登録)。1 回の走行でどれか 1 つ。', 'Position source for the lap timer (register a DigSpice above). One per run.')}
         {genre === 'sensor' && t('走っている間の値を、走行と同じ名前の .csv に記録します。いくつでも。', 'Values are recorded to a .csv with the same name as the run. Any number.')}
-        {genre === 'camera' && t('ラップタイマーで測り始めたら録画を始め、止めたら止めます。初めてつなぐときは、カメラをペアリングの状態にしてください (iPhone が 1 回だけ確認を出します)。', 'Recording starts and stops with the lap timer. When connecting for the first time, put the camera in pairing mode (the iPhone asks once).')}
+        {genre === 'camera' && t('ラップタイマーで測り始めたら録画を始め、止めたら止めます。初めてつなぐときは、カメラをペアリングの状態にしてください (端末が 1 回だけ確認を出します)。', 'Recording starts and stops with the lap timer. When connecting for the first time, put the camera in pairing mode (the iPhone asks once).')}
       </p>
 
       {list.length === 0 && !adding && <div className="text-xs text-slate-500">{t('まだありません', 'None yet')}</div>}

@@ -48,8 +48,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.oud0n.dsuniversal
-        # iPhone だけ (iPad は審査で iPad の画面も見られるので、最初は出さない。docs/app_store.md)
-        TARGETED_DEVICE_FAMILY: "1"
+        # iPhone と iPad (1.1.0 から。iPad は縦が中くらい、横がパソコン向けの配置。docs/duo_layout_design.md)
+        TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_FILE: DSUniversal/Info.plist
         # アプリのアイコン (Assets.xcassets/AppIcon。build/icon-ios.svg から作った 1024 の透明のない PNG。角は iOS が丸める)
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

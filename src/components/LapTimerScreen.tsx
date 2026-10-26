@@ -10,7 +10,7 @@ import { LapHistoryPanel } from './LapHistoryPanel';
 import { deleteRun, listRuns, loadFixes, type RunMeta } from '../services/liveRunStore';
 import { fixesToBon4, fixesToNmea, runFileBase } from '../services/runFiles';
 import { callNative, hasNative, isAndroidApp, toBase64 } from '../native/bridge';
-import { canUseLoggerBle } from '../utils/device';
+import { canUseLoggerBle, myDeviceWord } from '../utils/device';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { getPositionSource } from '../services/positionSource';
 import { navStore } from '../app/navStore';
@@ -68,7 +68,8 @@ function deltaClass(d: number | null | undefined): string {
 export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog, onOpenFile, embedded = false, onMeasuringChange }) => {
   const t = useT();
   // 画面の文の端末の呼び名 (Android のアプリでは「この端末」)
-  const phoneWord = isAndroidApp() ? '端末' : 'iPhone';
+  const phoneWord = myDeviceWord(isAndroidApp()).ja;
+  const phoneWordEn = myDeviceWord(isAndroidApp()).en;
   const link = useLoggerLink();
   const statusLabel = useStatusLabel();
   // ラップタイマーの中身 (services/timer/timerRuntime.ts)。今は画面を開いている間だけ作る (閉じたら片付ける。前と同じ動き)
@@ -244,7 +245,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     if (source === 'phone') {
       if (phoneInfo.error) return { ok: false, text: phoneInfo.error };
       const acc = phoneInfo.accuracy;
-      return { ok: acc !== null && acc <= 30, text: acc === null ? (hasNative() ? t(`${phoneWord} の GPS: 測位待ち`, 'Phone GPS: waiting') : t('この端末の GPS: 測位待ち', 'Device GPS: waiting')) : t(`${hasNative() ? phoneWord : 'この端末'} の GPS ±${Math.round(acc)} m (1 Hz 前後・粗い)`, `Phone GPS ±${Math.round(acc)} m (~1 Hz, coarse)`) };
+      return { ok: acc !== null && acc <= 30, text: acc === null ? (hasNative() ? t(`${phoneWord} の GPS: 測位待ち`, `${phoneWordEn === 'phone' ? 'Phone' : phoneWordEn} GPS: waiting`) : t('この端末の GPS: 測位待ち', 'Device GPS: waiting')) : t(`${hasNative() ? phoneWord : 'この端末'} の GPS ±${Math.round(acc)} m (1 Hz 前後・粗い)`, `Phone GPS ±${Math.round(acc)} m (~1 Hz, coarse)`) };
     }
     const log = replayLogs.find(l => l.id === replayId);
     return { ok: !!log, text: log ? t(`ログの再生 ×${replaySpeed}: ${log.name}`, `Replay ×${replaySpeed}: ${log.name}`) : t('再生するログがありません', 'No log to replay') };
@@ -387,7 +388,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
                 {needsRegister ? t('位置の機器を登録してください', 'Register a position device') : course ? circuitLabel(course.name) : t('コースを決めています', 'Finding the course')}
               </div>
               {needsRegister && (
-                <div className="text-slate-400 text-sm">{t(`上の印を押すと機器の画面へ。この ${phoneWord} の GPS で測るときは、メニューで選んでください。`, `Tap the badge above to register one, or choose this ${isAndroidApp() ? 'phone' : 'iPhone'}’s GPS in the menu.`)}</div>
+                <div className="text-slate-400 text-sm">{t(`上の印を押すと機器の画面へ。この ${phoneWord} の GPS で測るときは、メニューで選んでください。`, `Tap the badge above to register one, or choose this ${phoneWordEn}’s GPS in the menu.`)}</div>
               )}
               <div className="font-mono text-slate-300 tabular-nums" style={{ fontSize: 'min(9vw, 12vh)' }}>
                 {lastFix ? `${Math.round(lastFix.speedKmh)} km/h` : '--- km/h'}
@@ -602,7 +603,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               </div>
             )}
             {hasNative() && !isAndroidApp() && (
-              <p className="text-[10px] text-slate-500 mt-1">{t('「ファイル」アプリの このiPhone内 → このアプリ → LapTimer → サーキット名 にも、走っている間に書いています (.nmea と .bon4)。', 'Also written while driving to Files → On My iPhone → this app → LapTimer → circuit name (.nmea and .bon4).')}</p>
+              <p className="text-[10px] text-slate-500 mt-1">{t(`「ファイル」アプリの この${phoneWord}内 → このアプリ → LapTimer → サーキット名 にも、走っている間に書いています (.nmea と .bon4)。`, `Also written while driving to Files → On My ${phoneWordEn} → this app → LapTimer → circuit name (.nmea and .bon4).`)}</p>
             )}
           </div>
           {/* ラップタイムの記録と保管場所は、走行のタブと設定へ移した (2026-10-21)。機器の登録への入口だけ置く */}
