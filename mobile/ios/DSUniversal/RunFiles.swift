@@ -47,6 +47,38 @@ enum RunFiles {
     }
 
     /// 置き場を使う許可をもらって f を呼ぶ
+    /// 待つかもしれないファイルの読み書き (iCloud の取り込み・ほかのアプリとの取り合いで待つ) をする列。
+    /// Swift の並行処理の共有のスレッド (Task.detached) で待つと、数が限られているので、待つものが重なると
+    /// ほかの読み書き (走行の一覧など) まで回らなくなり、アプリが「読み込んでいます」のまま止まっていた (iPad の実機。1.9 GB の動画の取り込み中)
+    nonisolated static let ioQueue = DispatchQueue(label: "runfiles.io", qos: .userInitiated, attributes: .concurrent)
+
+    static func background<T: Sendable>(_ f: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { c in ioQueue.async { c.resume(returning: f()) } }
+    }
+
+    /// 端末に落ちてきているか (iCloud にだけあるものは false)
+    static func isDownloaded(_ url: URL) -> Bool {
+        let fresh = URL(fileURLWithPath: url.path)
+        let placeholder = fresh.deletingLastPathComponent().appendingPathComponent(".\(fresh.lastPathComponent).icloud")
+        let exists = FileManager.default.fileExists(atPath: fresh.path)
+        if !exists { return !FileManager.default.fileExists(atPath: placeholder.path) }
+        let values = try? fresh.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey, .isUbiquitousItemKey])
+        return !(values?.isUbiquitousItem == true && values?.ubiquitousItemDownloadingStatus == .notDownloaded)
+    }
+
+    /// 落ちてきていなければ取り込みを頼み、timeout 秒まで待つ。落ちてきたら true。
+    /// (取り込みは iCloud の側で順番に進むので、大きな動画の取り込み中は小さなファイルもなかなか来ない。いつまでも待たない)
+    static func waitDownloaded(_ url: URL, timeout: TimeInterval) -> Bool {
+        if isDownloaded(url) { return true }
+        try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+        let until = Date().addingTimeInterval(timeout)
+        while Date() < until {
+            Thread.sleep(forTimeInterval: 0.5)
+            if isDownloaded(url) { return true }
+        }
+        return false
+    }
+
     static func withRoot<T>(_ f: (URL) throws -> T) rethrows -> T {
         let (url, scoped) = root()
         let access = scoped && url.startAccessingSecurityScopedResource()
@@ -176,6 +208,8 @@ enum RunFiles {
             if !FileManager.default.fileExists(atPath: url.path) && !FileManager.default.fileExists(atPath: placeholder.path) {
                 throw NativeError(.notFound, "no file")
             }
+            // iCloud にだけあるときは、取り込みを頼んで少し待つ。来なければ「読めない」(io) で返す (無い not-found とは分ける)
+            guard waitDownloaded(url, timeout: 15) else { throw NativeError(.io, "not downloaded yet") }
             var coordError: NSError?
             var result: Result<Data, Error> = .failure(NativeError(.io, "could not read"))
             NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { u in
@@ -375,7 +409,12 @@ final class LapFileSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked Senda
         // 読めるのは動画だけ (ログ・控えは system.readRunFile で読む)
         guard let file = RunFiles.resolve(rel, in: root), RunFiles.videoExt.contains(file.pathExtension.lowercased()) else { return fail(task, 404, url) }
 
-        // iCloud から落ちてきていなければ、落ちてくるまで待つ (Web は開く前に、大きさを知らせて聞いておく)
+        // iCloud から落ちてきていなければ、待たずに断る (取り込みは頼んでおく)。待つと、大きな動画では何十分も読む列をふさいでいた。
+        // Web は、端末にある動画だけを付け、取り込みが終わってから付け直す
+        guard RunFiles.isDownloaded(file) else {
+            try? FileManager.default.startDownloadingUbiquitousItem(at: file)
+            return fail(task, 404, url)
+        }
         var coordError: NSError?
         var handle: FileHandle?
         var size: UInt64 = 0

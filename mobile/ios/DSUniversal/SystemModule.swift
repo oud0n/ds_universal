@@ -106,7 +106,7 @@ final class SystemModule {
             // LapTimer/ に無ければ (選んだフォルダへ移したあと)、走行の置き場から一時ファイルに写して渡す。
             // iCloud にだけあるときは取り込みを待つので、画面の動くスレッドでは読まない (固まらないように)
             Task {
-                let file = await Task.detached(priority: .userInitiated) { Self.copyFromRunRoot(rel) }.value
+                let file = await RunFiles.background { Self.copyFromRunRoot(rel) }
                 guard let file else { return done(.failure(NativeError(.notFound, "no file"))) }
                 if self.share(url: file) { done(.success([:])) } else { done(.failure(NativeError(.io, "could not show the share sheet"))) }
             }
@@ -148,17 +148,17 @@ final class SystemModule {
             done(.success(["urlBase": RunFiles.urlBase, "kind": scoped ? "folder" : "local", "name": root.lastPathComponent]))
         case "system.listRunFiles":
             Task {
-                let files = await Task.detached(priority: .userInitiated) { RunFiles.list() }.value
+                let files = await RunFiles.background { RunFiles.list() }
                 done(.success(["files": files.map(\.dict)]))
             }
         case "system.readRunFile":
             guard let rel = params["path"] as? String else { return done(.failure(NativeError(.notFound, "no path"))) }
             Task {
-                let r: Result<Data, NativeError> = await Task.detached(priority: .userInitiated) {
+                let r: Result<Data, NativeError> = await RunFiles.background {
                     do { return .success(try RunFiles.read(rel)) }
                     catch let e as NativeError { return .failure(e) }
                     catch { return .failure(NativeError(.io, error.localizedDescription)) }
-                }.value
+                }
                 done(r.map { ["b64": $0.base64EncodedString()] })
             }
         case "system.writeRunFile":
@@ -166,17 +166,17 @@ final class SystemModule {
                 return done(.failure(NativeError(.notFound, "bad params")))
             }
             Task {
-                let r: Result<Bool, NativeError> = await Task.detached(priority: .userInitiated) {
+                let r: Result<Bool, NativeError> = await RunFiles.background {
                     do { try RunFiles.write(rel, data); return .success(true) }
                     catch let e as NativeError { return .failure(e) }
                     catch { return .failure(NativeError(.io, error.localizedDescription)) }
-                }.value
+                }
                 done(r.map { _ in [:] })
             }
         case "system.deleteRunFiles":
             let paths = params["paths"] as? [String] ?? []
             Task {
-                let r = await Task.detached(priority: .userInitiated) { RunFiles.delete(paths) }.value
+                let r = await RunFiles.background { RunFiles.delete(paths) }
                 done(.success(["deleted": r.deleted, "failed": r.failed.map { ["path": $0.0, "error": $0.1] }, "permanent": r.permanent]))
             }
         case "system.readRunRange":
@@ -184,11 +184,11 @@ final class SystemModule {
                 return done(.failure(NativeError(.notFound, "bad params")))
             }
             Task {
-                let r: Result<Data, NativeError> = await Task.detached(priority: .userInitiated) {
+                let r: Result<Data, NativeError> = await RunFiles.background {
                     do { return .success(try RunFiles.readRange(rel, offset: UInt64(offset), length: length)) }
                     catch let e as NativeError { return .failure(e) }
                     catch { return .failure(NativeError(.io, error.localizedDescription)) }
-                }.value
+                }
                 done(r.map { ["b64": $0.base64EncodedString()] })
             }
         case "system.runFileStatus":
@@ -305,11 +305,11 @@ final class SystemModule {
         }
         Task { @MainActor in
             // 選んだフォルダにも前の版がじかに置いた走行があれば、日付のフォルダへ移す (同じ走行が 2 か所に並ばないように)
-            await Task.detached(priority: .utility) {
+            await RunFiles.background {
                 let access = dest.startAccessingSecurityScopedResource()
                 defer { if access { dest.stopAccessingSecurityScopedResource() } }
                 RunFiles.moveFlatRunsIntoDateFolders(in: dest, coordinated: true)
-            }.value
+            }
             var total = SyncResult()
             repeat {
                 syncAgain = false
@@ -413,7 +413,7 @@ final class SystemModule {
                     r.skipped += 1
                     continue
                 }
-                let outcome = await Task.detached(priority: .utility) { Self.moveCoordinated(file, to: target) }.value
+                let outcome = await RunFiles.background { Self.moveCoordinated(file, to: target) }
                 switch outcome {
                 case .copied:
                     r.moved += 1
@@ -430,7 +430,7 @@ final class SystemModule {
                 r.error = "could not read \(rel)"
                 continue
             }
-            let outcome = await Task.detached(priority: .utility) { Self.writeCoordinated(data, to: target) }.value
+            let outcome = await RunFiles.background { Self.writeCoordinated(data, to: target) }
             switch outcome {
             case .copied:
                 // 読んでから書き終えるまでに書き足された (書いている最中だった) ものは、消さずに次に写す

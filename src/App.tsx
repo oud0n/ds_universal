@@ -1345,7 +1345,10 @@ export const App: React.FC = () => {
         }
       }
     } catch (e) {
-      alert(tr('走行を開けませんでした: ', 'Could not open the run: ') + (e instanceof Error ? e.message : String(e)));
+      const msg = e instanceof Error ? e.message : String(e);
+      // iCloud にだけあって、まだ端末に来ていないログ (大きな動画の取り込み中は、小さなファイルも後回しになる)
+      if (msg.includes('not downloaded')) alert(tr('この走行のログを iCloud から取り込んでいます。少し待ってから開き直してください。', 'The log of this run is still downloading from iCloud. Wait a moment and open it again.'));
+      else alert(tr('走行を開けませんでした: ', 'Could not open the run: ') + msg);
     } finally {
       runOpeningRef.current = false;
       setRunBusy(false);
