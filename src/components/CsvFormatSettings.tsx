@@ -1,11 +1,11 @@
 /**
  * 設定の「CSV の形式」(PLAN-36)。形式の定義と計算式の一覧。作る・直すのはパソコンだけ (スマートフォンは一覧を見るだけ)
  */
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FileSpreadsheet, Plus, Trash2, Save, X, Upload, Calculator } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { useCompactLayout } from '../hooks/useCompactLayout';
-import { deleteCsvFormat, saveCalcChannels, saveCsvFormat, useCsvFormats } from '../services/csvFormatStore';
+import { deleteCsvFormat, safeName, saveCalcChannels, saveCsvFormat, useCsvFormats } from '../services/csvFormatStore';
 import { guessDelimiter, sensorKeyOf, splitRow, validTimezone, type ColumnSpec, type ColumnTarget, type CsvFormat, type TimeAs } from '../services/csvFormats';
 import { parseExpr, type CalcChannel } from '../services/calcChannels';
 import { CUSTOM_KEY_RE } from '../services/overlayLayout';
@@ -122,7 +122,8 @@ const CsvFormatEditor: React.FC<{ initial: CsvFormat | null; others: CsvFormat[]
     const guessed = Object.fromEntries(cols.map(c => [c, f.columns[c] ?? guessTarget(c)]));
     const hasPos = Object.values(guessed).some(s => s.target === 'lat');
     const timeCol = cols.find(c => /^(time|秒|time_utc_ms|timestamp|utc|elapsed)/i.test(c)) ?? null;
-    const firstVal = timeCol ? splitRow(ls[hr + 1] ?? '', d)[cols.indexOf(timeCol)] ?? '' : '';
+    // 列の番号は、空の見出しも数えた元の並びで探す (cols は空の見出しを除いてあるので、ずれる)
+    const firstVal = timeCol ? splitRow(ls[hr + 1] ?? '', d)[splitRow(ls[hr] ?? '', d).map(c => c.trim()).indexOf(timeCol)] ?? '' : '';
     const as: TimeAs = /utc_ms|_ms$/i.test(timeCol ?? '') ? (Number(firstVal) > 1e12 ? 'utcMs' : 'ms') : /^\s*-?\d+([.,]\d+)?\s*$/.test(firstVal) ? (Number(firstVal) > 1e12 ? 'utcMs' : 'seconds') : 'clock';
     setText(txt);
     setFileName(file.name);
@@ -150,7 +151,9 @@ const CsvFormatEditor: React.FC<{ initial: CsvFormat | null; others: CsvFormat[]
     if (f.kind === 'sensor' && (!f.time || !targets.length)) { setNote({ ok: false, text: t('値だけの CSV には、時刻の列と、使う値の列が要ります', 'A value CSV needs a time column and at least one value column') }); return; }
     const keys = Object.values(f.columns).flatMap(s => (s.target?.startsWith('custom:') ? [s.target.slice(7)] : []));
     if (keys.some(k => !CUSTOM_KEY_RE.test(k)) || new Set(keys).size !== keys.length) { setNote({ ok: false, text: t('自分で名前を付けた値の英字の名前は、英小文字・数字・_ で、ほかと重ならないように', 'Custom value keys must be lowercase letters, digits and _, and unique') }); return; }
-    const clash = others.find(o => o.id !== f.id && o.name === name);
+    // 同じ名前、または名前は違ってもファイルの名前が同じになるもの (「My Log」と「My_Log」など) は、上書きになる
+    const stemId = `user:${safeName(name)}`.toLowerCase();
+    const clash = others.find(o => o.id !== f.id && (o.name === name || o.id.toLowerCase() === stemId));
     if (clash && !window.confirm(t(`「${name}」に上書きしますか？`, `Overwrite "${name}"?`))) return;
     // 見出しは、使う列と時刻の列 (見分けるのに使う)
     const used = [...Object.entries(f.columns).filter(([, s]) => !s.ignore).map(([n]) => n), ...(f.time ? [f.time.column] : [])];
@@ -299,12 +302,15 @@ const CsvFormatEditor: React.FC<{ initial: CsvFormat | null; others: CsvFormat[]
 const CalcEditor: React.FC<{ initial: CalcChannel[]; onClose: () => void }> = ({ initial, onClose }) => {
   const t = useT();
   const [list, setList] = useState<CalcChannel[]>(initial.map(c => ({ ...c })));
+  // 開いたあとで計算式を読み終えたら (起動直後・iCloud から来たとき)、まだ直していなければ読み直したものにする
+  const dirty = useRef(false);
+  useEffect(() => { if (!dirty.current) setList(initial.map(c => ({ ...c }))); }, [initial]);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const errOf = (c: CalcChannel): string | null => {
     if (!CUSTOM_KEY_RE.test(c.key)) return t('英字の名前は英小文字・数字・_', 'Key: lowercase letters, digits, _');
     try { parseExpr(c.expr); return null; } catch (e) { return e instanceof Error ? e.message : String(e); }
   };
-  const set = (i: number, patch: Partial<CalcChannel>) => setList(l => l.map((c, k) => (k === i ? { ...c, ...patch } : c)));
+  const set = (i: number, patch: Partial<CalcChannel>) => { dirty.current = true; setList(l => l.map((c, k) => (k === i ? { ...c, ...patch } : c))); };
   const save = async () => {
     const bad = list.find(errOf);
     if (bad) { setNote({ ok: false, text: `${bad.label || bad.key}: ${errOf(bad)}` }); return; }
@@ -341,12 +347,12 @@ const CalcEditor: React.FC<{ initial: CalcChannel[]; onClose: () => void }> = ({
                 <input value={c.unit ?? ''} onChange={e => set(i, { unit: e.target.value.slice(0, 12) })} placeholder={t('単位', 'Unit')} className={`${input} w-14`} />
                 <input type="number" value={c.min ?? ''} onChange={e => set(i, { min: e.target.value === '' ? undefined : Number(e.target.value) })} placeholder={t('最小', 'Min')} className={`${input} w-16`} />
                 <input type="number" value={c.max ?? ''} onChange={e => set(i, { max: e.target.value === '' ? undefined : Number(e.target.value) })} placeholder={t('最大', 'Max')} className={`${input} w-16`} />
-                <button onClick={() => setList(l => l.filter((_, k) => k !== i))} className="p-1 text-slate-500 hover:text-red-400 cursor-pointer" aria-label={t('消す', 'Delete')}><Trash2 size={13} /></button>
+                <button onClick={() => { dirty.current = true; setList(l => l.filter((_, k) => k !== i)); }} className="p-1 text-slate-500 hover:text-red-400 cursor-pointer" aria-label={t('消す', 'Delete')}><Trash2 size={13} /></button>
                 {err && c.expr && <span className="basis-full text-[10px] text-red-400">{err}</span>}
               </div>
             );
           })}
-          <button onClick={() => setList(l => [...l, { key: `calc${l.length + 1}`, label: '', expr: '' }])} className="flex items-center gap-1 px-2 py-1 rounded border border-line-3 cursor-pointer" data-testid="calc-add"><Plus size={12} />{t('足す', 'Add')}</button>
+          <button onClick={() => { dirty.current = true; setList(l => [...l, { key: `calc${l.length + 1}`, label: "", expr: "" }]); }} className="flex items-center gap-1 px-2 py-1 rounded border border-line-3 cursor-pointer" data-testid="calc-add"><Plus size={12} />{t('足す', 'Add')}</button>
         </div>
         <div className="flex items-center gap-2 px-4 py-3 border-t border-line-2">
           <span className={`flex-1 ${note?.ok ? 'text-emerald-400' : 'text-red-400'}`} data-testid="calc-note">{note?.text}</span>

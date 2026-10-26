@@ -270,7 +270,9 @@ enum RunFiles {
     /// 消してよい走行のファイルか (サーキットのフォルダの中のもの。共有の控え・コース・セッションは消さない)
     static func isDeletableRunFile(_ rel: String) -> Bool {
         let name = (rel as NSString).lastPathComponent
-        guard rel.contains("/"), !rel.hasPrefix("course/"), !rel.hasPrefix("sessions/"), !rel.hasPrefix("exports/") else { return false }
+        // 守るフォルダ: コース・比べ方・書き出し・メーターの並び・CSV の形式と計算式・デジスパイスのコースデータ (取り込み元/ は、取り込みに失敗したときの書きかけを消すので守らない)
+        let protected = ["course/", "sessions/", "exports/", "overlays/", "formats/", "digspice/"]
+        guard rel.contains("/"), !protected.contains(where: { rel.hasPrefix($0) }) else { return false }
         return !["runs.json", "laptimes.json", "corners.json", "corners.json.bak"].contains(name) && !name.hasPrefix(".")
     }
 
@@ -302,9 +304,17 @@ enum RunFiles {
                     }
                     if let coordError { ok = false; message = coordError.localizedDescription }
                 }
-                // 選んだフォルダのとき: まだ移していない、アプリの中の写しも消す (残すと、次に写したときに戻ってくる)
-                if scoped, let local = resolve(rel, in: lapTimerRoot), fm.fileExists(atPath: local.path) {
-                    do { try fm.removeItem(at: local) } catch { if ok { ok = false; message = error.localizedDescription } }
+                // 選んだフォルダのとき: まだ移していない、アプリの中の写しも消す (残すと、次に写したときに戻ってくる)。
+                // フォルダで消せなかったときは、写しは残す (消せたことにしない)。フォルダに無く、写ししか無いときは、それが最後の 1 つなので
+                // できればゴミ箱へ移し、移せずにすぐ消したら permanent に入れる
+                if ok, scoped, let local = resolve(rel, in: lapTimerRoot), fm.fileExists(atPath: local.path) {
+                    do {
+                        if target == nil {
+                            do { try fm.trashItem(at: local, resultingItemURL: nil) } catch { try fm.removeItem(at: local); permanent.append(rel) }
+                        } else {
+                            try fm.removeItem(at: local)
+                        }
+                    } catch { ok = false; message = error.localizedDescription }
                 }
                 if ok { deleted.append(rel) } else { failed.append((rel, message)) }
             }

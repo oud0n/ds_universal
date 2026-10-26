@@ -580,7 +580,9 @@ export class TimerRuntime {
         for (const ext of ['.nmea', '.bon4', '.mov', '_front.mov', '.mp4', '_front.mp4']) if (!keep.has(`${idle.fileBase}${ext}`)) paths.add(`${idle.fileBase}${ext}`);
         const r = await store.remove([...paths]);
         if (r.failed.length) throw new Error(r.failed.map(f => f.error).join(', '));
+        // 行は .nmea の名前で作るが、デジスパイスの .bon4 だけの走行もあるので、消したログの名前の行も消す
         await removeRunRow(store, folder, `${rest}.nmea`);
+        if (mine && !mine.path.endsWith('.nmea')) await removeRunRow(store, folder, mine.path.slice(folder.length + 1));
       }
       if (idle.runId) await deleteRunRecord(idle.runId).catch(() => {});
       this.set({ idleRun: null, savedRun: null });

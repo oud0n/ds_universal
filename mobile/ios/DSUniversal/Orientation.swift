@@ -22,6 +22,8 @@ final class OrientationControl {
     private var geometryObservation: NSKeyValueObservation?
     private var lastSize: CGSize = .zero
     private var reapply: DispatchWorkItem?
+    /// 頼んだ回数 (断られた知らせが遅れて来たとき、そのあとに頼み直した固定を外さないように)
+    private var generation = 0
 
     static var defaultMask: UIInterfaceOrientationMask {
         UIDevice.current.userInterfaceIdiom == .pad ? .all : .allButUpsideDown
@@ -118,13 +120,18 @@ final class OrientationControl {
     /// 許す向きを m にし、request (なければ m) の向きへ回すよう OS に頼む
     private func apply(_ m: UIInterfaceOrientationMask, request: UIInterfaceOrientationMask? = nil) {
         mask = m
+        generation += 1
+        let gen = generation
         guard let scene else { return }
         for w in scene.windows { w.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations() }
         // 失敗の知らせは主スレッドの外で来るので、主スレッドに縛られない閉包にする (縛ると、その確かめで落ちていた)
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: request ?? m)) { @Sendable error in
             DebugLog.write("orientation: \(error.localizedDescription)")
             // 断られたら固めたままにしない (OS が向きを決める窓では、固めた向きが残って戻せなくなる)
-            Task { @MainActor in OrientationControl.shared.release() }
+            Task { @MainActor in
+                let control = OrientationControl.shared
+                if control.generation == gen { control.release() }
+            }
         }
     }
 }

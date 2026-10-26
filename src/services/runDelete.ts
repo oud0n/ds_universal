@@ -94,7 +94,9 @@ export async function deleteRun(store: RunStore, item: RunItem, plan: RunDeleteP
   if (!store.remove) throw new Error('cannot delete files here');
   const r = await store.remove(plan.remove.map(f => f.path));
   // ログが消えたときだけ、走行の行を消す (消せなかったら、行は残して次に開けるようにする)
-  const logGone = plan.remove.filter(f => f.kind === 'log').every(f => r.deleted.includes(f.path));
+  // (一覧にログが出ていなかったときは、ログは残っているかもしれないので、行も残す)
+  const logs = plan.remove.filter(f => f.kind === 'log');
+  const logGone = logs.length > 0 && logs.every(f => r.deleted.includes(f.path));
   if (logGone) await removeRunRow(store, item.folder, item.file);
   return { failed: r.failed, permanent: r.permanent ?? [] };
 }

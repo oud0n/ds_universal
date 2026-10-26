@@ -695,7 +695,7 @@ const ReferenceField: React.FC<{ reference: { driver?: string; car?: string } | 
   return (
     <div className="mt-1.5 space-y-1">
       <label className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer">
-        <input type="checkbox" checked={on} onChange={e => { setOn(e.target.checked); onSave(e.target.checked ? { driver, car } : null); }} data-testid="run-detail-reference" />
+        <input type="checkbox" checked={on} onChange={e => { setOn(e.target.checked); if (e.target.checked) savedRef.current = { driver, car }; onSave(e.target.checked ? { driver, car } : null); }} data-testid="run-detail-reference" />
         {t('参考ラップ (自分の走行ではない。ベスト・順位に数えない)', 'Reference lap (not my run; not counted in bests or rankings)')}
       </label>
       {on && (

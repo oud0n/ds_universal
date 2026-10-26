@@ -17,8 +17,8 @@ export const CALC_FILE = `${FORMATS_DIR}/calc.json`;
 const LOCAL_FORMATS = 'ds_csv_formats';
 const LOCAL_CALC = 'ds_calc_channels';
 
-/** ファイルの名前に使える形 */
-function safeName(name: string): string {
+/** ファイルの名前に使える形 (形式の印にもなる。名前が違っても同じ形になることがあるので、保存する前に重なりを確かめる) */
+export function safeName(name: string): string {
   return name.replace(/[\\/:*?"<>|\s]+/g, '_').replace(/^\.+/, '').slice(0, 40) || 'format';
 }
 const stemOf = (path: string) => path.slice(path.lastIndexOf('/') + 1).replace(/\.csvformat\.json$/, '');
@@ -27,6 +27,8 @@ const isDeleted = (text: string) => { try { return (JSON.parse(text) as { delete
 // 手元に持っている形式・計算式 (読み直したら知らせる)
 let formats: CsvFormat[] = [];
 let calc: CalcChannel[] = [];
+// formats/calc.json を読めたか (iCloud から来ていないなどで読めないうちに保存すると、前の計算式を全部消してしまうため)
+let calcReadable = true;
 let snapshot = { formats, calc };
 const listeners = new Set<() => void>();
 function publish(): void {
@@ -83,8 +85,21 @@ export async function loadCsvFormats(retries = 0): Promise<void> {
     if (fmt) out.push({ ...fmt, id });
   }
   formats = out.sort((a, b) => a.name.localeCompare(b.name));
-  calc = files.some(f => f.path === CALC_FILE) ? parseCalcFile(await s.readText(CALC_FILE).catch(() => null)) : [];
+  calc = files.some(f => f.path === CALC_FILE) ? await readCalc(s) : [];
+  if (!files.some(f => f.path === CALC_FILE)) calcReadable = true;
   publish();
+}
+
+/** formats/calc.json を読む。読めなければ (無いのではなく) calcReadable を下ろし、今の計算式のままにする */
+async function readCalc(s: RunStore): Promise<CalcChannel[]> {
+  try {
+    const text = await s.readTextStrict(CALC_FILE);
+    calcReadable = true;
+    return parseCalcFile(text);
+  } catch {
+    calcReadable = false;
+    return calc;
+  }
 }
 
 /** 形式を保存する (名前から印を決める。同じ印は上書き)。保存した形式を返す */
@@ -112,6 +127,11 @@ export async function deleteCsvFormat(id: string): Promise<void> {
 /** 計算式を全部書き換える */
 export async function saveCalcChannels(list: CalcChannel[]): Promise<void> {
   const s = await store();
+  // 前に読めなかったときは、もう一度読んでみる。まだ読めなければ書かない (読めていない計算式を消さないように)
+  if (s && !calcReadable) {
+    await readCalc(s);
+    if (!calcReadable) throw new Error('formats/calc.json をまだ読めません (iCloud から取り込み中など)。少し待ってから保存し直してください');
+  }
   if (!s) writeLocal(LOCAL_CALC, list);
   else await s.writeText(CALC_FILE, JSON.stringify({ version: 1, channels: list }, null, 1));
   calc = list;

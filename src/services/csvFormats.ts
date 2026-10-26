@@ -149,10 +149,21 @@ export function matchCsvFormat(fileName: string, text: string, formats: CsvForma
 }
 
 /** タイムゾーンの壁の時計の時刻 → UTC (ミリ秒) */
+// タイムゾーンごとの日時の書き方 (行ごとに作ると、数万行の CSV で数十秒止まるため、使い回す)
+const zoneFormats = new Map<string, Intl.DateTimeFormat>();
+function zoneFormat(tz: string): Intl.DateTimeFormat {
+  let f = zoneFormats.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    zoneFormats.set(tz, f);
+  }
+  return f;
+}
+
 export function zonedToUtcMs(y: number, mo: number, d: number, h: number, mi: number, s: number, ms: number, tz: string): number {
   const guess = Date.UTC(y, mo - 1, d, h, mi, s, ms);
   const offsetAt = (t: number) => {
-    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    const p = Object.fromEntries(zoneFormat(tz)
       .formatToParts(new Date(t)).filter(x => x.type !== 'literal').map(x => [x.type, Number(x.value)]));
     return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(t / 1000) * 1000;
   };
@@ -199,6 +210,8 @@ export function readRows(text: string, f: CsvFormat): FormatRows {
     return i >= 0 && !spec.ignore && spec.target ? [{ i, spec, target: spec.target }] : [];
   });
   const ti = f.time ? header.indexOf(f.time.column) : -1;
+  // 時刻の列を決めてあるのに見つからないときは読まない (0.1 秒ごとと決めつけると、時刻のずれた値を黙って合わせてしまう)
+  if (f.time && ti < 0) return { rows: [], utc: false };
   const utc = !!f.time && (f.time.as === 'utcMs' || f.time.as === 'clock');
   const rows: FormatRows['rows'] = [];
   for (let li = f.headerRow + 1, n = 0; li < lines.length; li++) {

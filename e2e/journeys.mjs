@@ -735,9 +735,11 @@ export const journeys = [
         // 計算式
         await p.click('calc-open');
         await p.click('calc-add');
-        await fill('[data-testid="calc-label"]', 'e2e mph');
-        await fill('[data-testid="calc-key"]', 'e2e_mph');
-        await fill('[data-testid="calc-expr"]', 'speed * 0.621');
+        // 足した行 (いちばん下) に書く (前の試験の計算式が残っていても、それを書き換えないように)
+        const fillLast = (id, v) => p.ev(`(() => { const all = document.querySelectorAll('[data-testid="${id}"]'); const el = all[all.length - 1]; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(v)}); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+        await fillLast('calc-label', 'e2e mph');
+        await fillLast('calc-key', 'e2e_mph');
+        await fillLast('calc-expr', 'speed * 0.621');
         await p.click('calc-save');
         await p.waitFor(`/保存しました/.test(document.querySelector('[data-testid="calc-note"]')?.innerText ?? '')`, 5000, '計算式の保存');
         check(JSON.parse(fs.readFileSync(path.join(fmtDir, 'calc.json'), 'utf8')).channels.some(c => c.key === 'e2e_mph'), '計算式が保存されない');

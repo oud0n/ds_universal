@@ -100,5 +100,9 @@ export function mediaForLap(media: PlayableMedia[], session: Session, lap: Lap, 
 export function lapOverlapSec(m: PlayableMedia, session: Session, lap: Lap, sessions: Session[]): number {
   const start = mediaStartIn(m, session, sessions);
   if (start === null) return 0;
-  return Math.min(lap.endTime, start + (m.endSec - m.startSec)) - Math.max(lap.startTime, start);
+  // 長さが読めなかった動画 (長さ 0: iCloud から来ていないなど) は、長さが分からないものとして、終わりまで映しているとみなす
+  // (見るでは出るのに、比べるでは「この周を映している動画がありません」になっていた)
+  const len = m.endSec - m.startSec;
+  const end = len > 0 ? start + len : Infinity;
+  return Math.min(lap.endTime, end) - Math.max(lap.startTime, start);
 }

@@ -606,6 +606,11 @@ export async function setRunMeta(store: RunStore, item: RunItem, patch: RunMetaP
     const preview = { ...item.entry };
     for (const k of ['name', 'note', 'car', 'tyre'] as const) if (k in patch) { const v = patch[k]?.trim(); if (v) preview[k] = v; else delete preview[k]; }
     applyConditions(preview, patch);
+    // 参考ラップの印も先に入れる (入れないと、参考ラップに替えた直後に一覧から外れ、詳細が一度消えていた)
+    if ('reference' in patch) {
+      if (patch.reference) preview.reference = { driver: patch.reference.driver?.trim() || undefined, car: patch.reference.car?.trim() || undefined };
+      else delete preview.reference;
+    }
     item.entry = preview;
   }
   const row = await updateRun(store, item.folder, item.file, prev => {

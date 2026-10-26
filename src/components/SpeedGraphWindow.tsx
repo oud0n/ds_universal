@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { availableChannels, channelDef, type ChannelId } from '../services/overlayLayout';
+import { useCsvFormats } from '../services/csvFormatStore';
 import { getLang } from '../utils/i18n';
 
 const STRIPS_KEY = 'ds_graph_strips';
@@ -74,12 +75,25 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
   });
   const setStripIds = (ids: ChannelId[]) => { setStripIdsState(ids); try { localStorage.setItem(STRIPS_KEY, JSON.stringify(ids)); } catch { /* 覚えられなくても今は出す */ } };
   const [stripMenu, setStripMenu] = useState(false);
+  const stripMenuRef = useRef<HTMLDivElement>(null);
+  // 値の帯の選び方は、外を押す・Esc で閉じる (開いたまま、グラフの上に残っていた)
+  useEffect(() => {
+    if (!stripMenu) return;
+    const onDown = (e: PointerEvent) => { if (!stripMenuRef.current?.contains(e.target as Node)) setStripMenu(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setStripMenu(false); };
+    document.addEventListener('pointerdown', onDown, true);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('pointerdown', onDown, true); document.removeEventListener('keydown', onKey); };
+  }, [stripMenu]);
+  // 計算式・CSV の形式を読み終えたら、選べる値を作り直す (自分で名前を付けた値は、あとから読まれる)
+  const csvDefs = useCsvFormats();
   // 帯に出せる値 (どれかの車のログにあるもの。速度・G は上のグラフにあるので除く)
   const stripChoices = useMemo(() => {
     const ids = new Set<ChannelId>();
     for (const c of cars) for (const id of availableChannels({ points: c.lap.points } as unknown as Parameters<typeof availableChannels>[0])) ids.add(id);
     return [...ids].filter(id => !['speed', 'accelG', 'corneringG', 'combinedG', 'altitude'].includes(id));
-  }, [cars]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cars, csvDefs]);
   const strips = stripIds.filter(id => stripChoices.includes(id));
 
   // ズーム & パン状態 (0..1 の正規化範囲)
@@ -800,7 +814,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
 
           {/* 値の帯 (速度グラフの下に、値ごとに細い帯で出す。PLAN-36) */}
           {stripChoices.length > 0 && (
-            <div className="relative">
+            <div className="relative" ref={stripMenuRef}>
               <button
                 onClick={() => setStripMenu(v => !v)}
                 className={`px-2 py-0.5 rounded text-[11px] border transition-all ${strips.length ? 'bg-slate-800 border-slate-500 text-slate-200' : 'border-line-4 text-slate-400 hover:text-slate-200'}`}
@@ -814,7 +828,11 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
                   {stripChoices.map(id => (
                     <label key={id} className="flex items-center gap-1.5 text-slate-300 cursor-pointer whitespace-nowrap">
                       <input type="checkbox" checked={strips.includes(id)} disabled={!strips.includes(id) && strips.length >= MAX_STRIPS}
-                        onChange={e => setStripIds(e.target.checked ? [...strips, id] : strips.filter(x => x !== id))} data-testid={`graph-strip-${id}`} />
+                        onChange={e => {
+                          // このログに無い値の選び方も残す (ほかのログを開いたときに、また出るように)
+                          const rest = stripIds.filter(x => x !== id);
+                          setStripIds(e.target.checked ? [...rest, id].slice(-12) : rest);
+                        }} data-testid={`graph-strip-${id}`} />
                       {channelDef(id).label[getLang() === 'en' ? 1 : 0]}
                     </label>
                   ))}

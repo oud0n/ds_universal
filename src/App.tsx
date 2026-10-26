@@ -290,6 +290,10 @@ export const App: React.FC = () => {
   // 過去の走行 (保管場所。iPhone のアプリ・デスクトップ版): 全部の一覧を出しているか・開いている途中か
   const [runsSheetOpen, setRunsSheetOpen] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
+  /** 保存した比べ方を開いている途中か */
+  const savedOpeningRef = useRef(false);
+  /** いちばん最近に開けた走行 (保存した比べ方が、Car 1 を開けたか確かめる) */
+  const openedRunRef = useRef<string | null>(null);
   /** 取り込みの確認 (ログを開いたとき、走行の保管場所があれば。2026-10-21、PLAN-24) */
   // 複数のファイルを一度に取り込むとき、何番目のシートか (「2/3」)。並んだ数と、出した数
   const importCountRef = useRef({ queued: 0, shown: 0 });
@@ -309,7 +313,7 @@ export const App: React.FC = () => {
   const importQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const runOpeningRef = useRef(false);
   // iCloud から取り込み中の動画 (取り込み終わったら、走行に付けて開く)。percent はふつう分からない (取り込み中とだけ出す)
-  const [runDownload, setRunDownload] = useState<{ names: string[]; done: number; gb?: string } | null>(null);
+  const [runDownload, setRunDownload] = useState<{ names: string[]; done: number; gb?: string; run: string } | null>(null);
   const runDownloadTokenRef = useRef(0);
   /** 保管場所から開いた走行の道と、そのログ (同じ名前のほかのフォルダの走行と取り違えないため) */
   const runSessionsRef = useRef(new Map<string, string[]>());
@@ -356,6 +360,9 @@ export const App: React.FC = () => {
     sessions.find(s => s.id === c.sessionId)?.laps.find(l => l.lapNumber === c.lapNumber);
   const baseSelected = [...selectedCars].sort((a, b) => a.slot - b.slot).find(c => findLap(c));
   const baseSession = sessions.find(s => s.id === baseSelected?.sessionId);
+  // 取り込み中の表示は、その走行が Car 1 のときだけ出す (Car 1 をほかの走行に替えたら、前の走行の取り込み中を出さない)
+  const car1RunPath = baseSession ? ([...runSessionsRef.current].find(([, ids]) => ids.includes(baseSession.id))?.[0] ?? null) : null;
+  const shownDownload = runDownload && runDownload.run === car1RunPath ? runDownload : null;
   const baseLap = baseSelected ? findLap(baseSelected) : undefined;
 
   // 画面に出すコース (計測線・セクター・コース名・コース図) は、基準車のセッション (なければ最初のセッション) のもの
@@ -422,26 +429,31 @@ export const App: React.FC = () => {
   useEffect(() => {
     const ready = sessions.filter(s => sensorPendingRef.current.has(s.id));
     if (!ready.length) return;
-    const updated = new Map(ready.map(s => {
+    // 合わせる値を先に取り出してから、その時の最新の点 (prev) に合わせる
+    // (G センサーの計算し直しと同じ時に来ても、どちらかの結果で上書きしないように)
+    const pending = new Map(ready.map(s => [s.id, sensorPendingRef.current.get(s.id)!] as const));
+    for (const id of pending.keys()) sensorPendingRef.current.delete(id);
+    setSessions(prev => prev.map(s => {
+      const list = pending.get(s.id);
+      if (!list) return s;
       let points = s.points;
-      for (const d of sensorPendingRef.current.get(s.id)!) points = mergeSensorRows(points, sessionStartUtcMs(s), d.rows, d.offsetSec);
-      sensorPendingRef.current.delete(s.id);
+      for (const d of list) points = mergeSensorRows(points, sessionStartUtcMs(s), d.rows, d.offsetSec);
       const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(points, s.controlLine, s.sectors, s.finishLine);
-      return [s.id, { points, laps, bestLapIndex, theoreticalBestTime }] as const;
+      return { ...s, points, laps, bestLapIndex, theoreticalBestTime };
     }));
-    setSessions(prev => prev.map(s => (updated.has(s.id) ? { ...s, ...updated.get(s.id)! } : s)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessions, sensorTick]);
   /** G を計算し直す (ならし方・G の出どころを変えた・G センサーの値を読んだ)。ids を渡したら、そのログだけ */
   const recomputeG = (level: GFilterLevel, source: GSource, ids?: Set<string>) => {
-    const updated = new Map(latestRef.current.sessions.filter(s => !ids || ids.has(s.id)).map(s => {
+    // その時の最新の点 (prev) から計算する (値の CSV を合わせた結果を、古い点で上書きしないように)
+    setSessions(prev => prev.map(s => {
+      if (ids && !ids.has(s.id)) return s;
       let points = applyGFilter(s.points.map(p => ({ ...p })), level);
       const track = imuTracksRef.current.get(s.id);
       if (track && source === 'sensor') points = applyImuToSession(points, s, track).points;
       const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(points, s.controlLine, s.sectors, s.finishLine);
-      return [s.id, { points, laps, bestLapIndex, theoreticalBestTime }] as const;
+      return { ...s, points, laps, bestLapIndex, theoreticalBestTime };
     }));
-    setSessions(prev => prev.map(s => (updated.has(s.id) ? { ...s, ...updated.get(s.id)! } : s)));
   };
   const handleChangeGFilterLevel = (level: GFilterLevel) => {
     if (level === gFilterLevel) return;
@@ -1088,6 +1100,16 @@ export const App: React.FC = () => {
 
   /** 保存したセッションを開く: 指している走行を開いて、Car に割り当てる (見つからない走行は飛ばして知らせる) */
   const openSavedSession = async (saved: LapSession) => {
+    // 続けて押したとき・ほかの走行を開いている途中は、何もしない (同じログを 2 回読み込まないように)
+    if (runOpeningRef.current || savedOpeningRef.current) return;
+    savedOpeningRef.current = true;
+    try {
+      await openSavedSessionInner(saved);
+    } finally {
+      savedOpeningRef.current = false;
+    }
+  };
+  const openSavedSessionInner = async (saved: LapSession) => {
     const store = await getRunStore().catch(() => null);
     if (!store) return;
     const items = await listRuns(store).catch(() => [] as RunItem[]);
@@ -1098,8 +1120,10 @@ export const App: React.FC = () => {
       alert(tr('このセッションの走行が見つかりません (消したか、名前を変えた走行)', 'The runs of this session were not found (deleted or renamed)'));
       return;
     }
-    // Car 1 の走行を開く (動画・同期もそろう)
+    // Car 1 の走行を開く (動画・同期もそろう)。開けなかったら、Car 2〜4 も並べない
+    openedRunRef.current = null;
     await openRun(firstItem, 'analysis');
+    if (openedRunRef.current !== `${firstItem.folder}/${firstItem.file}`) return;
     const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b'];
     const picks: SelectedCarSlot[] = [];
     const missing: string[] = [];
@@ -1249,6 +1273,7 @@ export const App: React.FC = () => {
         })();
       }
       attachedRunRef.current = runPath;
+      openedRunRef.current = runPath;
       setRunsSheetOpen(false);
       // 「動画を見る」なら、はじめから動画の画面へ (動画を読み終わるまで「読み込んでいます」を出す)
       navStore.go(to);
@@ -1278,7 +1303,7 @@ export const App: React.FC = () => {
           flushOpenRuns();
           const ids = removedIds;
           for (const x of removed) ids.add(x.id);
-          for (const id of ids) polylineRequestRef.current.delete(id);
+          for (const id of ids) { polylineRequestRef.current.delete(id); imuTracksRef.current.delete(id); imuPendingRef.current.delete(id); sensorPendingRef.current.delete(id); }
           setConvertSessionId(prev => (ids.has(prev) ? '' : prev));
           setSessions(prev => prev.filter(x => !ids.has(x.id)));
           setSelectedCars(prev => prev.filter(c => !ids.has(c.sessionId)));
@@ -1318,7 +1343,7 @@ export const App: React.FC = () => {
         if (download) {
           const token = ++runDownloadTokenRef.current;
           const paths = cand.missing.map(m => m.path);
-          setRunDownload({ names: paths.map(p => p.slice(p.lastIndexOf('/') + 1)), done: 0, gb });
+          setRunDownload({ names: paths.map(p => p.slice(p.lastIndexOf('/') + 1)), done: 0, gb, run: runPath });
           void (async () => {
             const started = Date.now();
             for (;;) {
@@ -2165,7 +2190,7 @@ export const App: React.FC = () => {
                   onLoadFiles={loadFiles}
                   viewKey="phone-analysis"
                   onSetClockOffset={setSessionClockOffset}
-                      downloading={runDownload}
+                      downloading={shownDownload}
                       loading={runBusy}
                 />
               )}
@@ -2251,7 +2276,7 @@ export const App: React.FC = () => {
                       onLoadFiles={loadFiles}
                       viewKey="graph-a"
                       onSetClockOffset={setSessionClockOffset}
-                      downloading={runDownload}
+                      downloading={shownDownload}
                       loading={runBusy}
                       compareCars={activeCars}
                     />
@@ -2438,7 +2463,7 @@ export const App: React.FC = () => {
                       // 左下にも車載動画を出しているときは、こちらの音を消す (同じ動画の音が二重になるため)
                       muted={!collapsed.anim}
                       onSetClockOffset={setSessionClockOffset}
-                      downloading={runDownload}
+                      downloading={shownDownload}
                       loading={runBusy}
                       compareCars={activeCars}
                     />
@@ -2475,7 +2500,7 @@ export const App: React.FC = () => {
             viewKey="video-tab"
             sidePanel={isMedium ? trackMapEl : undefined}
             onSetClockOffset={setSessionClockOffset}
-                      downloading={runDownload}
+                      downloading={shownDownload}
             compareCars={activeCars}
             loading={runBusy}
           />
@@ -2516,6 +2541,8 @@ export const App: React.FC = () => {
               // 開いている走行の書きかけ (直前に動かした同期など) を、そのログを外す前に書く
               flushOpenRuns();
               polylineRequestRef.current.delete(id);
+              // 閉じたログの G センサー・値の CSV も手放す (数 MB あり、開くたびにたまっていた)
+              imuTracksRef.current.delete(id); imuPendingRef.current.delete(id); sensorPendingRef.current.delete(id);
               setConvertSessionId(prev => (prev === id ? '' : prev));
               setSessions(prev => prev.filter(s => s.id !== id));
               setSelectedCars(prev => prev.filter(c => c.sessionId !== id));
@@ -2598,7 +2625,7 @@ export const App: React.FC = () => {
             onOpen={r => void openRun(r)}
             onOpenSession={s => void openSavedSession(s)}
             // 動画を見る: 走行を開いて (動画と同期もそろう)、動画の画面へ
-            onOpenVideo={r => void openRun(r, 'video').then(() => navStore.go('video'))}
+            onOpenVideo={r => void openRun(r, 'video')}
             // 走行がもう開いているときだけ、比べる相手として足せる
             onAddAsCar2={sessions.length > 0 ? (r => void addRunAsCar2(r)) : undefined}
             // 比べられるのは Car 1 と同じコースの走行だけ
@@ -2694,11 +2721,11 @@ export const App: React.FC = () => {
 
       {/* 開発支援 (Buy Me a Coffee) モーダル */}
       <ChoiceDialogHost />
-      {runDownload && (
+      {shownDownload && (
         <div className="fixed left-1/2 -translate-x-1/2 bottom-24 z-[56] max-w-[90vw] flex items-center gap-2 px-3 py-2 rounded-full bg-surface-2/95 border border-sky-500/50 text-xs text-sky-200 shadow-lg" data-testid="run-download">
           <span className="w-3 h-3 rounded-full border-2 border-sky-400 border-t-transparent animate-spin shrink-0" />
           <span className="truncate">
-            {T(`動画をダウンロード中… (${runDownload.done}/${runDownload.names.length})`, `Downloading video… (${runDownload.done}/${runDownload.names.length})`)}
+            {T(`動画をダウンロード中… (${shownDownload.done}/${shownDownload.names.length})`, `Downloading video… (${shownDownload.done}/${shownDownload.names.length})`)}
           </span>
         </div>
       )}

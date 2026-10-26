@@ -1,4 +1,5 @@
 import AVFoundation
+import WebKit
 import UIKit
 
 /// 内蔵カメラでの録画 (ラップタイマーの測定開始で撮り始め、終了で止める。2026-10-25。設計は docs/iphone_app_design.md の 6)。
@@ -766,11 +767,23 @@ final class CameraModule: NSObject {
         c.liveLayer = layer
     }
 
+    /// 窓の中の WKWebView を探す
+    private static func findWebView(in view: UIView?) -> WKWebView? {
+        guard let view else { return nil }
+        if let web = view as? WKWebView { return web }
+        for sub in view.subviews { if let web = findWebView(in: sub) { return web } }
+        return nil
+    }
+
     private func placeLive(_ c: Channel, _ rect: CGRect) {
         makeLive(c)
         let angle = c.angle
-        // Web の CSS の座標は、WKWebView (画面いっぱい) の座標と同じ
-        c.liveView?.frame = rect
+        // Web の CSS の座標は WKWebView の中の座標。WKWebView は折りたたみの iPhone では内側に寄せてある (WebHost) ので、窓の座標に直す
+        if let view = c.liveView, let web = Self.findWebView(in: view.superview) {
+            view.frame = web.convert(rect, to: view.superview)
+        } else {
+            c.liveView?.frame = rect
+        }
         c.liveView?.isHidden = rect.width < 4 || rect.height < 4
         c.liveLayer?.frame = CGRect(origin: .zero, size: rect.size)
         if let conn = c.liveLayer?.connection, conn.isVideoRotationAngleSupported(angle) { conn.videoRotationAngle = angle }

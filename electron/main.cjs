@@ -575,7 +575,8 @@ const lapDeletable = rel => {
   const name = path.posix.basename(r);
   // . や .. の区切りは断る (道を解いたあとに、守っているフォルダ・ファイルを指せないように)
   if (r.split('/').some(s => s === '' || s === '.' || s === '..')) return false;
-  return r.includes('/') && !/^(course|sessions|exports)\//.test(r) && !name.startsWith('.') && !['runs.json', 'laptimes.json', 'corners.json', 'corners.json.bak'].includes(name);
+  // 守るフォルダ: コース・比べ方・書き出し・メーターの並び・CSV の形式と計算式・デジスパイスのコースデータ (取り込み元/ は、取り込みに失敗したときの書きかけを消すので守らない)
+  return r.includes('/') && !/^(course|sessions|exports|overlays|formats|digspice)\//.test(r) && !name.startsWith('.') && !['runs.json', 'laptimes.json', 'corners.json', 'corners.json.bak'].includes(name);
 };
 ipcMain.handle('laps-delete', async (_event, rels) => {
   const deleted = [];

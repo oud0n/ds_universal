@@ -1165,7 +1165,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               狭い枠で右側が切れても押せるよう、いちばん左に置く */}
           {isGraphEmbedded && activeTrack && (
             <button
-              onClick={() => setShowSyncTools(v => !v)}
+              onClick={() => { if (confirmDiscard()) setShowSyncTools(v => !v); }}
               aria-pressed={showSyncTools}
               title={t('動画のタイムゾーン・再同期の段とタイムラインを出す / 隠す', 'Show / hide the time zone and resync row and the timeline')}
               className={`flex items-center gap-1 shrink-0 whitespace-nowrap px-2 py-1 rounded text-xs border transition-colors cursor-pointer ${
@@ -1204,7 +1204,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   key={id}
                   role="tab"
                   aria-selected={on}
-                  onClick={onClick}
+                  // メーターの配置を直している途中なら、捨ててよいか聞いてから替える (黙って捨てていた)
+                  onClick={() => { if (!on && !confirmDiscard()) return; onClick(); }}
                   disabled={!enabled}
                   className={`px-2.5 py-1 text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-40 ${on ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
                   data-testid={`video-mode-${id}`}
@@ -1416,7 +1417,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               スマートフォンでは出さない (書き出しはパソコン向け。スマートフォンの動画は「見る」と「合わせる」だけ。PLAN-24 の D5) */}
           {(activeTrack || baseSession) && !phoneToolbar && isGraphEmbedded && (
             <button
-              onClick={() => setShowExportModal(true)}
+              onClick={() => { if (confirmDiscard()) setShowExportModal(true); }}
               className={`flex items-center gap-1 px-2 py-1 rounded bg-red-700 hover:bg-red-600 text-xs font-bold text-white transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
               title={t('メーターオーバーレイ付きの動画をMP4形式で書き出し', 'Export the video with the gauge overlay as MP4')}
             >
@@ -1717,7 +1718,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 selected={editSel}
                 onSelect={setEditSel}
                 onChange={setEditParts}
-                key={`${editBase}:${editKey}`}
+                key={`edit:${editKey}`}
                 onPickBase={id => {
                   if (!confirmDiscard()) return;
                   const base = resolveLayout(id, baseSession, customLayouts);

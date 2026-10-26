@@ -32,6 +32,9 @@ const FUNCS: Record<string, (...x: number[]) => number> = {
 
 /** 式を読む。読めなければ理由を投げる */
 export function parseExpr(src: string): Node {
+  // 長すぎる式・入れ子の深すぎる式は読まない (深い入れ子で読み手が溢れて、画面ごと止まるため)
+  if (src.length > 200) throw new Error('式が長すぎます (200 文字まで)');
+  let depth = 0;
   const toks = src.match(/\d+(?:\.\d+)?(?:e[-+]?\d+)?|[A-Za-z_][A-Za-z0-9_]*|>=|<=|==|!=|[-+*/(),<>]|\S/gi) ?? [];
   let i = 0;
   const peek = () => toks[i];
@@ -42,6 +45,10 @@ export function parseExpr(src: string): Node {
     return x;
   };
   const primary = (): Node => {
+    if (++depth > 40) throw new Error('式の入れ子が深すぎます');
+    try { return primaryInner(); } finally { depth--; }
+  };
+  const primaryInner = (): Node => {
     const t = peek();
     if (t === undefined) throw new Error('式が途中で終わっています');
     if (t === '(') { eat('('); const e = compare(); eat(')'); return e; }
@@ -139,7 +146,7 @@ export function parseCalcFile(text: string | null): CalcChannel[] {
       if (!c || typeof c.key !== 'string' || !/^[a-z0-9][a-z0-9_]{0,39}$/.test(c.key) || typeof c.expr !== 'string') return [];
       try { parseExpr(c.expr); } catch { return []; }
       return [{
-        key: c.key, label: typeof c.label === 'string' && c.label ? c.label.slice(0, 30) : c.key, expr: c.expr.slice(0, 200),
+        key: c.key, label: typeof c.label === 'string' && c.label ? c.label.slice(0, 30) : c.key, expr: c.expr,
         ...(typeof c.unit === 'string' ? { unit: c.unit.slice(0, 12) } : {}),
         ...(typeof c.min === 'number' && Number.isFinite(c.min) ? { min: c.min } : {}),
         ...(typeof c.max === 'number' && Number.isFinite(c.max) ? { max: c.max } : {})
