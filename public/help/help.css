@@ -33,3 +33,5 @@ nav.toc li.soon a { color: var(--muted); pointer-events: none; }
 html[data-lang="ja"] .l-en, html[data-lang="en"] .l-ja { display: none !important; }
 html[data-device="iphone"] .dev:not(.d-iphone), html[data-device="android"] .dev:not(.d-android),
 html[data-device="desktop"] .dev:not(.d-desktop), html[data-device="browser"] .dev:not(.d-browser) { display: none !important; }
+code { background: var(--chip); border-radius: 4px; padding: 0 4px; font-size: 0.88em; }
+nav.toc li a { padding-right: 4px; }

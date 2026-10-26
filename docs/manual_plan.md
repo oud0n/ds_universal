@@ -79,3 +79,13 @@
 - `public/help/`: help.css・help.js (端末・言語の切り替え。アプリから開くときは `?device=iphone&lang=ja`。選んだものは覚える)、index.html (目次。できていないページは「準備中」)、c1-runs.html (C1 走行を見返す)
 - 画面の写真: `public/help/img/<ページ>/<phone|desktop>-<ja|en>-<番号>.webp` (スマホは 390 の幅を 2 倍、デスクトップは 1600 の幅。1 枚 40〜50 KB)。撮るスクリプトは `_private/manual/shots_<ページ>.mjs` (試験用の保管場所のパスは iCloud Drive の場所に差し替えて撮る)
 - iPhone と Android は同じ写真 (同じ画面)、デスクトップとブラウザは手順が違う (ブラウザ版には保管場所がない)
+
+## 8. 全ページ (2026-10-26)
+
+- 18 ページ (日本語・英語) を `scripts/help/pages.mjs` に書き、`node scripts/help/build.mjs` で `public/help/` の HTML を作る (目次・前後のページへのリンクも作る。写真が足りないと知らせる)
+- 写真 (スマホ・デスクトップ、日本語・英語、全部で約 80 枚・4.5 MB) は `_private/manual/shots_phone.mjs`・`shots_desktop.mjs` で撮る (共通の部品は `lib.mjs`)
+  - スマホ: 画面のない Chrome でネイティブのふり (`?native=mock`)。保管場所の写しの走行を入れ、動画は `_private/manual/media/` に複製 (クローン) したものを開発サーバーから読む (`?mockVideoBase=`。開発サーバーのときだけ)
+  - デスクトップ: 試験用のデスクトップ版 (保管場所の写し)。撮るあいだだけ runs.json に車種・タイヤ・天候を入れる
+  - 試験用の保管場所のパスは iCloud Drive の場所の表示に差し替え、映像のルームミラー (9/18 はほおも) にはぼかしを重ねて撮る
+  - タイマーは「読み込んだログを再生して試す」(16 倍速) で 2 周目に入ったところを撮る (出どころの札だけ「デジスパイス」の表示にする)
+- 残り: アプリから開けるようにする (設定の「使い方」・各画面の「?」)、動画 V1〜V8

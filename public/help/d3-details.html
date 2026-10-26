@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja" data-lang="ja" data-device="iphone">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-ja="コーナー・ブレーキング・GG・値の帯 — LapLoupe の使い方" data-en="Corners, braking, GG and value strips — LapLoupe guide">コーナー・ブレーキング・GG・値の帯 — LapLoupe の使い方</title>
+<link rel="stylesheet" href="help.css">
+<script src="help.js" defer></script>
+</head>
+<body>
+<main>
+  <header class="top">
+    <a class="home" href="index.html" data-keep><span class="l-ja">LapLoupe の使い方</span><span class="l-en">LapLoupe guide</span></a>
+    <div class="switch" role="group" aria-label="device">
+      <button data-set-device="iphone">iPhone</button><button data-set-device="android">Android</button><button data-set-device="desktop"><span class="l-ja">デスクトップ</span><span class="l-en">Desktop</span></button><button data-set-device="browser"><span class="l-ja">ブラウザ</span><span class="l-en">Browser</span></button>
+    </div>
+    <div class="switch" role="group" aria-label="language"><button data-set-lang="ja">日本語</button><button data-set-lang="en">English</button></div>
+  </header>
+
+  <h1><span class="l-ja">コーナー・ブレーキング・GG・値の帯</span><span class="l-en">Corners, braking, GG and value strips</span></h1>
+  <p class="lead"><span class="l-ja">コーナーごとの速さ、ブレーキの踏み方、G の使い方を細かく見ます。アクセル・回転数などの記録があれば、速度のグラフの下に帯で出せます。</span><span class="l-en">Look closer at each corner, your braking and how you use the grip. If throttle, RPM and so on were recorded, show them as strips under the speed graph.</span></p>
+
+  <ol class="steps ">
+    <li class="">
+      <span class="l-ja"><b>コーナー</b>: コーナーごとの進入・ボトム・脱出の速度と、いちばん小さい曲がりの半径 (R) です。行を押すとその場所へ動きます。</span><span class="l-en"><b>Corners</b>: entry, minimum and exit speed and the tightest radius (R) for each corner. Click a row to jump there.</span>
+      <figure class="phone dev d-iphone d-android"><img class="l-ja" src="img/d3/phone-ja-1.webp" alt="" loading="lazy"><img class="l-en" src="img/d3/phone-en-1.webp" alt="" loading="lazy"></figure>
+    </li>
+    <li class="">
+      <span class="l-ja"><b>ブレーキング</b>: ブレーキの区間ごとに、始めた位置・速度の落ち方・止まるまでの距離・いちばん強い減速 G を出します。</span><span class="l-en"><b>Braking</b>: for each braking zone, where it started, the speed drop, the distance and the peak deceleration.</span>
+      <figure class="phone dev d-iphone d-android"><img class="l-ja" src="img/d3/phone-ja-2.webp" alt="" loading="lazy"><img class="l-en" src="img/d3/phone-en-2.webp" alt="" loading="lazy"></figure>
+    </li>
+    <li class="">
+      <span class="l-ja"><b>GG</b>: 縦と横の G の散らばりです。外側の円 (限界円) に近いほど、タイヤを使い切っています。</span><span class="l-en"><b>GG</b>: the spread of longitudinal and lateral G. The closer to the outer circle, the more grip you are using.</span>
+      
+    </li>
+    <li class="">
+      <span class="l-ja"><b>値の帯</b>: 速度のグラフの上の <span class="ui">値の帯</span> から、アクセル・ブレーキ・回転数・ステアリング角などを選ぶと、グラフの下に細い帯で出ます (4 つまで。帯ごとに自分の目盛りです)。記録のあるログだけ出ます (→ G1)。</span><span class="l-en"><b>Value strips</b>: choose throttle, brake, RPM, steering and more from <span class="ui">Strips</span> above the speed graph to show them as thin strips underneath (up to four, each with its own scale). Only for logs that record them (→ G1).</span>
+      <figure class="dev d-desktop d-browser"><img class="l-ja" src="img/d3/desktop-ja-1.webp" alt="" loading="lazy"><img class="l-en" src="img/d3/desktop-en-1.webp" alt="" loading="lazy"></figure>
+    </li>
+  </ol>
+
+  <div class="pager">
+    <a href="d2-compare.html" data-keep>← <span class="l-ja">2 つの周を比べる</span><span class="l-en">Comparing two laps</span></a>
+    <a href="e1-video.html" data-keep><span class="l-ja">動画を見る</span><span class="l-en">Watching videos</span> →</a>
+  </div>
+</main>
+</body>
+</html>

@@ -412,6 +412,12 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         for (const p of paths) { lapTimerFiles.delete(p); syncedFiles.delete(p); deleted.push(p); }
         return { deleted, failed: [] };
       }
+      case 'system.runRoot': {
+        // 動画を読む URL の頭 (開発サーバーで、マニュアルの写真を撮るときだけ。?mockVideoBase=http://localhost:.../)
+        const base = new URLSearchParams(window.location.search).get('mockVideoBase');
+        if (!base) throw { code: 'not-supported', message: 'no video base' };
+        return { urlBase: base };
+      }
       case 'system.listRunFiles':
         return { files: [...visibleFiles().entries()].filter(([p]) => !p.startsWith('exports/')).map(([path, b64]) => ({ path, size: b64.length, mtimeMs: 0, local: true })) };
       case 'system.readRunFile': {

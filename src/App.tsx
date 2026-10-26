@@ -1855,6 +1855,8 @@ export const App: React.FC = () => {
       go: (s: Parameters<typeof navStore.go>[0]) => navStore.go(s),
       // 走行とコースの引き出しの Car の割り当てと同じ (比べるを開いたまま Car を替える試験のため)
       selectCar: (slot: number, sessionId: string, lapNumber: number) => handleSelectCarSlot(slot, sessionId, lapNumber),
+      // CSV の形式の定義を読み直す (試験・マニュアルの写真で、あとから保管場所に入れたとき)
+      reloadCsvFormats: () => loadCsvFormats(),
       clockBase,
       currentTimeSec,
       isPlaying,

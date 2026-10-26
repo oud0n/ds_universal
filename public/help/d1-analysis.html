@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ja" data-lang="ja" data-device="iphone">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-ja="解析の画面の見方 — LapLoupe の使い方" data-en="Reading the analysis screen — LapLoupe guide">解析の画面の見方 — LapLoupe の使い方</title>
+<link rel="stylesheet" href="help.css">
+<script src="help.js" defer></script>
+</head>
+<body>
+<main>
+  <header class="top">
+    <a class="home" href="index.html" data-keep><span class="l-ja">LapLoupe の使い方</span><span class="l-en">LapLoupe guide</span></a>
+    <div class="switch" role="group" aria-label="device">
+      <button data-set-device="iphone">iPhone</button><button data-set-device="android">Android</button><button data-set-device="desktop"><span class="l-ja">デスクトップ</span><span class="l-en">Desktop</span></button><button data-set-device="browser"><span class="l-ja">ブラウザ</span><span class="l-en">Browser</span></button>
+    </div>
+    <div class="switch" role="group" aria-label="language"><button data-set-lang="ja">日本語</button><button data-set-lang="en">English</button></div>
+  </header>
+
+  <h1><span class="l-ja">解析の画面の見方</span><span class="l-en">Reading the analysis screen</span></h1>
+  <p class="lead"><span class="l-ja">速度のグラフとコースマップで、周のどこで速く・遅く走ったかを見ます。グラフ・地図・動画は同じ位置で動きます。</span><span class="l-en">The speed graph and course map show where on the lap you were fast or slow. The graph, map and video all move together.</span></p>
+
+  <ol class="steps ">
+    <li class="">
+      <span class="l-ja">上は速度のグラフです (横は距離か時間)。黄色の点線はセクター、縦の赤い線は今の位置です。グラフを押すと、その位置へ動きます。</span><span class="l-en">The top graph is speed (by distance or time). Yellow dashed lines are sectors; the vertical red line is the current position. Click the graph to jump there.</span>
+      <figure class="phone dev d-iphone d-android"><img class="l-ja" src="img/d1/phone-ja-1.webp" alt="" loading="lazy"><img class="l-en" src="img/d1/phone-en-1.webp" alt="" loading="lazy"></figure>
+      <figure class="dev d-desktop d-browser"><img class="l-ja" src="img/d1/desktop-ja-1.webp" alt="" loading="lazy"><img class="l-en" src="img/d1/desktop-en-1.webp" alt="" loading="lazy"></figure>
+    </li>
+    <li class="">
+      <span class="dev d-iphone d-android"><span class="l-ja">下の欄の <span class="ui">コース</span> がコースマップです。車の位置・走った線 (色分け: 車両色・車速・加減速・ライン)・コーナーの番号が出ます。</span><span class="l-en">The <span class="ui">Map</span> tab below is the course map: car position, your line (coloured by car, speed, acceleration or line delta) and corner numbers.</span></span> <span class="dev d-desktop d-browser"><span class="l-ja">右上がコースマップです。車の位置・走った線 (色分け: 車両色・車速・加減速・ライン)・コーナーの番号が出ます。</span><span class="l-en">The course map is at the top right: car position, your line (coloured by car, speed, acceleration or line delta) and corner numbers.</span></span>
+      
+    </li>
+    <li class="">
+      <span class="l-ja">いちばん下の段で、再生・5 秒戻す/進める・再生の速さを変えます。</span><span class="l-en">Use the bottom bar to play, skip 5 s back or forward, and change the speed.</span>
+      
+    </li>
+    <li class="">
+      <span class="dev d-iphone d-android"><span class="l-ja">下の欄は、<span class="ui">GG</span> (縦と横の G の散らばり)・<span class="ui">コーナー</span>・<span class="ui">ブレーキ</span>・<span class="ui">X/Y</span> に切り替えられます (→ D3)。</span><span class="l-en">The bottom panel switches to <span class="ui">GG</span> (spread of longitudinal and lateral G), <span class="ui">Corners</span>, <span class="ui">Braking</span> and <span class="ui">X/Y</span> (→ D3).</span></span> <span class="dev d-desktop d-browser"><span class="l-ja">右下は、フリクションサークル (GG)・コーナー解析・ブレーキング・X/Y グラフに切り替えられます (→ D3)。</span><span class="l-en">The bottom-right panel switches between friction circle (GG), corners, braking and X/Y graph (→ D3).</span></span>
+      <figure class="phone dev d-iphone d-android"><img class="l-ja" src="img/d1/phone-ja-2.webp" alt="" loading="lazy"><img class="l-en" src="img/d1/phone-en-2.webp" alt="" loading="lazy"></figure>
+    </li>
+    <li class="">
+      <span class="l-ja">見る周を替えるときは、上の <span class="ui">走行とコース</span> で Car 1 の周を選びます。</span><span class="l-en">To change the lap, pick Car 1's lap in <span class="ui">Runs &amp; course</span> at the top.</span>
+      
+    </li>
+  </ol>
+
+  <div class="note dev d-browser"><span class="l-ja">ブラウザ版では、ログのファイルを <span class="ui">ファイルを開く</span> で開くと、この画面になります。</span><span class="l-en">In the browser version, open a log with <span class="ui">Open file</span> to get this screen.</span></div>
+
+  <div class="pager">
+    <a href="c2-organize.html" data-keep>← <span class="l-ja">走行を整理する (名前・車種・タイヤ・天候)</span><span class="l-en">Organise your runs (names, car, tyres, weather)</span></a>
+    <a href="d2-compare.html" data-keep><span class="l-ja">2 つの周を比べる</span><span class="l-en">Comparing two laps</span> →</a>
+  </div>
+</main>
+</body>
+</html>

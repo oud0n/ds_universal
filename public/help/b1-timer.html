@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja" data-lang="ja" data-device="iphone">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-ja="サーキットで測る (ラップタイマー) — LapLoupe の使い方" data-en="Timing at the circuit (lap timer) — LapLoupe guide">サーキットで測る (ラップタイマー) — LapLoupe の使い方</title>
+<link rel="stylesheet" href="help.css">
+<script src="help.js" defer></script>
+</head>
+<body>
+<main>
+  <header class="top">
+    <a class="home" href="index.html" data-keep><span class="l-ja">LapLoupe の使い方</span><span class="l-en">LapLoupe guide</span></a>
+    <div class="switch" role="group" aria-label="device">
+      <button data-set-device="iphone">iPhone</button><button data-set-device="android">Android</button><button data-set-device="desktop"><span class="l-ja">デスクトップ</span><span class="l-en">Desktop</span></button><button data-set-device="browser"><span class="l-ja">ブラウザ</span><span class="l-en">Browser</span></button>
+    </div>
+    <div class="switch" role="group" aria-label="language"><button data-set-lang="ja">日本語</button><button data-set-lang="en">English</button></div>
+  </header>
+
+  <h1><span class="l-ja">サーキットで測る (ラップタイマー)</span><span class="l-en">Timing at the circuit (lap timer)</span></h1>
+  <p class="lead"><span class="l-ja">スマートフォンをホルダーに付けて、周のタイムを測りながら記録します。測った走行は「走行」に入り、あとで解析・動画で見返せます。</span><span class="l-en">Mount the phone and it times your laps while recording. Runs go to Runs, ready to review in Analysis and Video.</span></p>
+
+  <ol class="steps dev d-iphone d-android">
+    <li class="">
+      <span class="l-ja">下のタブの <span class="ui">タイマー</span> を押します。左上の札で、測る機器 (デジスパイス・この端末の GPS など) を確かめます。コースは近くのコースを自動で選びます (札を押すと選び直せます)。</span><span class="l-en">Tap <span class="ui">Timer</span>. The badge at the top left shows the position source (DigSpice, this phone's GPS, ...). The course is picked automatically from your location (tap it to change).</span>
+      <figure class="phone dev d-iphone d-android"><img class="l-ja" src="img/b1/phone-ja-1.webp" alt="" loading="lazy"><img class="l-en" src="img/b1/phone-en-1.webp" alt="" loading="lazy"></figure>
+    </li>
+    <li class="">
+      <span class="l-ja"><span class="ui">測定開始</span> を押して走り出します。計測線を越えるたびに周を数えます。周を終えると、そのタイムとベストとの差が大きく出ます。下には前の周・ベスト・セクターのタイムが出ます。</span><span class="l-en">Tap <span class="ui">Start</span> and drive. Each time you cross the line a lap is counted; the lap time and the gap to your best flash up. Last lap, best and sector times are shown below.</span>
+      <figure class="phone dev d-iphone d-android"><img class="l-ja" src="img/b1/phone-ja-2.webp" alt="" loading="lazy"><img class="l-en" src="img/b1/phone-en-2.webp" alt="" loading="lazy"></figure>
+    </li>
+    <li class="">
+      <span class="l-ja">終えるときは <span class="ui">測定終了</span> → <span class="ui">はい、終了</span> を押します。走っている間に誤って押しても止まらないよう、確かめの画面が出ます (10 秒で <span class="ui">いいえ、続ける</span> に戻ります)。</span><span class="l-en">To finish, tap <span class="ui">Stop</span> → <span class="ui">Yes, stop</span>. A confirmation appears so a stray touch does not stop timing (it returns to <span class="ui">No, keep timing</span> after 10 s).</span>
+      <figure class="phone dev d-iphone d-android"><img class="l-ja" src="img/b1/phone-ja-3.webp" alt="" loading="lazy"><img class="l-en" src="img/b1/phone-en-3.webp" alt="" loading="lazy"></figure>
+    </li>
+  </ol>
+
+  <div class="note dev d-iphone d-android"><span class="l-ja">測っている間は、画面を消さず、アプリを前に出しておいてください。画面の向き (自動・縦・横) は、測定開始で固まります。</span><span class="l-en">Keep the screen on and the app in front while timing. The screen orientation (auto / portrait / landscape) is locked when you start.</span></div>
+
+  <div class="note dev d-desktop d-browser"><span class="l-ja">この操作は、iPhone・Android のアプリだけです (デスクトップ版・ブラウザ版にはありません)。上で iPhone か Android を選ぶと手順が出ます。</span><span class="l-en">This is only in the iPhone and Android apps (not in the desktop app or the browser version). Choose iPhone or Android above to see the steps.</span></div>
+
+  <div class="pager">
+    <a href="a2-devices.html" data-keep>← <span class="l-ja">機器を登録する</span><span class="l-en">Registering devices</span></a>
+    <a href="b2-camera.html" data-keep><span class="l-ja">内蔵カメラ・GoPro で一緒に撮る</span><span class="l-en">Recording with the camera or a GoPro</span> →</a>
+  </div>
+</main>
+</body>
+</html>
