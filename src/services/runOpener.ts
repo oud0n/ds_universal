@@ -8,6 +8,7 @@
  * - 覚える: 開いた走行の動画と同期は、変わるたびに runs.json に書く (少し待ってまとめて書く)
  */
 
+import { isTempC, isWeather, type Weather } from './runWeather';
 import type { Session } from '../types/telemetry';
 import { loadLapHistory } from './lapHistory';
 import { LAP_INDEX_FILE, groupRunsByFolder, queueLapIndexWrite, isRunVideoName, lapKey, parseLapIndex, runStem, setHidden, type LapRecord } from './lapIndex';
@@ -159,6 +160,8 @@ export async function videoCandidates(store: RunStore, item: RunItem): Promise<{
 interface OpenRun {
   store: RunStore;
   item: RunItem;
+  /** 最後に覚えるよう頼んだメーターの並び (書き終わる前に続けて選んでも、最後の選びで書くため) */
+  requestedLayout?: string;
   /** その走行のログ (読み込んだ順。何番目 = 分かれた走行の番号) */
   sessionIds: string[];
   circuitName: () => string;
@@ -555,22 +558,41 @@ export function openRunOverlayLayout(sessionId: string | undefined): string | nu
 }
 
 /**
- * 開いている走行 (sessionId がそのログのとき) の行に、メーターの並びを覚える (PLAN-08)。null は覚えたのを外す (標準に戻す)
+ * 開いている走行 (sessionId がそのログのとき) の行に、メーターの並びを覚える (PLAN-08)。自動は 'auto'
  */
-export async function setOpenRunOverlayLayout(sessionId: string | undefined, id: string | null): Promise<void> {
+export async function setOpenRunOverlayLayout(sessionId: string | undefined, id: string): Promise<void> {
   const run = current;
   if (!run || !sessionId || !run.sessionIds.includes(sessionId)) return;
-  if ((run.item.entry?.overlayLayout ?? null) === id) return;
+  // 自動も 'auto' として覚える (覚えていない走行と分けるため。覚えていない走行はウインドウの並びのまま)
+  if ((run.requestedLayout ?? run.item.entry?.overlayLayout) === id) return;
+  run.requestedLayout = id;
   try {
-    const row = await updateRun(run.store, run.item.folder, run.item.file, prev => {
-      const next: Partial<RunRow> = { ...prev };
-      if (id) next.overlayLayout = id;
-      else delete next.overlayLayout;
-      return next;
-    });
+    const row = await updateRun(run.store, run.item.folder, run.item.file, prev => ({ ...prev, overlayLayout: run.requestedLayout ?? id }));
     run.item.entry = row;
   } catch {
     // 書けなくても、今のウインドウではその並びで出す
+  }
+}
+
+/** 走行の行に書ける項目 (null・空は消す) */
+export interface RunMetaPatch {
+  name?: string | null;
+  note?: string | null;
+  car?: string | null;
+  tyre?: string | null;
+  reference?: { driver?: string; car?: string } | null;
+  weather?: Weather | null;
+  airTempC?: number | null;
+  trackTempC?: number | null;
+}
+
+/** 天候・気温・路面温度を行に入れる (null・読めない値は消す) */
+function applyConditions(row: Partial<RunRow>, patch: RunMetaPatch): void {
+  if ('weather' in patch) { if (isWeather(patch.weather)) row.weather = patch.weather; else delete row.weather; }
+  for (const k of ['airTempC', 'trackTempC'] as const) {
+    if (!(k in patch)) continue;
+    const v = patch[k];
+    if (isTempC(v)) row[k] = v; else delete row[k];
   }
 }
 
@@ -578,11 +600,12 @@ export async function setOpenRunOverlayLayout(sessionId: string | undefined, id:
  * 走行の名前・メモを runs.json の行に書く (PLAN-32・33)。ファイルの名前は変えない (同期・控え・runs.json の鍵がファイル名で引いているため)。
  * 空にしたら消す。開いている走行の行も、書いた中身にそろえる
  */
-export async function setRunMeta(store: RunStore, item: RunItem, patch: { name?: string | null; note?: string | null; car?: string | null; tyre?: string | null; reference?: { driver?: string; car?: string } | null }): Promise<RunRow> {
+export async function setRunMeta(store: RunStore, item: RunItem, patch: RunMetaPatch): Promise<RunRow> {
   // 書き終わる前に開いても新しい値が使われるよう、先に手元の行にも入れておく (車種を書いてすぐ「解析で開く」を押したとき)
   if (item.entry) {
     const preview = { ...item.entry };
     for (const k of ['name', 'note', 'car', 'tyre'] as const) if (k in patch) { const v = patch[k]?.trim(); if (v) preview[k] = v; else delete preview[k]; }
+    applyConditions(preview, patch);
     item.entry = preview;
   }
   const row = await updateRun(store, item.folder, item.file, prev => {
@@ -598,6 +621,7 @@ export async function setRunMeta(store: RunStore, item: RunItem, patch: { name?:
       if (v) next[k] = v;
       else delete next[k];
     }
+    applyConditions(next, patch);
     return next;
   });
   item.entry = row;

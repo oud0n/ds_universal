@@ -3,6 +3,7 @@
  * - RecentRunsList: 読み込む前のグラフの画面に出す、最近の数件
  * - RunsSheet: 上の「読込」から開く、全部の走行 (サーキットで絞れる) と「ファイルを選ぶ」
  */
+import { conditionsText } from '../services/runWeather';
 import React, { useEffect, useMemo, useState } from 'react';
 import { FolderOpen, Video, X, Loader2, ChevronRight } from 'lucide-react';
 import { circuitLabel, useT } from '../utils/i18n';
@@ -83,6 +84,8 @@ export const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy
             {[run.entry?.reference ? run.entry.reference.car : run.entry?.car, run.entry?.tyre].filter(Boolean).join(' · ')}
           </div>
         )}
+        {/* 天候・気温・路面温度 (書いた走行だけ) */}
+        {conditionsText(run.entry, ja) && <div className="mt-0.5 text-[11px] text-cyan-300/80 truncate" data-testid="run-row-conditions">{conditionsText(run.entry, ja)}</div>}
         {/* メモの頭 (PLAN-33) */}
         {run.entry?.note && <div className="mt-0.5 text-[11px] text-slate-500 truncate" data-testid="run-row-note">{run.entry.note.replace(/\s+/g, ' ')}</div>}
         <div className="flex items-center gap-3 mt-1 text-xs">

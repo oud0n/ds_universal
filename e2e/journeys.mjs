@@ -390,7 +390,7 @@ export const journeys = [
         // 足すと小さな枠の並びになる (触らなければ既定のまま、保存しない)
         await p.click('overlay-edit-add');
         await p.click('overlay-edit-save');
-        for (let i = 0; i < 30 && !JSON.parse(fs.readFileSync(file, 'utf8')).small; i++) await sleep(200);
+        for (let i = 0; i < 30 && JSON.parse(fs.readFileSync(file, 'utf8')).small?.length !== 4; i++) await sleep(200);
         check(JSON.parse(fs.readFileSync(file, 'utf8')).small?.some(x => x.type === 'lapClock') && JSON.parse(fs.readFileSync(file, 'utf8')).small.length === 4, '小さな枠の部品が保存されない');
         check(JSON.parse(fs.readFileSync(file, 'utf8')).parts.find(x => x.id === 'speed')?.x === 0.12, '小さな枠を直したら、ふつうの枠が変わった');
         await p.click('overlay-edit-target-large');
@@ -500,6 +500,16 @@ export const journeys = [
         await p.waitFor(`document.querySelector('[data-testid="analysis-compact"]')?.dataset.tier === 'phone'`, 5000, 'たたむ');
         await sleep(300);
         check(JSON.stringify(await shown()) === '["map"]' && await mapVisible(), `コースを触ってたたんだのにコースでない: ${await shown()}`);
+        // コースを出したまま開くと下の欄は動画。その動画を触ってからたたむと、動画のまま (コースに戻らない)
+        await p.viewport(951, 669, true);
+        await p.waitFor(`document.querySelector('[data-testid="analysis-compact"]')?.dataset.tier === 'medium'`, 5000, '開く');
+        await sleep(300);
+        check(JSON.stringify(await shown()) === '["video"]', `コースを出したまま開いたら下の欄が動画でない: ${await shown()}`);
+        await p.ev(`document.querySelector('[data-testid="analysis-body"]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
+        await p.viewport(466, 678, true);
+        await p.waitFor(`document.querySelector('[data-testid="analysis-compact"]')?.dataset.tier === 'phone'`, 5000, 'たたむ');
+        await sleep(300);
+        check(JSON.stringify(await shown()) === '["video"]', `動画を触ってたたんだのに動画でない: ${await shown()}`);
         // 動画の画面: 開いた横長の比べるは 2 つを左右に
         await p.viewport(951, 669, true);
         await sleep(600);
@@ -518,6 +528,63 @@ export const journeys = [
         await p.send('Emulation.setDeviceMetricsOverride', { width: 0, height: 0, deviceScaleFactor: 0, mobile: false }).catch(() => {});
         await p.send('Emulation.clearDeviceMetricsOverride').catch(() => {});
         await p.send('Emulation.setTouchEmulationEnabled', { enabled: false }).catch(() => {});
+      }
+    }
+  },
+  {
+    name: '天候・気温・路面温度: 走行の詳細で選ぶと一覧に出て runs.json に入り、天候で絞り込める。書いた走行が無ければ絞り込みは出ない',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      const runsPath = path.join(root, 'sodegaura/runs.json');
+      const rowOf = () => Object.entries(JSON.parse(fs.readFileSync(runsPath, 'utf8')).runs).find(([k]) => k.includes('20260913'))?.[1];
+      const fill = (id, v) => p.ev(`(() => {
+        const el = document.querySelector('[data-testid="${id}"]');
+        el.focus();
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(v)});
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.blur();
+        el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      })()`);
+      const pick = v => p.ev(`(() => { const sel = document.querySelector('[data-testid="run-detail-weather"]'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, ${JSON.stringify(v)}); sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      try {
+        await p.click('nav-library');
+        await p.waitFor(`document.querySelectorAll('[data-testid="run-row"]').length > 0`, 20000, '走行の一覧');
+        check(!(await p.exists('library-weather')), '天候を書いた走行が無いのに絞り込みが出ている');
+        await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].find(r=>r.innerText.includes('9/13'))?.click()`);
+        await p.waitFor(`document.querySelector('[data-testid="run-detail-weather"]')`, 5000, '天候の欄');
+        check(await p.ev(`document.querySelector('[data-testid="run-detail-weather"]').value === ''`), '天候の既定が未設定でない');
+        await pick('wet');
+        await sleep(600);
+        await fill('run-detail-air-temp', '18');
+        await sleep(600);
+        await fill('run-detail-track-temp', '２２．５');
+        await p.waitFor(`[...document.querySelectorAll('[data-testid="run-row-conditions"]')].some(e => e.innerText.includes('ウェット') && e.innerText.includes('18℃') && e.innerText.includes('22.5℃'))`, 8000, '一覧の天候');
+        for (let i = 0; i < 40 && rowOf()?.trackTempC === undefined; i++) await sleep(200);
+        const row = rowOf();
+        check(row?.weather === 'wet' && row?.airTempC === 18 && row?.trackTempC === 22.5, `runs.json に入らない: ${JSON.stringify({ w: row?.weather, a: row?.airTempC, t: row?.trackTempC })}`);
+        // 範囲の外は書かない (前の値に戻す)
+        await fill('run-detail-air-temp', '500');
+        await sleep(800);
+        check(rowOf()?.airTempC === 18 && await p.ev(`document.querySelector('[data-testid="run-detail-air-temp"]').value === '18'`), '範囲の外の気温を書いた');
+        // 絞り込み: ウェットだけにすると 9/13 だけ
+        const filterWeather = v => p.ev(`(() => { const sel = document.querySelector('[data-testid="library-weather"]'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, ${JSON.stringify(v)}); sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+        await p.waitFor(`[...document.querySelectorAll('[data-testid="library-weather"] option')].some(o => o.value === 'wet')`, 5000, '天候の絞り込み');
+        await filterWeather('wet');
+        await sleep(500);
+        const rows = await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].map(r => r.innerText.split('\\n')[0])`);
+        check(rows.length === 1 && rows[0].includes('9/13'), `ウェットで絞ると 9/13 だけにならない: ${rows.join(' / ')}`);
+        await filterWeather('none');
+        await sleep(500);
+        check(!(await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].some(r => r.innerText.includes('9/13'))`)), '未設定で絞っても 9/13 が出る');
+        await filterWeather('');
+      } finally {
+        // 元に戻す
+        const j = JSON.parse(fs.readFileSync(runsPath, 'utf8'));
+        for (const r of Object.values(j.runs)) { delete r.weather; delete r.airTempC; delete r.trackTempC; }
+        fs.writeFileSync(runsPath, JSON.stringify(j, null, 1));
       }
     }
   },

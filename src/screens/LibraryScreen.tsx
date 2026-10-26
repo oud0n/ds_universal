@@ -1,4 +1,6 @@
 import { sameCourseName } from '../utils/courseNames';
+import { WEATHERS, WEATHER_LABELS, isTempC, isWeather, type Weather } from '../services/runWeather';
+import type { RunMetaPatch } from '../services/runOpener';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart2, Bluetooth, ChevronRight, Cloud, EyeOff, FolderOpen, GitCompare, Loader2, Timer, Trophy, Video, X } from 'lucide-react';
 import { circuitLabel, useT } from '../utils/i18n';
@@ -78,6 +80,8 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
   const [folder, setFolder] = useState<string | null>(null);
   /** 自分の走行か、参考ラップ (自分のではない走行。PLAN-31) か */
   const [owner, setOwner] = useState<'mine' | 'ref'>('mine');
+  // 天候で絞る (null: すべて、none: 未設定)
+  const [weatherFilter, setWeatherFilter] = useState<Weather | 'none' | null>(null);
   const [shown, setShown] = useState(PAGE);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -135,7 +139,16 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
     }
     return [...m.entries()];
   }, [runs, ownerRuns, ownerNow, videoRefs]);
-  const filtered = useMemo(() => (runs ?? []).filter(r => (!folder || r.folder === folder) && (ownerNow === 'ref') === !!r.entry?.reference), [runs, folder, ownerNow]);
+  // 天候の絞り込み: 天候を書いた走行があるときだけ出す (使わない人には出さない)
+  const weatherOf = (r: RunItem): Weather | 'none' => (isWeather(r.entry?.weather) ? r.entry.weather : 'none');
+  const weatherCounts = useMemo(() => {
+    const m = new Map<Weather | 'none', number>();
+    for (const r of ownerRuns) if (!folder || r.folder === folder) m.set(weatherOf(r), (m.get(weatherOf(r)) ?? 0) + 1);
+    return m;
+  }, [ownerRuns, folder]);
+  const showWeather = [...weatherCounts.keys()].some(k => k !== 'none');
+  const weatherNow = showWeather ? weatherFilter : null;
+  const filtered = useMemo(() => (runs ?? []).filter(r => (!folder || r.folder === folder) && (ownerNow === 'ref') === !!r.entry?.reference && (!weatherNow || weatherOf(r) === weatherNow)), [runs, folder, ownerNow, weatherNow]);
   const selected = filtered.find(r => `${r.folder}/${r.file}` === selectedKey) ?? null;
 
   if (!active) return null;
@@ -185,17 +198,38 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
           ))}
         </div>
       )}
-      {folders.length > 1 && (
-        <div className="flex gap-1.5 px-3 pt-3 overflow-x-auto shrink-0">
-          {[[null, { label: t('すべて', 'All'), count: folders.reduce((n, [, f]) => n + f.count, 0) }] as const, ...folders].map(([f, { label, count }]) => (
-            <button
-              key={f ?? '*'}
-              onClick={() => { setFolder(f); setShown(PAGE); setSelectedKey(null); }}
-              className={`px-3 py-1.5 rounded-full text-xs whitespace-nowrap border cursor-pointer ${folder === f ? 'bg-sky-600 border-sky-500 text-white' : 'bg-surface-3 border-line-2 text-slate-300'}`}
+      {/* 絞り込み: コース・天候をドロップダウンで 1 段に (コースの名前が長く、丸いボタンを並べると横に長くなるため)。
+          天候は書いた走行があるときだけ出す (使わない人には出さない) */}
+      {(folders.length > 1 || showWeather) && (
+        <div className="flex gap-2 px-3 pt-3 shrink-0" data-testid="library-filters">
+          {folders.length > 1 && (
+            <select
+              value={folder ?? ''}
+              onChange={e => { setFolder(e.target.value || null); setShown(PAGE); setSelectedKey(null); }}
+              className={`flex-1 min-w-0 bg-surface-2 border rounded-lg text-xs px-2 py-1.5 cursor-pointer ${folder ? 'border-sky-500 text-sky-200' : 'border-line-2 text-slate-200'}`}
+              aria-label={t('コース', 'Course')}
+              data-testid="library-course"
             >
-              {f === 'unsorted' && label === 'unsorted' ? t('未分類', 'Unsorted') : f !== null ? circuitLabel(label) : label} <span className="opacity-70">{count}</span>
-            </button>
-          ))}
+              <option value="">{t('コース: すべて', 'Course: all')} ({folders.reduce((n, [, f]) => n + f.count, 0)})</option>
+              {folders.map(([f, { label, count }]) => (
+                <option key={f} value={f}>{f === 'unsorted' && label === 'unsorted' ? t('未分類', 'Unsorted') : circuitLabel(label)} ({count})</option>
+              ))}
+            </select>
+          )}
+          {showWeather && (
+            <select
+              value={weatherNow ?? ''}
+              onChange={e => { const v = e.target.value; setWeatherFilter(v === 'none' ? 'none' : isWeather(v) ? v : null); setShown(PAGE); setSelectedKey(null); }}
+              className={`shrink-0 max-w-[45%] bg-surface-2 border rounded-lg text-xs px-2 py-1.5 cursor-pointer ${weatherNow ? 'border-cyan-500 text-cyan-200' : 'border-line-2 text-slate-200'}`}
+              aria-label={t('天候', 'Weather')}
+              data-testid="library-weather"
+            >
+              <option value="">{t('天候: すべて', 'Weather: all')}</option>
+              {([...WEATHERS, 'none'] as const).filter(w => weatherCounts.has(w)).map(w => (
+                <option key={w} value={w}>{w === 'none' ? t('未設定', 'Not set') : WEATHER_LABELS[w][ja ? 0 : 1]} ({weatherCounts.get(w)})</option>
+              ))}
+            </select>
+          )}
         </div>
       )}
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4" data-testid="library-list">
@@ -517,6 +551,67 @@ const DeleteRunDialog: React.FC<{
 /**
  * 車種・タイヤ (2026-10-25)。自由に書き、ほかの走行で書いたものを候補に出す。離れたとき・Enter で書く
  */
+/** 天候・気温・路面温度 (どれも未設定でよい。温度は欄を離れたときに書く) */
+const ConditionsFields: React.FC<{
+  weather: Weather | null;
+  airTempC: number | null;
+  trackTempC: number | null;
+  onSave: (patch: RunMetaPatch) => void;
+}> = ({ weather, airTempC, trackTempC, onSave }) => {
+  const t = useT();
+  const ja = t('ja', 'en') === 'ja';
+  const [air, setAir] = useState(airTempC === null ? '' : String(airTempC));
+  const [track, setTrack] = useState(trackTempC === null ? '' : String(trackTempC));
+  const saved = useRef({ air: airTempC, track: trackTempC });
+  /** 書いた文字を温度にする (空は未設定、読めない・範囲の外は書かない) */
+  const parse = (v: string): number | null | undefined => {
+    const s = v.trim().replace(/[℃°cC]/g, '').replace(/[－−]/g, '-').replace(/[０-９．]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xfee0));
+    if (!s) return null;
+    const n = Math.round(Number(s) * 10) / 10;
+    return isTempC(n) ? n : undefined;
+  };
+  const save = () => {
+    const patch: RunMetaPatch = {};
+    const a = parse(air), tr = parse(track);
+    if (a !== undefined && a !== saved.current.air) patch.airTempC = a;
+    if (tr !== undefined && tr !== saved.current.track) patch.trackTempC = tr;
+    if (a === undefined) setAir(saved.current.air === null ? '' : String(saved.current.air));
+    if (tr === undefined) setTrack(saved.current.track === null ? '' : String(saved.current.track));
+    if (Object.keys(patch).length) { saved.current = { air: a === undefined ? saved.current.air : a, track: tr === undefined ? saved.current.track : tr }; onSave(patch); }
+  };
+  // 欄が消える (別の走行を選んだ) ときも、書きかけを書く
+  const latest = useRef(save);
+  latest.current = save;
+  useEffect(() => () => latest.current(), []);
+  const input = 'w-10 min-w-0 bg-transparent border-b border-line-3 focus:border-sky-500 text-xs text-slate-200 placeholder:text-slate-500 outline-none py-0.5 text-right';
+  const enter = (e: React.KeyboardEvent<HTMLInputElement>) => { if (!e.nativeEvent.isComposing && e.key === 'Enter') e.currentTarget.blur(); };
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5" data-testid="run-detail-conditions">
+      <span className="shrink-0 text-[10px] text-slate-500">{t('天候', 'Weather')}</span>
+      <select value={weather ?? ''} onChange={e => onSave({ weather: isWeather(e.target.value) ? e.target.value : null })}
+        className="bg-surface-1 border border-line-3 rounded text-xs text-slate-200 px-1 py-0.5" aria-label={t('天候', 'Weather')} data-testid="run-detail-weather">
+        <option value="">{t('未設定', 'Not set')}</option>
+        {WEATHERS.map(w => <option key={w} value={w}>{WEATHER_LABELS[w][ja ? 0 : 1]}</option>)}
+      </select>
+      {/* 気温・路面温度は 1 つのまとまり (狭いときは 2 つ一緒に次の行へ) */}
+      <span className="flex items-center gap-1 whitespace-nowrap">
+      <span className="flex items-center gap-1 whitespace-nowrap">
+      <span className="shrink-0 text-[10px] text-slate-500">{t('気温', 'Air')}</span>
+      <input value={air} onChange={e => setAir(e.target.value.slice(0, 6))} onBlur={save} onKeyDown={enter} inputMode="decimal"
+        placeholder="--" aria-label={t('気温 (℃)', 'Air temperature (°C)')} className={input} data-testid="run-detail-air-temp" />
+      <span className="text-[10px] text-slate-500">℃</span>
+      </span>
+      <span className="flex items-center gap-1 whitespace-nowrap ml-1">
+      <span className="shrink-0 text-[10px] text-slate-500">{t('路面', 'Track')}</span>
+      <input value={track} onChange={e => setTrack(e.target.value.slice(0, 6))} onBlur={save} onKeyDown={enter} inputMode="decimal"
+        placeholder="--" aria-label={t('路面温度 (℃)', 'Track temperature (°C)')} className={input} data-testid="run-detail-track-temp" />
+      <span className="text-[10px] text-slate-500">℃</span>
+      </span>
+      </span>
+    </div>
+  );
+};
+
 const CarTyreFields: React.FC<{
   showCar: boolean;
   car: string;
@@ -640,7 +735,7 @@ const RunDetail: React.FC<{
   /** 狭い画面のシートを閉じる (広い画面では右の欄なので無い) */
   onClose?: () => void;
   /** 走行の名前・メモを書く (PLAN-32・33) */
-  onSaveMeta?: (patch: { name?: string; note?: string; car?: string; tyre?: string; reference?: { driver?: string; car?: string } | null }) => Promise<void>;
+  onSaveMeta?: (patch: RunMetaPatch) => Promise<void>;
   /** 車種・タイヤの候補 (ほかの走行で書いたもの) */
   carTyreChoices?: { cars: string[]; tyres: string[] };
   /** この走行を消す (確かめの画面を出す)。消せない置き場では無い */
@@ -676,6 +771,15 @@ const RunDetail: React.FC<{
               car={run.entry?.car ?? ''}
               tyre={run.entry?.tyre ?? ''}
               choices={carTyreChoices}
+              onSave={patch => void onSaveMeta(patch)}
+            />
+          )}
+          {onSaveMeta && (
+            <ConditionsFields
+              key={`wx-${run.folder}/${run.file}`}
+              weather={isWeather(run.entry?.weather) ? run.entry.weather : null}
+              airTempC={isTempC(run.entry?.airTempC) ? run.entry.airTempC : null}
+              trackTempC={isTempC(run.entry?.trackTempC) ? run.entry.trackTempC : null}
               onSave={patch => void onSaveMeta(patch)}
             />
           )}

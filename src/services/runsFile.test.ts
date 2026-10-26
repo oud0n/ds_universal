@@ -155,3 +155,23 @@ describe('行を消す・動画の行 (2026-10-25 のレビュー)', () => {
     expect(runs['20261025/GX010001.MP4']).toBeUndefined();
   });
 });
+
+describe('天候・気温・路面温度 (2026-10-26)', () => {
+  it('読めない値は落とし、読める値は残す', async () => {
+    const { parseRunsFile } = await import('./runsFile');
+    const f = parseRunsFile(JSON.stringify({ version: 2, runs: {
+      a: { updatedAt: '2026-10-26T00:00:00Z', weather: 'wet', airTempC: 18, trackTempC: 22.5 },
+      b: { updatedAt: '2026-10-26T00:00:00Z', weather: 'snow', airTempC: '18', trackTempC: 999 }
+    } }));
+    expect(f.runs.a).toMatchObject({ weather: 'wet', airTempC: 18, trackTempC: 22.5 });
+    expect(f.runs.b.weather).toBeUndefined();
+    expect(f.runs.b.airTempC).toBeUndefined();
+    expect(f.runs.b.trackTempC).toBeUndefined();
+  });
+  it('一覧の文', async () => {
+    const { conditionsText } = await import('./runWeather');
+    expect(conditionsText({ weather: 'heavy-wet', airTempC: 12 }, true)).toBe('ヘビーウェット · 気温 12℃');
+    expect(conditionsText({ trackTempC: 30 }, false)).toBe('Track 30℃');
+    expect(conditionsText({}, true)).toBe('');
+  });
+});

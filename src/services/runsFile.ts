@@ -11,6 +11,7 @@
  * - iCloud がぶつかったときに作る写し (runs 2.json など) も読み、行ごとに新しいほうを使う。書くときに本体へ入れる
  */
 
+import { isTempC, isWeather, type Weather } from './runWeather';
 import type { ClockSource } from './mediaClock';
 import type { LapFileStore } from './lapIndex';
 import type { RunStore } from './runStore';
@@ -69,6 +70,11 @@ export interface RunRow {
   car?: string;
   /** タイヤ (銘柄・コンパウンドなど。自由に書く。2026-10-25) */
   tyre?: string;
+  /** 天候 (ドライ・ダンプ・ウェット・ヘビーウェット。未設定なら無し。2026-10-26) */
+  weather?: Weather;
+  /** 気温・路面温度 (℃。未設定なら無し) */
+  airTempC?: number;
+  trackTempC?: number;
   /** 動画のメーターの並びの印 (同梱の並び std など、自分の並び user:<名前>。PLAN-08) */
   overlayLayout?: string;
   /** 分かれた走行の何番目ごとの情報 (ログの時計の補正) */
@@ -116,6 +122,9 @@ function cleanRow(e: Record<string, unknown>): RunRow | null {
   if (e.car !== undefined && typeof e.car !== 'string') delete row.car;
   if (e.tyre !== undefined && typeof e.tyre !== 'string') delete row.tyre;
   if (e.overlayLayout !== undefined && typeof e.overlayLayout !== 'string') delete row.overlayLayout;
+  if (e.weather !== undefined && !isWeather(e.weather)) delete row.weather;
+  if (e.airTempC !== undefined && !isTempC(e.airTempC)) delete row.airTempC;
+  if (e.trackTempC !== undefined && !isTempC(e.trackTempC)) delete row.trackTempC;
   if (e.reference !== undefined) {
     if (isObj(e.reference)) {
       const r = e.reference as Record<string, unknown>;

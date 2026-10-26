@@ -169,7 +169,8 @@ export const OverlayEditPanel: React.FC<{
   onSelect: (id: string | null) => void;
   onChange: (parts: OverlayPart[]) => void;
   onPickBase: (id: string) => void;
-  onSave: (name: string) => Promise<string | null>;
+  /** 保存する。overwriteId: 上書きする自分の並び (無ければ名前から新しく作る) */
+  onSave: (name: string, overwriteId?: string) => Promise<string | null>;
   /** 自分の並びの名前だけを変える (印・ファイルは変えないので、走行に覚えた並びもそのまま) */
   onRename: (name: string) => Promise<string | null>;
   onDelete: () => Promise<void>;
@@ -206,16 +207,23 @@ export const OverlayEditPanel: React.FC<{
     const n = name.trim();
     if (!n) { setNote({ ok: false, text: t('名前を付けてください', 'Enter a name') }); return; }
     // 同じファイルの名前になるほかの並び (大文字・小文字、空白と _ の違いだけのもの) は、上書きしてよいか聞く
+    // 同じ名前の並び (名前だけ変えた並びは、ファイルの名前と並びの名前が違う) も、上書きしてよいか聞き、その並びに上書きする
     const stem = (v: string) => v.replace(/[\\/:*?"<>|\s]+/g, '_').replace(/^\.+/, '').slice(0, 40).toLowerCase();
-    const clash = custom.find(l => l.id !== baseId && stem(l.id.slice(5)) === stem(n));
-    if (clash && !window.confirm(t(`「${clash.name[0]}」と同じファイルになります。上書きしますか？`, `This overwrites "${clash.name[0]}". Continue?`))) return;
-    const e = await onSave(n);
+    const sameName = (l: OverlayLayout) => l.name[0].trim().toLowerCase() === n.toLowerCase();
+    const clash = custom.find(l => l.id !== baseId && (sameName(l) || stem(l.id.slice(5)) === stem(n)));
+    if (clash && !window.confirm(t(`「${clash.name[0]}」に上書きしますか？`, `Overwrite "${clash.name[0]}"?`))) return;
+    // 開いている自分の並びと同じ名前なら、その並びに上書きする
+    const base = custom.find(l => l.id === baseId && sameName(l));
+    const e = await onSave(n, clash?.id ?? base?.id);
     setNote(e ? { ok: false, text: e } : { ok: true, text: t(`「${n}」を保存しました`, `Saved "${n}"`) });
   };
   const savedName = custom.find(l => l.id === baseId)?.name[0];
   const canRename = baseId.startsWith('user:') && !!savedName && !!name.trim() && name.trim() !== savedName;
   const rename = async () => {
     const n = name.trim();
+    // ほかの並びと同じ名前にはしない (選びで見分けられなくなるため)
+    const dup = custom.find(l => l.id !== baseId && l.name[0].trim().toLowerCase() === n.toLowerCase());
+    if (dup) { setNote({ ok: false, text: t(`「${dup.name[0]}」という並びがもうあります`, `A layout named "${dup.name[0]}" already exists`) }); return; }
     const e = await onRename(n);
     setNote(e ? { ok: false, text: e } : { ok: true, text: t(`名前を「${n}」に変えました`, `Renamed to "${n}"`) });
   };
