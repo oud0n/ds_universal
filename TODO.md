@@ -23,7 +23,7 @@
 - AiM の Solo 2 DL から吸い出す (WISH-01。買うかもしれない)
 - ほかの機器・データが要る確認 (RaceBox・BLE の Drogger・OBD・心拍計・RaceChrono の CSV・DJI / Insta360・Windows の実機など) は 2026-10-25 に残件から外した
 
-**見送り**: CarPlay (PLAN-34)、Tauri (PLAN-07)、Android の前後同時録画
+**見送り**: CarPlay (PLAN-34)、Tauri (PLAN-07)、Android の前後同時録画、Liquid Glass の見た目 (本物は iOS のネイティブの部品でしか出ないため。2026-10-26)
 
 ---
 
