@@ -48,6 +48,13 @@ export const PAGES = [
             '保管場所の中は、サーキットごとのフォルダ (例: sodegaura) → 日付のフォルダ → 走行のファイルと動画、と並びます。ラップタイマーで測った走行は自動で入ります。GoPro の動画は、走行と同じ日付のフォルダに入れておくと、走行を開いたときに一緒に出ます。',
             'Inside, there is a folder per circuit (e.g. sodegaura), then a folder per day with the run files and videos. Runs from the lap timer go in automatically. Put GoPro videos in the same day folder as the run and they open with it.'
           ]
+        },
+        {
+          dev: 'iphone',
+          text: [
+            'デジスパイスのコースデータ (digspice フォルダ) を保管場所に置いたときは、「ファイル」アプリでその **digspice** フォルダを長押しし、[ダウンロードを保持] を選んでください。iCloud にだけあると、アプリを開くたびに 200 個ほどのファイルを取り込むので、走行や動画を開くのが遅くなります。小さなファイルなので、端末の空きはほとんど使いません。',
+            'If you put DigSpice course data (the digspice folder) in the storage folder, long-press that **digspice** folder in the Files app and choose [Keep Downloaded]. While it lives only in iCloud, the app downloads about 200 files each time it opens, which slows down opening runs and videos. The files are small and take almost no space.'
+          ]
         }
       ]
     }, NO_STORAGE]
@@ -461,6 +468,8 @@ export const PAGES = [
       qa: [
         [['動画が黒いまま・「この時刻の映像はありません」と出る', 'The video stays black or says "No footage at this time"'],
           ['動画が iCloud にだけあり、まだ端末に取り込まれていないことがあります。少し待つか、ファイルのアプリで取り込んでください。それでも出ないときは、動画とログの時刻がずれています (→ E2)。', 'The video may be only in iCloud and not downloaded yet; wait a moment or download it in the Files app. If it still does not show, the video and log times are out of step (→ E2).']],
+        [['走行・動画を開くのが遅い (iPhone・iPad)', 'Opening runs or videos is slow (iPhone / iPad)'],
+          ['保管場所の digspice フォルダが iCloud にだけあると、開くたびに取り込むので遅くなります。「ファイル」アプリで digspice フォルダを長押しし、[ダウンロードを保持] を選んでください (→ A1)。大きな動画を iCloud から取り込んでいる間も、ほかのファイルの取り込みが後回しになり遅くなります。', 'If the digspice folder in your storage is only in iCloud, it is downloaded each time and things slow down. Long-press the digspice folder in the Files app and choose [Keep Downloaded] (→ A1). While a large video downloads from iCloud, other files wait their turn too.']],
         [['周が出ない・「コース未設定」と出る', 'No laps, or "No course"'],
           ['知らない場所の走行です。開くと計測線を自動で置いて周を数えます。コースを選び直すときは [走行とコース] で選びます。', 'The run is at an unknown place. Opening it places a timing line automatically and counts laps. To pick the course, use [Runs & course].']],
         [['iPhone と PC で走行が違う', 'Runs differ between iPhone and PC'],

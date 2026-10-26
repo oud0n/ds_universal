@@ -2166,6 +2166,7 @@ export const App: React.FC = () => {
                   viewKey="phone-analysis"
                   onSetClockOffset={setSessionClockOffset}
                       downloading={runDownload}
+                      loading={runBusy}
                 />
               )}
             </div>
@@ -2251,6 +2252,7 @@ export const App: React.FC = () => {
                       viewKey="graph-a"
                       onSetClockOffset={setSessionClockOffset}
                       downloading={runDownload}
+                      loading={runBusy}
                       compareCars={activeCars}
                     />
                 </div>
@@ -2437,6 +2439,7 @@ export const App: React.FC = () => {
                       muted={!collapsed.anim}
                       onSetClockOffset={setSessionClockOffset}
                       downloading={runDownload}
+                      loading={runBusy}
                       compareCars={activeCars}
                     />
                   )}
