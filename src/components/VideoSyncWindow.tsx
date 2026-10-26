@@ -32,7 +32,7 @@ import {
 import { canUseEncodeExport, exportEncodedVideo } from '../services/encodeVideoExporter';
 import { canExportWebmAlpha, exportOverlayOnly } from '../services/overlayOnlyExporter';
 import { type OverlayPartsOptions } from './overlayParts';
-import { renderOverlayParts } from './overlayRender';
+import { preloadOverlayImages, renderOverlayParts } from './overlayRender';
 import { AUTO_LAYOUT, BUILTIN_LAYOUTS, COMPARE_LAYOUT, SMALL_PARTS, SMALL_TILE_PX, availableChannels, hiddenKey, parseOverlayLayout, partChannels, partLabel, resolveLayout, visibleParts, type OverlayLayout, type OverlayPart } from '../services/overlayLayout';
 import { deleteCustomLayout, renameCustomLayout, layoutFileText, listCustomLayouts, saveCustomLayout } from '../services/overlayStore';
 import { canUseRunStore, getRunStore } from '../services/runStore';
@@ -57,6 +57,37 @@ import { SKIP_SEC, Skip10Icon } from './Skip10Icon';
 import { useWheelScrollX } from '../hooks/useWheelScrollX';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { companionSessionsOfVideo, onOpenRun, openRunOverlayLayout, setOpenRunOverlayLayout } from '../services/runOpener';
+
+/** 書き出しの範囲の時刻 (分:秒.1 桁) */
+function formatRangeTime(sec: number): string {
+  const s = Math.max(0, sec);
+  const m = Math.floor(s / 60);
+  return `${m}:${(s - m * 60).toFixed(1).padStart(4, '0')}`;
+}
+
+/** 分:秒 (または秒だけ) を秒にする。読めなければ null */
+export function parseRangeTime(text: string): number | null {
+  const v = text.trim().replace(/[：]/g, ':').replace(/[０-９．]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xfee0));
+  const m = /^(?:(\d+):)?(\d+(?:\.\d+)?)$/.exec(v);
+  if (!m) return null;
+  const sec = (m[1] ? Number(m[1]) * 60 : 0) + Number(m[2]);
+  return Number.isFinite(sec) ? sec : null;
+}
+
+/** 書き出しの範囲の時刻の欄 (離れたとき・Enter で決める。読めなければ元に戻す) */
+const RangeTimeInput: React.FC<{ value: number; onCommit: (sec: number) => void; testId: string }> = ({ value, onCommit, testId }) => {
+  const [text, setText] = useState(formatRangeTime(value));
+  const commit = () => {
+    const v = parseRangeTime(text);
+    if (v === null) setText(formatRangeTime(value));
+    else if (Math.abs(v - value) > 0.04) onCommit(v);
+  };
+  return (
+    <input value={text} onChange={e => setText(e.target.value)} onBlur={commit}
+      onKeyDown={e => { if (!e.nativeEvent.isComposing && e.key === 'Enter') e.currentTarget.blur(); }}
+      inputMode="decimal" className="w-20 bg-surface-0 border border-line-3 rounded px-1.5 py-0.5 font-mono text-slate-200 text-right" data-testid={testId} />
+  );
+};
 
 /** 動画の音を消したか (この端末に覚えておく) */
 const VIDEO_MUTED_KEY = 'ds_video_muted';
@@ -310,7 +341,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // 開いたまま数えると、ほかのタブで再生のキー操作が効かなくなる)
   useEscapeKey(showPinModal && isVisible, () => setShowPinModal(false));
   useEscapeKey(showExportModal && isVisible, () => setShowExportModal(false));
-  const [exportRange, setExportRange] = useState<'lap' | 'all'>('lap');
+  const [exportRange, setExportRange] = useState<'lap' | 'all' | 'custom'>('lap');
+  // 時間で決めた書き出しの範囲 (ログの時刻の秒。開始・終了)
+  const [customRange, setCustomRange] = useState<[number, number] | null>(null);
   const [exportResolution, setExportResolution] = useState<'1080p' | '720p'>('1080p');
   // 書き出しの方式。encode: 元のファイルを 1 コマずつ読んで書く (速く、コマが抜けない)。record: 再生しながら録る (これまでの方式)
   const [exportMethod, setExportMethod] = useState<'encode' | 'record' | 'overlay-png' | 'overlay-webm'>('overlay-png'); // 既定はメーターだけの動画 (編集ソフトで重ねる。2026-10-20)
@@ -414,6 +447,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   useEffect(() => onOpenRun(() => applyRunLayoutRef.current()), []);
   useEffect(() => { applyRunLayoutRef.current(); }, [baseSession?.id]);
   const overlayLayout = editLayout ?? resolveLayout(win.overlayLayout ?? AUTO_LAYOUT, baseSession, customLayouts);
+  // 画像の部品 (ロゴなど) は、書き出しの画面を開いたときに読んでおく (最初のコマから出るように)
+  useEffect(() => {
+    if (!showExportModal) return;
+    const srcs = [...overlayLayout.parts, ...(overlayLayout.small ?? [])].flatMap(p => (p.type === 'image' ? [p.src] : []));
+    if (srcs.length) void preloadOverlayImages(srcs);
+  }, [showExportModal, overlayLayout]);
   const overlayParts: OverlayPartsOptions = {
     // 編集の間は、出さないことにした部品も出す (置き場所が見えるように)
     lapPanel: editLayout ? true : win.showLapPanel,
@@ -541,6 +580,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const positions = tiles.map(x => x.position);
   // 同期の調整・書き出しの対象は、メインのカメラの今のチャプター
   const activeTrack: PlacedTrack | undefined = positions[0]?.track ?? mainMedia?.tracks[0];
+  /** 書き出しの範囲の時刻の元。再生の段の「全体」と同じ時刻 (ログの時刻) で出す */
+  const rangeBase = 0;
+  const rangeClock = (sec: number) => formatRangeTime(sec - rangeBase);
   // 元のファイルのない動画では、エンコードの方式は使えないので、これまでの方式にする
   useEffect(() => {
     if (exportMethod === 'encode' && activeTrack && !activeTrack.file) setExportMethod('record');
@@ -732,8 +774,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const handleStartStageExport = () => {
     if (isAnyExporting || shownCount === 0) return;
     // 走行比較は周の中で比べるので、いつも周の範囲で書き出す (動画全体にすると、周の終わりで比べる車が止まったままになる)
-    const range: [number, number] | null = (exportRange === 'lap' || isCompare) && baseLap
+    const range: [number, number] | null = (exportRange === 'lap' || (isCompare && exportRange !== 'custom')) && baseLap
       ? [baseLap.startTime, baseLap.endTime]
+      : exportRange === 'custom' && customRange ? customRange
       : mainMedia ? [Math.max(0, mainMedia.startSec), mainMedia.endSec] : null;
     if (!range) return;
     const [start, end] = range;
@@ -837,7 +880,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     // 周の前は 0:00.00 で待ち、周のあとはその周のタイムで止める)
     const frameByFrame = overlayOnly || (exportMethod === 'encode' && !!activeTrack?.file && canUseEncodeExport());
     const padSec = frameByFrame ? LAP_EXPORT_PAD_SEC : 0;
-    if (exportRange === 'lap' && baseLap) {
+    if (exportRange === 'custom' && customRange) {
+      [startSec, endSec] = customRange;
+    } else if (exportRange === 'lap' && baseLap) {
       startSec = baseLap.startTime - padSec;
       endSec = baseLap.endTime + padSec;
     } else if (activeTrack) {
@@ -852,7 +897,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
     const exportW = exportResolution === '1080p' ? 1920 : 1280;
     const exportH = exportResolution === '1080p' ? 1080 : 720;
-    const filename = `${circuitName || 'race'}_${exportRange === 'lap' && baseLap ? `Lap${baseLap.lapNumber}` : 'session'}_telemetry.mp4`;
+    const filename = `${circuitName || 'race'}_${exportRange === 'lap' && baseLap ? `Lap${baseLap.lapNumber}` : exportRange === 'custom' && customRange ? `${rangeClock(customRange[0]).replace(/[:.]/g, '')}-${rangeClock(customRange[1]).replace(/[:.]/g, '')}` : 'session'}_telemetry.mp4`;
 
     setIsExporting(true);
     videoViewStore.set({ isExporting: true });
@@ -2266,8 +2311,59 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 >
                   {activeTrack ? t('動画全体', 'Whole video') : t('ログ全体', 'Whole log')}
                 </button>
+                <button
+                  onClick={() => {
+                    setExportRange('custom');
+                    // はじめは今の位置から 30 秒 (前に決めた範囲があればそれ)
+                    setCustomRange(r => r ?? [renderSessionTime, renderSessionTime + 30]);
+                  }}
+                  className={`col-span-2 px-2 py-1.5 rounded border text-xs font-bold transition-colors cursor-pointer ${
+                    exportRange === 'custom'
+                      ? 'bg-red-600 text-white border-red-500'
+                      : 'bg-surface-1 text-slate-400 border-line-3 hover:text-slate-200'
+                  }`}
+                  data-testid="export-range-custom"
+                >
+                  {t('時間で範囲を決める', 'Choose a time range')}
+                </button>
               </div>
             </div>
+
+            {/* 時間で範囲を決める (動画があれば動画の中の時刻、無ければログの始まりからの時刻) */}
+            {exportRange === 'custom' && customRange && (
+              <div className="space-y-1.5 text-[11px] bg-surface-1 border border-line-3 rounded p-2" data-testid="export-custom-range">
+                {(['start', 'end'] as const).map((which, k) => (
+                  <div key={which} className="flex items-center gap-2">
+                    <span className="w-8 text-slate-400">{which === 'start' ? t('開始', 'Start') : t('終了', 'End')}</span>
+                    <RangeTimeInput
+                      key={`${which}-${customRange[k]}`}
+                      value={customRange[k] - rangeBase}
+                      onCommit={v => setCustomRange(r => {
+                        if (!r) return r;
+                        const sec = rangeBase + v;
+                        return which === 'start' ? [sec, Math.max(sec + 1, r[1])] : [Math.min(r[0], sec - 1), sec];
+                      })}
+                      testId={`export-range-${which}`}
+                    />
+                    <button
+                      onClick={() => setCustomRange(r => {
+                        if (!r) return r;
+                        const now = renderSessionTime;
+                        return which === 'start' ? [now, Math.max(now + 1, r[1])] : [Math.min(r[0], now - 1), now];
+                      })}
+                      className="px-2 py-0.5 rounded border border-line-3 text-slate-300 hover:text-slate-100 cursor-pointer"
+                      data-testid={`export-range-${which}-now`}
+                    >
+                      {t('今の位置', 'Current position')}
+                    </button>
+                  </div>
+                ))}
+                <p className="text-slate-500">
+                  {t(`長さ ${(customRange[1] - customRange[0]).toFixed(1)} 秒。時刻は再生の段の「全体」と同じ時刻です (分:秒)`,
+                    `Length ${(customRange[1] - customRange[0]).toFixed(1)} s. Times match the "whole" playback bar (min:sec)`)}
+                </p>
+              </div>
+            )}
 
             {/* 枠の並びで書き出す (枠が 2 つ以上のとき) */}
             {tileCount > 1 && (

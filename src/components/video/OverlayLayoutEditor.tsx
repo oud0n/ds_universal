@@ -8,7 +8,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Pencil, Plus, Save, Trash2, X, Download, Upload, ArrowLeftRight } from 'lucide-react';
 import { useT } from '../../utils/i18n';
 import {
-  BUILTIN_LAYOUTS, CHANNELS, PART_LABELS, partChannels, partLabel,
+  BUILTIN_LAYOUTS, CHANNELS, MAX_IMAGE_SRC, PART_LABELS, isImageSrc, partChannels, partLabel,
   type ChannelId, type OverlayLayout, type OverlayPart, type OverlayPartType
 } from '../../services/overlayLayout';
 
@@ -153,7 +153,26 @@ function newPart(type: OverlayPartType, id: string, channel: ChannelId): Overlay
   }
 }
 
-const ADDABLE: OverlayPartType[] = ['bar', 'value', 'steering', 'graph', 'map', 'zoomMap', 'delta', 'speed', 'gmeter', 'lapPanel', 'lapClock'];
+const ADDABLE: OverlayPartType[] = ['bar', 'value', 'steering', 'graph', 'map', 'zoomMap', 'delta', 'speed', 'gmeter', 'lapPanel', 'lapClock', 'image'];
+
+/** 画像を部品に入れる形にする (長い辺を 800 px までに縮め、透明を残す PNG。大きすぎれば WebP)。縦横の比も返す */
+async function imagePartSource(file: File): Promise<{ src: string; aspect: number }> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('image')); i.src = url; });
+    const scale = Math.min(1, 800 / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * scale)), h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    c.getContext('2d')!.drawImage(img, 0, 0, w, h);
+    let src = c.toDataURL('image/png');
+    if (src.length > MAX_IMAGE_SRC) src = c.toDataURL('image/webp', 0.9);
+    if (!isImageSrc(src)) throw new Error('too large');
+    return { src, aspect: w / h };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 export const OverlayEditPanel: React.FC<{
   /** 直している並び (parts は、今直している枠の部品) */
@@ -189,10 +208,37 @@ export const OverlayEditPanel: React.FC<{
   const firstChannel = (['throttle', 'brake', 'speed'] as ChannelId[]).find(c => channels.has(c)) ?? 'speed';
   const sel = draft.parts.find(p => p.id === selected) ?? null;
   const update = (patch: Partial<OverlayPart>) => sel && onChange(draft.parts.map(p => (p.id === sel.id ? { ...p, ...patch } as OverlayPart : p)));
-  const add = () => {
+  const nextId = () => {
     let i = draft.parts.length + 1;
     while (draft.parts.some(p => p.id === `p${i}`)) i++;
-    const part = newPart(addType, `p${i}`, firstChannel);
+    return `p${i}`;
+  };
+  const imageRef = useRef<HTMLInputElement | null>(null);
+  // 画像を選んで足す・替える (替えるときは選んでいる画像の部品)
+  const imageTarget = useRef<string | null>(null);
+  const pickImage = (replaceId: string | null) => { imageTarget.current = replaceId; imageRef.current?.click(); };
+  const onImageFile = async (file: File) => {
+    try {
+      const { src, aspect } = await imagePartSource(file);
+      // 映像は 16:9 なので、割合の高さは 幅 × (16/9) ÷ 縦横の比
+      const w = 0.16, h = Math.min(0.5, (w * 16) / 9 / aspect);
+      if (imageTarget.current) {
+        const id = imageTarget.current;
+        onChange(draft.parts.map(p => (p.id === id && p.type === 'image' ? { ...p, src, h: (p.w * 16) / 9 / aspect } : p)));
+      } else {
+        // はじめは上の真ん中 (コース図・ラップの欄・編集の欄に重ならないところ)
+        const part: OverlayPart = { id: nextId(), type: 'image', src, x: 0.5 - w / 2, y: 0.04, w, h };
+        onChange([...draft.parts, part]);
+        onSelect(part.id);
+      }
+      setNote(null);
+    } catch {
+      setNote({ ok: false, text: t('この画像は使えません (PNG・JPEG・WebP・GIF の画像を選んでください)', 'This image cannot be used (choose a PNG, JPEG, WebP or GIF image)') });
+    }
+  };
+  const add = () => {
+    if (addType === 'image') { pickImage(null); return; }
+    const part = newPart(addType, nextId(), firstChannel);
     onChange([...draft.parts, part]);
     onSelect(part.id);
   };
@@ -273,6 +319,8 @@ export const OverlayEditPanel: React.FC<{
               {ADDABLE.map(type => <option key={type} value={type}>{PART_LABELS[type][ja ? 0 : 1]}</option>)}
             </select>
             <button onClick={add} className="shrink-0 flex items-center gap-1 px-2 py-1 rounded bg-surface-3 border border-line-3 text-slate-200 cursor-pointer" data-testid="overlay-edit-add"><Plus size={12} />{t('足す', 'Add')}</button>
+            <input ref={imageRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" data-testid="overlay-edit-image-file"
+              onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void onImageFile(f); }} />
           </div>
         </div>
         {sel && (
@@ -299,6 +347,11 @@ export const OverlayEditPanel: React.FC<{
                   </select>
                 </label>
               </>
+            )}
+            {sel.type === 'image' && (
+              <button onClick={() => pickImage(sel.id)} className="flex items-center gap-1 px-2 py-1 rounded border border-line-3 text-slate-300 cursor-pointer" data-testid="overlay-edit-image-replace">
+                <Upload size={12} />{t('画像を替える', 'Replace image')}
+              </button>
             )}
             {sel.type === 'zoomMap' && (
               <>

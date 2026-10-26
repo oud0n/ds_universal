@@ -430,6 +430,36 @@ function drawGraph(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: nu
 
 const M_PER_DEG = 111320;
 const noop = () => {};
+
+/** 画像の部品の絵 (中身ごとに 1 回だけ読む) */
+const imageCache = new Map<string, HTMLImageElement>();
+/** 画像を先に読んでおく (書き出しの最初のコマから出るように)。読み終わるのを待つ */
+export function preloadOverlayImages(srcs: string[]): Promise<void> {
+  return Promise.all(srcs.map(src => new Promise<void>(res => {
+    const img = imageFor(src, noop);
+    if (img.complete) res(); else { img.addEventListener('load', () => res(), { once: true }); img.addEventListener('error', () => res(), { once: true }); }
+  }))).then(() => undefined);
+}
+function imageFor(src: string, onLoad: () => void): HTMLImageElement {
+  let img = imageCache.get(src);
+  if (!img) {
+    img = new Image();
+    img.addEventListener('load', onLoad, { once: true });
+    img.src = src;
+    imageCache.set(src, img);
+    // 古いものから捨てる (並びを何度も直したとき)
+    if (imageCache.size > 30) imageCache.delete(imageCache.keys().next().value as string);
+  }
+  return img;
+}
+/** 画像を枠の中に縦横の比を保って描く (枠の真ん中に) */
+function drawImagePart(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, src: string, onLoad: () => void): void {
+  const img = imageFor(src, onLoad);
+  if (!img.complete || !img.naturalWidth) return;
+  const s = Math.min(w / img.naturalWidth, h / img.naturalHeight);
+  const dw = img.naturalWidth * s, dh = img.naturalHeight * s;
+  ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+}
 /** コースの道幅の目安 (m。コースの形の線を、この太さの道として描く) */
 const TRACK_WIDTH_M = 11;
 /** 走った線を明るく描く、今から前の秒 */
@@ -653,6 +683,7 @@ export function renderOverlayParts(ctx: CanvasRenderingContext2D, w: number, h: 
       case 'value': drawValue(ctx, r.x, r.y, r.w, r.h, part, pt); break;
       case 'delta': drawDelta(ctx, r.x, r.y, r.w, r.h, part, input); break;
       case 'graph': drawGraph(ctx, r.x, r.y, r.w, r.h, part, input, pt); break;
+      case 'image': drawImagePart(ctx, r.x, r.y, r.w, r.h, part.src, input.onTileLoad ?? noop); break;
     }
     ctx.restore();
   }

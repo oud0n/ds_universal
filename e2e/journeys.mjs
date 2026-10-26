@@ -589,6 +589,62 @@ export const journeys = [
     }
   },
   {
+    name: '書き出しの範囲を時間で決める・メーターに画像 (ロゴ) を置く (PLAN-38)',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      const file = path.join(root, 'overlays', 'e2e_ロゴ.overlay.json');
+      // 1 × 1 の PNG
+      const png = path.join(path.dirname(new URL(import.meta.url).pathname), 'out', 'e2e_logo.png');
+      fs.writeFileSync(png, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
+      const setInput = (id, v) => p.ev(`(() => { const el = document.querySelector('[data-testid="${id}"]'); el.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(v)}); el.dispatchEvent(new Event('input', { bubbles: true })); el.blur(); el.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); })()`);
+      try {
+        await openRun(p, '8/15', 'run-open-video');
+        if (await p.exists('video-mode-watch')) await p.click('video-mode-watch');
+        await sleep(800);
+        // 書き出しの範囲: 時間で決める → 0:10 から 0:25 で 15 秒
+        await p.click('video-mode-export');
+        await p.waitFor(`document.querySelector('[data-testid="export-range-custom"]')`, 5000, '書き出しの画面');
+        await p.click('export-range-custom');
+        await p.waitFor(`document.querySelector('[data-testid="export-custom-range"]')`, 3000, '範囲の欄');
+        await setInput('export-range-start', '0:10');
+        await sleep(300);
+        await setInput('export-range-end', '25');
+        await sleep(300);
+        const txt = await p.ev(`document.querySelector('[data-testid="export-custom-range"]').innerText`);
+        check(/15\.0/.test(txt), `範囲の長さが 15 秒でない: ${txt}`);
+        check(await p.ev(`document.querySelector('[data-testid="export-range-start"]').value === '0:10.0' && document.querySelector('[data-testid="export-range-end"]').value === '0:25.0'`), '範囲の欄の値が違う');
+        // 終わりを始まりより前にはしない
+        await setInput('export-range-end', '0:05');
+        await sleep(300);
+        check(await p.ev(`(() => { const a = document.querySelector('[data-testid="export-range-start"]').value, b = document.querySelector('[data-testid="export-range-end"]').value; return a < b || a.length < b.length; })()`), '終わりが始まりより前になった');
+        await p.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+        await sleep(400);
+        if (await p.exists('export-range-custom')) await p.ev(`[...document.querySelectorAll('button')].find(b => /キャンセル|閉じる/.test(b.innerText) && b.offsetParent)?.click()`);
+        await sleep(400);
+        // 画像の部品: 配置の編集で画像を足して保存すると、並びのファイルに画像が入る
+        await p.click('overlay-edit-toggle');
+        await p.waitFor(`document.querySelector('[data-testid="overlay-edit-panel"]')`, 5000, '配置の編集');
+        await p.setFiles('[data-testid="overlay-edit-image-file"]', [png]);
+        await p.waitFor(`[...document.querySelectorAll('[data-testid^="overlay-edit-part-"]')].length > 0 && document.querySelector('[data-testid="overlay-edit-image-replace"]')`, 5000, '画像の部品');
+        await p.ev(`(()=>{const el=document.querySelector('[data-testid="overlay-edit-name"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'e2e ロゴ'); el.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+        await p.click('overlay-edit-save');
+        for (let i = 0; i < 30 && !fs.existsSync(file); i++) await sleep(200);
+        const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+        const img = saved.parts.find(x => x.type === 'image');
+        check(img && /^data:image\/png;base64,/.test(img.src) && Math.abs(img.h - 0.16 * 16 / 9) < 0.01, `画像の部品が保存されない: ${JSON.stringify(img && { h: img.h, src: img.src.slice(0, 30) })}`);
+        await p.ev(`window.confirm = () => true`);
+        await p.click('overlay-edit-delete');
+        await p.waitFor(`!document.querySelector('[data-testid="overlay-edit-panel"]')`, 5000, '消して閉じる');
+      } finally {
+        fs.rmSync(file, { force: true });
+        fs.rmSync(png, { force: true });
+      }
+    }
+  },
+  {
     name: '走行を消す: 同じ日の別の走行・付けていない動画は残し、その走行のファイルと runs.json の行だけを消す',
     target: 'electron',
     async run(p) {
