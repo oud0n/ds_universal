@@ -645,6 +645,53 @@ export const journeys = [
     }
   },
   {
+    name: '比べ方を車種・タイヤ・天候で絞り込む (PLAN-37): 走行の一覧と、ラップタイムの一覧 (ベストも絞った中で数える)',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      const runsPath = path.join(root, 'sodegaura/runs.json');
+      const orig = fs.readFileSync(runsPath, 'utf8');
+      const pick = (id, v) => p.ev(`(() => { const sel = document.querySelector('[data-testid="${id}"]'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, ${JSON.stringify(v)}); sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      try {
+        const j = JSON.parse(orig);
+        for (const [k, r] of Object.entries(j.runs)) {
+          if (k.includes('20260913')) Object.assign(r, { car: 'e2e 車A', tyre: 'e2e タイヤ', weather: 'wet' });
+          if (k.includes('20260918')) Object.assign(r, { car: 'e2e 車B', tyre: 'e2e タイヤ' });
+        }
+        fs.writeFileSync(runsPath, JSON.stringify(j, null, 1));
+        await p.goto(`${APP}?r=${Date.now()}`);
+        await p.click('nav-library');
+        await p.waitFor(`document.querySelector('[data-testid="library-car"]')`, 20000, '車種の絞り込み');
+        await pick('library-car', 'e2e 車A');
+        await sleep(500);
+        let rows = await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].map(r => r.innerText.split('\\n')[0])`);
+        check(rows.length === 1 && rows[0].includes('9/13'), `車種で絞ると 9/13 だけにならない: ${rows.join(' / ')}`);
+        await pick('library-car', '');
+        await pick('library-tyre', 'e2e タイヤ');
+        await sleep(500);
+        rows = await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].map(r => r.innerText.split('\\n')[0])`);
+        check(rows.length === 2 && rows.every(r => /9\/1[38]/.test(r)), `タイヤで絞ると 9/13・9/18 にならない: ${rows.join(' / ')}`);
+        await pick('library-tyre', '');
+        // ラップタイムの一覧: 袖ヶ浦でウェットにすると、ベストは 9/13 のもの
+        await p.click('library-lap-history');
+        await p.waitFor(`[...document.querySelectorAll('[data-testid="lap-history-course"] option')].some(o => o.textContent.includes('袖ヶ浦'))`, 20000, 'ラップタイムの一覧');
+        await p.ev(`(() => { const sel = document.querySelector('[data-testid="lap-history-course"]'); const o = [...sel.options].find(o => o.textContent.includes('袖ヶ浦')); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, o.value); sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+        await p.waitFor(`document.querySelector('[data-testid="lap-history-weather"]')`, 10000, 'ラップタイムの天候の絞り込み');
+        const bestAll = await p.ev(`document.body.innerText.match(/ベスト\\s*([0-9:.]+)/)?.[1]`);
+        await pick('lap-history-weather', 'wet');
+        await sleep(500);
+        const bestWet = await p.ev(`document.body.innerText.match(/ベスト\\s*([0-9:.]+)/)?.[1]`);
+        check(bestAll && bestWet && bestWet !== bestAll && bestWet.startsWith('1:44'), `ウェットで絞ったベストが 9/13 のものでない: ${bestAll} → ${bestWet}`);
+        check(await p.ev(`[...document.querySelectorAll('[data-testid="lap-history-run-conditions"]')].some(e => e.innerText.includes('e2e 車A') && e.innerText.includes('ウェット'))`), 'ラップタイムの一覧に車種・天候が出ない');
+        await p.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+      } finally {
+        fs.writeFileSync(runsPath, orig);
+      }
+    }
+  },
+  {
     name: '走行を消す: 同じ日の別の走行・付けていない動画は残し、その走行のファイルと runs.json の行だけを消す',
     target: 'electron',
     async run(p) {

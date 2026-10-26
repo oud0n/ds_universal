@@ -3,6 +3,9 @@
  * 周ごとに非表示にできる (ファイルは消さない)。iPhone のアプリ (ラップタイマーのメニューから) とデスクトップ版 (データの画面から) で使う
  */
 
+import { NO_FILTER, effectiveFilter, filterOptions, matchesFilter, type ConditionFilter, type RunConditions } from '../services/runFilters';
+import { ConditionFilters } from './ConditionFilters';
+import { WEATHER_LABELS } from '../services/runWeather';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getOpenRun } from '../services/runOpener';
 import { X, FolderOpen, EyeOff, Eye, RefreshCw, BarChart3 } from 'lucide-react';
@@ -53,6 +56,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
   const [selected, setSelected] = useState('');
   const [sort, setSort] = useState<SortKey>('date');
   const [showHidden, setShowHidden] = useState(false);
+  const [condFilter, setCondFilter] = useState<ConditionFilter>(NO_FILTER);
   useEscapeKey(true, onClose);
 
   const load = useCallback(async (s: LapFileStore | null) => {
@@ -94,11 +98,19 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
   };
 
   const current = folders?.find(f => f.folder === selected) ?? null;
-  const visible = useMemo(() => (current?.rows ?? []).filter(r => showHidden || !r.hidden), [current, showHidden]);
+  // 車種・タイヤ・天候で絞る (PLAN-37)。ベスト・順位も絞った中で数える。書いた走行がある項目だけ出す
+  const condOf = (file: string): RunConditions => current?.conditions?.[file] ?? {};
+  const condOptions = useMemo(() => filterOptions([...new Set((current?.rows ?? []).map(r => r.file))].map(f => current?.conditions?.[f] ?? {})), [current]);
+  const condNow = effectiveFilter(condFilter, condOptions);
+  const inFilter = (r: LapRow) => matchesFilter(condOf(r.file), condNow);
+  const rowsNow = useMemo(() => (current?.rows ?? []).filter(inFilter),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [current, condNow.car, condNow.tyre, condNow.weather]);
+  const visible = useMemo(() => rowsNow.filter(r => showHidden || !r.hidden), [rowsNow, showHidden]);
   // 速い順の上から 3 つのタイム (隠した周は数えない。同じタイムは同じ順位)
   // 参考ラップ (自分のではない走行) は順位・ベストに数えない
   const isRef = (r: LapRow) => !!current?.references && r.file in current.references;
-  const top3 = useMemo(() => [...new Set((current?.rows ?? []).filter(r => !r.hidden && !(current?.references && r.file in current.references)).map(r => r.time))].sort((a, b) => a - b).slice(0, 3), [current]);
+  const top3 = useMemo(() => [...new Set(rowsNow.filter(r => !r.hidden && !(current?.references && r.file in current.references)).map(r => r.time))].sort((a, b) => a - b).slice(0, 3), [rowsNow, current]);
   const best = top3[0] ?? null;
   /** 順位 (1〜3。それ以外・隠した周は 0) */
   const rankOf = (r: LapRow) => (r.hidden || isRef(r) ? 0 : top3.indexOf(r.time) + 1);
@@ -182,6 +194,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
                 <option value="date">{t('走った順', 'By run')}</option>
                 <option value="time">{t('タイム順', 'By lap time')}</option>
               </select>
+              <ConditionFilters filter={condNow} options={condOptions} onChange={setCondFilter} testIdPrefix="lap-history" selectClass="max-w-full" />
               <label className="flex items-center gap-1.5 text-slate-400">
                 <input type="checkbox" checked={showHidden} onChange={e => setShowHidden(e.target.checked)} />
                 {t('隠した周も出す', 'Show hidden laps')}
@@ -193,8 +206,8 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
               <span>{t('ベスト', 'Best')} <b className="text-fuchsia-400 font-mono">{best !== null ? formatLapTime(best, 3) : '—'}</b></span>
               {top3[1] !== undefined && <span>2nd <b className="text-emerald-400 font-mono">{formatLapTime(top3[1], 3)}</b></span>}
               {top3[2] !== undefined && <span>3rd <b className="text-amber-400 font-mono">{formatLapTime(top3[2], 3)}</b></span>}
-              <span>{t(`${current.rows.filter(r => !r.hidden && !isRef(r)).length} 周`, `${current.rows.filter(r => !r.hidden && !isRef(r)).length} lap${(current.rows.filter(r => !r.hidden && !isRef(r)).length) === 1 ? '' : 's'}`)}</span>
-              <span>{t(`${current.fileCount} 走行`, `${current.fileCount} run${current.fileCount === 1 ? '' : 's'}`)}</span>
+              <span>{t(`${rowsNow.filter(r => !r.hidden && !isRef(r)).length} 周`, `${rowsNow.filter(r => !r.hidden && !isRef(r)).length} lap${(rowsNow.filter(r => !r.hidden && !isRef(r)).length) === 1 ? '' : 's'}`)}</span>
+              <span>{(() => { const n = condNow.car || condNow.tyre || condNow.weather ? new Set(rowsNow.map(r => r.file)).size : current.fileCount; return t(`${n} 走行`, `${n} run${n === 1 ? '' : 's'}`); })()}</span>
             </div>
           )}
         </div>
@@ -224,7 +237,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
                   <div className="flex items-baseline gap-2 text-xs">
                     <span className="font-bold text-slate-200 whitespace-nowrap">{fmtDate(rows[0].runStartMs)}</span>
                     {current?.names?.[file] && <span className="font-bold text-sky-300 truncate min-w-0" data-testid="lap-history-run-name">{current.names[file]}</span>}
-                    <span className="text-slate-500">{t(`${rows.length} 周`, `${rows.length} lap${(rows.length) === 1 ? '' : 's'}`)}{Number.isFinite(runBest) ? ` · ${t('ベスト', 'best')} ${formatLapTime(runBest, 3)}` : ''}</span>
+                    <span className="text-slate-500 whitespace-nowrap">{t(`${rows.length} 周`, `${rows.length} lap${(rows.length) === 1 ? '' : 's'}`)}{Number.isFinite(runBest) ? ` · ${t('ベスト', 'best')} ${formatLapTime(runBest, 3)}` : ''}</span>
                     {/* ファイル名は、幅のある画面だけ (スマートフォンでは日付が折れないように) */}
                     <span className="hidden sm:inline text-slate-600 text-[10px] ml-auto truncate">{file}</span>
                     {onOpenRun && (
@@ -233,6 +246,8 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
                       </button>
                     )}
                   </div>
+                  {/* 車種・タイヤ・天候 (書いた走行だけ。見出しの下の行に、切れないように) */}
+                  {(() => { const c = condOf(file); const w = c.weather ? WEATHER_LABELS[c.weather][getLang() === 'en' ? 1 : 0] : ''; const txt = [c.car, c.tyre, w].filter(Boolean).join(' · '); return txt ? <div className="text-[11px] text-cyan-300/80 -mt-0.5" data-testid="lap-history-run-conditions">{txt}</div> : null; })()}
                   {rows.map(r => lapLine(r, false))}
                 </div>
               );
