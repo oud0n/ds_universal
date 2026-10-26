@@ -4,6 +4,40 @@
 
 [Back to the README](../README.en.md)
 
+## v1.1.0
+
+**Added**
+
+- **Guide pages and videos**: task-based guide pages (18 pages in Japanese and English, with steps and screenshots for iPhone, Android, desktop and browser) and 8 how-to videos. Open the page for the current screen from Guide in the app's settings, the left column on PC and tablet, or the lap timer menu.
+- **iPad**: the iPhone app now runs on iPad too (portrait and landscape, laid out for the screen width).
+- **Folding iPhone (iPhone Duo)**: when unfolded, the graph, video and track map sit side by side. Folding or unfolding keeps playback going and does not rebuild the panels.
+- **Meter layout**: drag, add, remove and resize the video gauges, save layouts by name and remember one per run. Includes template layouts, a layout for small tiles, a zoomed map around the car and an image part for logos.
+- **Export range**: export video by lap, the whole run, or a time range.
+- **CSV formats and formulas**: define on the PC what each column of another device's CSV means (throttle, brake, RPM, coolant, ...) and save it in the storage folder. It is then used automatically when opening files and runs (<run>.<name>.csv next to the run). Formulas create new values from existing ones. Show values as "strips" with their own scales under the speed graph, and on the video gauges.
+- **Organising runs**: add a name, note, car, tyres, weather (dry, damp, wet, heavy wet), air and track temperature to runs. Filter the run list and lap times by car, tyres and weather (bests are counted within the filter).
+- **Reference laps**: keep other people's runs (including video-only ones) apart as reference laps and compare them with your laps. For video-only ones, mark the timing line on the video to build laps.
+- **Saved comparisons**: save the Car 1–4 assignment in Analysis and reopen it later (the browser version exports and imports a file).
+- **Deleting runs**: delete just one run's files and record from the Runs screen (other runs on the same day stay).
+- **Lap timer**:
+  - Record video with the iPhone's camera while timing (the front camera too; exposure compensation and fixed focus).
+  - When timing with the iPhone's GPS, the motion sensor fills the gaps for 10 Hz positions. Analysis also uses those motion-sensor values for G.
+  - Runs stopped without driving ask whether to delete them.
+- **Phone analysis**: a Video tab in the lower pane (watch Car 1's video).
+
+**Changed**
+
+- The lap timer's screen orientation switch (auto / portrait / landscape) is gone. Orientation follows the device and is locked only while timing (on the folding iPhone it could get stuck).
+- The analysis animation window was merged into the track window.
+- The zoomed map now keeps north up by default, like the track map (heading-up is still available).
+- Checkboxes are bigger on touch screens.
+
+**Fixed**
+
+- Opening a run while iCloud was downloading a large video could leave the run list stuck on "Loading".
+- Opening another run during playback could leave the previous run's video; while videos download from iCloud, their progress is shown.
+- Reading DigSpice course data in the storage folder is faster (it slowed opening down when the files were only in iCloud; setting the digspice folder to "Keep Downloaded" in Files makes it faster still).
+- Other small fixes found in review.
+
 ## v1.0.3
 
 **Added**
