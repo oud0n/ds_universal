@@ -441,6 +441,87 @@ export const journeys = [
     }
   },
   {
+    name: 'ラップタイムの一覧は、開いている走行のコースで開く (いちばん新しい走行のコースではない。BUG-36)',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      // いちばん新しいのは 10/12 の筑波。8/30 の日光を開いてからラップタイムを開く
+      await openRun(p, '8/30', 'run-open-analysis');
+      await p.click('nav-library');
+      await p.waitFor(`document.querySelector('[data-testid="library-lap-history"]')`, 10000, 'ラップタイムのボタン');
+      await p.click('library-lap-history');
+      await p.waitFor(`document.querySelector('[data-testid="lap-history-course"]')?.value`, 20000, 'コースの選び');
+      const v = await p.ev(`(()=>{const s=document.querySelector('[data-testid="lap-history-course"]'); return s.options[s.selectedIndex].text})()`);
+      check(/日光|Nikko/.test(v), `開いている走行 (日光) のコースでない: ${v}`);
+      await p.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`);
+    }
+  },
+  {
+    name: 'Duo を開く・たたむ (PLAN-30): 解析は欄を作り直さず置き場所だけ替わり、再生は続く。開くとコースはいつも出て下の欄は動画、たたむと最後に触った欄',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      await openRun(p, '8/15', 'run-open-analysis');
+      const tier = () => p.ev(`document.querySelector('[data-testid="analysis-compact"]')?.dataset.tier ?? 'wide'`);
+      const shown = () => p.ev(`[...document.querySelectorAll('[data-testid^="mobile-panel-"]')].filter(b => b.className.includes('bg-red-600')).map(b => b.dataset.testid.slice(13))`);
+      const mapVisible = () => p.ev(`document.querySelector('[data-testid="analysis-map"]')?.offsetParent !== null`);
+      try {
+        // たたんだ (外の画面)
+        await p.viewport(466, 678, true);
+        await p.waitFor(`document.querySelector('[data-testid="analysis-compact"]')?.dataset.tier === 'phone'`, 5000, 'スマートフォンの段');
+        await p.click('mobile-panel-gg');
+        await p.ev(`document.querySelector('[data-testid="analysis-map"]').__keep = 1`);
+        check(!(await mapVisible()), 'たたんで GG を選んだのにコースが見えている');
+        // 開く: コースがいつも出る。下の欄は GG のまま (コース以外を選んでいたときはそのまま)
+        await p.viewport(951, 669, true);
+        await p.waitFor(`document.querySelector('[data-testid="analysis-compact"]')?.dataset.tier === 'medium'`, 5000, '中くらいの段');
+        check(await mapVisible(), '開いてもコースが出ない');
+        check(JSON.stringify(await shown()) === '["gg"]', `開いたら下の欄が GG でない: ${await shown()}`);
+        check(await p.ev(`document.querySelector('[data-testid="analysis-map"]').__keep === 1`), '開いたらコースマップが作り直された');
+        // 動画を出して再生し、たたむ・開くを繰り返しても、同じ動画のまま再生が続く
+        await p.click('mobile-panel-video');
+        await p.waitFor(`[...document.querySelectorAll('video')].some(v => v.offsetParent !== null && v.readyState >= 2)`, 20000, '下の欄の動画');
+        await p.ev(`[...document.querySelectorAll('video')].find(v => v.offsetParent !== null).__keep = 1`);
+        await p.ev(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>/^(再生|Play)$/.test(b.getAttribute('aria-label') ?? '') && b.offsetParent!==null); b?.click(); return !!b})()`);
+        await sleep(1500);
+        const t0 = await p.ev(`window.__laploupe.currentTimeSec`);
+        for (const [w, h] of [[669, 951], [466, 678], [951, 669]]) {
+          await p.viewport(w, h, true);
+          await sleep(900);
+        }
+        const v = await p.ev(`(()=>{const v=[...document.querySelectorAll('video')].find(v => v.offsetParent !== null); return v ? { keep: v.__keep === 1, paused: v.paused } : null})()`);
+        const t1 = await p.ev(`window.__laploupe.currentTimeSec`);
+        check(v && v.keep, `開く・たたむで動画が作り直された: ${JSON.stringify(v)}`);
+        check(t1 > t0 + 1.5 && v.paused === false, `開く・たたむで再生が止まった: ${t0} → ${t1} ${JSON.stringify(v)}`);
+        await p.ev(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>/^(一時停止|Pause)$/.test(b.getAttribute('aria-label') ?? '') && b.offsetParent!==null); b?.click()})()`);
+        // コースマップを触ってからたたむと、コースを出す
+        await p.ev(`document.querySelector('[data-testid="analysis-map"]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
+        await p.viewport(466, 678, true);
+        await p.waitFor(`document.querySelector('[data-testid="analysis-compact"]')?.dataset.tier === 'phone'`, 5000, 'たたむ');
+        await sleep(300);
+        check(JSON.stringify(await shown()) === '["map"]' && await mapVisible(), `コースを触ってたたんだのにコースでない: ${await shown()}`);
+        // 動画の画面: 開いた横長の比べるは 2 つを左右に
+        await p.viewport(951, 669, true);
+        await sleep(600);
+        await p.click('nav-video');
+        await sleep(2500);
+        await p.click('video-mode-compare');
+        await sleep(3000);
+        const tiles = await p.ev(`[...document.querySelectorAll('video')].filter(v => v.offsetParent !== null).map(v => { const r = v.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top)] })`);
+        check(tiles.length === 2 && tiles[0][1] === tiles[1][1] && tiles[0][0] !== tiles[1][0], `開いた画面の比べるが左右に 2 つでない: ${JSON.stringify(tiles)}`);
+        await p.click('video-mode-watch');
+        // 縦に持つと、見るの動画の下にコースマップ
+        await p.viewport(669, 951, true);
+        await sleep(1200);
+        check(await p.exists('video-side-map'), '開いて縦に持っても、動画の下にコースマップが出ない');
+      } finally {
+        await p.send('Emulation.setDeviceMetricsOverride', { width: 0, height: 0, deviceScaleFactor: 0, mobile: false }).catch(() => {});
+        await p.send('Emulation.clearDeviceMetricsOverride').catch(() => {});
+        await p.send('Emulation.setTouchEmulationEnabled', { enabled: false }).catch(() => {});
+      }
+    }
+  },
+  {
     name: '走行を消す: 同じ日の別の走行・付けていない動画は残し、その走行のファイルと runs.json の行だけを消す',
     target: 'electron',
     async run(p) {

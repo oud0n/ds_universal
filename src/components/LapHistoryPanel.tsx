@@ -4,6 +4,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getOpenRun } from '../services/runOpener';
 import { X, FolderOpen, EyeOff, Eye, RefreshCw, BarChart3 } from 'lucide-react';
 import { loadLapHistory, toggleLapHidden, type LapFolder } from '../services/lapHistory';
 import { electronRunStore as electronLapStore, nativeRunStore as nativeLapStore } from '../services/runStore';
@@ -61,8 +62,10 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
     try {
       const list = await loadLapHistory(s, f => setBusy(f));
       setFolders(list);
-      // はじめは、いちばん新しい走行のあるコース
+      // はじめは、開いている走行 (Car 1) のコース。開いていなければ、いちばん新しい走行のあるコース (BUG-36: 一覧の先頭が出ていた)
+      const openFolder = getOpenRun()?.item.folder;
       setSelected(prev => (prev && list.some(f => f.folder === prev)) ? prev
+        : openFolder && list.some(f => f.folder === openFolder) ? openFolder
         : [...list].sort((a, b) => (b.rows[0]?.runStartMs ?? 0) - (a.rows[0]?.runStartMs ?? 0))[0]?.folder ?? '');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -172,7 +175,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
           )}
           {folders && folders.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <select value={selected} onChange={e => setSelected(e.target.value)} className="bg-surface-0 border border-line-3 rounded-lg px-2 py-1.5 max-w-full" aria-label={t('コース', 'Course')}>
+              <select value={selected} onChange={e => setSelected(e.target.value)} className="bg-surface-0 border border-line-3 rounded-lg px-2 py-1.5 max-w-full" aria-label={t('コース', 'Course')} data-testid="lap-history-course">
                 {folders.map(f => <option key={f.folder} value={f.folder}>{f.courseName ? circuitLabel(f.courseName) : f.folder === 'unsorted' ? t('未分類', 'Unsorted') : f.folder}</option>)}
               </select>
               <select value={sort} onChange={e => setSort(e.target.value as SortKey)} className="bg-surface-0 border border-line-3 rounded-lg px-2 py-1.5" aria-label={t('並べ方', 'Sort')}>

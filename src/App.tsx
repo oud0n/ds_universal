@@ -48,7 +48,7 @@ import { bleLoggerLink } from './services/bleLoggerLink';
 import { useWheelScrollX } from './hooks/useWheelScrollX';
 import { isDialogOpen, useEscapeKey } from './hooks/useEscapeKey';
 import { readClockMaster } from './services/clockMaster';
-import { useCompactLayout, useLandscape } from './hooks/useCompactLayout';
+import { useCompactLayout, useLandscape, useMediumLayout, useTierChange } from './hooks/useCompactLayout';
 import { Freeze } from './components/Freeze';
 import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
 import { BottomTabBar } from './components/MobileNav';
@@ -160,6 +160,7 @@ export const App: React.FC = () => {
 
   // スマートフォン向けの配置 (画面の大きさで切り替える)。スマートフォンでは動画同期を出さない
   const isCompact = useCompactLayout();
+  const isMedium = useMediumLayout();
   const isLandscape = useLandscape();
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('map');
   // グラフ解析の「周回を区切れていません」の注意を閉じたセッション
@@ -505,6 +506,21 @@ export const App: React.FC = () => {
   // 動画同期タブでは、ログがなくても (動画だけでも) 再生できるよう、表示している動画の終わりまで進める
   const isVideoTab = currentTab === 'video';
   const videoTracks = useVideoTracks();
+  // 解析の下の欄 (スマートフォン・中くらいの段。PLAN-30)。中くらいではコースマップをいつも出すので、コースを選んでいたら、下の欄は動画 (動画が無ければ GG)
+  const analysisFallback: MobilePanel = videoTracks.length > 0 ? 'video' : 'gg';
+  const shownPanel: MobilePanel = isMedium && mobilePanel === 'map' ? analysisFallback : mobilePanel;
+  // 最後に触ったのがコースマップか下の欄か (中くらい → スマートフォンにたたんだとき、どちらを出すか)
+  const lastTouchedRef = useRef<'map' | 'panel'>('panel');
+  useTierChange((prev, next) => {
+    if (prev === 'medium' && next === 'phone') setMobilePanel(lastTouchedRef.current === 'map' ? 'map' : shownPanel);
+  });
+  const analysisGrid: React.CSSProperties = isMedium
+    ? (isLandscape
+      ? { gridTemplateAreas: '"g m" "t m" "b m"', gridTemplateColumns: 'minmax(0, 1.15fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 48%) auto minmax(0, 1fr)' }
+      : { gridTemplateAreas: '"g" "m" "t" "b"', gridTemplateColumns: 'minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 30%) minmax(0, 32%) auto minmax(0, 1fr)' })
+    : (isLandscape
+      ? { gridTemplateAreas: '"g t" "g b"', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gridTemplateRows: 'auto minmax(0, 1fr)' }
+      : { gridTemplateAreas: '"g" "t" "b"', gridTemplateColumns: 'minmax(0, 1fr)', gridTemplateRows: 'minmax(180px, 42%) auto minmax(0, 1fr)' });
   const videoView = useVideoView();
   const logEndTime = baseSession?.points.length ? baseSession.points[baseSession.points.length - 1].time : 0;
   // 出しているカメラを基準車のログの時刻に置いて、その終わりまで進める。メイン以外は、ログの間に始まるときだけ数える
@@ -2033,61 +2049,77 @@ export const App: React.FC = () => {
         )}
         {/* グラフ解析タブ */}
         {isCompact ? (
-          // スマートフォン: 速度ウインドウを上 (横向きでは左) に固定し、もう片方は切り替えて 1 つずつ表示する
-          <div className={`h-full w-full gap-2 overflow-hidden ${currentTab === 'analysis' ? 'flex' : 'hidden'} ${isLandscape ? 'flex-row' : 'flex-col'}`}>
+          // スマートフォン・中くらいの段 (Duo を開いたときなど。PLAN-30)。欄は 1 度だけ作り、段・向きで置き場所 (grid の場所) だけを替える
+          // (作り直すと、コースマップの拡大・追従などの設定が消え、動画も読み直しになるため)
+          // - スマートフォン: 速度グラフを上 (横向きでは左) に固定し、下の欄を切り替えて 1 つずつ出す。コースも下の欄の 1 つ
+          // - 中くらい: コースマップをいつも出し (横長では右、縦長では真ん中)、下の欄からは外す
+          <div
+            className={`h-full w-full gap-2 overflow-hidden ${currentTab === 'analysis' ? 'grid' : 'hidden'}`}
+            style={analysisGrid}
+            data-testid="analysis-compact"
+            data-tier={isMedium ? 'medium' : 'phone'}
+          >
             <Freeze active={currentTab === 'analysis'}>
-            <div className={isLandscape ? 'w-1/2 h-full min-w-0' : 'h-[42%] min-h-[180px] shrink-0'}>
+            <div key="graph" style={{ gridArea: 'g' }} className="min-h-0 min-w-0">
               {speedGraphEl}
             </div>
-            <div className="flex-1 min-h-0 min-w-0 flex flex-col bg-surface-1 rounded border border-line-1 overflow-hidden">
-              <div className="flex gap-1 p-1 bg-surface-2 border-b border-line-1 whitespace-nowrap shrink-0">
-                {MOBILE_PANELS.map(p => (
-                  <button
-                    key={p.id}
-                    onClick={() => setMobilePanel(p.id)}
-                    data-testid={`mobile-panel-${p.id}`}
-                    className={`flex-1 px-1 py-1.5 rounded text-xs font-bold transition-colors ${
-                      mobilePanel === p.id ? 'bg-red-600 text-white' : 'text-slate-400'
-                    }`}
-                  >
-                    {T(...p.label)}
-                  </button>
+            <div key="tabs" style={{ gridArea: 't' }} className="min-w-0 flex gap-1 p-1 bg-surface-2 border border-line-1 rounded-t whitespace-nowrap">
+              {MOBILE_PANELS.filter(p => !isMedium || p.id !== 'map').map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => { setMobilePanel(p.id); lastTouchedRef.current = p.id === 'map' ? 'map' : 'panel'; }}
+                  data-testid={`mobile-panel-${p.id}`}
+                  className={`flex-1 px-1 py-1.5 rounded text-xs font-bold transition-colors ${
+                    shownPanel === p.id ? 'bg-red-600 text-white' : 'text-slate-400'
+                  }`}
+                >
+                  {T(...p.label)}
+                </button>
+              ))}
+            </div>
+            <div key="body" style={{ gridArea: 'b' }} className="-mt-2 min-h-0 min-w-0 bg-surface-1 border border-t-0 border-line-1 rounded-b overflow-hidden" onPointerDown={() => { lastTouchedRef.current = 'panel'; }}>
+              {/* 切り替えても表示の設定 (色分け・拡大・追従など) が消えないよう、外さずに隠すだけにする */}
+              {([['gg', frictionEl], ['corner', cornerEl], ['braking', brakingEl], ['xy', xyEl], ['drift', driftEl]] as const)
+                .filter(([id]) => MOBILE_PANELS.some(p => p.id === id))
+                .map(([id, el]) => (
+                  <div key={id} className={shownPanel === id ? 'h-full' : 'hidden'}>
+                    {el}
+                  </div>
                 ))}
-              </div>
-              <div className="flex-1 min-h-0 overflow-hidden">
-                {/* 切り替えても表示の設定 (色分け・拡大・追従など) が消えないよう、外さずに隠すだけにする */}
-                {([['map', trackMapEl], ['gg', frictionEl], ['corner', cornerEl], ['braking', brakingEl], ['xy', xyEl], ['drift', driftEl]] as const)
-                  .filter(([id]) => MOBILE_PANELS.some(p => p.id === id))
-                  .map(([id, el]) => (
-                    <div key={id} className={mobilePanel === id ? 'h-full' : 'hidden'}>
-                      {el}
-                    </div>
-                  ))}
-                {/* 動画は選んだときだけ置く (隠したまま再生・読み込みしないように)。見るだけ (比べる・マルチカメラは動画の画面で) */}
-                {mobilePanel === 'video' && (
-                  <VideoSyncWindow
-                    sessions={sessions}
-                    selectedCars={selectedCars}
-                    currentTimeSec={currentTimeSec}
-                    currentDistanceKm={currentDistanceKm}
-                    isPlaying={isPlaying}
-                    onSeekTime={handleSeekTime}
-                    onTogglePlay={() => setIsPlaying(!isPlaying)}
-                    circuitName={currentCircuitName}
-                    targetSessionId={baseSession?.id}
-                    targetLap={baseLap}
-                    isGraphEmbedded={true}
-                    simple
-                    isVisible={currentTab === 'analysis'}
-                    playbackSpeed={playbackSpeed}
-                    onChangePlaybackSpeed={setPlaybackSpeed}
-                    onChooseLog={setBaseSession}
-                    onLoadFiles={loadFiles}
-                    viewKey="phone-analysis"
-                    onSetClockOffset={setSessionClockOffset}
-                  />
-                )}
-              </div>
+              {/* 動画は選んだときだけ置く (隠したまま再生・読み込みしないように)。見るだけ (比べる・マルチカメラは動画の画面で) */}
+              {shownPanel === 'video' && (
+                <VideoSyncWindow
+                  sessions={sessions}
+                  selectedCars={selectedCars}
+                  currentTimeSec={currentTimeSec}
+                  currentDistanceKm={currentDistanceKm}
+                  isPlaying={isPlaying}
+                  onSeekTime={handleSeekTime}
+                  onTogglePlay={() => setIsPlaying(!isPlaying)}
+                  circuitName={currentCircuitName}
+                  targetSessionId={baseSession?.id}
+                  targetLap={baseLap}
+                  isGraphEmbedded={true}
+                  simple
+                  isVisible={currentTab === 'analysis'}
+                  playbackSpeed={playbackSpeed}
+                  onChangePlaybackSpeed={setPlaybackSpeed}
+                  onChooseLog={setBaseSession}
+                  onLoadFiles={loadFiles}
+                  viewKey="phone-analysis"
+                  onSetClockOffset={setSessionClockOffset}
+                />
+              )}
+            </div>
+            {/* コースマップ: スマートフォンでは下の欄の場所に重ね、コースを選んだときだけ出す。中くらいではいつも出す */}
+            <div
+              key="map"
+              style={{ gridArea: isMedium ? 'm' : 'b' }}
+              className={`min-h-0 min-w-0 bg-surface-1 border-line-1 overflow-hidden ${isMedium ? 'border rounded' : `-mt-2 border border-t-0 rounded-b ${shownPanel === 'map' ? '' : 'hidden'}`}`}
+              onPointerDown={() => { lastTouchedRef.current = 'map'; }}
+              data-testid="analysis-map"
+            >
+              {trackMapEl}
             </div>
             </Freeze>
           </div>
@@ -2378,6 +2410,7 @@ export const App: React.FC = () => {
             onPickCompareLap={(sessionId, lapNumber) => handleSelectCarSlot(1, sessionId, lapNumber)}
             onLoadFiles={loadFiles}
             viewKey="video-tab"
+            sidePanel={isMedium ? trackMapEl : undefined}
             onSetClockOffset={setSessionClockOffset}
             compareCars={activeCars}
             loading={runBusy}
@@ -2497,7 +2530,7 @@ export const App: React.FC = () => {
         {plan.available.has('library') && (
           <LibraryScreen
             active={currentTab === 'library'}
-            wide={profile.layout === 'wide'}
+            wide={profile.layout === 'wide' || isMedium}
             onOpen={r => void openRun(r)}
             onOpenSession={s => void openSavedSession(s)}
             // 動画を見る: 走行を開いて (動画と同期もそろう)、動画の画面へ
