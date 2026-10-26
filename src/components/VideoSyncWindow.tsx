@@ -50,7 +50,7 @@ import { tr, useT } from '../utils/i18n';
 import { fileAccept, isIOS, isWebKitBrowser } from '../utils/device';
 import { setClockMaster } from '../services/clockMaster';
 import { sameCourseName } from '../utils/courseNames';
-import { useCompactLayout, useLandscape } from '../hooks/useCompactLayout';
+import { useCompactLayout, useLandscape, useMediumLayout } from '../hooks/useCompactLayout';
 import { EmptyLoadPrompt } from './EmptyLoadPrompt';
 import { RunFolderVideos } from './RunFolderVideos';
 import { SKIP_SEC, Skip10Icon } from './Skip10Icon';
@@ -77,6 +77,8 @@ interface VideoSyncWindowProps {
   isGraphEmbedded?: boolean; // グラフ解析画面に埋め込まれているかどうか
   /** 動画を 1 つ見るだけ (スマートフォンの解析の下の欄)。上の道具の段・比べる・マルチカメラは出さない */
   simple?: boolean;
+  /** 中くらいの段の縦長で、動画の下に出すもの (コースマップ。PLAN-30) */
+  sidePanel?: React.ReactNode;
   // 音を出さない (グラフ解析で、同じ動画をほかのウインドウも出しているとき。音が二重になるため)
   muted?: boolean;
   // 画面に見えているか。見えていないウインドウ (隠れている動画同期タブ・グラフ画面) では動画を再生しない
@@ -203,6 +205,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   targetLap,
   isGraphEmbedded = false,
   simple = false,
+  sidePanel,
   muted: muteAll = false,
   isVisible = true,
   playbackSpeed,
@@ -228,6 +231,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // スマートフォンの動画の画面では、上のボタンを折り返して大きく出す (グラフに埋め込んだ狭い枠は今までどおり横にスクロール)
   const phoneToolbar = isCompactLayout && !isGraphEmbedded;
   const isLandscape = useLandscape();
+  const isMedium = useMediumLayout();
   /** スマートフォンを横にしたとき (動画の上下の段を 1 段ずつにする) */
   const landscapePhone = phoneToolbar && isLandscape;
   const { pipPosition, showOverlay, showGForce } = win;
@@ -734,7 +738,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     if (!range) return;
     const [start, end] = range;
     const W = exportResolution === '1080p' ? 1920 : 1280, H = exportResolution === '1080p' ? 1080 : 720;
-    const layout = isCompactLayout ? (isCompare && !isLandscape ? 'grid' : 'single') : win.layout;
+    const layout = isCompactLayout ? (isCompare && (!isLandscape || isMedium) ? 'grid' : 'single') : win.layout;
     const count = layout === 'single' ? 1 : layout === 'pip' ? Math.min(2, shownCount) : Math.min(4, shownCount);
     const rects = stageRects(count, layout, W, H, pipPosition);
     const firstTile = isCompactLayout && layout === 'single' ? bigTile : 0;
@@ -1562,7 +1566,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               focus={win.focus}
               pipPosition={pipPosition}
               pipRef={pipRef}
-              compact={isCompactLayout ? { stackTwo: isCompare && !isLandscape } : undefined}
+              compact={isCompactLayout ? { arrange: !isCompare ? 'swipe' : isMedium ? (tileCount > 2 ? 'grid' : isLandscape ? 'row2' : 'stack2') : isLandscape ? 'swipe' : 'stack2' } : undefined}
               onFocus={i => setWin({ focus: i })}
               renderTile={(i, size) => {
                 const x = tiles[i];
@@ -1773,6 +1777,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           </EmptyLoadPrompt>
         )}
       </div>
+
+      {/* 中くらいの段の縦長 (Duo を開いて縦に持つなど) で「見る」のときは、動画の下の余ったところにコースマップを出す (PLAN-30) */}
+      {sidePanel && isMedium && !isLandscape && !isCompare && !showSyncTools && !fullView && media.length > 0 && (
+        <div className="h-[34%] min-h-[180px] shrink-0 border-t border-line-1 overflow-hidden" data-testid="video-side-map">
+          {sidePanel}
+        </div>
+      )}
 
       {/* 4. チャプター分割動画 (GoPro/DJI) ナビゲーションバー */}
       {currentGroup && currentGroup.tracks.length > 1 && (

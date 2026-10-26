@@ -395,18 +395,15 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
 
   return (
     <div className="h-full flex" data-testid="library-screen">
-      {wide ? (
-        <>
-          <div className="flex-1 min-w-0 max-w-3xl flex flex-col">{list}</div>
-          <div className="w-[380px] shrink-0 border-l border-line-2 flex flex-col min-h-0" data-testid="library-detail-pane">
-            {detail || <p className="text-xs text-slate-500 p-6 text-center">{t('走行を選ぶと、周の一覧と動画が出ます。', 'Select a run to see its laps and videos.')}</p>}
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="flex-1 min-w-0 flex flex-col max-w-2xl mx-auto">{list}</div>
-          {detail && <div className="absolute inset-0 z-[35] bg-surface-0 flex flex-col">{detail}</div>}
-        </>
+      {/* 広い画面 (パソコン・中くらいの段) は一覧の横に詳細、スマートフォンは詳細を一覧の上に重ねる。
+          開く・たたむ (Duo) で一覧・詳細を作り直さないよう、同じ木のまま置き方だけを替える (PLAN-30) */}
+      <div key="list" className={`flex-1 min-w-0 flex flex-col ${wide ? 'max-w-3xl' : 'max-w-2xl mx-auto'}`}>{list}</div>
+      {(wide || detail) && (
+        <div key="detail"
+          className={wide ? 'w-[380px] max-w-[55%] shrink-0 border-l border-line-2 flex flex-col min-h-0' : 'absolute inset-0 z-[35] bg-surface-0 flex flex-col'}
+          data-testid={wide ? 'library-detail-pane' : undefined}>
+          {detail || <p className="text-xs text-slate-500 p-6 text-center">{t('走行を選ぶと、周の一覧と動画が出ます。', 'Select a run to see its laps and videos.')}</p>}
+        </div>
       )}
       {historyOpen && <LapHistoryPanel onClose={() => setHistoryOpen(false)} onOpenRun={(file, run) => {
         setHistoryOpen(false);

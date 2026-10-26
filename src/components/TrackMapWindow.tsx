@@ -984,6 +984,76 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [course.folder, circuitName]);
 
+  // 同時・追従・拡大のボタン
+  const controls = (
+        <div className="flex items-center gap-1">
+          {/* スマートフォン: セクターからの一斉スタートの段を出す・しまう (地図を大きく使うため) */}
+          {compact && sectorStart && sectors.length > 0 && !cornerDraft && (
+            <button
+              onClick={() => setSectorBarOpen(v => !v)}
+              aria-pressed={sectorBarOpen}
+              title={t('セクターから一斉にスタート', 'Start all cars from a sector')}
+              className={`px-1.5 py-0.5 mr-1 rounded border text-[11px] ${sectorBarOpen || sectorStart.alignedSectorName ? 'border-amber-500/60 text-amber-300' : 'border-line-3 text-slate-400'}`}
+              data-testid="track-sector-toggle"
+            >
+              {t('同時', 'Start')}
+            </button>
+          )}
+          <button
+            onClick={() => {
+              // 追従を外すときは、今見えている位置のままにする
+              if (isFollowing) setPanOffset(drawnPanRef.current);
+              // 追従を始めるとき、コース全体に近い見え方なら、車を大きく出す (アニメの窓と同じ 3x)
+              else if (followZoomOf() < FOLLOW_ZOOMS[0]) setFollowZoom(3);
+              setIsFollowing(!isFollowing);
+            }}
+            title={t('車両追従 (基準車を常に中央に表示)', 'Follow car (keep the reference car centred)')}
+            aria-pressed={isFollowing}
+            className={`flex items-center gap-1 px-1.5 py-0.5 mr-1 rounded border text-[11px] transition-colors ${
+              isFollowing ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-line-3 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <LocateFixed size={13} />
+            {t('追従', 'Follow')}
+          </button>
+          {/* 追従のときの拡大率 (アニメの窓と同じ 2x・3x・5x) */}
+          {isFollowing && (
+            <div className="flex items-center mr-1" data-testid="track-follow-zoom">
+              {FOLLOW_ZOOMS.map(z => (
+                <button
+                  key={z}
+                  onClick={() => setFollowZoom(z)}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${Math.abs(followZoomOf() - z) < 0.05 ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:bg-surface-4'}`}
+                >
+                  {z}x
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            onClick={() => setZoom(z => Math.min(MAX_ZOOM, z * 1.25))}
+            title={t('拡大', 'Zoom in')}
+            className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
+          >
+            <ZoomIn size={14} />
+          </button>
+          <button
+            onClick={() => setZoom(z => Math.max(0.4, z * 0.8))}
+            title={t('縮小', 'Zoom out')}
+            className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
+          >
+            <ZoomOut size={14} />
+          </button>
+          <button
+            onClick={handleReset}
+            title={t('コース全体を表示', 'Show the whole course')}
+            className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
+          >
+            <RotateCcw size={13} />
+          </button>
+        </div>
+  );
+
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
@@ -1073,73 +1143,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
           )}
         </div>
 
-        {/* コントロール */}
-        <div className="flex items-center gap-1">
-          {/* スマートフォン: セクターからの一斉スタートの段を出す・しまう (地図を大きく使うため) */}
-          {compact && sectorStart && sectors.length > 0 && !cornerDraft && (
-            <button
-              onClick={() => setSectorBarOpen(v => !v)}
-              aria-pressed={sectorBarOpen}
-              title={t('セクターから一斉にスタート', 'Start all cars from a sector')}
-              className={`px-1.5 py-0.5 mr-1 rounded border text-[11px] ${sectorBarOpen || sectorStart.alignedSectorName ? 'border-amber-500/60 text-amber-300' : 'border-line-3 text-slate-400'}`}
-              data-testid="track-sector-toggle"
-            >
-              {t('同時', 'Start')}
-            </button>
-          )}
-          <button
-            onClick={() => {
-              // 追従を外すときは、今見えている位置のままにする
-              if (isFollowing) setPanOffset(drawnPanRef.current);
-              // 追従を始めるとき、コース全体に近い見え方なら、車を大きく出す (アニメの窓と同じ 3x)
-              else if (followZoomOf() < FOLLOW_ZOOMS[0]) setFollowZoom(3);
-              setIsFollowing(!isFollowing);
-            }}
-            title={t('車両追従 (基準車を常に中央に表示)', 'Follow car (keep the reference car centred)')}
-            aria-pressed={isFollowing}
-            className={`flex items-center gap-1 px-1.5 py-0.5 mr-1 rounded border text-[11px] transition-colors ${
-              isFollowing ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-line-3 text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <LocateFixed size={13} />
-            {t('追従', 'Follow')}
-          </button>
-          {/* 追従のときの拡大率 (アニメの窓と同じ 2x・3x・5x) */}
-          {isFollowing && (
-            <div className="flex items-center mr-1" data-testid="track-follow-zoom">
-              {FOLLOW_ZOOMS.map(z => (
-                <button
-                  key={z}
-                  onClick={() => setFollowZoom(z)}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${Math.abs(followZoomOf() - z) < 0.05 ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:bg-surface-4'}`}
-                >
-                  {z}x
-                </button>
-              ))}
-            </div>
-          )}
-          <button
-            onClick={() => setZoom(z => Math.min(MAX_ZOOM, z * 1.25))}
-            title={t('拡大', 'Zoom in')}
-            className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
-          >
-            <ZoomIn size={14} />
-          </button>
-          <button
-            onClick={() => setZoom(z => Math.max(0.4, z * 0.8))}
-            title={t('縮小', 'Zoom out')}
-            className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
-          >
-            <ZoomOut size={14} />
-          </button>
-          <button
-            onClick={handleReset}
-            title={t('コース全体を表示', 'Show the whole course')}
-            className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
-          >
-            <RotateCcw size={13} />
-          </button>
-        </div>
+        {/* コントロール (スマートフォン・中くらいの段では、段を減らして地図を高くするため、地図の右上に重ねる。BUG-36) */}
+        {!compact && controls}
       </div>
 
       {/* セクターからの一斉スタート (もとはアニメの窓だけ。PLAN-28)。コーナーの編集中は出さない */}
@@ -1161,6 +1166,11 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         />
         {/* 車両の現在位置 (操作は下の canvas が受ける) */}
         <canvas ref={carCanvasRef} className="absolute inset-0 pointer-events-none block" />
+        {compact && !cornerDraft && (
+          <div className="absolute top-1 right-1 z-10 bg-surface-3/90 border border-line-2 rounded px-1 py-0.5" data-testid="track-map-controls">
+            {controls}
+          </div>
+        )}
 
         {cornerDraft && baseGeo && (
           <CornerEditPanel
