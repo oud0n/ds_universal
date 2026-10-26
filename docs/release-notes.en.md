@@ -4,6 +4,13 @@
 
 [Back to the README](../README.en.md)
 
+## v1.1.1 (in preparation)
+
+**Improved**
+
+- **Video export**: the encode method (frame by frame, faster) can now be chosen for videos of runs opened from the storage folder too. Before, it was only available for videos opened by picking the file, and those runs fell back to recording while playing (iPhone and desktop).
+- **Meters in small frames**: narrow video frames (such as iPhone portrait) now show a small course map in the top-left corner.
+
 ## v1.1.0
 
 **Added**

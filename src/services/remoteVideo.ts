@@ -26,6 +26,9 @@ async function readRange(url: string, start: number, end: number): Promise<Array
 const rangeOf = (v: Pick<RemoteVideo, 'url' | 'readRange'>, start: number, end: number) =>
   end <= start ? Promise.resolve(new ArrayBuffer(0)) : v.readRange ? v.readRange(start, end) : readRange(v.url, start, end);
 
+/** 保管場所の動画の範囲 [start, end) を読む (エンコードの書き出しが、ファイルを丸ごと読まずに使う) */
+export const readRemoteRange = (v: Pick<RemoteVideo, 'url' | 'readRange'>, start: number, end: number): Promise<ArrayBuffer> => rangeOf(v, start, end);
+
 export function remoteByteSource(v: Pick<RemoteVideo, 'url' | 'size' | 'readRange'>): ByteSource {
   return {
     size: v.size,

@@ -586,12 +586,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   /** 書き出しの範囲の時刻の元。再生の段の「全体」と同じ時刻 (ログの時刻) で出す */
   const rangeBase = 0;
   const rangeClock = (sec: number) => formatRangeTime(sec - rangeBase);
-  // 元のファイルのない動画では、エンコードの方式は使えないので、これまでの方式にする
+  /** エンコードの方式で読む元の動画 (選んだファイル、または保管場所の動画) */
+  const encodeInput = activeTrack?.file ?? activeTrack?.remote;
+  // 元の動画を読めない動画では、エンコードの方式は使えないので、これまでの方式にする
   useEffect(() => {
-    if (exportMethod === 'encode' && activeTrack && !activeTrack.file) setExportMethod('record');
+    if (exportMethod === 'encode' && activeTrack && !encodeInput) setExportMethod('record');
     // 動画がないときは、メーターだけ
     if (!activeTrack && (exportMethod === 'encode' || exportMethod === 'record')) setExportMethod('overlay-png');
-  }, [exportMethod, activeTrack]);
+  }, [exportMethod, activeTrack, encodeInput]);
   // 走行比較で動画のない枠も出す (メーターだけ)。マルチカメラでカメラがないときは、動画を読み込む案内を出す
   const hasStage = isCompare ? tileCount > 0 : !!(activeTrack && activeTrack.objectUrl);
   // グラフ解析に埋め込んだときは、タイムゾーン・再同期の段とタイムラインを、ボタンで開くまで隠す。
@@ -881,7 +883,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
     // 1 コマずつ書く方式 (エンコード・メーターだけ) で周を選んだときは、前後を 10 秒ずつ足す (立ち上がりから映るように。
     // 周の前は 0:00.00 で待ち、周のあとはその周のタイムで止める)
-    const frameByFrame = overlayOnly || (exportMethod === 'encode' && !!activeTrack?.file && canUseEncodeExport());
+    const frameByFrame = overlayOnly || (exportMethod === 'encode' && !!encodeInput && canUseEncodeExport());
     const padSec = frameByFrame ? LAP_EXPORT_PAD_SEC : 0;
     if (exportRange === 'custom' && customRange) {
       [startSec, endSec] = customRange;
@@ -943,8 +945,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     }
 
     if (!activeTrack || !el) return;
-    // エンコードの方式 (元のファイルがあるとき)。範囲は動画の中の秒に直す
-    if (exportMethod === 'encode' && activeTrack.file && canUseEncodeExport()) {
+    // エンコードの方式 (元の動画を読めるとき)。範囲は動画の中の秒に直す
+    if (exportMethod === 'encode' && encodeInput && canUseEncodeExport()) {
       const offset = activeTrack.syncOffsetSec;
       const startVideoSec = Math.max(0, startSec - offset);
       const endVideoSec = Math.min(activeTrack.durationSec || Infinity, endSec - offset);
@@ -956,7 +958,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         return;
       }
       const encController = exportEncodedVideo({
-        file: activeTrack.file,
+        file: encodeInput,
         startVideoSec,
         endVideoSec,
         toSessionSec: v => v + offset,
@@ -2411,7 +2413,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 >
                   <option value="overlay-png">{t('メーターだけ・背景は透明 (PNG の連番の ZIP。Premiere・DaVinci・After Effects 向け)', 'Gauges only, transparent (PNG sequence ZIP; Premiere, DaVinci, After Effects)')}</option>
                   {webmAlphaOk && <option value="overlay-webm">{t('メーターだけ・背景は透明 (WebM。小さいが、読めるソフトが限られる)', 'Gauges only, transparent (WebM; small, limited editor support)')}</option>}
-                  <option value="encode" disabled={!activeTrack?.file || !canUseEncodeExport()}>{t('動画にメーターを焼き込む (エンコード)', 'Burn meters into the video (encode)')}</option>
+                  <option value="encode" disabled={!encodeInput || !canUseEncodeExport()}>{t('動画にメーターを焼き込む (エンコード)', 'Burn meters into the video (encode)')}</option>
                   <option value="record" disabled={!activeTrack}>{t('動画にメーターを焼き込む (再生しながら録る・これまでの方式)', 'Burn meters into the video (record while playing, previous method)')}</option>
                 </select>
                 {exportMethod !== 'record' && exportRange === 'lap' && (
