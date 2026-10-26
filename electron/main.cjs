@@ -424,9 +424,11 @@ const COURSE_TEXT = /^course\/(Corner\/[a-z0-9_]+\.json(\.bak)?|ControlLine\/[^/
 const SESSION_TEXT = /^sessions\/[^/\\]+\.lapsession\.json$/;
 // メーターの並び (PLAN-08)
 const OVERLAY_TEXT = /^overlays\/[^/\\]+\.overlay\.json$/;
+// CSV の形式の定義・計算式 (PLAN-36)
+const FORMAT_TEXT = /^formats\/([^/\\]+\.csvformat\.json|calc\.json)$/;
 const lapTextAllowed = (rel, full) => {
   const r = String(rel).replace(/\\/g, '/');
-  return LAP_TEXT_NAMES.has(path.basename(full)) || COURSE_TEXT.test(r) || SESSION_TEXT.test(r) || OVERLAY_TEXT.test(r);
+  return LAP_TEXT_NAMES.has(path.basename(full)) || COURSE_TEXT.test(r) || SESSION_TEXT.test(r) || OVERLAY_TEXT.test(r) || FORMAT_TEXT.test(r);
 };
 const MAX_LAP_TEXT_BYTES = 20 * 1024 * 1024;
 /**

@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { currentCsvFormats, loadCsvFormats } from './services/csvFormatStore';
+import { matchCsvFormat, mergeSensorRows, readRows, sensorKeyOf } from './services/csvFormats';
 import { ChevronDown, ChevronRight, FolderOpen, X } from 'lucide-react';
 import { CompareAxis, Lap, Session, TelemetryPoint, SelectedCarSlot, ControlLine, Sector, CircuitPreset, PolylineSource } from './types/telemetry';
 import { parseNmea } from './services/nmeaParser';
@@ -263,6 +265,8 @@ export const App: React.FC = () => {
     userCircuitStorage.ready.then(() => setUserCircuitCount(userCircuitStorage.getCircuitCount()));
     // 保管場所の digspice/ (デジスパイスと同じ形のフォルダ) のコースデータも使う (内蔵のコースと同じコースは、コース図だけ)
     void loadStorageCourses().then(n => { if (n) setUserCircuitCount(userCircuitStorage.getCircuitCount()); }).catch(() => undefined);
+    // CSV の形式の定義・計算式 (PLAN-36)
+    void loadCsvFormats().catch(() => undefined);
   }, []);
   // コース図の取得の受付番号 (セッションごと)。後から別のコース図を設定したセッションに、古い取得結果を上書きしない
   const polylineRequestRef = useRef(new Map<string, number>());
@@ -412,6 +416,22 @@ export const App: React.FC = () => {
     recomputeG(gFilterLevel, gSource, new Set(ready));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessions, imuSessionIds]);
+  // 走行の横の値だけの CSV (<走行>.<xxx>.csv。CSV の形式の定義で xxx が合うもの。PLAN-36) を読んだら、そのログの点に合わせて入れる
+  const sensorPendingRef = useRef(new Map<string, Array<{ rows: ReturnType<typeof readRows>; offsetSec?: number }>>());
+  const [sensorTick, setSensorTick] = useState(0);
+  useEffect(() => {
+    const ready = sessions.filter(s => sensorPendingRef.current.has(s.id));
+    if (!ready.length) return;
+    const updated = new Map(ready.map(s => {
+      let points = s.points;
+      for (const d of sensorPendingRef.current.get(s.id)!) points = mergeSensorRows(points, sessionStartUtcMs(s), d.rows, d.offsetSec);
+      sensorPendingRef.current.delete(s.id);
+      const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(points, s.controlLine, s.sectors, s.finishLine);
+      return [s.id, { points, laps, bestLapIndex, theoreticalBestTime }] as const;
+    }));
+    setSessions(prev => prev.map(s => (updated.has(s.id) ? { ...s, ...updated.get(s.id)! } : s)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, sensorTick]);
   /** G を計算し直す (ならし方・G の出どころを変えた・G センサーの値を読んだ)。ids を渡したら、そのログだけ */
   const recomputeG = (level: GFilterLevel, source: GSource, ids?: Set<string>) => {
     const updated = new Map(latestRef.current.sessions.filter(s => !ids || ids.has(s.id)).map(s => {
@@ -1196,6 +1216,22 @@ export const App: React.FC = () => {
           // 読み込んだばかりのログは、まだ一覧に入っていないことがあるので、入ってから計算し直す (上の useEffect)
           if (getGSource() === 'sensor') added.forEach(x => imuPendingRef.current.add(x.id));
           setImuSessionIds(ids => [...new Set([...ids, ...added.map(x => x.id)])]);
+        })();
+      }
+      // 走行の横の値だけの CSV (<走行>.<xxx>.csv) で、CSV の形式の定義に xxx が合うものを読んで合わせる (PLAN-36)。待たずに開く
+      if (!already.length && added.length) {
+        void (async () => {
+          const stem = item.file.replace(/\.[^./]+$/, '');
+          for (const fmt of currentCsvFormats().filter(f => f.kind === 'sensor' && f.sensorKey)) {
+            const path = `${item.folder}/${stem}.${fmt.sensorKey}.csv`;
+            if (sensorKeyOf(path) !== fmt.sensorKey) continue;
+            const text = await store.read(path).then(b => new TextDecoder().decode(b), () => null);
+            if (!text || matchCsvFormat(path, text, [fmt]) !== fmt) continue;
+            const rows = readRows(text, fmt);
+            if (!rows.rows.length) continue;
+            added.forEach(x => sensorPendingRef.current.set(x.id, [...(sensorPendingRef.current.get(x.id) ?? []), { rows, offsetSec: fmt.offsetSec }]));
+            setSensorTick(n => n + 1);
+          }
         })();
       }
       attachedRunRef.current = runPath;

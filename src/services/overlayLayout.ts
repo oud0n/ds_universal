@@ -10,7 +10,9 @@ import type { Session, TelemetryPoint } from '../types/telemetry';
 export type OverlayPartType = 'speed' | 'gmeter' | 'lapPanel' | 'lapClock' | 'map' | 'zoomMap' | 'bar' | 'steering' | 'graph' | 'value' | 'delta' | 'image';
 
 /** 値 (チャンネル)。部品の棒・グラフ・数字で選ぶ */
-export type ChannelId = 'speed' | 'accelG' | 'corneringG' | 'combinedG' | 'throttle' | 'brake' | 'steering' | 'rpm' | 'gear' | 'altitude';
+export type BuiltinChannelId = 'speed' | 'accelG' | 'corneringG' | 'combinedG' | 'throttle' | 'brake' | 'steering' | 'rpm' | 'gear' | 'altitude';
+/** 決まった値と、自分で名前を付けた値 (CSV の形式の定義・計算式。custom:<名前>。PLAN-36) */
+export type ChannelId = BuiltinChannelId | `custom:${string}`;
 
 export interface ChannelDef {
   id: ChannelId;
@@ -24,7 +26,7 @@ export interface ChannelDef {
   get: (p: TelemetryPoint) => number | undefined;
 }
 
-export const CHANNELS: Record<ChannelId, ChannelDef> = {
+export const CHANNELS: Record<BuiltinChannelId, ChannelDef> = {
   speed: { id: 'speed', label: ['速度', 'Speed'], short: 'SPD', unit: 'km/h', min: 0, max: 200, decimals: 0, get: p => p.speed },
   accelG: { id: 'accelG', label: ['加減速 G', 'Long. G'], short: 'LONG', unit: 'G', min: -1.5, max: 1.5, decimals: 2, get: p => p.accelG },
   corneringG: { id: 'corneringG', label: ['横 G', 'Lat. G'], short: 'LAT', unit: 'G', min: -1.5, max: 1.5, decimals: 2, get: p => p.corneringG },
@@ -37,12 +39,47 @@ export const CHANNELS: Record<ChannelId, ChannelDef> = {
   altitude: { id: 'altitude', label: ['標高', 'Altitude'], short: 'ALT', unit: 'm', min: 0, max: 1000, decimals: 0, get: p => (p.altitudeMissing ? undefined : p.altitude) }
 };
 
+/** 自分で名前を付けた値の名前の形 (英小文字・数字・_。40 文字まで) */
+export const CUSTOM_KEY_RE = /^[a-z0-9][a-z0-9_]{0,39}$/;
+export const customId = (key: string): ChannelId => `custom:${key}`;
+export const customKeyOf = (id: ChannelId): string | null => (id.startsWith('custom:') ? id.slice(7) : null);
+
+/** 自分で名前を付けた値の表示 (CSV の形式の定義・計算式から入れる) */
+export interface CustomChannelSpec { key: string; label: string; unit?: string; min?: number; max?: number; decimals?: number; /** 計算式の値 (点から求める。無ければ点の custom) */ get?: (p: TelemetryPoint) => number | undefined }
+const customDefs = new Map<string, ChannelDef>();
+let customVersion = 0;
+function customDef(spec: CustomChannelSpec): ChannelDef {
+  const min = Number.isFinite(spec.min) ? spec.min! : 0;
+  const max = Number.isFinite(spec.max) && spec.max! > min ? spec.max! : min + 100;
+  return {
+    id: customId(spec.key), label: [spec.label || spec.key, spec.label || spec.key], short: (spec.label || spec.key).slice(0, 5).toUpperCase(),
+    unit: spec.unit ?? '', min, max, decimals: Number.isInteger(spec.decimals) ? spec.decimals! : 1,
+    get: spec.get ?? (p => p.custom?.[spec.key])
+  };
+}
+/** 自分で名前を付けた値の表示を入れ替える (形式の定義を読んだとき) */
+export function setCustomChannels(specs: CustomChannelSpec[]): void {
+  customDefs.clear();
+  for (const s of specs) if (CUSTOM_KEY_RE.test(s.key) && !customDefs.has(s.key)) customDefs.set(s.key, customDef(s));
+  customVersion++;
+}
+/** 値の表示 (決まった値・自分で名前を付けた値。知らない名前の値も、名前のまま出す) */
+export function channelDef(id: ChannelId): ChannelDef {
+  const key = customKeyOf(id);
+  if (key === null) return CHANNELS[id as BuiltinChannelId] ?? CHANNELS.speed;
+  return customDefs.get(key) ?? customDef({ key, label: key });
+}
+/** 選べる値の一覧 (決まった値と、表示を知っている自分で名前を付けた値) */
+export function allChannels(): ChannelDef[] {
+  return [...Object.values(CHANNELS), ...customDefs.values()];
+}
+
 /** そのログにある値 (どれかの点に値があるもの)。ログごとに 1 回だけ調べる */
-const availableCache = new WeakMap<Session, Set<ChannelId>>();
+const availableCache = new WeakMap<Session, { v: number; set: Set<ChannelId> }>();
 export function availableChannels(session: Session | undefined | null): Set<ChannelId> {
   if (!session) return new Set(['speed']);
   const hit = availableCache.get(session);
-  if (hit) return hit;
+  if (hit && hit.v === customVersion) return hit.set;
   const out = new Set<ChannelId>();
   const pts = session.points;
   // 全部の点は見ない (間引いて 2000 点ほど)
@@ -53,7 +90,20 @@ export function availableChannels(session: Session | undefined | null): Set<Chan
       if (typeof v === 'number' && Number.isFinite(v) && (ch.id !== 'altitude' || v !== 0)) { out.add(ch.id); break; }
     }
   }
-  availableCache.set(session, out);
+  // 計算式の値 (入れる値があるか、点で求めてみる)
+  for (const ch of customDefs.values()) {
+    if (out.has(ch.id)) continue;
+    for (let i = 0; i < pts.length; i += stride) {
+      const v = ch.get(pts[i]);
+      if (typeof v === 'number' && Number.isFinite(v)) { out.add(ch.id); break; }
+    }
+  }
+  // 自分で名前を付けた値 (点に入っている名前)
+  for (let i = 0; i < pts.length; i += stride) {
+    const c = pts[i].custom;
+    if (c) for (const k of Object.keys(c)) if (Number.isFinite(c[k])) out.add(customId(k));
+  }
+  availableCache.set(session, { v: customVersion, set: out });
   return out;
 }
 
@@ -131,8 +181,8 @@ export const PART_LABELS: Record<OverlayPartType, [string, string]> = {
 /** 部品の名前 (棒・数字は値の名前も) */
 export function partLabel(p: OverlayPart, ja: boolean): string {
   const base = PART_LABELS[p.type][ja ? 0 : 1];
-  if (p.type === 'bar' || p.type === 'value') return `${base}: ${CHANNELS[p.channel].label[ja ? 0 : 1]}`;
-  if (p.type === 'graph') return `${base}: ${p.channels.map(c => CHANNELS[c].label[ja ? 0 : 1]).join('・')}`;
+  if (p.type === 'bar' || p.type === 'value') return `${base}: ${channelDef(p.channel).label[ja ? 0 : 1]}`;
+  if (p.type === 'graph') return `${base}: ${p.channels.map(c => channelDef(c).label[ja ? 0 : 1]).join('・')}`;
   return base;
 }
 
@@ -238,7 +288,8 @@ export function visibleParts(layout: OverlayLayout, session: Session | undefined
 const num = (v: unknown, lo: number, hi: number): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi ? v : null);
 const TYPES = new Set<OverlayPartType>(['speed', 'gmeter', 'lapPanel', 'lapClock', 'map', 'zoomMap', 'bar', 'steering', 'graph', 'value', 'delta', 'image']);
 // 'toString' などの Object の名前を値として通さない
-const isChannel = (v: unknown): v is ChannelId => typeof v === 'string' && Object.prototype.hasOwnProperty.call(CHANNELS, v);
+const isChannel = (v: unknown): v is ChannelId => typeof v === 'string'
+  && (Object.prototype.hasOwnProperty.call(CHANNELS, v) || (v.startsWith('custom:') && CUSTOM_KEY_RE.test(v.slice(7))));
 
 /** 並びのファイル (overlays/<名前>.overlay.json) を読む。おかしな部品は落とす。部品が 1 つも無ければ null */
 export function parseOverlayLayout(text: string | null, fallbackId: string): OverlayLayout | null {

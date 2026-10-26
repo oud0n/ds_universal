@@ -692,6 +692,78 @@ export const journeys = [
     }
   },
   {
+    name: 'CSV の形式の定義 (PLAN-36): 設定で値だけの CSV の形式を作ると、走行を開いたとき横の <走行>.<xxx>.csv を読み、速度グラフの下の値の帯に出せる。計算式も帯に出る',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      const dir = path.join(root, 'sodegaura/20260815');
+      const nmea = fs.readFileSync(path.join(dir, '20260815092455.nmea'), 'utf8');
+      // 走行の始まりの UTC (最初の RMC の日時)
+      const m = /\$G.RMC,(\d{2})(\d{2})(\d{2})(?:\.\d+)?,A,[^\n]*?,(\d{2})(\d{2})(\d{2}),/.exec(nmea);
+      check(m, 'NMEA の RMC が見つからない');
+      const t0 = Date.UTC(2000 + Number(m[6]), Number(m[5]) - 1, Number(m[4]), Number(m[1]), Number(m[2]), Number(m[3]));
+      const sensorPath = path.join(dir, '20260815092455.e2e_obd.csv');
+      const rows = ['time_utc_ms,rpm,coolant_c'];
+      for (let s2 = -60; s2 < 3600; s2++) rows.push(`${t0 + s2 * 1000},${3000 + (s2 % 60) * 50},${80 + (s2 % 30) / 3}`);
+      fs.writeFileSync(sensorPath, rows.join('\n'));
+      const sample = path.join(path.dirname(new URL(import.meta.url).pathname), 'out', '20260815092455.e2e_obd.csv');
+      fs.writeFileSync(sample, rows.slice(0, 20).join('\n'));
+      const fmtDir = path.join(root, 'formats');
+      const pick = (sel, v) => p.ev(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, ${JSON.stringify(v)}); el.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      const fill = (sel, v) => p.ev(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(v)}); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      try {
+        // 設定で形式を作る
+        await p.click('nav-settings');
+        await p.waitFor(`document.querySelector('[data-testid="csv-format-new"]')`, 5000, 'CSV の形式を作る');
+        await p.click('csv-format-new');
+        await p.setFiles('[data-testid="csv-format-file"]', [sample]);
+        await p.waitFor(`document.querySelectorAll('[data-testid="csv-format-column"]').length === 3`, 5000, '列の一覧');
+        check(await p.ev(`document.querySelector('[data-testid="csv-format-kind"]').value === 'sensor' && document.querySelector('[data-testid="csv-format-sensor-key"]').value === 'e2e_obd'`), '値だけの CSV・ファイルの名前が当たらない');
+        check(await p.ev(`document.querySelector('[data-testid="csv-format-time"]').value === 'time_utc_ms' && document.querySelector('[data-testid="csv-format-time-as"]').value === 'utcMs'`), '時刻の列・形が当たらない');
+        // rpm は回転数 (当たる)、coolant_c は自分で名前を付ける
+        check(await p.ev(`document.querySelector('[data-testid="csv-format-target-1"]').value === 'rpm'`), '回転数が当たらない');
+        await pick('[data-testid="csv-format-target-2"]', 'custom');
+        await fill('[data-testid="csv-format-label-2"]', '水温');
+        await fill('[data-testid="csv-format-name"]', 'e2e OBD');
+        await p.click('csv-format-save');
+        await p.waitFor(`/保存しました/.test(document.querySelector('[data-testid="csv-format-note"]')?.innerText ?? '')`, 5000, '保存');
+        const saved = JSON.parse(fs.readFileSync(path.join(fmtDir, 'e2e_OBD.csvformat.json'), 'utf8'));
+        check(saved.kind === 'sensor' && saved.sensorKey === 'e2e_obd' && saved.columns.coolant_c.target === 'custom:coolant_c' && saved.columns.rpm.target === 'rpm', `保存した形式が違う: ${JSON.stringify(saved)}`);
+        await p.click('csv-format-close');
+        // 計算式
+        await p.click('calc-open');
+        await p.click('calc-add');
+        await fill('[data-testid="calc-label"]', 'e2e mph');
+        await fill('[data-testid="calc-key"]', 'e2e_mph');
+        await fill('[data-testid="calc-expr"]', 'speed * 0.621');
+        await p.click('calc-save');
+        await p.waitFor(`/保存しました/.test(document.querySelector('[data-testid="calc-note"]')?.innerText ?? '')`, 5000, '計算式の保存');
+        check(JSON.parse(fs.readFileSync(path.join(fmtDir, 'calc.json'), 'utf8')).channels.some(c => c.key === 'e2e_mph'), '計算式が保存されない');
+        await p.click('calc-close');
+        // 走行を開くと、横の CSV を読んで、値の帯に出せる
+        await openRun(p, '8/15', 'run-open-analysis');
+        await p.waitFor(`document.querySelector('[data-testid="graph-strips-toggle"]')`, 15000, '値の帯のボタン');
+        await p.click('graph-strips-toggle');
+        await p.waitFor(`document.querySelector('[data-testid="graph-strip-custom:coolant_c"]') && document.querySelector('[data-testid="graph-strip-rpm"]') && document.querySelector('[data-testid="graph-strip-custom:e2e_mph"]')`, 15000, '値の帯の選び (水温・回転数・計算式)');
+        await p.click('graph-strip-custom:coolant_c');
+        await p.click('graph-strip-custom:e2e_mph');
+        await sleep(600);
+        await p.shot('csv_strips');
+        const pt = await p.ev(`(() => { const s = window.__laploupe; const ses = s.sessions.find(x => x.fileName?.includes('20260815')); return null; })()`);
+        void pt;
+        await p.click('graph-strips-toggle');
+      } finally {
+        fs.rmSync(sensorPath, { force: true });
+        fs.rmSync(sample, { force: true });
+        fs.rmSync(path.join(fmtDir, 'e2e_OBD.csvformat.json'), { force: true });
+        fs.rmSync(path.join(fmtDir, 'calc.json'), { force: true });
+        await p.ev(`localStorage.removeItem('ds_graph_strips')`).catch(() => {});
+      }
+    }
+  },
+  {
     name: '走行を消す: 同じ日の別の走行・付けていない動画は残し、その走行のファイルと runs.json の行だけを消す',
     target: 'electron',
     async run(p) {

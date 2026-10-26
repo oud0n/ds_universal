@@ -5,7 +5,7 @@
  * 四角の寄せ方: 映像の下半分にある部品は下に、右半分にある部品は右に寄せる (縦横の比が違っても隅から離れない)
  */
 import type { Lap, Session, TelemetryPoint } from '../types/telemetry';
-import { CHANNELS, type ChannelId, type OverlayPart } from '../services/overlayLayout';
+import { channelDef, type ChannelId, type OverlayPart } from '../services/overlayLayout';
 import { drawCourseMapAt, drawLapPanelAt, hasTimedLaps, LAP_PANEL_W, liveDelta } from './overlayParts';
 import { getTileImage, tilesForView } from '../services/mapTiles';
 
@@ -192,7 +192,7 @@ function drawLapClock(ctx: CanvasRenderingContext2D, x: number, y: number, s: nu
 
 /** 値の棒 (縦・横)。最小が 0 より小さい値 (G など) は、0 から上下 (左右) に伸ばす */
 function drawBar(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: number, rh: number, part: Extract<OverlayPart, { type: 'bar' }>, pt: TelemetryPoint): void {
-  const ch = CHANNELS[part.channel];
+  const ch = channelDef(part.channel);
   const v = ch.get(pt);
   const min = part.min ?? ch.min, max = part.max ?? ch.max;
   const color = part.color ?? '#38bdf8';
@@ -270,7 +270,7 @@ function drawSteering(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw:
 
 /** 数字の欄 (札と値) */
 function drawValue(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: number, rh: number, part: Extract<OverlayPart, { type: 'value' }>, pt: TelemetryPoint): void {
-  const ch = CHANNELS[part.channel];
+  const ch = channelDef(part.channel);
   const v = ch.get(pt);
   plate(ctx, rx, ry, rw, rh);
   const pad = Math.max(2, rh * 0.12);
@@ -328,7 +328,7 @@ function lapPath(lap: Lap, channel: ChannelId, x: number, y: number, w: number, 
   const key = `${channel}:${Math.round(x)}:${Math.round(y)}:${Math.round(w)}:${Math.round(h)}:${span.toFixed(4)}:${min}:${max}`;
   const hit = m.get(key);
   if (hit) return hit;
-  const ch = CHANNELS[channel];
+  const ch = channelDef(channel);
   const pts = lap.points;
   const base = pts[0]?.distance ?? 0;
   const path = new Path2D();
@@ -363,7 +363,7 @@ function drawGraph(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: nu
   ctx.lineJoin = 'round';
   ctx.lineWidth = Math.max(1.2, rh / 70);
   const range = (c: ChannelId) => {
-    const ch = CHANNELS[c];
+    const ch = channelDef(c);
     if (c !== 'speed' || !lap) return [ch.min, ch.max];
     // 速度は周の最高速に合わせる (200 km/h の目盛りだと、遅いコースで線が下に寄るため)
     const top = Math.max(lap.topSpeed || 0, ref?.topSpeed || 0, 40);
@@ -395,7 +395,7 @@ function drawGraph(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: nu
     const pts = input.session.points;
     for (const c of part.channels) {
       const [min, max] = range(c);
-      const ch = CHANNELS[c];
+      const ch = channelDef(c);
       ctx.strokeStyle = GRAPH_COLORS[c] ?? '#38bdf8';
       ctx.beginPath();
       let started = false;
@@ -419,7 +419,7 @@ function drawGraph(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: nu
   ctx.textBaseline = 'top';
   let lx = gx + 2;
   for (const c of part.channels) {
-    const ch = CHANNELS[c];
+    const ch = channelDef(c);
     const v = ch.get(pt);
     const text = `${ch.short} ${typeof v === 'number' && Number.isFinite(v) ? v.toFixed(ch.decimals) : '--'}`;
     ctx.fillStyle = GRAPH_COLORS[c] ?? VALUE;
