@@ -110,6 +110,8 @@ interface VideoSyncWindowProps {
   simple?: boolean;
   /** 中くらいの段の縦長で、動画の下に出すもの (コースマップ。PLAN-30) */
   sidePanel?: React.ReactNode;
+  /** iCloud から取り込んでいる走行の動画 (取り込みが終わると自動で付く) */
+  downloading?: { names: string[]; done: number; gb?: string } | null;
   // 音を出さない (グラフ解析で、同じ動画をほかのウインドウも出しているとき。音が二重になるため)
   muted?: boolean;
   // 画面に見えているか。見えていないウインドウ (隠れている動画同期タブ・グラフ画面) では動画を再生しない
@@ -237,6 +239,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   isGraphEmbedded = false,
   simple = false,
   sidePanel,
+  downloading = null,
   muted: muteAll = false,
   isVisible = true,
   playbackSpeed,
@@ -1807,6 +1810,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 text-sm" data-testid="video-loading">
             <span className="w-6 h-6 rounded-full border-2 border-slate-500 border-t-transparent animate-spin" />
             {t('走行の動画を読み込んでいます…', 'Loading the run videos…')}
+          </div>
+        ) : downloading ? (
+          // iCloud から走行の動画を取り込んでいる間 (何を待っているのか分かるように)
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-300 text-sm text-center px-6" data-testid="video-downloading">
+            <span className="w-7 h-7 rounded-full border-2 border-sky-400 border-t-transparent animate-spin" />
+            <span className="font-bold">{t('動画を iCloud から取り込んでいます', 'Downloading the video from iCloud')}{downloading.names.length > 1 ? ` (${downloading.done}/${downloading.names.length})` : ''}</span>
+            <span className="text-xs text-slate-400">{downloading.names.join('・')}{downloading.gb ? ` (${downloading.gb} GB)` : ''}</span>
+            <span className="text-xs text-slate-500 max-w-sm">{t('終わると、自動でこの走行に動画が付きます。1 GB あたり数分かかることがあります。待っている間も、解析など ほかの画面は使えます。', 'The video is attached to this run automatically when done. It can take a few minutes per GB; you can use Analysis and other screens meanwhile.')}</span>
           </div>
         ) : (
           // 動画がないときの案内 (グラフ・変換の画面と同じ形)

@@ -309,7 +309,7 @@ export const App: React.FC = () => {
   const importQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const runOpeningRef = useRef(false);
   // iCloud から取り込み中の動画 (取り込み終わったら、走行に付けて開く)。percent はふつう分からない (取り込み中とだけ出す)
-  const [runDownload, setRunDownload] = useState<{ names: string[]; done: number } | null>(null);
+  const [runDownload, setRunDownload] = useState<{ names: string[]; done: number; gb?: string } | null>(null);
   const runDownloadTokenRef = useRef(0);
   /** 保管場所から開いた走行の道と、そのログ (同じ名前のほかのフォルダの走行と取り違えないため) */
   const runSessionsRef = useRef(new Map<string, string[]>());
@@ -1294,6 +1294,13 @@ export const App: React.FC = () => {
         return [...cur, ...added.filter(a => !cur.some(c => c.id === a.id))];
       };
       const cand = await videoCandidates(store, item);
+      // 端末にある動画を先に付ける (前の走行の動画を外してから、取り込むかを聞く。聞いている間に前の走行の動画が残らないように)
+      await attachRunVideos({
+        store, item, runSessions: added, videos: cand.local, fromRuns: cand.fromRuns,
+        sessions: sessionsNow,
+        circuitName: () => added[0]?.circuitName ?? '',
+        setClockOffset: setSessionClockOffset
+      });
       if (cand.missing.length) {
         const gb = (totalBytes(cand.missing) / 1e9).toFixed(1);
         const download = await askChoice(
@@ -1311,7 +1318,7 @@ export const App: React.FC = () => {
         if (download) {
           const token = ++runDownloadTokenRef.current;
           const paths = cand.missing.map(m => m.path);
-          setRunDownload({ names: paths.map(p => p.slice(p.lastIndexOf('/') + 1)), done: 0 });
+          setRunDownload({ names: paths.map(p => p.slice(p.lastIndexOf('/') + 1)), done: 0, gb });
           void (async () => {
             const started = Date.now();
             for (;;) {
@@ -1337,12 +1344,6 @@ export const App: React.FC = () => {
           })();
         }
       }
-      await attachRunVideos({
-        store, item, runSessions: added, videos: cand.local, fromRuns: cand.fromRuns,
-        sessions: sessionsNow,
-        circuitName: () => added[0]?.circuitName ?? '',
-        setClockOffset: setSessionClockOffset
-      });
     } catch (e) {
       alert(tr('走行を開けませんでした: ', 'Could not open the run: ') + (e instanceof Error ? e.message : String(e)));
     } finally {
@@ -2161,6 +2162,7 @@ export const App: React.FC = () => {
                   onLoadFiles={loadFiles}
                   viewKey="phone-analysis"
                   onSetClockOffset={setSessionClockOffset}
+                      downloading={runDownload}
                 />
               )}
             </div>
@@ -2245,6 +2247,7 @@ export const App: React.FC = () => {
                       onLoadFiles={loadFiles}
                       viewKey="graph-a"
                       onSetClockOffset={setSessionClockOffset}
+                      downloading={runDownload}
                       compareCars={activeCars}
                     />
                 </div>
@@ -2430,6 +2433,7 @@ export const App: React.FC = () => {
                       // 左下にも車載動画を出しているときは、こちらの音を消す (同じ動画の音が二重になるため)
                       muted={!collapsed.anim}
                       onSetClockOffset={setSessionClockOffset}
+                      downloading={runDownload}
                       compareCars={activeCars}
                     />
                   )}
@@ -2465,6 +2469,7 @@ export const App: React.FC = () => {
             viewKey="video-tab"
             sidePanel={isMedium ? trackMapEl : undefined}
             onSetClockOffset={setSessionClockOffset}
+                      downloading={runDownload}
             compareCars={activeCars}
             loading={runBusy}
           />
