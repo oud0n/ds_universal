@@ -16,7 +16,7 @@ import { getPositionSource } from '../services/positionSource';
 import { navStore } from '../app/navStore';
 import { distanceKm } from '../services/timer/positionFeeds';
 import { TimerRuntime, loadPhoneFusion, savePhoneFusion } from '../services/timer/timerRuntime';
-import { IdleRunConfirm, OrientationToggle, StopConfirm, loadTimerOrientation, saveTimerOrientation, type TimerOrientation } from './LapTimerControls';
+import { IdleRunConfirm, StopConfirm } from './LapTimerControls';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
 import type { TelemetryPoint } from '../types/telemetry';
 
@@ -113,8 +113,6 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const [phoneFusion, setPhoneFusion] = useState(loadPhoneFusion);
   // 測定終了の確認 (全画面) を出しているか
   const [confirmStop, setConfirmStop] = useState(false);
-  // 画面の向き (アプリだけ。測る前に選び、測っている間は固める)
-  const [orientation, setOrientation] = useState<TimerOrientation>(loadTimerOrientation);
   const [coursePicker, setCoursePicker] = useState(false);
   const [now, setNow] = useState(() => performance.now());
   const [wakeLockOk, setWakeLockOk] = useState<boolean | null>(null);
@@ -156,12 +154,11 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   // 測っている間は今の向きに固める (コーナーの横 G で向きが変わらないように)。閉じたらふつうに戻す。前のアプリは not-supported を返すので何もしない
   useEffect(() => {
     if (!hasNative()) return;
-    void callNative('system.setOrientation', { mode: measuring ? 'hold' : orientation }).catch(() => {});
-  }, [measuring, orientation]);
+    void callNative('system.setOrientation', { mode: measuring ? 'hold' : 'system' }).catch(() => {});
+  }, [measuring]);
   useEffect(() => () => {
     if (hasNative()) void callNative('system.setOrientation', { mode: 'system' }).catch(() => {});
   }, []);
-  const changeOrientation = useCallback((v: TimerOrientation) => { setOrientation(v); saveTimerOrientation(v); }, []);
 
   // ---- 画面を消さない ----
   useEffect(() => {
@@ -492,8 +489,6 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       {/* 測定開始 / 測定終了 (ログの再生のときは出さない) */}
       {source !== 'replay' && (
         <div className="shrink-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-3">
-          {/* 画面の向きは測る前だけ (アプリのみ) */}
-          {!measuring && hasNative() && <OrientationToggle value={orientation} onChange={changeOrientation} />}
           <button
             onClick={() => {
               // 位置の機器を登録していなければ、測らずに機器の画面へ (測れない記録を作らないように)

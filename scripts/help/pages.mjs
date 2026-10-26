@@ -104,8 +104,8 @@ export const PAGES = [
     }, {
       dev: 'phone',
       note: [
-        '測っている間は、画面を消さず、アプリを前に出しておいてください。画面の向き (自動・縦・横) は、測定開始で固まります。',
-        'Keep the screen on and the app in front while timing. The screen orientation (auto / portrait / landscape) is locked when you start.'
+        '測っている間は、画面を消さず、アプリを前に出しておいてください。画面の向きは、測定開始のときの向きで固まります (測り終えると戻ります)。',
+        'Keep the screen on and the app in front while timing. The screen orientation is locked to the way the phone faces when you start, and released when you stop.'
       ]
     }, PHONE_ONLY]
   },

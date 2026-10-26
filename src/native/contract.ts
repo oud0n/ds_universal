@@ -210,7 +210,7 @@ export interface NativeMethods {
    */
   'system.motionStart': { params: { hz: number }; result: Record<string, never> };
   'system.motionStop': { params: Record<string, never>; result: Record<string, never> };
-  'system.setOrientation': { params: { mode: 'system' | 'auto' | 'portrait' | 'landscape' | 'hold' }; result: { orientation: 'portrait' | 'landscape' } };
+  'system.setOrientation': { params: { mode: 'system' | 'hold' }; result: { orientation: 'portrait' | 'landscape' } };
   /**
    * アプリの書類のフォルダの LapTimer/ の下のファイルに、バイト列 (base64) を足す (ラップタイマーの走行の記録を、走っている間に書くため)。
    * truncate なら、はじめから書き直す。ファイルは「ファイル」アプリの「このiPhone内 → このアプリ → LapTimer」に出る。

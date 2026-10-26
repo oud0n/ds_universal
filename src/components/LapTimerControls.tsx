@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Square, Play, RotateCw, Smartphone, Trash2, Check } from 'lucide-react';
+import { Square, Play, Trash2, Check } from 'lucide-react';
 import { useT } from '../utils/i18n';
 
 /** 終了の確認を出したまま何もしなければ、この秒数で「続ける」に戻る */
@@ -124,58 +124,6 @@ export const IdleRunConfirm: React.FC<{ distM: number; onDiscard: () => Promise<
         >
           <Check size={28} />{t('残す', 'Keep')}
         </button>
-      </div>
-    </div>
-  );
-};
-
-/** ラップタイマーの画面の向き。auto = 傾きで決める (画面の向きのロックが入っていても) */
-export type TimerOrientation = 'auto' | 'portrait' | 'landscape';
-
-const ORIENTATION_KEY = 'lapTimer.orientation';
-
-export function loadTimerOrientation(): TimerOrientation {
-  try {
-    const v = localStorage.getItem(ORIENTATION_KEY);
-    if (v === 'auto' || v === 'portrait' || v === 'landscape') return v;
-  } catch {
-    // 読めないときは既定
-  }
-  return 'auto';
-}
-
-export function saveTimerOrientation(v: TimerOrientation): void {
-  try {
-    localStorage.setItem(ORIENTATION_KEY, v);
-  } catch {
-    // 覚えられなくても、今は使える
-  }
-}
-
-/** 画面の向きの切り替え (測る前だけ出す。大きく押しやすく) */
-export const OrientationToggle: React.FC<{ value: TimerOrientation; onChange: (v: TimerOrientation) => void }> = ({ value, onChange }) => {
-  const t = useT();
-  const items: { v: TimerOrientation; label: string; icon: React.ReactNode }[] = [
-    { v: 'auto', label: t('自動', 'Auto'), icon: <RotateCw size={18} /> },
-    { v: 'portrait', label: t('縦', 'Portrait'), icon: <Smartphone size={18} /> },
-    { v: 'landscape', label: t('横', 'Landscape'), icon: <Smartphone size={18} className="rotate-90" /> },
-  ];
-  return (
-    <div className="flex items-center gap-2" data-testid="lap-timer-orientation">
-      <span className="text-slate-400 text-sm whitespace-nowrap">{t('画面の向き', 'Screen')}</span>
-      <div className="flex-1 flex rounded-2xl border border-line-3 overflow-hidden" role="radiogroup" aria-label={t('画面の向き', 'Screen orientation')}>
-        {items.map((it, i) => (
-          <button
-            key={it.v}
-            role="radio"
-            aria-checked={value === it.v}
-            onClick={() => onChange(it.v)}
-            className={`flex-1 h-14 flex items-center justify-center gap-1.5 font-bold text-base ${i > 0 ? 'border-l border-line-3' : ''} ${value === it.v ? 'bg-sky-600 text-white' : 'text-slate-300 active:bg-surface-3'}`}
-            data-testid={`lap-timer-orientation-${it.v}`}
-          >
-            {it.icon}{it.label}
-          </button>
-        ))}
       </div>
     </div>
   );

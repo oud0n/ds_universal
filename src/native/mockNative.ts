@@ -365,8 +365,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
       case 'system.motionStop':
         return {};
       case 'system.setOrientation': {
-        const { mode } = req.params as { mode: string };
-        return { orientation: mode === 'landscape' ? 'landscape' : 'portrait' };
+        return { orientation: 'portrait' };
       }
       case 'system.appendFile': {
         const { path, b64, truncate, createNew } = req.params as { path: string; b64: string; truncate?: boolean; createNew?: boolean };
