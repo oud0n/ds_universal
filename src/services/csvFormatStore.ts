@@ -59,7 +59,7 @@ function writeLocal(key: string, list: unknown[]): void {
 }
 
 /** 置き場から形式・計算式を読み直す (起動したとき・保管場所を替えたとき) */
-export async function loadCsvFormats(): Promise<void> {
+export async function loadCsvFormats(retries = 0): Promise<void> {
   const s = await store();
   if (!s) {
     formats = readLocal(LOCAL_FORMATS, (x, i) => parseCsvFormat(JSON.stringify(x), `user:local${i}`));
@@ -69,6 +69,12 @@ export async function loadCsvFormats(): Promise<void> {
   }
   const files = (await s.listAll().catch(() => [])).filter(f => f.path.startsWith(`${FORMATS_DIR}/`));
   const out: CsvFormat[] = [];
+  // iCloud にだけあって、まだ端末に取り込まれていないファイル (保管場所を選んだ直後など)。取り込みを頼んで、あとで読み直す
+  let pending = false;
+  for (const f of files.filter(x => x.path.endsWith('.csvformat.json') || x.path === CALC_FILE)) {
+    if (f.local === false) { pending = true; void s.startDownload(f.path).catch(() => undefined); }
+  }
+  if (pending && retries < 4) setTimeout(() => { void loadCsvFormats(retries + 1); }, 4000);
   for (const f of files.filter(x => x.path.endsWith('.csvformat.json'))) {
     const text = await s.readText(f.path).catch(() => null);
     if (!text || isDeleted(text)) continue;

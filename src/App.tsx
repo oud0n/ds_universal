@@ -1222,10 +1222,24 @@ export const App: React.FC = () => {
       if (!already.length && added.length) {
         void (async () => {
           const stem = item.file.replace(/\.[^./]+$/, '');
-          for (const fmt of currentCsvFormats().filter(f => f.kind === 'sensor' && f.sensorKey)) {
+          const sensorFormats = currentCsvFormats().filter(f => f.kind === 'sensor' && f.sensorKey);
+          if (!sensorFormats.length) return;
+          // 置き場にあるファイル (iCloud にだけあるものも)。無いファイルは読みにいかない
+          const listed = new Map((await store.listAll().catch(() => [])).map(f => [f.path, f]));
+          for (const fmt of sensorFormats) {
             const path = `${item.folder}/${stem}.${fmt.sensorKey}.csv`;
-            if (sensorKeyOf(path) !== fmt.sensorKey) continue;
-            const text = await store.read(path).then(b => new TextDecoder().decode(b), () => null);
+            if (sensorKeyOf(path) !== fmt.sensorKey || !listed.has(path)) continue;
+            let text = await store.read(path).then(b => new TextDecoder().decode(b), () => null);
+            // iCloud にだけあって、まだ端末に無いときは、取り込みを頼んで少し待ってから読み直す
+            if (text === null) {
+              if (listed.get(path)?.local === false) {
+                await store.startDownload(path).catch(() => undefined);
+                for (let i = 0; i < 5 && text === null; i++) {
+                  await new Promise(r => setTimeout(r, 2000));
+                  text = await store.read(path).then(b => new TextDecoder().decode(b), () => null);
+                }
+              }
+            }
             if (!text || matchCsvFormat(path, text, [fmt]) !== fmt) continue;
             const rows = readRows(text, fmt);
             if (!rows.rows.length) continue;
