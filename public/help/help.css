@@ -1,0 +1,35 @@
+/* LapLoupe の使い方 (PLAN-39)。アプリの中 (通信なし) とブラウザで同じものを出す */
+:root { --bg: #ffffff; --fg: #1c2436; --muted: #5b6475; --line: #dde2ea; --card: #f4f6f9; --accent: #c81e2b; --chip: #e8ebf0; }
+@media (prefers-color-scheme: dark) { :root { --bg: #0d1017; --fg: #e6e9ef; --muted: #9aa3b2; --line: #2c333f; --card: #161b24; --accent: #ff5c66; --chip: #222937; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.7 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Segoe UI", sans-serif; -webkit-text-size-adjust: 100%; }
+main { max-width: 860px; margin: 0 auto; padding: 16px 16px 64px; }
+header.top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 0; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+header.top a.home { color: var(--fg); font-weight: 700; text-decoration: none; margin-right: auto; }
+h1 { font-size: 1.45rem; margin: 0.4em 0 0.2em; line-height: 1.35; }
+h2 { font-size: 1.1rem; margin: 1.8em 0 0.5em; }
+p.lead { color: var(--muted); margin-top: 0; }
+a { color: var(--accent); }
+.switch { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.switch button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 0.82rem; padding: 4px 10px; cursor: pointer; }
+.switch button[aria-pressed="true"] { background: var(--accent); color: #fff; font-weight: 700; }
+ol.steps { padding-left: 0; list-style: none; counter-reset: s; }
+ol.steps > li { counter-increment: s; position: relative; padding: 0 0 18px 44px; }
+ol.steps > li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; }
+figure { margin: 10px 0 0; }
+figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 10px; }
+figure.phone img { max-width: 300px; }
+figcaption { color: var(--muted); font-size: 0.85rem; margin-top: 4px; }
+.note { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 12px 0; font-size: 0.93rem; }
+.note b { color: var(--accent); }
+kbd, .ui { background: var(--chip); border-radius: 6px; padding: 1px 6px; font-size: 0.9em; white-space: nowrap; }
+nav.toc ul { list-style: none; padding: 0; margin: 0; }
+nav.toc li { border-bottom: 1px solid var(--line); }
+nav.toc a { display: block; padding: 10px 2px; color: var(--fg); text-decoration: none; }
+nav.toc a span { color: var(--muted); font-size: 0.85rem; margin-left: 6px; }
+nav.toc li.soon a { color: var(--muted); pointer-events: none; }
+.pager { display: flex; justify-content: space-between; gap: 12px; margin-top: 32px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 0.92rem; }
+/* 端末・言語の切り替え (html の data-device・data-lang に合わないものを隠す) */
+html[data-lang="ja"] .l-en, html[data-lang="en"] .l-ja { display: none !important; }
+html[data-device="iphone"] .dev:not(.d-iphone), html[data-device="android"] .dev:not(.d-android),
+html[data-device="desktop"] .dev:not(.d-desktop), html[data-device="browser"] .dev:not(.d-browser) { display: none !important; }
