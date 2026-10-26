@@ -7,7 +7,7 @@
 import type { Session, TelemetryPoint } from '../types/telemetry';
 
 /** 部品の種類 */
-export type OverlayPartType = 'speed' | 'gmeter' | 'lapPanel' | 'lapClock' | 'map' | 'zoomMap' | 'bar' | 'steering' | 'graph' | 'value' | 'delta';
+export type OverlayPartType = 'speed' | 'gmeter' | 'lapPanel' | 'lapClock' | 'map' | 'zoomMap' | 'bar' | 'steering' | 'graph' | 'value' | 'delta' | 'image';
 
 /** 値 (チャンネル)。部品の棒・グラフ・数字で選ぶ */
 export type ChannelId = 'speed' | 'accelG' | 'corneringG' | 'combinedG' | 'throttle' | 'brake' | 'steering' | 'rpm' | 'gear' | 'altitude';
@@ -82,7 +82,14 @@ export type OverlayPart =
   | (PartBase & { type: 'steering'; maxDeg?: number })
   | (PartBase & { type: 'graph'; channels: ChannelId[]; window?: 'lap' | number; compare?: boolean })
   | (PartBase & { type: 'value'; channel: ChannelId; label?: string })
-  | (PartBase & { type: 'delta'; maxSec?: number });
+  | (PartBase & { type: 'delta'; maxSec?: number })
+  /** 画像 (企業ロゴなど)。src は画像の中身 (data: の URL。並びのファイルに入れて、端末の間でそのまま使えるように) */
+  | (PartBase & { type: 'image'; src: string });
+
+/** 画像の部品の中身として受け付けるもの (PNG・JPEG・WebP・GIF の data: の URL。大きすぎるものは入れない) */
+export const MAX_IMAGE_SRC = 1_500_000;
+export const isImageSrc = (v: unknown): v is string =>
+  typeof v === 'string' && v.length <= MAX_IMAGE_SRC && /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(v);
 
 export interface OverlayLayout {
   version: 1;
@@ -117,7 +124,8 @@ export const PART_LABELS: Record<OverlayPartType, [string, string]> = {
   steering: ['ハンドル', 'Steering wheel'],
   graph: ['グラフの帯', 'Graph strip'],
   value: ['数字の欄', 'Number'],
-  delta: ['タイム差の棒', 'Delta bar']
+  delta: ['タイム差の棒', 'Delta bar'],
+  image: ['画像 (ロゴなど)', 'Image (logo etc.)']
 };
 
 /** 部品の名前 (棒・数字は値の名前も) */
@@ -228,7 +236,7 @@ export function visibleParts(layout: OverlayLayout, session: Session | undefined
 }
 
 const num = (v: unknown, lo: number, hi: number): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi ? v : null);
-const TYPES = new Set<OverlayPartType>(['speed', 'gmeter', 'lapPanel', 'lapClock', 'map', 'zoomMap', 'bar', 'steering', 'graph', 'value', 'delta']);
+const TYPES = new Set<OverlayPartType>(['speed', 'gmeter', 'lapPanel', 'lapClock', 'map', 'zoomMap', 'bar', 'steering', 'graph', 'value', 'delta', 'image']);
 // 'toString' などの Object の名前を値として通さない
 const isChannel = (v: unknown): v is ChannelId => typeof v === 'string' && Object.prototype.hasOwnProperty.call(CHANNELS, v);
 
@@ -290,6 +298,9 @@ function parseParts(list: unknown[]): OverlayPart[] {
       parts.push({ ...base, type, ...(num(r.maxSec, 0.1, 10) !== null ? { maxSec: r.maxSec as number } : {}) });
     } else if (type === 'map') {
       parts.push({ ...base, type, ...(r.compare === true ? { compare: true } : {}) });
+    } else if (type === 'image') {
+      if (!isImageSrc(r.src)) continue;
+      parts.push({ ...base, type, src: r.src });
     } else if (type === 'zoomMap') {
       parts.push({
         ...base, type,
