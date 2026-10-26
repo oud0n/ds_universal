@@ -72,9 +72,12 @@ enum RunFiles {
         if isDownloaded(url) { return true }
         try? FileManager.default.startDownloadingUbiquitousItem(at: url)
         let until = Date().addingTimeInterval(timeout)
+        // 小さなファイルはすぐ来るので、はじめは細かく見る (0.5 秒ごとだと、コースのファイル 200 個で 2 分近くかかっていた)
+        var step: TimeInterval = 0.05
         while Date() < until {
-            Thread.sleep(forTimeInterval: 0.5)
+            Thread.sleep(forTimeInterval: step)
             if isDownloaded(url) { return true }
+            step = min(step * 2, 0.5)
         }
         return false
     }
