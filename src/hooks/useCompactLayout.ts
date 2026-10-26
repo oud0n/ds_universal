@@ -32,16 +32,20 @@ const currentTier = (): LayoutTier => tierFor({
 
 // 段は、画面の大きさが 0.15 秒変わらなくなってから切り替える (Duo を開く・たたむ間は大きさが何度か変わるので、途中でちらつかせない)
 const SETTLE_MS = 150;
+// 横向きか も同じく、落ち着いてから切り替える (段と向きが別々に替わって、途中の配置を一瞬作らないように)
+const currentLandscape = () => !!QUERIES.landscape?.matches;
 let tier: LayoutTier = typeof window !== 'undefined' ? currentTier() : 'wide';
+let landscape = typeof window !== 'undefined' ? currentLandscape() : false;
 const listeners = new Set<() => void>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 const onChange = () => {
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => {
     timer = null;
-    const next = currentTier();
-    if (next === tier) return;
+    const next = currentTier(), nextLandscape = currentLandscape();
+    if (next === tier && nextLandscape === landscape) return;
     tier = next;
+    landscape = nextLandscape;
     for (const f of listeners) f();
   }, SETTLE_MS);
 };
@@ -49,7 +53,9 @@ let watching = false;
 function subscribeTier(cb: () => void): () => void {
   if (!watching) {
     watching = true;
-    for (const q of [QUERIES.narrow, QUERIES.short, QUERIES.belowWide, QUERIES.coarse]) q?.addEventListener('change', onChange);
+    for (const q of Object.values(QUERIES)) q?.addEventListener('change', onChange);
+    // 読み込んでから見張り始めるまでに大きさが変わっていたときのため、一度見直す
+    onChange();
   }
   listeners.add(cb);
   return () => { listeners.delete(cb); };
@@ -70,14 +76,9 @@ export function useMediumLayout(): boolean {
   return useLayoutTier() === 'medium';
 }
 
-const subscribeLandscape = (cb: () => void) => {
-  QUERIES.landscape?.addEventListener('change', cb);
-  return () => QUERIES.landscape?.removeEventListener('change', cb);
-};
-
-/** 横向きか (スマートフォンを横にしたときは、グラフとコース図を左右に並べる) */
+/** 横向きか (スマートフォンを横にしたときは、グラフとコース図を左右に並べる)。段と同じく、落ち着いてから切り替える */
 export function useLandscape(): boolean {
-  return useSyncExternalStore(subscribeLandscape, () => !!QUERIES.landscape?.matches);
+  return useSyncExternalStore(subscribeTier, () => landscape, () => false);
 }
 
 /** 段が変わったときに一度だけ呼ぶ (前の段・新しい段)。開く・たたむの移り変わりで、出す欄を引き継ぐため */

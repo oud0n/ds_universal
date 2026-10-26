@@ -98,11 +98,11 @@ export interface OverlayLayout {
 /** この幅 (画面の px) より狭い枠は、小さな枠の並びにする */
 export const SMALL_TILE_PX = 560;
 
-/** 小さな枠の既定の部品: 大きく読めるものだけ (速度・ラップタイム・タイム差) */
+/** 小さな枠の既定の部品: 大きく読めるものだけ (速度・ラップタイム・G)。走行比較の枠も同じ */
 export const SMALL_PARTS: OverlayPart[] = [
   { id: 'speed', type: 'speed', x: 0.03, y: 0.72, w: 0.32, h: 0.24 },
   { id: 'clock', type: 'lapClock', x: 0.6, y: 0.04, w: 0.37, h: 0.14 },
-  { id: 'delta', type: 'delta', maxSec: 1, x: 0.38, y: 0.84, w: 0.34, h: 0.12 }
+  { id: 'g', type: 'gmeter', x: 0.75, y: 0.66, w: 0.22, h: 0.3 }
 ];
 
 /** 部品の種類の名前 (画面に出す) */
@@ -148,7 +148,7 @@ const STANDARD: OverlayPart[] = [
 ];
 
 export const BUILTIN_LAYOUTS: OverlayLayout[] = [
-  { version: 1, id: 'builtin:standard', name: ['標準', 'Standard'], builtin: true, parts: STANDARD },
+  { version: 1, id: 'builtin:standard', name: ['標準', 'Standard'], builtin: true, parts: STANDARD, small: SMALL_PARTS },
   {
     version: 1, id: 'builtin:data', name: ['データ多め', 'More data'], builtin: true,
     parts: [
@@ -158,6 +158,13 @@ export const BUILTIN_LAYOUTS: OverlayLayout[] = [
       { id: 'steer', type: 'steering', x: 0.275, y: 0.79, w: 0.1, h: 0.17 },
       { id: 'rpm', type: 'value', channel: 'rpm', label: 'RPM', x: 0.385, y: 0.85, w: 0.09, h: 0.07 },
       { id: 'gear', type: 'value', channel: 'gear', label: 'GEAR', x: 0.48, y: 0.85, w: 0.06, h: 0.07 }
+    ],
+    // 小さな枠: 速度・アクセル・ブレーキ・ラップタイム (選んだ並びの違いが狭い枠でも分かるように)
+    small: [
+      { id: 'speed', type: 'speed', x: 0.03, y: 0.72, w: 0.32, h: 0.24 },
+      { id: 'throttle', type: 'bar', channel: 'throttle', color: '#22c55e', label: 'THR', x: 0.37, y: 0.66, w: 0.06, h: 0.3 },
+      { id: 'brake', type: 'bar', channel: 'brake', color: '#ef4444', label: 'BRK', x: 0.45, y: 0.66, w: 0.06, h: 0.3 },
+      { id: 'clock', type: 'lapClock', x: 0.6, y: 0.04, w: 0.37, h: 0.14 }
     ]
   },
   {
@@ -169,6 +176,11 @@ export const BUILTIN_LAYOUTS: OverlayLayout[] = [
       { id: 'speed', type: 'speed', x: 0.02, y: 0.83, w: 0.165, h: 0.13 },
       { id: 'graph', type: 'graph', channels: ['speed'], window: 'lap', compare: true, x: 0.2, y: 0.8, w: 0.63, h: 0.17 },
       { id: 'g', type: 'gmeter', x: 0.85, y: 0.775, w: 0.13, h: 0.18 }
+    ],
+    small: [
+      { id: 'speed', type: 'speed', x: 0.03, y: 0.5, w: 0.3, h: 0.22 },
+      { id: 'clock', type: 'lapClock', x: 0.6, y: 0.04, w: 0.37, h: 0.14 },
+      { id: 'graph', type: 'graph', channels: ['speed'], window: 'lap', compare: true, x: 0.03, y: 0.76, w: 0.94, h: 0.21 }
     ]
   },
   {
@@ -176,6 +188,10 @@ export const BUILTIN_LAYOUTS: OverlayLayout[] = [
     parts: [
       { id: 'speed', type: 'speed', x: 0.02, y: 0.83, w: 0.165, h: 0.13 },
       { id: 'delta', type: 'delta', maxSec: 1, x: 0.38, y: 0.9, w: 0.24, h: 0.06 }
+    ],
+    small: [
+      { id: 'speed', type: 'speed', x: 0.03, y: 0.72, w: 0.32, h: 0.24 },
+      { id: 'delta', type: 'delta', maxSec: 1, x: 0.4, y: 0.84, w: 0.4, h: 0.12 }
     ]
   }
 ];

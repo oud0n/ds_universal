@@ -1166,8 +1166,9 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         />
         {/* 車両の現在位置 (操作は下の canvas が受ける) */}
         <canvas ref={carCanvasRef} className="absolute inset-0 pointer-events-none block" />
-        {compact && !cornerDraft && (
-          <div className="absolute top-1 right-1 z-10 bg-surface-3/90 border border-line-2 rounded px-1 py-0.5" data-testid="track-map-controls">
+        {/* コーナーの編集中は、右の編集の欄と重ならないよう左上へ */}
+        {compact && (
+          <div className={`absolute top-1 ${cornerDraft ? 'left-1' : 'right-1'} z-10 bg-surface-3/90 border border-line-2 rounded px-1 py-0.5`} data-testid="track-map-controls">
             {controls}
           </div>
         )}

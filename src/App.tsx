@@ -512,7 +512,8 @@ export const App: React.FC = () => {
   // 最後に触ったのがコースマップか下の欄か (中くらい → スマートフォンにたたんだとき、どちらを出すか)
   const lastTouchedRef = useRef<'map' | 'panel'>('panel');
   useTierChange((prev, next) => {
-    if (prev === 'medium' && next === 'phone') setMobilePanel(lastTouchedRef.current === 'map' ? 'map' : shownPanel);
+    // この時点の描画はもうスマートフォンの段なので、中くらいで出していた下の欄 (コースを選んでいたら代わりの欄) をここで求める
+    if (prev === 'medium' && next === 'phone') setMobilePanel(lastTouchedRef.current === 'map' ? 'map' : mobilePanel === 'map' ? analysisFallback : mobilePanel);
   });
   const analysisGrid: React.CSSProperties = isMedium
     ? (isLandscape
@@ -2077,7 +2078,7 @@ export const App: React.FC = () => {
                 </button>
               ))}
             </div>
-            <div key="body" style={{ gridArea: 'b' }} className="-mt-2 min-h-0 min-w-0 bg-surface-1 border border-t-0 border-line-1 rounded-b overflow-hidden" onPointerDown={() => { lastTouchedRef.current = 'panel'; }}>
+            <div key="body" style={{ gridArea: 'b' }} className="-mt-2 min-h-0 min-w-0 bg-surface-1 border border-t-0 border-line-1 rounded-b overflow-hidden" onPointerDown={() => { lastTouchedRef.current = 'panel'; }} data-testid="analysis-body">
               {/* 切り替えても表示の設定 (色分け・拡大・追従など) が消えないよう、外さずに隠すだけにする */}
               {([['gg', frictionEl], ['corner', cornerEl], ['braking', brakingEl], ['xy', xyEl], ['drift', driftEl]] as const)
                 .filter(([id]) => MOBILE_PANELS.some(p => p.id === id))

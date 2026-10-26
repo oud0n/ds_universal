@@ -160,6 +160,8 @@ export async function videoCandidates(store: RunStore, item: RunItem): Promise<{
 interface OpenRun {
   store: RunStore;
   item: RunItem;
+  /** 最後に覚えるよう頼んだメーターの並び (書き終わる前に続けて選んでも、最後の選びで書くため) */
+  requestedLayout?: string;
   /** その走行のログ (読み込んだ順。何番目 = 分かれた走行の番号) */
   sessionIds: string[];
   circuitName: () => string;
@@ -556,19 +558,16 @@ export function openRunOverlayLayout(sessionId: string | undefined): string | nu
 }
 
 /**
- * 開いている走行 (sessionId がそのログのとき) の行に、メーターの並びを覚える (PLAN-08)。null は覚えたのを外す (標準に戻す)
+ * 開いている走行 (sessionId がそのログのとき) の行に、メーターの並びを覚える (PLAN-08)。自動は 'auto'
  */
-export async function setOpenRunOverlayLayout(sessionId: string | undefined, id: string | null): Promise<void> {
+export async function setOpenRunOverlayLayout(sessionId: string | undefined, id: string): Promise<void> {
   const run = current;
   if (!run || !sessionId || !run.sessionIds.includes(sessionId)) return;
-  if ((run.item.entry?.overlayLayout ?? null) === id) return;
+  // 自動も 'auto' として覚える (覚えていない走行と分けるため。覚えていない走行はウインドウの並びのまま)
+  if ((run.requestedLayout ?? run.item.entry?.overlayLayout) === id) return;
+  run.requestedLayout = id;
   try {
-    const row = await updateRun(run.store, run.item.folder, run.item.file, prev => {
-      const next: Partial<RunRow> = { ...prev };
-      if (id) next.overlayLayout = id;
-      else delete next.overlayLayout;
-      return next;
-    });
+    const row = await updateRun(run.store, run.item.folder, run.item.file, prev => ({ ...prev, overlayLayout: run.requestedLayout ?? id }));
     run.item.entry = row;
   } catch {
     // 書けなくても、今のウインドウではその並びで出す

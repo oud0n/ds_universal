@@ -390,7 +390,7 @@ export const journeys = [
         // 足すと小さな枠の並びになる (触らなければ既定のまま、保存しない)
         await p.click('overlay-edit-add');
         await p.click('overlay-edit-save');
-        for (let i = 0; i < 30 && !JSON.parse(fs.readFileSync(file, 'utf8')).small; i++) await sleep(200);
+        for (let i = 0; i < 30 && JSON.parse(fs.readFileSync(file, 'utf8')).small?.length !== 4; i++) await sleep(200);
         check(JSON.parse(fs.readFileSync(file, 'utf8')).small?.some(x => x.type === 'lapClock') && JSON.parse(fs.readFileSync(file, 'utf8')).small.length === 4, '小さな枠の部品が保存されない');
         check(JSON.parse(fs.readFileSync(file, 'utf8')).parts.find(x => x.id === 'speed')?.x === 0.12, '小さな枠を直したら、ふつうの枠が変わった');
         await p.click('overlay-edit-target-large');
@@ -500,6 +500,16 @@ export const journeys = [
         await p.waitFor(`document.querySelector('[data-testid="analysis-compact"]')?.dataset.tier === 'phone'`, 5000, 'たたむ');
         await sleep(300);
         check(JSON.stringify(await shown()) === '["map"]' && await mapVisible(), `コースを触ってたたんだのにコースでない: ${await shown()}`);
+        // コースを出したまま開くと下の欄は動画。その動画を触ってからたたむと、動画のまま (コースに戻らない)
+        await p.viewport(951, 669, true);
+        await p.waitFor(`document.querySelector('[data-testid="analysis-compact"]')?.dataset.tier === 'medium'`, 5000, '開く');
+        await sleep(300);
+        check(JSON.stringify(await shown()) === '["video"]', `コースを出したまま開いたら下の欄が動画でない: ${await shown()}`);
+        await p.ev(`document.querySelector('[data-testid="analysis-body"]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
+        await p.viewport(466, 678, true);
+        await p.waitFor(`document.querySelector('[data-testid="analysis-compact"]')?.dataset.tier === 'phone'`, 5000, 'たたむ');
+        await sleep(300);
+        check(JSON.stringify(await shown()) === '["video"]', `動画を触ってたたんだのに動画でない: ${await shown()}`);
         // 動画の画面: 開いた横長の比べるは 2 つを左右に
         await p.viewport(951, 669, true);
         await sleep(600);

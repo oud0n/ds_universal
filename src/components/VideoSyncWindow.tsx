@@ -403,7 +403,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   /** メーターの並びを選ぶ。開いている走行の runs.json の行にも覚え、次に開いたときもその並びにする (PLAN-08) */
   const chooseLayout = (id: string, extra: Partial<typeof win> = {}) => {
     setWin({ overlayLayout: id, ...extra });
-    void setOpenRunOverlayLayout(baseSession?.id, id === AUTO_LAYOUT ? null : id);
+    void setOpenRunOverlayLayout(baseSession?.id, id);
   };
   // 走行を開いたら (窓を開いたときに開いている走行も)、その走行に覚えた並びにする
   const applyRunLayoutRef = useRef<() => void>(() => {});
@@ -1076,7 +1076,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       // 小さな枠 (狭く映っている枠・走行比較の枠) は、小さな枠の並び。編集で小さな枠を直している間は、メインの枠も小さな枠の並び
       draw: (ctx, w, h, avoidW, displayW) => drawTelemetryOverlayOnCanvas(ctx, w, h, g.time, g.session, g.lap, editLayout ? true : showGForce, i === 0 && win.layout === 'pip' && tileCount > 1 && !editLayout ? pipPosition : null, avoidW, null,
         isCompare
-          ? { ...NO_PARTS, layout: overlayLayout, small: true, smallDefault: COMPARE_LAYOUT.parts }
+          ? { ...NO_PARTS, layout: overlayLayout, small: true }
           : { ...overlayParts, small: editLayout ? editTarget === 'small' : displayW < SMALL_TILE_PX })
     };
   };
@@ -1679,11 +1679,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   setEditOrig(snapshot(base));
                   setEditSel(null);
                 }}
-                onSave={async name => {
+                onSave={async (name, overwriteId) => {
                   try {
-                    // 開いている自分の並びと同じ名前なら、その並びに上書きする (名前だけ変えた並びはファイルの名前と違うため)
-                    const same = editBase.startsWith('user:') && customLayouts.find(l => l.id === editBase)?.name[0] === name ? editBase : undefined;
-                    const saved = await saveCustomLayout(await layoutStore(), editLayout, name, same);
+                    const saved = await saveCustomLayout(await layoutStore(), editLayout, name, overwriteId);
                     // 欄は作り直さない (保存しましたの知らせを消さないように)。名前の欄は今のままで同じ
                     setEditBase(saved.id);
                     setEditLayout({ ...saved, parts: saved.parts.map(p => ({ ...p })) });
@@ -1700,8 +1698,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   const cur = customLayouts.find(l => l.id === editBase);
                   if (!cur) return t('保存した並びが見つかりません', 'Saved layout not found');
                   try {
-                    await renameCustomLayout(await layoutStore(), cur, name);
+                    const renamed = await renameCustomLayout(await layoutStore(), cur, name);
                     setEditLayout(l => (l ? { ...l, name: [name, name] } : l));
+                    // 読み直しを待たずに一覧の名前も替える (すぐ保存しても、名前を変えた並びに上書きできるように)
+                    setCustomLayouts(list => list.map(l => (l.id === renamed.id ? renamed : l)));
                     setLayoutTick(n => n + 1);
                     return null;
                   } catch (e) {
