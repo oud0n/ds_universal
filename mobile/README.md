@@ -66,4 +66,5 @@ xcodebuild -exportArchive -archivePath /tmp/LapLoupe.xcarchive -exportPath /tmp/
 - `DS_WEB_URL=` (空) で、アプリに入れた Web (dist) を `laploupe://app/` で読む (BundledWeb.swift)。電波がなくても起動でき、審査を通った版の画面がそのまま動く。
 - 前の版 (GitHub Pages を読んでいた版) から上げたときは、初めて開いたときに一度だけ、前の読み込み元のブラウザの保存 (自分のコース・登録した機器・設定・ラップタイマーの控え) を写す (WebMigration.swift)。前の保存は消さない。
 - 署名は Xcode の Apple ID で行う (Apple が管理する配布用の証明書)。App Store Connect の API キー (役割 Developer) だけでは、配布用の署名が「Cloud signing permission error」になる。
+- 「Failed to Use Accounts」(App Store Connect access … is required) で止まったら、Xcode の Apple ID が外れている (2026-10-26 に、Xcode を開いたまま夕方から夜の間に外れた。原因は分からない)。Xcode の「設定」→「Accounts」で入れ直してから、もう一度 `-exportArchive` を実行する (アーカイブは作り直さなくてよい)。
 - アイコンは `DSUniversal/Assets.xcassets/AppIcon` (元は `build/icon-ios.svg`)。
