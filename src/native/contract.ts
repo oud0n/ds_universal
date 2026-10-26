@@ -13,7 +13,7 @@
  * - バイト列は base64
  *
  * いま入っているのは、デジスパイスとのつなぎ (ペアリング) と、BLE の通知の記録に要る分だけ (caps・ble・recorder・system)。
- * files・camera などは、作るときにここへ足す
+ * files などは、作るときにここへ足す (camera は 2026-10-25 に足した)
  */
 
 export const CONTRACT_VERSION = 1;
@@ -56,7 +56,42 @@ export interface Capabilities {
   deviceKind: DeviceKind;
   /** 使える機能のまとまり。画面はこれで出し分け、端末の種類では分けない */
   /** iap: アプリ内課金 (投げ銭) が使える (2026-10-24 に足した。前の版のアプリには無いので、無いときは使えないとみなす) */
-  features: { ble: boolean; iap?: boolean };
+  /** camera: 内蔵カメラで録画できる (2026-10-25 に足した。前の版のアプリには無い) */
+  /** spp: Bluetooth Classic のシリアル (Android だけ。Drogger DG-PRO1S など。2026-10-25) */
+  /** deleteFiles: 走行のファイルを消せる (system.deleteRunFiles。2026-10-25) */
+  features: { ble: boolean; iap?: boolean; camera?: boolean; spp?: boolean; deleteFiles?: boolean };
+}
+
+/** 内蔵カメラの画質 */
+export type CameraPreset = '1080p30' | '1080p60' | '2160p30' | '2160p60';
+
+/** 内蔵カメラのレンズ (その端末にあるもの)。zoom は広角を 1 とした倍率 (超広角 0.5・望遠 3 など) */
+export interface CameraLens {
+  id: string;
+  position: 'back' | 'front';
+  kind: 'ultraWide' | 'wide' | 'tele' | 'front';
+  zoom: number;
+  isoMin: number;
+  isoMax: number;
+  presets: CameraPreset[];
+  /** 前と後ろを同時に撮るときの画質 (同時に撮れないレンズ・前の版のアプリでは無いか空) */
+  multiCamPresets?: CameraPreset[];
+}
+
+/** 前のカメラも同時に撮るときの設定 (前のカメラはその端末の前のカメラ) */
+export interface CameraFrontParams {
+  preset: CameraPreset;
+  iso: number | null;
+  /** 明るさの補正 (EV。2026-10-25。前の版のアプリは見ない) */
+  ev?: number;
+}
+
+/** 撮り終えた動画のファイル (止まって分かれたら複数)。startWallMs は先頭のコマの端末の時計 (UTC ミリ秒) */
+export interface CameraFile {
+  path: string;
+  startWallMs: number;
+  durationSec: number;
+  bytes: number;
 }
 
 /** アプリ内課金の商品 (値段はその国の通貨で、App Store が書いたもの) */
@@ -175,7 +210,7 @@ export interface NativeMethods {
    */
   'system.motionStart': { params: { hz: number }; result: Record<string, never> };
   'system.motionStop': { params: Record<string, never>; result: Record<string, never> };
-  'system.setOrientation': { params: { mode: 'system' | 'auto' | 'portrait' | 'landscape' | 'hold' }; result: { orientation: 'portrait' | 'landscape' } };
+  'system.setOrientation': { params: { mode: 'system' | 'hold' }; result: { orientation: 'portrait' | 'landscape' } };
   /**
    * アプリの書類のフォルダの LapTimer/ の下のファイルに、バイト列 (base64) を足す (ラップタイマーの走行の記録を、走っている間に書くため)。
    * truncate なら、はじめから書き直す。ファイルは「ファイル」アプリの「このiPhone内 → このアプリ → LapTimer」に出る。
@@ -208,10 +243,6 @@ export interface NativeMethods {
    * .nmea・.bon4・センサーの .csv)。paths: そのファイル (取り込み終えたとき)。open は、まだ書いている最中のファイルの数
    */
   'system.closeFiles': { params: { all?: boolean; prefix?: string; paths?: string[] }; result: { open: number } };
-  /** LapTimer/ の下のファイルの一覧 (ラップタイムの一覧のため。exports/ は除く。2026-10-20 に足した) */
-  'system.listLapFiles': { params: Record<string, never>; result: { files: Array<{ path: string; size: number; mtimeMs: number }> } };
-  /** LapTimer/ の下のファイルを読む (base64) */
-  'system.readLapFile': { params: { path: string }; result: { b64: string } };
   /** 走行の置き場 (選んだフォルダ、なければ LapTimer/) と、動画を読む URL の頭 (lapfile://run/。2026-10-20) */
   'system.runRoot': { params: Record<string, never>; result: { urlBase: string; kind: 'folder' | 'local'; name: string } };
   /** 走行の置き場のファイルの一覧。local: false は iCloud にだけあるファイル */
@@ -221,6 +252,12 @@ export interface NativeMethods {
   /** 走行の置き場の runs.json・laptimes.json を書く */
   'system.writeRunFile': { params: { path: string; b64: string }; result: Record<string, never> };
   /** 動画の一部を読む (base64。8 MB まで) */
+  /**
+   * 走行のファイルを消す (走行の画面の「この走行を消す」。2026-10-25)。サーキットのフォルダの中のファイルだけ
+   * (runs.json・laptimes.json・コーナー・course/・sessions/ は消さない)。iPhone は「ファイル」の最近削除した項目へ移す。
+   * 選んだフォルダのときは、まだ移していないアプリの中の写しも消す
+   */
+  'system.deleteRunFiles': { params: { paths: string[] }; result: { deleted: string[]; failed: Array<{ path: string; error: string }> } };
   'system.readRunRange': { params: { path: string; offset: number; length: number }; result: { b64: string } };
   /** ファイルが端末にあるか・iCloud から取り込み中か */
   'system.runFileStatus': { params: { path: string }; result: { local: boolean; downloading: boolean } };
@@ -228,6 +265,39 @@ export interface NativeMethods {
   'system.downloadRunFile': { params: { path: string }; result: Record<string, never> };
   /** OS の設定の画面 (このアプリの許可) を開く。一度断られた許可は、OS がもう聞いてくれないため */
   'system.openSettings': { params: Record<string, never>; result: Record<string, never> };
+  /** 内蔵カメラ (とマイク) の許可。request なら、まだ聞いていないものを聞く */
+  'camera.permission': { params: { request: boolean; audio: boolean }; result: { camera: PermissionState; mic: PermissionState } };
+  /** multiCam: 前と後ろを同時に撮れる端末 (前の版のアプリでは無い) */
+  'camera.lenses': { params: Record<string, never>; result: { lenses: CameraLens[]; multiCam?: boolean } };
+  /**
+   * 録画を始める (一時ファイルに書く)。向きは今の画面の向き。iso を決めたら、シャッターの速さで明るさを保つ (null は自動)。
+   * preview なら、撮り始めの 5 秒だけ右上に小さく映す
+   */
+  'camera.start': { params: { lensId: string | null; preset: CameraPreset; audio: boolean; iso: number | null; preview: boolean; front?: CameraFrontParams | null; ev?: number; focusFar?: boolean }; result: { lensId: string; preset: CameraPreset; front?: boolean } };
+  /** 止める。path (LapTimer/ の下の道。.nmea と同じ所の .mov) があれば、そこへ移す (止まって分かれたものは _2・_3 を付ける) */
+  'camera.stop': { params: { path: string | null; frontPath?: string | null }; result: { files: CameraFile[]; frontFiles?: CameraFile[] } };
+  /**
+   * 撮る前の確かめ: 画面の rect (CSS の座標) に今の映像を出す (show: false で消す)。出している間は camera.exposure が届く。
+   * レンズ・画質を変えたら、もう一度呼ぶ
+   */
+  'camera.preview': { params: { show: boolean; lensId?: string | null; preset?: CameraPreset; iso?: number | null; ev?: number; focusFar?: boolean; rect?: { x: number; y: number; w: number; h: number }; front?: (CameraFrontParams & { rect: { x: number; y: number; w: number; h: number } }) | null }; result: Record<string, never> };
+  /** ISO をその場で変える (null は自動) */
+  'camera.setIso': { params: { iso: number | null; which?: 'main' | 'front' }; result: Record<string, never> };
+  /**
+   * 明るさの補正 (EV) をその場で変える (確かめの映像を出している間。2026-10-25)。露出は自動のまま、全体を明るめ・暗めにする
+   * (車内に合うと窓の外が白く飛ぶので、マイナスで外を残す)
+   */
+  'camera.setEv': { params: { ev: number; which?: 'main' | 'front' }; result: Record<string, never> };
+  /**
+   * Bluetooth Classic のシリアル (SPP。Android だけ)。OS の機器を選ぶ画面を出し、選んだ機器とペアリングする。
+   * namePrefixes を渡すと、その名前で始まる機器だけを出す (空なら全部)
+   */
+  'spp.pick': { params: { namePrefixes: string[] }; result: { deviceId: string; name: string } };
+  /** つなぐ。切れたら、spp.disconnect まで自分でつなぎ直す。受け取ったバイト列は spp.data で届く */
+  'spp.connect': { params: { deviceId: string }; result: Record<string, never> };
+  'spp.disconnect': { params: { deviceId: string }; result: Record<string, never> };
+  /** 確かめの記録 (受け取った行・つなぐ / 切れる / ペアリングの結果・機種と OS の版) を、共有の画面で送る */
+  'spp.shareLog': { params: Record<string, never>; result: Record<string, never> };
 }
 
 // ---- 知らせ ----
@@ -264,6 +334,14 @@ export interface NativeEvents {
   'system.motion': MotionBatch;
   /** 保留だった購入などが、あとで終わった */
   'iap.purchased': { productId: string };
+  /** 録画の様子。error: interrupted (裏に回った・電話など。戻ると続きを撮る)・thermal (熱すぎて止めた) */
+  'camera.state': { recording: boolean; error?: 'interrupted' | 'thermal'; thermal?: 'nominal' | 'fair' | 'serious' | 'critical' };
+  /** 今の ISO とシャッターの速さ (秒)。確かめの映像を出している間、0.3 秒ごと */
+  'camera.exposure': { iso: number; shutterSec: number; which?: 'main' | 'front' };
+  /** Bluetooth Classic のつなぎの様子 (ble.state と同じ形) */
+  'spp.state': BleStateEvent;
+  /** 受け取ったバイト列 (100 ms ごとにまとめる。t は受け取った時刻 (単調な時計のナノ秒)、b は base64) */
+  'spp.data': { deviceId: string; items: Array<{ t: number; b: string }> };
 }
 
 export interface MotionBatch {

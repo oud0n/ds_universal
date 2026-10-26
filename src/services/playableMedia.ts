@@ -66,9 +66,16 @@ export function positionInMedia(media: PlayableMedia, sessionTime: number): Medi
   return { track: t, localTime: local, durationSec: t.durationSec, outOfRange: !t.isPlaced || local < 0 || (t.durationSec > 0 && local > t.durationSec) };
 }
 
-/** メディアの中の位置 (先頭からの秒) に出す位置。走行比較で、比較の車の時刻から決めた位置に使う */
+/**
+ * メディアの中の位置 (先頭からの秒) に出す位置。走行比較で、比較の車の時刻から決めた位置に使う。
+ * 基準のログ (Car 1) の時刻に置けない動画 (Car 1 のログに時刻が無い CSV など) でも、動画の中の位置は決まるので出す
+ * (前は「置けない」として、比べるの枠に「この時刻の映像はありません」と出ていた。PLAN-29 の (6))
+ */
 export function positionAtMediaTime(media: PlayableMedia, mediaSec: number): MediaPosition {
-  return positionInMedia(media, media.startSec + mediaSec);
+  if (media.isPlaced) return positionInMedia(media, media.startSec + mediaSec);
+  // 置けていない動画は、最初のコマを 0 秒としてチャプターを並べる (チャプターの長さで続く)
+  const tracks = media.tracks.map(t => ({ ...t, syncOffsetSec: t.syncOffsetSec - media.tracks[0].syncOffsetSec, isPlaced: true }));
+  return positionInMedia({ ...media, tracks, startSec: 0, isPlaced: true }, mediaSec);
 }
 
 /** その車のログの時刻での、メディアの最初のコマの位置 (秒)。決まらなければ null */
@@ -93,5 +100,9 @@ export function mediaForLap(media: PlayableMedia[], session: Session, lap: Lap, 
 export function lapOverlapSec(m: PlayableMedia, session: Session, lap: Lap, sessions: Session[]): number {
   const start = mediaStartIn(m, session, sessions);
   if (start === null) return 0;
-  return Math.min(lap.endTime, start + (m.endSec - m.startSec)) - Math.max(lap.startTime, start);
+  // 長さが読めなかった動画 (長さ 0: iCloud から来ていないなど) は、長さが分からないものとして、終わりまで映しているとみなす
+  // (見るでは出るのに、比べるでは「この周を映している動画がありません」になっていた)
+  const len = m.endSec - m.startSec;
+  const end = len > 0 ? start + len : Infinity;
+  return Math.min(lap.endTime, end) - Math.max(lap.startTime, start);
 }

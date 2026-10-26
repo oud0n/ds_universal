@@ -17,6 +17,7 @@ import { saveCourseCorners } from '../services/courseCorners';
 import { canUseRunStore } from '../services/runStore';
 import { CornerEditPanel } from './CornerEditPanel';
 import { PenLine } from 'lucide-react';
+import { SectorStartBar, type SectorStartProps } from './SectorStartBar';
 
 const BACKGROUND_STORAGE_KEY = 'ds_map_background';
 const METERS_PER_DEG_LAT = 111320;
@@ -64,7 +65,16 @@ interface TrackMapWindowProps {
   onSeekDistance: (distKm: number) => void;
   /** Car 1 のコースの名前 (コーナーの名前を出すため) */
   circuitName?: string;
+  /** セクターからの一斉スタート (PLAN-28。もとはアニメの窓だけ) */
+  sectorStart?: Omit<SectorStartProps, 'sectors'>;
 }
+
+/** 追従のときの拡大率 (アニメの窓と同じ。画面の短い辺に約 330 m × 倍率分の 1 が入る) */
+const FOLLOW_ZOOMS = [2, 3, 5] as const;
+/** 追従の倍率 1 で、画面の短い辺に入る経度・緯度の幅 (度) */
+const FOLLOW_SPAN_DEG = 0.003;
+/** 拡大の上限 (大きいコースでも、追従の 5x まで寄れるように。もとは 10) */
+const MAX_ZOOM = 40;
 
 export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   cars,
@@ -76,7 +86,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   currentTime,
   compareAxis,
   onSeekDistance,
-  circuitName
+  circuitName,
+  sectorStart
 }) => {
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
@@ -91,10 +102,12 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   // 車両の現在位置だけを描く、上に重ねた canvas (再生中はこちらだけを描き直す。追従中は地図ごと動くので両方)
   const carCanvasRef = useRef<HTMLCanvasElement | null>(null);
   // 下の canvas を描いたときの座標変換 (車両の位置の計算に使う)
-  const layoutRef = useRef<{ width: number; height: number; latMid: number; lonMid: number; cosLat: number; baseScale: number; pan: { x: number; y: number } } | null>(null);
+  const layoutRef = useRef<{ width: number; height: number; latMid: number; lonMid: number; cosLat: number; baseScale: number; pan: { x: number; y: number }; zoom?: number } | null>(null);
 
   const [colorMode, setColorMode] = useState<'car' | 'speed' | 'accel' | 'line'>('car');
   const [showCorners, setShowCorners] = useState(true);
+  // セクターからの一斉スタートの段。スマートフォンでは地図が小さくなるので、押したときだけ出す
+  const [sectorBarOpen, setSectorBarOpen] = useState(!compact);
   // コーナーの編集 (PLAN-27): 直している途中の一覧 (編集していなければ null)・選んでいるコーナー
   const [cornerDraft, setCornerDraft] = useState<NamedCorner[] | null>(null);
   const [selectedCorner, setSelectedCorner] = useState<number | null>(null);
@@ -113,6 +126,13 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   const [isFollowing, setIsFollowing] = useState(false);
   // 実際に描画に使った平行移動量。追従を外したとき、その位置から手動の移動を続けるために覚えておく
   const drawnPanRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  // 拡大・縮小したら、ずらした量も同じ割合にする (画面の真ん中を中心に拡大する。そのままだと、大きく寄せたあとに縮めるとコースが画面の外へ出ていた)
+  const prevZoomRef = useRef(zoom);
+  useEffect(() => {
+    const r = zoom / prevZoomRef.current;
+    prevZoomRef.current = zoom;
+    if (r !== 1 && Number.isFinite(r)) setPanOffset(p => ({ x: p.x * r, y: p.y * r }));
+  }, [zoom]);
 
   // 背景地図 (既定はなし = オフライン動作)
   const [background, setBackground] = useState<MapBackground>(() => {
@@ -158,6 +178,8 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   const canEditCorners = !!course.folder && !!baseGeo && canUseRunStore();
   const startCornerEdit = () => {
     if (!baseGeo) return;
+    // 編集の一覧が右半分を隠すので、追従はやめる (追いかけた車が一覧の端に隠れていた)
+    if (isFollowing) { setPanOffset(drawnPanRef.current); setIsFollowing(false); }
     setCornerDraft(course.file?.corners.length ? course.file.corners : cornersFromDetection(baseGeo, course.found));
     setSelectedCorner(null);
     setCornerError('');
@@ -226,7 +248,14 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       return;
     }
     const r = applySpanCorner(cornerDraft, baseGeo, span.a, span.b);
-    if (!r) return;
+    if (!r) {
+      // 前後のコーナーが近くて足せる長さが無いときは、いちばん近いコーナーを選ぶ (何も起きないと分かりにくいため)
+      const placed = placeCorners(baseGeo, cornerDraft);
+      let k = -1, d = Infinity;
+      placed.forEach((p, i) => { if (p && Math.abs(p.apexIndex - best) < d) { d = Math.abs(p.apexIndex - best); k = i; } });
+      setSelectedCorner(k >= 0 ? k : null);
+      return;
+    }
     setCornerDraft(r.list);
     setSelectedCorner(r.index);
   };
@@ -317,9 +346,26 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     if (background === 'none') setIsAdjustingMap(false);
   }, [background]);
 
+  /** 今の見え方を、追従の倍率 (画面の短い辺に 0.003 度 × 倍率分の 1) で表す */
+  const followZoomOf = () => {
+    const l = layoutRef.current;
+    if (!l) return 0;
+    // 描いたときの拡大率ではなく、今の拡大率 (state) で出す (描く前の画面でも、押した倍率が選ばれて見えるように)
+    const fit = l.baseScale / (l.zoom || zoom);
+    return (fit * zoom * FOLLOW_SPAN_DEG) / Math.min(l.width, l.height);
+  };
+  /** 追従の倍率にする (コース全体の倍率 zoom を、その見え方になるよう決める) */
+  const setFollowZoom = (z: number) => {
+    const l = layoutRef.current;
+    if (!l || zoom <= 0) return;
+    const fit = l.baseScale / (l.zoom || zoom);
+    const want = (Math.min(l.width, l.height) / FOLLOW_SPAN_DEG) * z;
+    setZoom(Math.max(0.4, Math.min(MAX_ZOOM, want / fit)));
+  };
+
   // 各車両の現在位置を、上に重ねた canvas に描く (下の canvas を描いたときの座標変換を使う)
-  const curRef = useRef({ cars, compareAxis, currentDistance, currentTime });
-  curRef.current = { cars, compareAxis, currentDistance, currentTime };
+  const curRef = useRef({ cars, compareAxis, currentDistance, currentTime, isFollowing });
+  curRef.current = { cars, compareAxis, currentDistance, currentTime, isFollowing };
   const drawCars = () => {
     const layout = layoutRef.current;
     const canvas = carCanvasRef.current;
@@ -333,11 +379,13 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     const { width, height, latMid, lonMid, cosLat, baseScale, pan } = layout;
     const ctx = prepareCanvas(canvas, width, height);
     if (!ctx) return;
-    const { cars, compareAxis, currentDistance, currentTime } = curRef.current;
+    const { cars, compareAxis, currentDistance, currentTime, isFollowing: following } = curRef.current;
     const toScreen = (lat: number, lon: number) => ({
       x: width / 2 + (lon - lonMid) * cosLat * baseScale + pan.x,
       y: height / 2 - (lat - latMid) * baseScale + pan.y
     });
+    // 速度の文字を書いた位置 (近くを走る車の文字が重なって読めなくならないよう、重なるときは下へずらす)
+    const labelSpots: Array<{ x: number; y: number }> = [];
     cars.forEach(car => {
       const pts = car.lap.points;
       if (pts.length === 0) return;
@@ -395,6 +443,22 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       ctx.fillText(String(car.slot.slot + 1), 0, 1);
 
       ctx.restore();
+
+      // 追従 (車を大きく出している) ときは、車の下に速度 (もとはアニメの窓だけ)
+      if (following) {
+        const label = `${curPt.speed.toFixed(0)} km/h`;
+        let labelY = pos.y + 14;
+        while (labelSpots.some(p => Math.abs(p.x - pos.x) < 64 && Math.abs(p.y - labelY) < 13)) labelY += 13;
+        labelSpots.push({ x: pos.x, y: labelY });
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+        ctx.strokeText(label, pos.x, labelY);
+        ctx.fillStyle = car.slot.colorHex;
+        ctx.fillText(label, pos.x, labelY);
+      }
     });
   };
   // 再生中は車両だけを描き直す
@@ -463,6 +527,11 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     };
 
     metersPerPixelRef.current = METERS_PER_DEG_LAT / baseScale;
+    // 画面の外 (余白込み) にある線は描かない (追従で大きく寄せて再生すると、コマごとに全部の線を描き直すので重くなるため)
+    const MARGIN = 40;
+    const offScreen = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+      (a.x < -MARGIN && b.x < -MARGIN) || (a.x > width + MARGIN && b.x > width + MARGIN) ||
+      (a.y < -MARGIN && b.y < -MARGIN) || (a.y > height + MARGIN && b.y > height + MARGIN);
 
     // 0. 背景地図タイル
     if (background !== 'none') {
@@ -501,11 +570,13 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       for (const poly of pathPolylines) {
         if (poly.length < 2) continue;
         ctx.beginPath();
-        const start = toScreen(poly[0][1], poly[0][0]);
-        ctx.moveTo(start.x, start.y);
+        let prev = toScreen(poly[0][1], poly[0][0]);
+        ctx.moveTo(prev.x, prev.y);
         for (let i = 1; i < poly.length; i++) {
           const pt = toScreen(poly[i][1], poly[i][0]);
-          ctx.lineTo(pt.x, pt.y);
+          if (offScreen(prev, pt)) ctx.moveTo(pt.x, pt.y);
+          else ctx.lineTo(pt.x, pt.y);
+          prev = pt;
         }
         ctx.stroke();
       }
@@ -519,11 +590,13 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       for (const poly of pathPolylines) {
         if (poly.length < 2) continue;
         ctx.beginPath();
-        const start = toScreen(poly[0][1], poly[0][0]);
-        ctx.moveTo(start.x, start.y);
+        let prev = toScreen(poly[0][1], poly[0][0]);
+        ctx.moveTo(prev.x, prev.y);
         for (let i = 1; i < poly.length; i++) {
           const pt = toScreen(poly[i][1], poly[i][0]);
-          ctx.lineTo(pt.x, pt.y);
+          if (offScreen(prev, pt)) ctx.moveTo(pt.x, pt.y);
+          else ctx.lineTo(pt.x, pt.y);
+          prev = pt;
         }
         ctx.stroke();
       }
@@ -534,11 +607,13 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       for (const poly of pathPolylines) {
         if (poly.length < 2) continue;
         ctx.beginPath();
-        const start = toScreen(poly[0][1], poly[0][0]);
-        ctx.moveTo(start.x, start.y);
+        let prev = toScreen(poly[0][1], poly[0][0]);
+        ctx.moveTo(prev.x, prev.y);
         for (let i = 1; i < poly.length; i++) {
           const pt = toScreen(poly[i][1], poly[i][0]);
-          ctx.lineTo(pt.x, pt.y);
+          if (offScreen(prev, pt)) ctx.moveTo(pt.x, pt.y);
+          else ctx.lineTo(pt.x, pt.y);
+          prev = pt;
         }
         ctx.stroke();
       }
@@ -650,6 +725,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
           if (!Number.isFinite(off)) continue;
           const p1 = toScreen(pts[i].latitude - dLat, pts[i].longitude - dLon);
           const p2 = toScreen(pts[i + 1].latitude - dLat, pts[i + 1].longitude - dLon);
+          if (offScreen(p1, p2)) continue;
           const strength = Math.min(1, Math.abs(off) / LINE_DELTA_FULL_SCALE_M);
           ctx.strokeStyle = off < 0
             ? `rgba(56, 189, 248, ${0.25 + strength * 0.75})`
@@ -664,11 +740,14 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         ctx.strokeStyle = colorMode === 'line' ? C.soft : car.slot.colorHex;
         ctx.lineWidth = colorMode === 'line' ? 1.5 : car.slot.slot === 0 ? 3 : 2;
         ctx.beginPath();
-        const start = toScreen(pts[0].latitude, pts[0].longitude);
-        ctx.moveTo(start.x, start.y);
+        let prev = toScreen(pts[0].latitude, pts[0].longitude);
+        ctx.moveTo(prev.x, prev.y);
         for (let i = 1; i < pts.length; i++) {
           const pt = toScreen(pts[i].latitude, pts[i].longitude);
-          ctx.lineTo(pt.x, pt.y);
+          // 画面の外の区間は線を引かずに進む
+          if (offScreen(prev, pt)) ctx.moveTo(pt.x, pt.y);
+          else ctx.lineTo(pt.x, pt.y);
+          prev = pt;
         }
         ctx.stroke();
       } else if (colorMode === 'speed') {
@@ -682,6 +761,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         for (let i = 0; i < pts.length - 1; i++) {
           const p1 = toScreen(pts[i].latitude, pts[i].longitude);
           const p2 = toScreen(pts[i + 1].latitude, pts[i + 1].longitude);
+          if (offScreen(p1, p2)) continue;
 
           const ratio = Math.max(0, Math.min(1, (pts[i].speed - minSpd) / spdRange));
           // HSL: 240(Blue) -> 120(Green) -> 0(Red)
@@ -699,6 +779,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         for (let i = 0; i < pts.length - 1; i++) {
           const p1 = toScreen(pts[i].latitude, pts[i].longitude);
           const p2 = toScreen(pts[i + 1].latitude, pts[i + 1].longitude);
+          if (offScreen(p1, p2)) continue;
 
           const g = pts[i].accelG;
           if (g < -0.15) {
@@ -779,7 +860,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
       ctx.lineCap = 'butt';
     }
 
-    layoutRef.current = { width, height, latMid, lonMid, cosLat, baseScale, pan };
+    layoutRef.current = { width, height, latMid, lonMid, cosLat, baseScale, pan, zoom };
     drawCars();
   }, [cornerSpan, cars, controlLine, finishLine, sectors, pathPolylines, followPosition, compareAxis, bounds, zoom, panOffset, isFollowing, colorMode, corners, selectedCorner, cornerDraft, lineDeltas, showCorners, background, mapOffset, tileTick, resizeTick, dpr, theme, lang]);
 
@@ -872,14 +953,14 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     onDown: handleMouseDown,
     onMove: handleMouseMove,
     onUp: handleMouseUp,
-    onPinch: scale => setZoom(z => Math.max(0.4, Math.min(10.0, z * scale)))
+    onPinch: scale => setZoom(z => Math.max(0.4, Math.min(MAX_ZOOM, z * scale)))
   });
 
   // ホイールズーム
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.15 : 0.85;
-    setZoom(z => Math.max(0.4, Math.min(10.0, z * factor)));
+    setZoom(z => Math.max(0.4, Math.min(MAX_ZOOM, z * factor)));
   };
 
   const handleReset = () => {
@@ -902,6 +983,76 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
     setCornerSpan(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [course.folder, circuitName]);
+
+  // 同時・追従・拡大のボタン
+  const controls = (
+        <div className="flex items-center gap-1">
+          {/* スマートフォン: セクターからの一斉スタートの段を出す・しまう (地図を大きく使うため) */}
+          {compact && sectorStart && sectors.length > 0 && !cornerDraft && (
+            <button
+              onClick={() => setSectorBarOpen(v => !v)}
+              aria-pressed={sectorBarOpen}
+              title={t('セクターから一斉にスタート', 'Start all cars from a sector')}
+              className={`px-1.5 py-0.5 mr-1 rounded border text-[11px] ${sectorBarOpen || sectorStart.alignedSectorName ? 'border-amber-500/60 text-amber-300' : 'border-line-3 text-slate-400'}`}
+              data-testid="track-sector-toggle"
+            >
+              {t('同時', 'Start')}
+            </button>
+          )}
+          <button
+            onClick={() => {
+              // 追従を外すときは、今見えている位置のままにする
+              if (isFollowing) setPanOffset(drawnPanRef.current);
+              // 追従を始めるとき、コース全体に近い見え方なら、車を大きく出す (アニメの窓と同じ 3x)
+              else if (followZoomOf() < FOLLOW_ZOOMS[0]) setFollowZoom(3);
+              setIsFollowing(!isFollowing);
+            }}
+            title={t('車両追従 (基準車を常に中央に表示)', 'Follow car (keep the reference car centred)')}
+            aria-pressed={isFollowing}
+            className={`flex items-center gap-1 px-1.5 py-0.5 mr-1 rounded border text-[11px] transition-colors ${
+              isFollowing ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-line-3 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <LocateFixed size={13} />
+            {t('追従', 'Follow')}
+          </button>
+          {/* 追従のときの拡大率 (アニメの窓と同じ 2x・3x・5x) */}
+          {isFollowing && (
+            <div className="flex items-center mr-1" data-testid="track-follow-zoom">
+              {FOLLOW_ZOOMS.map(z => (
+                <button
+                  key={z}
+                  onClick={() => setFollowZoom(z)}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${Math.abs(followZoomOf() - z) < 0.05 ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:bg-surface-4'}`}
+                >
+                  {z}x
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            onClick={() => setZoom(z => Math.min(MAX_ZOOM, z * 1.25))}
+            title={t('拡大', 'Zoom in')}
+            className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
+          >
+            <ZoomIn size={14} />
+          </button>
+          <button
+            onClick={() => setZoom(z => Math.max(0.4, z * 0.8))}
+            title={t('縮小', 'Zoom out')}
+            className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
+          >
+            <ZoomOut size={14} />
+          </button>
+          <button
+            onClick={handleReset}
+            title={t('コース全体を表示', 'Show the whole course')}
+            className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
+          >
+            <RotateCcw size={13} />
+          </button>
+        </div>
+  );
 
   return (
     <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
@@ -992,46 +1143,16 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
           )}
         </div>
 
-        {/* コントロール */}
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => {
-              // 追従を外すときは、今見えている位置のままにする
-              if (isFollowing) setPanOffset(drawnPanRef.current);
-              setIsFollowing(!isFollowing);
-            }}
-            title={t('車両追従 (基準車を常に中央に表示)', 'Follow car (keep the reference car centred)')}
-            aria-pressed={isFollowing}
-            className={`flex items-center gap-1 px-1.5 py-0.5 mr-1 rounded border text-[11px] transition-colors ${
-              isFollowing ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-line-3 text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <LocateFixed size={13} />
-            {t('追従', 'Follow')}
-          </button>
-          <button
-            onClick={() => setZoom(z => Math.min(10, z * 1.25))}
-            title={t('拡大', 'Zoom in')}
-            className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
-          >
-            <ZoomIn size={14} />
-          </button>
-          <button
-            onClick={() => setZoom(z => Math.max(0.4, z * 0.8))}
-            title={t('縮小', 'Zoom out')}
-            className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
-          >
-            <ZoomOut size={14} />
-          </button>
-          <button
-            onClick={handleReset}
-            title={t('コース全体を表示', 'Show the whole course')}
-            className="p-1 hover:bg-surface-5 rounded text-slate-300 transition-colors"
-          >
-            <RotateCcw size={13} />
-          </button>
-        </div>
+        {/* コントロール (スマートフォン・中くらいの段では、段を減らして地図を高くするため、地図の右上に重ねる。BUG-36) */}
+        {!compact && controls}
       </div>
+
+      {/* セクターからの一斉スタート (もとはアニメの窓だけ。PLAN-28)。コーナーの編集中は出さない */}
+      {sectorStart && sectors.length > 0 && !cornerDraft && sectorBarOpen && (
+        <div className={`flex items-center bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0 overflow-x-auto ${compact ? 'px-2 py-1' : 'px-3 py-1'}`} data-testid="track-sector-start">
+          <SectorStartBar compact={compact} sectors={sectors} {...sectorStart} />
+        </div>
+      )}
 
       {/* Canvas。ウインドウの残りの高さに合わせる (h-full・最低の高さを付けると、上の段が 2 行になったときに枠の外へはみ出し、コース図の下が切れる) */}
       <div className="relative flex-1 w-full min-h-0">
@@ -1045,6 +1166,12 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         />
         {/* 車両の現在位置 (操作は下の canvas が受ける) */}
         <canvas ref={carCanvasRef} className="absolute inset-0 pointer-events-none block" />
+        {/* コーナーの編集中は、右の編集の欄と重ならないよう左上へ */}
+        {compact && (
+          <div className={`absolute top-1 ${cornerDraft ? 'left-1' : 'right-1'} z-10 bg-surface-3/90 border border-line-2 rounded px-1 py-0.5`} data-testid="track-map-controls">
+            {controls}
+          </div>
+        )}
 
         {cornerDraft && baseGeo && (
           <CornerEditPanel

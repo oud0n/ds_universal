@@ -6,7 +6,8 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Bluetooth, Plus, Trash2, Search, Activity } from 'lucide-react';
-import { getBleCentral, type BleDeviceInfo } from '../services/bleCentral';
+import { getBleCentral, type BleCentral, type BleDeviceInfo } from '../services/bleCentral';
+import { shareSppLog, sppAvailable, sppCentral } from '../services/sppCentral';
 import {
   DEVICE_KINDS, RENAME_NOTICE, checkDeviceFileName, devicesOfGenre, loadDevices, removeDevice, saveDevices, suggestFileName, upsertDevice,
   type DeviceGenre, type DeviceKind, type RegisteredDevice
@@ -49,22 +50,29 @@ export const DevicesCard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [trial, setTrial] = useState<{ id: string; state: string; last: string } | null>(null);
   const trialLink = useRef<DeviceLink | null>(null);
+  // Bluetooth Classic (Android のアプリ。Drogger DG-PRO1S など) を使えるか・その形で追加しているか
+  const [sppOk, setSppOk] = useState(false);
+  const [addingSpp, setAddingSpp] = useState(false);
+  useEffect(() => { void sppAvailable().then(setSppOk); }, []);
+  const centralOf = (spp: boolean | undefined): Promise<BleCentral | null> => (spp ? Promise.resolve(sppCentral) : getBleCentral());
 
   useEffect(() => () => { void trialLink.current?.disconnect(); }, []);
 
   const save = (list: RegisteredDevice[]) => { setDevices(list); saveDevices(list); };
 
-  const startScan = async (kind: DeviceKind) => {
+  const startScan = async (kind: DeviceKind, spp = false) => {
     setAdding(kind);
+    setAddingSpp(spp);
     setFound([]);
     setError(null);
-    const central = await getBleCentral();
+    const central = await centralOf(spp);
     if (!central) { setError(t('この環境では Bluetooth を使えません', 'Bluetooth is not available here')); return; }
     const s = SCAN[kind];
     setScanning(true);
     try {
       await central.scan(
-        { namePrefixes: s.names, services: s.services, advertisedServices: s.advertised },
+        // Bluetooth Classic は OS の選ぶ画面で、名前で絞らずに出す (機種ごとに名前がまちまちなため)
+        { namePrefixes: spp ? [] : s.names, services: s.services, advertisedServices: s.advertised },
         d => {
           if (kind === 'hr' && DIGSPICE_NAME_PREFIXES.some(p => d.name.startsWith(p))) return;
           setFound(list => (list.some(x => x.id === d.id) ? list : [...list, d]));
@@ -78,9 +86,9 @@ export const DevicesCard: React.FC = () => {
   };
 
   const pick = (kind: DeviceKind, d: BleDeviceInfo) => {
-    void getBleCentral().then(c => c?.stopScan());
+    void centralOf(addingSpp).then(c => c?.stopScan());
     setScanning(false);
-    setDraft({ id: d.id, kind, bleName: d.name, displayName: d.name || DEVICE_KINDS[kind].ja, fileName: suggestFileName(kind, devices.filter(x => x.id !== d.id)), addedAt: Date.now() });
+    setDraft({ id: d.id, kind, bleName: d.name, displayName: d.name || DEVICE_KINDS[kind].ja, fileName: suggestFileName(kind, devices.filter(x => x.id !== d.id)), addedAt: Date.now(), ...(addingSpp ? { transport: 'spp' as const } : {}) });
   };
 
   const draftError = draft ? checkDeviceFileName(draft.fileName, devices, draft.id) : null;
@@ -95,12 +103,13 @@ export const DevicesCard: React.FC = () => {
 
   const tryDevice = async (d: RegisteredDevice) => {
     await trialLink.current?.disconnect().catch(() => {});
-    const central = await getBleCentral();
+    const central = await centralOf(d.transport === 'spp');
     if (!central) return;
     const link = new DeviceLink(d, central);
     trialLink.current = link;
     setTrial({ id: d.id, state: 'connecting', last: '' });
-    link.onState(s => setTrial(v => (v && v.id === d.id ? { ...v, state: s } : v)));
+    // つなぎ直しているときは、つながらない理由も出す (確かめてもらうとき、記録を送ってもらわなくても分かるように)
+    link.onState(s => setTrial(v => (v && v.id === d.id ? { ...v, state: s, last: s === 'reconnecting' && link.error ? link.error : v.last } : v)));
     link.onSample((s: DeviceSample) => {
       const text = s.type === 'fix'
         ? `${s.fix.valid ? '' : t('(測位待ち) ', '(no fix) ')}${s.fix.speedKmh.toFixed(1)} km/h ${s.fix.latitude.toFixed(5)}, ${s.fix.longitude.toFixed(5)}`
@@ -137,16 +146,24 @@ export const DevicesCard: React.FC = () => {
       <p className="text-[11px] text-slate-500">
         {genre === 'position' && t('ラップタイマーの位置の出どころ (デジスパイスは上の欄で登録)。1 回の走行でどれか 1 つ。', 'Position source for the lap timer (register a DigSpice above). One per run.')}
         {genre === 'sensor' && t('走っている間の値を、走行と同じ名前の .csv に記録します。いくつでも。', 'Values are recorded to a .csv with the same name as the run. Any number.')}
-        {genre === 'camera' && t('ラップタイマーで測り始めたら録画を始め、止めたら止めます。初めてつなぐときは、カメラをペアリングの状態にしてください (iPhone が 1 回だけ確認を出します)。', 'Recording starts and stops with the lap timer. When connecting for the first time, put the camera in pairing mode (the iPhone asks once).')}
+        {genre === 'camera' && t('ラップタイマーで測り始めたら録画を始め、止めたら止めます。初めてつなぐときは、カメラをペアリングの状態にしてください (端末が 1 回だけ確認を出します)。', 'Recording starts and stops with the lap timer. When connecting for the first time, put the camera in pairing mode (the iPhone asks once).')}
       </p>
 
       {list.length === 0 && !adding && <div className="text-xs text-slate-500">{t('まだありません', 'None yet')}</div>}
       {list.map(d => (
         <div key={d.id} className="rounded-lg bg-surface-3/60 px-3 py-2 space-y-1.5" data-testid="device-row">
-          <div className="flex items-center gap-2 text-xs">
-            <span className="font-bold text-slate-100 truncate">{d.displayName}</span>
-            <span className="text-slate-500 truncate">{t(DEVICE_KINDS[d.kind].ja, DEVICE_KINDS[d.kind].en)} · {d.bleName}</span>
-            <span className="ml-auto flex gap-1">
+          <div className="flex items-center gap-2 text-xs min-w-0">
+            {/* 名前と種類は 2 行にして、狭い画面でもボタンの場所を空ける */}
+            <span className="flex flex-col min-w-0 flex-1">
+              <span className="font-bold text-slate-100 truncate">{d.displayName}</span>
+              <span className="text-[11px] text-slate-500 truncate">{t(DEVICE_KINDS[d.kind].ja, DEVICE_KINDS[d.kind].en)}{d.transport === 'spp' ? ' (Bluetooth Classic)' : ''} · {d.bleName}</span>
+            </span>
+            <span className="ml-auto flex gap-1 shrink-0 whitespace-nowrap">
+              {d.transport === 'spp' && (
+                <button onClick={() => { void shareSppLog().catch(e => setError(e instanceof Error ? e.message : String(e))); }} className="px-2 py-0.5 rounded bg-surface-4 hover:bg-surface-5 border border-line-4 text-[11px]" data-testid="device-share-log">
+                  {t('記録を送る', 'Send log')}
+                </button>
+              )}
               <button onClick={() => { void tryDevice(d); }} className="flex items-center gap-1 px-2 py-0.5 rounded bg-surface-4 hover:bg-surface-5 border border-line-4 text-[11px]"><Activity size={11} />{t('試す', 'Test')}</button>
               <button onClick={() => { if (window.confirm(t(`「${d.displayName}」の登録を消しますか？ (記録したファイルは残ります)`, `Remove "${d.displayName}"? (Recorded files are kept)`))) save(removeDevice(devices, d.id)); }}
                 className="p-1 rounded text-slate-400 hover:text-red-400" aria-label={t('消す', 'Remove')}><Trash2 size={13} /></button>
@@ -181,6 +198,11 @@ export const DevicesCard: React.FC = () => {
               <Plus size={13} />{t(`${DEVICE_KINDS[k].ja}を追加`, `Add ${DEVICE_KINDS[k].en}`)}
             </button>
           ))}
+          {genre === 'position' && sppOk && (
+            <button onClick={() => { void startScan('drogger', true); }} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-surface-4 hover:bg-surface-5 border border-line-4 text-xs text-slate-200" data-testid="device-add-drogger-spp">
+              <Plus size={13} />{t('Drogger (Bluetooth Classic・DG-PRO1S など) を追加', 'Add Drogger (Bluetooth Classic, DG-PRO1S etc.)')}
+            </button>
+          )}
         </div>
       )}
 
@@ -188,7 +210,7 @@ export const DevicesCard: React.FC = () => {
         <div className="rounded-lg border border-line-3 p-3 space-y-2">
           <div className="flex items-center gap-2 text-xs text-slate-300">
             <Search size={13} />{scanning ? t('探しています…', 'Searching…') : t('探し終えました', 'Search finished')}
-            <button onClick={() => { void getBleCentral().then(c => c?.stopScan()); setAdding(null); setScanning(false); }} className="ml-auto text-slate-400 hover:text-fg">{t('やめる', 'Cancel')}</button>
+            <button onClick={() => { void centralOf(addingSpp).then(c => c?.stopScan()); setAdding(null); setScanning(false); }} className="ml-auto text-slate-400 hover:text-fg">{t('やめる', 'Cancel')}</button>
           </div>
           {found.length === 0 && !scanning && <div className="text-[11px] text-slate-500">{t('見つかりませんでした。機器の電源を入れ、近くで探してください。', 'Nothing found. Turn the device on and search nearby.')}</div>}
           {found.map(d => (

@@ -3,9 +3,11 @@
  * 保管場所/<サーキットのフォルダ>/ ごとに、コースを見つけて控え (laptimes.json) を作り直し、一覧の行にする
  */
 
+import { conditionsOf, type RunConditions } from './runFilters';
 import { CIRCUIT_PRESETS } from './circuitDatabase';
 import { userCircuitStorage } from './userCircuitStorage';
 import { courseFolder } from '../utils/courseNames';
+import { findRunRow, readRunsFile } from './runsFile';
 import {
   LAP_INDEX_FILE, groupBon4ByFolder, lapRows, parseLapIndex, queueLapIndexWrite, reconcileFolder, setHidden,
   type LapCourse, type LapFileStore, type LapIndex, type LapRow
@@ -33,6 +35,12 @@ export interface LapFolder {
   fileCount: number;
   rows: LapRow[];
   index: LapIndex | null;
+  /** 走行の名前 (runs.json の行の name。走行のファイル名 → 名前。PLAN-32) */
+  names?: Record<string, string>;
+  /** 参考ラップ (自分のではない走行。走行のファイル名 → 誰の走行か。PLAN-31)。順位・ベストに数えない */
+  references?: Record<string, string>;
+  /** 車種・タイヤ・天候 (走行のファイル名 → 値。書いた走行だけ。PLAN-37) */
+  conditions?: Record<string, RunConditions>;
 }
 
 /**
@@ -64,7 +72,19 @@ export async function loadLapHistory(store: LapFileStore, onProgress?: (folder: 
     if (result.changed) await writeIndex(result.index).catch(() => {});
     // 一覧には、書いた中身 (計算の間に隠した周を残したもの) を出す
     const index: LapIndex = result.changed && written ? written : result.index;
-    out.push({ folder, courseName: course.name, fileCount: files.length, rows: lapRows(folder, index), index });
+    // 走行に付けた名前 (読めなくても一覧は出す)
+    const runsFile = await readRunsFile(store, folder).catch(() => null);
+    const names: Record<string, string> = {};
+    const references: Record<string, string> = {};
+    const conditions: Record<string, RunConditions> = {};
+    if (runsFile) for (const file of Object.keys(index.files)) {
+      const row = findRunRow(runsFile, file);
+      if (row?.name) names[file] = row.name;
+      if (row?.reference) references[file] = row.reference.driver ?? '';
+      const c = conditionsOf(row);
+      if (Object.keys(c).length) conditions[file] = c;
+    }
+    out.push({ folder, courseName: course.name, fileCount: files.length, rows: lapRows(folder, index), index, names, references, conditions });
   }
   return out;
 }

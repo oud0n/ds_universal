@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ja" data-lang="ja" data-device="iphone">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-ja="2 つの周を比べる — LapLoupe の使い方" data-en="Comparing two laps — LapLoupe guide">2 つの周を比べる — LapLoupe の使い方</title>
+<link rel="stylesheet" href="help.css">
+<script src="help.js" defer></script>
+</head>
+<body>
+<main>
+  <header class="top">
+    <a class="home" href="index.html" data-keep><span class="l-ja">LapLoupe の使い方</span><span class="l-en">LapLoupe guide</span></a>
+    <div class="switch" role="group" aria-label="device">
+      <button data-set-device="iphone">iPhone</button><button data-set-device="android">Android</button><button data-set-device="desktop"><span class="l-ja">デスクトップ</span><span class="l-en">Desktop</span></button><button data-set-device="browser"><span class="l-ja">ブラウザ</span><span class="l-en">Browser</span></button>
+    </div>
+    <div class="switch" role="group" aria-label="language"><button data-set-lang="ja">日本語</button><button data-set-lang="en">English</button></div>
+  </header>
+
+  <h1><span class="l-ja">2 つの周を比べる</span><span class="l-en">Comparing two laps</span></h1>
+  <p class="lead"><span class="l-ja">別の日の走行や、同じ走行の別の周を重ねて、どこで差がついたかを見ます。Car 1〜4 の 4 台まで重ねられます。</span><span class="l-en">Overlay a lap from another day, or another lap of the same run, to see where the time went. Up to four cars (Car 1–4).</span></p>
+
+  <figure class="video"><video data-src="video/V3_compare.mp4" controls playsinline muted preload="metadata"></video></figure>
+
+  <ol class="steps ">
+    <li class="dev d-iphone d-android d-desktop">
+      <span class="l-ja">走行を開いたまま、<span class="ui">走行</span> で同じコースの別の走行を押し、<span class="ui">Car 2 として足す</span> を押します (その走行のベストと比べます)。</span><span class="l-en">With a run open, open another run on the same course in <span class="ui">Runs</span> and press <span class="ui">Add as Car 2</span> (it compares with that run's best).</span>
+      <figure class="phone dev d-iphone d-android"><img class="l-ja" src="img/d2/phone-ja-1.webp" alt="" loading="lazy"><img class="l-en" src="img/d2/phone-en-1.webp" alt="" loading="lazy"></figure>
+    </li>
+    <li class="dev d-browser">
+      <span class="l-ja">2 つのログを <span class="ui">ファイルを開く</span> で開き、<span class="ui">走行とコース</span> で Car 1・Car 2 に周を割り当てます。</span><span class="l-en">Open both logs with <span class="ui">Open file</span> and assign laps to Car 1 and Car 2 in <span class="ui">Runs &amp; course</span>.</span>
+      
+    </li>
+    <li class="">
+      <span class="l-ja">速度のグラフに 2 本の線が重なり、下にタイム差のグラフが出ます。線が上にあるところほど、Car 1 (赤) が先を走っています。コースマップには Car 2 の位置も出ます。</span><span class="l-en">The speed graph shows both lines and a time-delta graph appears below; where it is above zero, Car 1 (red) is ahead. Car 2 also appears on the course map.</span>
+      <figure class="phone dev d-iphone d-android"><img class="l-ja" src="img/d2/phone-ja-2.webp" alt="" loading="lazy"><img class="l-en" src="img/d2/phone-en-2.webp" alt="" loading="lazy"></figure>
+      <figure class="dev d-desktop d-browser"><img class="l-ja" src="img/d2/desktop-ja-1.webp" alt="" loading="lazy"><img class="l-en" src="img/d2/desktop-en-1.webp" alt="" loading="lazy"></figure>
+    </li>
+    <li class="">
+      <span class="l-ja">同じ走行のほかの周と比べるときは、<span class="ui">走行とコース</span> の Car 2〜4 に周を割り当てます。</span><span class="l-en">To compare with other laps of the same run, assign them to Car 2–4 in <span class="ui">Runs &amp; course</span>.</span>
+      
+    </li>
+    <li class="dev d-iphone d-android d-desktop">
+      <span class="l-ja">天候やタイヤをそろえて比べたいときは、先に走行の一覧を絞ってから選びます (→ C2)。</span><span class="l-en">To compare like with like, filter the run list by weather or tyres first (→ C2).</span>
+      
+    </li>
+  </ol>
+
+  <div class="pager">
+    <a href="d1-analysis.html" data-keep>← <span class="l-ja">解析の画面の見方</span><span class="l-en">Reading the analysis screen</span></a>
+    <a href="d3-details.html" data-keep><span class="l-ja">コーナー・ブレーキング・GG・値の帯</span><span class="l-en">Corners, braking, GG and value strips</span> →</a>
+  </div>
+</main>
+</body>
+</html>

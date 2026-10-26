@@ -5,17 +5,19 @@ import { formatDelta, formatLapTime } from '../services/liveLapTimer';
 import { CIRCUIT_PRESETS, userCircuitPresets } from '../services/circuitDatabase';
 import { triggerFileDownload } from '../services/nmeaExporter';
 import { downloadBlob } from '../services/telemetryVideoExporter';
+import { CAMERA_FLOAT_MENU, TimerCameraSettings } from './TimerCameraSettings';
 import { LapHistoryPanel } from './LapHistoryPanel';
 import { deleteRun, listRuns, loadFixes, type RunMeta } from '../services/liveRunStore';
 import { fixesToBon4, fixesToNmea, runFileBase } from '../services/runFiles';
-import { callNative, hasNative, toBase64 } from '../native/bridge';
-import { canUseLoggerBle } from '../utils/device';
+import { callNative, hasNative, isAndroidApp, toBase64 } from '../native/bridge';
+import { canUseLoggerBle, myDeviceWord } from '../utils/device';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { getPositionSource } from '../services/positionSource';
 import { navStore } from '../app/navStore';
 import { distanceKm } from '../services/timer/positionFeeds';
-import { TimerRuntime } from '../services/timer/timerRuntime';
-import { OrientationToggle, StopConfirm, loadTimerOrientation, saveTimerOrientation, type TimerOrientation } from './LapTimerControls';
+import { TimerRuntime, loadPhoneFusion, savePhoneFusion } from '../services/timer/timerRuntime';
+import { IdleRunConfirm, StopConfirm } from './LapTimerControls';
+import { openHelp } from './HelpOverlay';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
 import type { TelemetryPoint } from '../types/telemetry';
 
@@ -66,6 +68,9 @@ function deltaClass(d: number | null | undefined): string {
 
 export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog, onOpenFile, embedded = false, onMeasuringChange }) => {
   const t = useT();
+  // 画面の文の端末の呼び名 (Android のアプリでは「この端末」)
+  const phoneWord = myDeviceWord(isAndroidApp()).ja;
+  const phoneWordEn = myDeviceWord(isAndroidApp()).en;
   const link = useLoggerLink();
   const statusLabel = useStatusLabel();
   // ラップタイマーの中身 (services/timer/timerRuntime.ts)。今は画面を開いている間だけ作る (閉じたら片付ける。前と同じ動き)
@@ -106,10 +111,9 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const setSaveError = (m: string | null) => rt.setSaveError(m);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [phoneFusion, setPhoneFusion] = useState(loadPhoneFusion);
   // 測定終了の確認 (全画面) を出しているか
   const [confirmStop, setConfirmStop] = useState(false);
-  // 画面の向き (アプリだけ。測る前に選び、測っている間は固める)
-  const [orientation, setOrientation] = useState<TimerOrientation>(loadTimerOrientation);
   const [coursePicker, setCoursePicker] = useState(false);
   const [now, setNow] = useState(() => performance.now());
   const [wakeLockOk, setWakeLockOk] = useState<boolean | null>(null);
@@ -151,12 +155,11 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   // 測っている間は今の向きに固める (コーナーの横 G で向きが変わらないように)。閉じたらふつうに戻す。前のアプリは not-supported を返すので何もしない
   useEffect(() => {
     if (!hasNative()) return;
-    void callNative('system.setOrientation', { mode: measuring ? 'hold' : orientation }).catch(() => {});
-  }, [measuring, orientation]);
+    void callNative('system.setOrientation', { mode: measuring ? 'hold' : 'system' }).catch(() => {});
+  }, [measuring]);
   useEffect(() => () => {
     if (hasNative()) void callNative('system.setOrientation', { mode: 'system' }).catch(() => {});
   }, []);
-  const changeOrientation = useCallback((v: TimerOrientation) => { setOrientation(v); saveTimerOrientation(v); }, []);
 
   // ---- 画面を消さない ----
   useEffect(() => {
@@ -240,7 +243,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     if (source === 'phone') {
       if (phoneInfo.error) return { ok: false, text: phoneInfo.error };
       const acc = phoneInfo.accuracy;
-      return { ok: acc !== null && acc <= 30, text: acc === null ? (hasNative() ? t('iPhone の GPS: 測位待ち', 'Phone GPS: waiting') : t('この端末の GPS: 測位待ち', 'Device GPS: waiting')) : t(`${hasNative() ? 'iPhone' : 'この端末'} の GPS ±${Math.round(acc)} m (1 Hz 前後・粗い)`, `Phone GPS ±${Math.round(acc)} m (~1 Hz, coarse)`) };
+      return { ok: acc !== null && acc <= 30, text: acc === null ? (hasNative() ? t(`${phoneWord} の GPS: 測位待ち`, `${phoneWordEn === 'phone' ? 'Phone' : phoneWordEn} GPS: waiting`) : t('この端末の GPS: 測位待ち', 'Device GPS: waiting')) : t(`${hasNative() ? phoneWord : 'この端末'} の GPS ±${Math.round(acc)} m (1 Hz 前後・粗い)`, `Phone GPS ±${Math.round(acc)} m (~1 Hz, coarse)`) };
     }
     const log = replayLogs.find(l => l.id === replayId);
     return { ok: !!log, text: log ? t(`ログの再生 ×${replaySpeed}: ${log.name}`, `Replay ×${replaySpeed}: ${log.name}`) : t('再生するログがありません', 'No log to replay') };
@@ -339,6 +342,16 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
             {t('画面が消えます: 設定の自動ロックを「なし」に', 'Screen may sleep: set Auto-Lock to Never')}
           </span>
         )}
+        {/* 内蔵カメラの録画中の印 (止まったときは理由) */}
+        {(snap.camera.recording || snap.camera.error) && (
+          <span className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-bold ${snap.camera.recording ? 'bg-red-600 text-white' : 'bg-amber-500/20 text-amber-400'}`} data-testid="lap-timer-camera-rec">
+            {snap.camera.recording ? <><span className="w-2 h-2 rounded-full bg-white animate-pulse" />REC</>
+              : snap.camera.error === 'thermal' ? t('熱で録画停止', 'Rec stopped (heat)')
+              : snap.camera.error === 'interrupted' ? t('録画が中断', 'Rec paused')
+              : snap.camera.error === 'permission' ? t('カメラの許可なし', 'No camera access')
+              : t('録画できません', 'Cannot record')}
+          </span>
+        )}
         <button onClick={() => setVoice(v => !v)} className={`p-2 rounded-full border border-line-3 shrink-0 ${wakeLockOk === false ? '' : 'ml-auto'}`} aria-label={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')} title={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')}>
           {voice ? <Volume2 size={18} /> : <VolumeX size={18} className="text-slate-400" />}
         </button>
@@ -365,14 +378,15 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
         </div>
       )}
       <main className="flex-1 min-h-0 flex flex-col landscape:flex-row items-stretch gap-2 px-3 pb-3">
-        <section className="flex-1 min-w-0 min-h-0 flex flex-col items-center justify-center" data-testid="lap-timer-main">
+        <section className="flex-1 min-w-0 min-h-0 flex flex-col items-center justify-center overflow-hidden" data-testid="lap-timer-main">
           {!measuring && source !== 'replay' ? (
-            <div className="text-center space-y-2" data-testid="lap-timer-idle">
-              <div className="font-bold" style={{ fontSize: needsRegister ? 'min(5.5vw, 7vh)' : 'min(7vw, 9vh)' }}>
+            <div className="text-center space-y-2 max-w-full min-w-0" data-testid="lap-timer-idle">
+              {/* 横向きのスマートフォンは高さが足りないので、コース名は 1 行にして入りきらない分は … にする (長い名前が 2 行になって、上下に重なっていた) */}
+              <div className="font-bold [@media(max-height:500px)]:truncate" style={{ fontSize: needsRegister ? 'min(5.5vw, 7vh)' : 'min(7vw, 9vh)' }}>
                 {needsRegister ? t('位置の機器を登録してください', 'Register a position device') : course ? circuitLabel(course.name) : t('コースを決めています', 'Finding the course')}
               </div>
               {needsRegister && (
-                <div className="text-slate-400 text-sm">{t('上の印を押すと機器の画面へ。この iPhone の GPS で測るときは、メニューで選んでください。', 'Tap the badge above to register one, or choose this iPhone’s GPS in the menu.')}</div>
+                <div className="text-slate-400 text-sm">{t(`上の印を押すと機器の画面へ。この ${phoneWord} の GPS で測るときは、メニューで選んでください。`, `Tap the badge above to register one, or choose this ${phoneWordEn}’s GPS in the menu.`)}</div>
               )}
               <div className="font-mono text-slate-300 tabular-nums" style={{ fontSize: 'min(9vw, 12vh)' }}>
                 {lastFix ? `${Math.round(lastFix.speedKmh)} km/h` : '--- km/h'}
@@ -383,7 +397,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
                   <span className="text-slate-500 text-sm"> ({new Date(pastBest.startMs).getMonth() + 1}/{new Date(pastBest.startMs).getDate()})</span>
                 </div>
               )}
-              <div className="text-slate-400 text-sm">{t('下の「測定開始」を押すと、周を数えて記録します', 'Tap Start below to time laps and record')}</div>
+              <div className="text-slate-400 text-sm [@media(max-height:500px)]:hidden">{t('下の「測定開始」を押すと、周を数えて記録します', 'Tap Start below to time laps and record')}</div>
               {/* 測り終えたあと: 保存したことと、走行を見る入口 */}
               {savedRun && (
                 <div className="mt-3 inline-flex items-center gap-3 px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/40 text-sm" data-testid="lap-timer-saved">
@@ -441,7 +455,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
         </section>
 
         {/* 横: 前の周・ベスト・セクター・速度 */}
-        <aside className="shrink-0 landscape:w-[34vw] grid grid-cols-2 landscape:grid-cols-1 gap-2 content-center font-mono tabular-nums">
+        {/* 横向きのスマートフォン (高さが足りない) は、前の周とベストを横に並べ、区間はその下 (3 段だと上下にはみ出していた) */}
+        <aside className="shrink-0 min-h-0 landscape:w-[34vw] grid grid-cols-2 landscape:grid-cols-1 [@media(orientation:landscape)_and_(max-height:500px)]:grid-cols-2 gap-2 content-center font-mono tabular-nums">
           <div className="rounded-xl bg-surface-2 px-3 py-2">
             <div className="text-[11px] text-slate-400 font-sans">{t('前の周', 'Last')}</div>
             <div className="text-2xl sm:text-3xl font-bold">{lastLap ? formatLapTime(lastLap.timeSec, 2) : '--:--'}</div>
@@ -453,7 +468,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
             <div className="text-lg text-slate-400"><span className="text-[11px] font-sans text-slate-500 mr-1">{t('速度', 'Speed')}</span>{lastFix ? `${Math.round(lastFix.speedKmh)} km/h` : '---'}</div>
           </div>
           {sectorCount > 0 && (
-            <div className="col-span-2 landscape:col-span-1 rounded-xl bg-surface-2 px-3 py-2 flex gap-2" data-testid="lap-timer-sectors">
+            <div className="col-span-2 landscape:col-span-1 [@media(orientation:landscape)_and_(max-height:500px)]:col-span-2 rounded-xl bg-surface-2 px-3 py-2 flex gap-2" data-testid="lap-timer-sectors">
               {Array.from({ length: sectorCount }, (_, i) => {
                 // 周を終えて大きく出している間は、終えた周のセクターを出しておく
                 const cur = flashing
@@ -475,8 +490,6 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       {/* 測定開始 / 測定終了 (ログの再生のときは出さない) */}
       {source !== 'replay' && (
         <div className="shrink-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-3">
-          {/* 画面の向きは測る前だけ (アプリのみ) */}
-          {!measuring && hasNative() && <OrientationToggle value={orientation} onChange={changeOrientation} />}
           <button
             onClick={() => {
               // 位置の機器を登録していなければ、測らずに機器の画面へ (測れない記録を作らないように)
@@ -493,14 +506,18 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
         </div>
       )}
       {confirmStop && measuring && (
-        <StopConfirm lapCount={state?.laps.length ?? 0} onYes={confirmStopYes} onNo={cancelStop} />
+        <StopConfirm lapCount={state?.laps.length ?? 0} nothingToSave={!rt.hasRunFile} onYes={confirmStopYes} onNo={cancelStop} />
+      )}
+      {/* ほとんど動いていなかった走行を消すか聞く (LATER-18) */}
+      {snap.idleRun && !measuring && (
+        <IdleRunConfirm distM={snap.idleRun.distM} onDiscard={() => rt.discardIdleRun()} onKeep={() => rt.keepIdleRun()} />
       )}
 
       {/* メニュー: 出どころ・再生の設定・記録 */}
       {/* メニューの外を押したら閉じる (透明な受け皿をメニューの後ろに敷く) */}
       {menuOpen && <div className="absolute inset-0 z-[9]" onClick={() => setMenuOpen(false)} aria-hidden="true" data-testid="lap-timer-menu-backdrop" />}
       {menuOpen && (
-        <div className="absolute right-2 top-14 z-10 w-[min(92vw,360px)] max-h-[80vh] overflow-y-auto rounded-2xl bg-surface-1 border border-line-2 p-3 space-y-3 text-sm shadow-2xl">
+        <div className={`absolute right-2 top-14 z-10 w-[min(92vw,360px)] max-h-[80vh] ${CAMERA_FLOAT_MENU} overflow-y-auto rounded-2xl bg-surface-1 border border-line-2 p-3 space-y-3 text-sm shadow-2xl`}>
           <div>
             <div className="text-slate-400 text-xs mb-1">{t('測位の出どころ', 'Position source')}</div>
             <div className="grid grid-cols-1 gap-1">
@@ -527,6 +544,15 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               </button>
             </div>
           </div>
+          {source === 'phone' && hasNative() && (
+            <label className="flex items-start gap-2 px-3 py-2 rounded-lg bg-surface-2 cursor-pointer" data-testid="lap-timer-phone-fusion">
+              <input type="checkbox" className="mt-0.5" checked={phoneFusion} onChange={e => { setPhoneFusion(e.target.checked); savePhoneFusion(e.target.checked); }} />
+              <span>
+                {t('GPS の間を G センサーで埋める (10 Hz)', 'Fill GPS gaps with the G sensor (10 Hz)')}
+                <span className="block text-[11px] text-slate-500">{t(`${phoneWord} の GPS は 1 秒に 1 回くらいなので、その間を加速度と回転の速さで推定し、計測線を越えた時刻を細かく出します。測定開始から効きます。`, 'Phone GPS updates about once a second; the gaps are estimated from acceleration and rotation so line crossings are timed more finely. Applies from the next start.')}</span>
+              </span>
+            </label>
+          )}
           {source === 'replay' && replayLogs.length > 0 && (
             <div className="space-y-2">
               <select value={replayId} onChange={e => setReplayId(e.target.value)} className="w-full bg-surface-2 rounded-lg px-2 py-2" aria-label={t('再生するログ', 'Log to replay')}>
@@ -539,6 +565,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               </div>
             </div>
           )}
+          <TimerCameraSettings />
           <div data-testid="lap-timer-runs">
             <div className="text-slate-400 text-xs mb-1">{t('走行の記録 (走っている間に 2 秒ごとに保存)', 'Runs (saved every 2 s while driving)')}</div>
             {saveError && <div className="text-amber-500 text-[11px] mb-1">{t(`保存でエラー: ${saveError}`, `Save error: ${saveError}`)}</div>}
@@ -571,8 +598,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
                 })}
               </div>
             )}
-            {hasNative() && (
-              <p className="text-[10px] text-slate-500 mt-1">{t('「ファイル」アプリの このiPhone内 → このアプリ → LapTimer → サーキット名 にも、走っている間に書いています (.nmea と .bon4)。', 'Also written while driving to Files → On My iPhone → this app → LapTimer → circuit name (.nmea and .bon4).')}</p>
+            {hasNative() && !isAndroidApp() && (
+              <p className="text-[10px] text-slate-500 mt-1">{t(`「ファイル」アプリの この${phoneWord}内 → このアプリ → LapTimer → サーキット名 にも、走っている間に書いています (.nmea と .bon4)。`, `Also written while driving to Files → On My ${phoneWordEn} → this app → LapTimer → circuit name (.nmea and .bon4).`)}</p>
             )}
           </div>
           {/* ラップタイムの記録と保管場所は、走行のタブと設定へ移した (2026-10-21)。機器の登録への入口だけ置く */}
@@ -588,6 +615,9 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           )}
           <button onClick={() => { resetRun(); setMenuOpen(false); }} className="w-full px-3 py-2 rounded-lg bg-surface-2 text-slate-300">
             {t('周をはじめから数える (新しい走行として記録する)', 'Reset laps (start a new run)')}
+          </button>
+          <button onClick={() => { setMenuOpen(false); openHelp('timer'); }} className="w-full px-3 py-2 rounded-lg bg-surface-2 text-slate-300" data-testid="lap-timer-help">
+            {t('使い方', 'Guide')}
           </button>
           <p className="text-[11px] text-slate-500 leading-relaxed">
             {t('走っている間は、画面を消さずに、このアプリを前に出しておいてください (画面が消えると周を数えません)。',

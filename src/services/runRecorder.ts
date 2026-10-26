@@ -43,7 +43,14 @@ function uniqueBase(startedMs: number, folder: string): string {
  * 走行を閉じた: その走行のファイル (.nmea・.bon4・センサーの .csv) を書き終えたものにする。
  * このあとの system.syncLapFiles で、選んだフォルダへ移す (アプリの中から消す)
  */
+/** いま書いている走行のファイルの名前 (拡張子の前まで。走行の画面で消せないように) */
+const writingBases = new Set<string>();
+export function isRunBeingWritten(fileBase: string): boolean {
+  return writingBases.has(fileBase);
+}
+
 export async function closeRunFiles(fileBase: string | null | undefined): Promise<void> {
+  if (fileBase) writingBases.delete(fileBase);
   if (!fileBase || !hasNative()) return;
   await callNative('system.closeFiles', { prefix: `${fileBase}.` }).catch(() => {});
 }
@@ -143,6 +150,7 @@ export class LiveRunRecorder {
             if (this.bon4) await callNative('system.appendFile', { path: `${base}.bon4`, b64: toBase64(bon4Header(first)), truncate: true, createNew: true });
             fileBase = base;
             this.startedBase = base;
+            writingBases.add(base);
             break;
           } catch (e) {
             if (!isFileExists(e) || tries >= 20) throw e;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findRunRow, mergeRunsFiles, parseRunsFile, runKey, updateRun, isRunsConflictCopy } from './runsFile';
+import { findRunRow, mergeRunsFiles, noteRunsConflictCopies, parseRunsFile, readRunsFile, removeRunRow, runKey, updateRun, isRunsConflictCopy } from './runsFile';
 import type { RunStore } from './runStore';
 
 // 1.0.2 が書いた runs.json (同じ走行の .bon4 と .nmea の 2 行。同期プロジェクトの形)
@@ -115,5 +115,63 @@ describe('runs.json (2 版)', () => {
     expect(row.memo).toBe('x');
     expect(row.legacy).toMatchObject({ sync: 'broken' });
     expect(row.videos).toEqual([{ name: 'A.MP4' }]);
+  });
+});
+
+describe('行を消す・動画の行 (2026-10-25 のレビュー)', () => {
+  const mem = (files: Record<string, string>) => ({
+    readTextStrict: async (p: string) => files[p] ?? null,
+    readText: async (p: string) => files[p] ?? null,
+    writeText: async (p: string, t: string) => { files[p] = t; }
+  }) as unknown as RunStore;
+
+  it('ぶつかったときの写しがあると、消した印を残し、読み直しても行が戻らない', async () => {
+    const row = { updatedAt: '2026-10-25T00:00:00Z', name: 'x' };
+    const files: Record<string, string> = {
+      'f/runs.json': JSON.stringify({ version: 2, runs: { '20261025/a': row } }),
+      'f/runs 2.json': JSON.stringify({ version: 2, runs: { '20261025/a': row } })
+    };
+    const store = mem(files);
+    noteRunsConflictCopies('f', ['f/runs 2.json']);
+    try {
+      await removeRunRow(store, 'f', '20261025/a.nmea');
+      const after = await readRunsFile(store, 'f');
+      expect(findRunRow(after, '20261025/a.nmea')).toBeNull();
+    } finally {
+      noteRunsConflictCopies('f', []);
+    }
+  });
+
+  it('日付のフォルダの動画の行を書いても、サーキットのフォルダの同じ名前の動画の行は動かさない・消さない', async () => {
+    const files: Record<string, string> = { 'f/runs.json': JSON.stringify({ version: 2, runs: { 'GX010001.MP4': { updatedAt: '2026-10-24T00:00:00Z', id: 'root', videoLaps: { marks: [] } } } }) };
+    const store = mem(files);
+    await updateRun(store, 'f', '20261025/GX010001.MP4', row => ({ ...row, name: 'dated' }));
+    let runs = JSON.parse(files['f/runs.json']).runs;
+    expect(runs['GX010001.MP4']?.id).toBe('root');
+    expect(runs['20261025/GX010001.MP4']?.id).not.toBe('root');
+    await removeRunRow(store, 'f', '20261025/GX010001.MP4');
+    runs = JSON.parse(files['f/runs.json']).runs;
+    expect(runs['GX010001.MP4']?.id).toBe('root');
+    expect(runs['20261025/GX010001.MP4']).toBeUndefined();
+  });
+});
+
+describe('天候・気温・路面温度 (2026-10-26)', () => {
+  it('読めない値は落とし、読める値は残す', async () => {
+    const { parseRunsFile } = await import('./runsFile');
+    const f = parseRunsFile(JSON.stringify({ version: 2, runs: {
+      a: { updatedAt: '2026-10-26T00:00:00Z', weather: 'wet', airTempC: 18, trackTempC: 22.5 },
+      b: { updatedAt: '2026-10-26T00:00:00Z', weather: 'snow', airTempC: '18', trackTempC: 999 }
+    } }));
+    expect(f.runs.a).toMatchObject({ weather: 'wet', airTempC: 18, trackTempC: 22.5 });
+    expect(f.runs.b.weather).toBeUndefined();
+    expect(f.runs.b.airTempC).toBeUndefined();
+    expect(f.runs.b.trackTempC).toBeUndefined();
+  });
+  it('一覧の文', async () => {
+    const { conditionsText } = await import('./runWeather');
+    expect(conditionsText({ weather: 'heavy-wet', airTempC: 12 }, true)).toBe('ヘビーウェット · 気温 12℃');
+    expect(conditionsText({ trackTempC: 30 }, false)).toBe('Track 30℃');
+    expect(conditionsText({}, true)).toBe('');
   });
 });

@@ -5,6 +5,7 @@
 import { check, sleep } from './cdp.mjs';
 import { sweepLayout } from './layout.mjs';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,9 +38,10 @@ async function car1Name(p) {
 /** 動画の位置が、ログの時刻 − 同期のずれ と合っているか (止めた状態で) */
 async function checkVideoSync(p, where) {
   await p.ev(`document.querySelectorAll('video').forEach(v => v.pause())`);
+  // 見えている動画で確かめる (解析の画面の左下にも車載動画の窓がある。PLAN-28 でアニメの窓を外したので、いつも出ている)
   await sleep(1200);
   const s = await p.state();
-  const v = await p.ev(`(()=>{const v=document.querySelector('video'); return v ? { t: v.currentTime, src: decodeURIComponent(v.currentSrc || v.src), dur: v.duration } : null})()`);
+  const v = await p.ev(`(()=>{const v=[...document.querySelectorAll('video')].find(x=>x.offsetParent!==null) ?? document.querySelector('video'); return v ? { t: v.currentTime, src: decodeURIComponent(v.currentSrc || v.src), dur: v.duration } : null})()`);
   check(v, `${where}: 動画が出ていない`);
   const main = s.videos.find(x => v.src.endsWith(x.fileName));
   check(main, `${where}: 出ている動画 ${v.src} が同期の一覧にない`);
@@ -67,6 +69,29 @@ async function seekRatio(p, ratio) {
   await sleep(1500);
 }
 
+/** 試験の並び (user:e2e_並び) を覚えた runs.json の行 */
+function runsWithLayout(root) {
+  const out = [];
+  for (const d of fs.readdirSync(root)) {
+    const f = path.join(root, d, 'runs.json');
+    if (!fs.existsSync(f)) continue;
+    try {
+      for (const [k, r] of Object.entries(JSON.parse(fs.readFileSync(f, 'utf8')).runs ?? {})) if (r?.overlayLayout === 'user:e2e_並び') out.push(`${d}/${k}`);
+    } catch { /* 書きかけ */ }
+  }
+  return out;
+}
+function clearRunsLayout(root) {
+  for (const d of fs.readdirSync(root)) {
+    const f = path.join(root, d, 'runs.json');
+    if (!fs.existsSync(f)) continue;
+    const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+    let changed = false;
+    for (const r of Object.values(j.runs ?? {})) if (r?.overlayLayout === 'user:e2e_並び') { delete r.overlayLayout; changed = true; }
+    if (changed) fs.writeFileSync(f, JSON.stringify(j, null, 1));
+  }
+}
+
 export const journeys = [
   {
     name: '走行を開くと Car 1 になる (別のコースの Car とログは外れ、同じコースのログは残る)',
@@ -91,6 +116,705 @@ export const journeys = [
       const s2 = await p.state();
       check(s2.sessions.length === 2 && s2.sessions.every(x => /Sodegaura/.test(x.circuitName)), `袖ヶ浦の 2 つのログだけになっていない: ${s2.sessions.map(x => x.sessionName).join(', ')}`);
       check((await car1Name(p))?.includes('20260815'), `あとから開いた 8/15 が Car 1 でない: ${await car1Name(p)}`);
+    }
+  },
+  {
+    name: '走行の名前とメモ: 走行の画面で書くと一覧に出て、runs.json に入り、開いた走行の名前になる (ファイル名は変えない)',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      const select = async () => {
+        await p.click('nav-library');
+        await p.waitFor(`document.querySelectorAll('[data-testid="run-row"]').length > 0`, 20000, '走行の一覧');
+        await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].find(r=>r.innerText.includes('9/13'))?.click()`);
+        await p.waitFor(`document.querySelector('[data-testid="run-detail-name"]')`, 5000, '名前の欄');
+      };
+      // React の欄に書く (値を入れて input を起こし、離れて書かせる)
+      const fill = (id, v) => p.ev(`(() => {
+        const el = document.querySelector('[data-testid="${id}"]');
+        const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        el.focus();
+        Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${JSON.stringify(v)});
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.blur();
+        // 窓が前面にないと blur の知らせが起きないので、離れた知らせをはっきり送る
+        el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      })()`);
+      await select();
+      await fill('run-detail-name', 'e2e 新品タイヤ');
+      await sleep(800);
+      await fill('run-detail-note', 'e2e 晴れ 22℃');
+      await p.waitFor(`[...document.querySelectorAll('[data-testid="run-row-note"]')].some(e => e.innerText.includes('e2e 晴れ'))`, 8000, '一覧のメモ');
+      // 車種・タイヤ: 書くと一覧に出て、runs.json の行に入る。ほかの走行で書いたものが候補に出る
+      await fill('run-detail-car', 'e2e ロードスター');
+      await sleep(600);
+      await fill('run-detail-tyre', 'e2e RE-71RS');
+      await p.waitFor(`[...document.querySelectorAll('[data-testid="run-row-car-tyre"]')].some(e => e.innerText.includes('e2e ロードスター') && e.innerText.includes('e2e RE-71RS'))`, 8000, '一覧の車種・タイヤ');
+      {
+        const runsPath = path.join(root, 'sodegaura/runs.json');
+        for (let i = 0; i < 40 && !fs.readFileSync(runsPath, 'utf8').includes('e2e RE-71RS'); i++) await sleep(200);
+        const row = Object.entries(JSON.parse(fs.readFileSync(runsPath, 'utf8')).runs).find(([k]) => k.includes('20260913'))?.[1];
+        check(row?.car === 'e2e ロードスター' && row?.tyre === 'e2e RE-71RS', `runs.json に車種・タイヤが入らない: ${JSON.stringify({ car: row?.car, tyre: row?.tyre })}`);
+        check(await p.ev(`[...document.querySelectorAll('#run-tyre-choices option')].some(o => o.value === 'e2e RE-71RS')`), 'タイヤの候補に出ない');
+      }
+      await fill('run-detail-car', '');
+      await sleep(600);
+      await fill('run-detail-tyre', '');
+      await p.waitFor(`![...document.querySelectorAll('[data-testid="run-row-car-tyre"]')].some(e => e.innerText.includes('e2e'))`, 8000, '車種・タイヤを消す');
+      check(await p.ev(`[...document.querySelectorAll('[data-testid="run-row-name"]')].some(e => e.innerText === 'e2e 新品タイヤ')`), '一覧に名前が出ない');
+      const runs = JSON.parse(fs.readFileSync(path.join(root, 'sodegaura/runs.json'), 'utf8')).runs;
+      const row = Object.entries(runs).find(([k]) => k.includes('20260913'))?.[1];
+      check(row?.name === 'e2e 新品タイヤ' && row?.note === 'e2e 晴れ 22℃', `runs.json に入っていない: ${JSON.stringify({ name: row?.name, note: row?.note })}`);
+      check(fs.readdirSync(path.join(root, 'sodegaura/20260913')).some(f => f.startsWith('20260913') && f.endsWith('.nmea')), 'ログのファイル名が変わった');
+      // 開くと、その名前の走行になり、メモも出る
+      await p.click('run-open-analysis');
+      await p.waitFor(`!document.querySelector('[data-testid="run-open-analysis"]')`, 30000, '走行を開き終わる');
+      await sleep(2000);
+      const s = await p.state();
+      check(s.sessions.some(x => x.sessionName === 'e2e 新品タイヤ'), `開いた走行の名前が違う: ${s.sessions.map(x => x.sessionName).join(', ')}`);
+      // 解析の「走行とコース」のメモからも書ける
+      await p.click('nav-analysis');
+      await sleep(800);
+      if (!(await p.exists('session-note'))) await p.click('toggle-data-drawer');
+      await p.waitFor(`document.querySelector('[data-testid="session-note"]')`, 8000, '走行とコースのメモ');
+      check(await p.ev(`[...document.querySelectorAll('[data-testid="session-note"]')].some(e => e.value === 'e2e 晴れ 22℃')`), '走行とコースにメモが出ない');
+      await p.ev(`(() => { const el = [...document.querySelectorAll('[data-testid="session-note"]')].find(e => e.value === 'e2e 晴れ 22℃'); el.focus(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, 'e2e 雨'); el.dispatchEvent(new Event('input', { bubbles: true })); el.blur(); el.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); })()`);
+      await sleep(1500);
+      const row2 = Object.entries(JSON.parse(fs.readFileSync(path.join(root, 'sodegaura/runs.json'), 'utf8')).runs).find(([k]) => k.includes('20260913'))?.[1];
+      check(row2?.note === 'e2e 雨', `走行とコースのメモが runs.json に入らない: ${row2?.note}`);
+      if (await p.exists('session-note')) await p.click('toggle-data-drawer');
+      // ラップタイムの一覧にも、走行の名前が出る
+      await p.click('nav-library');
+      await p.waitFor(`document.querySelector('[data-testid="library-lap-history"]')`, 10000, 'ラップタイムのボタン');
+      await p.click('library-lap-history');
+      // コースの選択 (袖ヶ浦の選びがある select。unsorted/ が無い保管場所でも探せるように)
+      await p.waitFor(`[...document.querySelectorAll('select')].some(x => x.offsetParent !== null && [...x.options].some(o => o.textContent.includes('袖ヶ浦')))`, 20000, 'ラップタイムのコースの選択');
+      await p.ev(`(() => { const sel = [...document.querySelectorAll('select')].find(x => x.offsetParent !== null && [...x.options].some(o => o.textContent.includes('袖ヶ浦'))); const o = [...sel.options].find(o => o.textContent.includes('袖ヶ浦')); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, o.value); sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      await p.waitFor(`[...document.querySelectorAll('[data-testid="lap-history-run-name"]')].some(e => e.innerText === 'e2e 新品タイヤ')`, 20000, 'ラップタイムの一覧の名前');
+      await p.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+      await sleep(500);
+      // 参考ラップの印 (PLAN-31): 付けると自分の走行と分けて出し、runs.json に入る。ラップタイムの順位には数えない
+      await select();
+      await p.click('run-detail-reference');
+      await p.waitFor(`document.querySelector('[data-testid="run-detail-ref-driver"]')`, 5000, '参考ラップの誰の欄');
+      await fill('run-detail-ref-driver', 'e2e 速い人');
+      // runs.json に誰が入るまで待つ (区切りのタブは走行があればいつも出るので、タブでは待てない)
+      const runsPath3 = path.join(root, 'sodegaura/runs.json');
+      for (let i = 0; i < 40 && !fs.readFileSync(runsPath3, 'utf8').includes('e2e 速い人'); i++) await sleep(200);
+      const row3 = Object.entries(JSON.parse(fs.readFileSync(path.join(root, 'sodegaura/runs.json'), 'utf8')).runs).find(([k]) => k.includes('20260913'))?.[1];
+      check(row3?.reference?.driver === 'e2e 速い人', `参考ラップが runs.json に入らない: ${JSON.stringify(row3?.reference)}`);
+      // 印を付けると参考ラップの側に切り替わる。自分の走行の側には出ない
+      await p.click('library-owner-mine');
+      await sleep(300);
+      check(!(await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].some(r => r.innerText.includes('9/13'))`)), '参考ラップが自分の走行の一覧に残っている');
+      await p.click('library-owner-ref');
+      await p.waitFor(`[...document.querySelectorAll('[data-testid="run-row-reference"]')].some(e => e.innerText.includes('e2e 速い人'))`, 5000, '参考ラップの一覧の印');
+      await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].find(r => r.innerText.includes('9/13'))?.click()`);
+      await p.waitFor(`document.querySelector('[data-testid="run-detail-reference"]')`, 5000, '参考ラップの詳細');
+      await p.click('run-detail-reference');
+      // 印を外すと、自分の走行の一覧に戻り、9/13 がそこに出る (切り替えは走行があればいつも出る)
+      await p.waitFor(`document.querySelector('[data-testid="library-owner-mine"]')?.className.includes('bg-sky-600') && [...document.querySelectorAll('[data-testid="run-row"]')].some(r => r.innerText.includes('9/13'))`, 8000, '参考ラップの印を外すと自分の走行に戻る');
+      // 片付け (名前・メモを消す)
+      await select();
+      await fill('run-detail-name', '');
+      await sleep(800);
+      await fill('run-detail-note', '');
+      await p.waitFor(`![...document.querySelectorAll('[data-testid="run-row-note"]')].some(e => e.innerText.includes('e2e'))`, 8000, 'メモが消える');
+      const after = Object.entries(JSON.parse(fs.readFileSync(path.join(root, 'sodegaura/runs.json'), 'utf8')).runs).find(([k]) => k.includes('20260913'))?.[1];
+      check(after && after.name === undefined && after.note === undefined, `名前・メモが消えない: ${JSON.stringify(after)}`);
+    }
+  },
+  {
+    name: '保存した比べ方 (PLAN-18): Car の割り当てを保存し、別の走行を開いたあとで開き直すと、同じ走行と周に戻る',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      await openRun(p, '9/18', 'run-open-analysis');
+      await openRun(p, '8/15', 'run-add-car2');
+      const before = await p.state();
+      check(before.cars.length === 2, `Car が 2 台にならない: ${JSON.stringify(before.cars)}`);
+      const want = before.cars.map(c => ({ slot: c.slot, name: before.sessions.find(x => x.id === c.sessionId)?.fileName, lap: c.lapNumber }));
+      if (!(await p.exists('session-save'))) await p.click('toggle-data-drawer');
+      await p.waitFor(`document.querySelector('[data-testid="session-save-name"]')`, 5000, '比べ方を保存の欄');
+      await p.ev(`(() => { const el = document.querySelector('[data-testid="session-save-name"]'); el.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, 'e2e 比べ方'); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      await p.click('session-save-button');
+      await p.waitFor(`document.querySelector('[data-testid="session-save"]')?.innerText.includes('保存しました')`, 8000, '保存しました');
+      const files = fs.readdirSync(path.join(root, 'sessions')).filter(f => f.endsWith('.lapsession.json'));
+      const saved = files.map(f => JSON.parse(fs.readFileSync(path.join(root, 'sessions', f), 'utf8'))).find(j => j.name === 'e2e 比べ方' && !j.deleted);
+      check(saved?.cars?.length === 2, `保存したファイルがおかしい: ${JSON.stringify(saved)}`);
+      if (await p.exists('session-save')) await p.click('toggle-data-drawer');
+      // 別の走行を開いてから、保存した比べ方を開く
+      await openRun(p, '8/30', 'run-open-analysis');
+      await p.click('nav-library');
+      await p.waitFor(`[...document.querySelectorAll('[data-testid="library-session-row"]')].some(r => r.innerText.includes('e2e 比べ方'))`, 10000, '保存した比べ方の行');
+      await p.ev(`[...document.querySelectorAll('[data-testid="library-session-row"]')].find(r => r.innerText.includes('e2e 比べ方')).querySelector('button').click()`);
+      await p.waitFor(`!document.querySelector('[data-testid="library-session-row"]')`, 30000, '開き終わる (解析の画面へ)');
+      await sleep(3000);
+      const after = await p.state();
+      const got = after.cars.map(c => ({ slot: c.slot, name: after.sessions.find(x => x.id === c.sessionId)?.fileName, lap: c.lapNumber }));
+      check(JSON.stringify(got) === JSON.stringify(want), `開き直した Car が違う: ${JSON.stringify(got)} / 保存: ${JSON.stringify(want)}`);
+      // 片付け (消す)
+      await p.click('nav-library');
+      await p.waitFor(`[...document.querySelectorAll('[data-testid="library-session-row"]')].some(r => r.innerText.includes('e2e 比べ方'))`, 10000, '保存した比べ方の行');
+      await p.ev(`window.confirm = () => true; [...document.querySelectorAll('[data-testid="library-session-row"]')].find(r => r.innerText.includes('e2e 比べ方')).querySelector('[data-testid="library-session-delete"]').click()`);
+      await p.waitFor(`![...document.querySelectorAll('[data-testid="library-session-row"]')].some(r => r.innerText.includes('e2e 比べ方'))`, 8000, '消した比べ方が消える');
+    }
+  },
+  {
+    name: '動画だけの参考ラップ (LATER-17): 動画に計測線の印を打って保存し、自分の周の動画と周の始まりをそろえて並べる',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      // 試験用の写しに、どの走行にも付いていない動画を置く (APFS の写し。場所は取らない)
+      const dir = path.join(root, 'sodegaura/20200102');
+      fs.mkdirSync(dir, { recursive: true });
+      const video = path.join(dir, 'E2EREF.MP4');
+      execFileSync('cp', ['-c', path.join(root, 'sodegaura/20260913/GX010016.MP4'), video]);
+      const runsPath = path.join(root, 'sodegaura/runs.json');
+      try {
+        await p.goto(`${APP}?r=${Date.now()}`);
+        await p.click('nav-library');
+        await p.waitFor(`document.querySelector('[data-testid="library-owner-ref"]')`, 20000, '参考ラップの区切り');
+        await p.click('library-owner-ref');
+        await p.waitFor(`document.querySelector('[data-testid="library-video-ref-new"]')`, 5000, '動画から作る');
+        await p.click('library-video-ref-new');
+        await p.waitFor(`[...document.querySelectorAll('[data-testid="video-ref-candidate"]')].some(b => b.innerText.includes('E2EREF.MP4'))`, 20000, '候補の動画');
+        const others = await p.ev(`[...document.querySelectorAll('[data-testid="video-ref-candidate"]')].map(b => b.innerText)`);
+        check(!others.some(x => x.includes('GX010016') || x.includes('GX010017')), `走行に付けた動画が候補に出ている: ${others.join(' / ')}`);
+        await p.ev(`[...document.querySelectorAll('[data-testid="video-ref-candidate"]')].find(b => b.innerText.includes('E2EREF.MP4')).click()`);
+        await p.waitFor(`document.querySelector('[data-testid="video-lap-marker-video"]')?.readyState >= 1`, 20000, '印を打つ画面の動画');
+        // 10 秒・50 秒 (セクター)・110 秒・205 秒 に印
+        const mark = async (sec, kind) => {
+          await p.ev(`(() => { const v = document.querySelector('[data-testid="video-lap-marker-video"]'); v.pause(); v.currentTime = ${sec}; })()`);
+          await p.waitFor(`Math.abs(document.querySelector('[data-testid="video-lap-marker-video"]').currentTime - ${sec}) < 0.05 && !document.querySelector('[data-testid="video-lap-marker-video"]').seeking`, 10000, `${sec} 秒へ`);
+          await p.click(kind === 'line' ? 'video-lap-mark-line' : 'video-lap-mark-sector');
+        };
+        await mark(10, 'line'); await mark(50, 'sector'); await mark(110, 'line'); await mark(205, 'line');
+        await p.ev(`(() => { const el = document.querySelector('[data-testid="video-lap-name"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, 'e2e 参考'); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+        await p.waitFor(`document.querySelector('[data-testid="video-lap-laps"]').innerText.includes('1:40.000') && document.querySelector('[data-testid="video-lap-laps"]').innerText.includes('1:35.000')`, 5000, '周が 2 つ (1:40.000・1:35.000)');
+        await p.click('video-lap-save');
+        await p.waitFor(`!document.querySelector('[data-testid="video-lap-marker"]')`, 10000, '保存して閉じる');
+        const row = JSON.parse(fs.readFileSync(runsPath, 'utf8')).runs['20200102/E2EREF.MP4'];
+        check(row?.name === 'e2e 参考' && row?.videoLaps?.marks?.length === 4 && row.reference, `runs.json の行がおかしい: ${JSON.stringify(row)}`);
+        await p.waitFor(`[...document.querySelectorAll('[data-testid="library-video-ref-row"]')].some(r => r.innerText.includes('e2e 参考'))`, 10000, '参考ラップの行');
+        await p.ev(`[...document.querySelectorAll('[data-testid="library-video-ref-row"]')].find(r => r.innerText.includes('e2e 参考')).querySelector('[data-testid="library-video-ref-compare"]').click()`);
+        await p.waitFor(`document.querySelector('[data-testid="video-lap-compare"]')`, 5000, '比べる画面');
+        check(await p.exists('video-lap-compare-own'), '自分の周 (同期した動画のある袖ヶ浦の走行) が出ない');
+        await p.waitFor(`document.querySelector('[data-testid="video-lap-compare-ref-video"]').readyState >= 2 && document.querySelector('[data-testid="video-lap-compare-own-video"]').readyState >= 2`, 30000, '両方の動画');
+        await sleep(500);
+        const st0 = await p.ev(`({ ref: document.querySelector('[data-testid="video-lap-compare-ref-video"]').currentTime })`);
+        check(Math.abs(st0.ref - 110) < 0.2, `参考ラップの動画が周の始まりにない: ${st0.ref}`);
+        await p.click('video-lap-compare-play');
+        await sleep(2500);
+        await p.click('video-lap-compare-play');
+        await sleep(300);
+        const st = await p.ev(`({ ref: document.querySelector('[data-testid="video-lap-compare-ref-video"]').currentTime, own: document.querySelector('[data-testid="video-lap-compare-own-video"]').currentTime })`);
+        const refStart = 110; // いちばん速い L2 (1:35.000) が始めに選ばれる
+        check(st.ref - refStart > 1, `再生されていない: ${JSON.stringify(st)}`);
+        check(await p.ev(`document.querySelector('[data-testid="video-lap-compare-table"]').innerText.includes('差')`), '差の行がない');
+        p.notes.push(`参考 ${(st.ref - refStart).toFixed(2)} 秒・自分の動画 ${st.own.toFixed(2)} 秒`);
+        // 終わりまで動かしてからもう一度再生すると、2 つとも始まりから動く (GUI のレビューで、自分の動画が止まったままだった)
+        await p.ev(`(() => { const r = document.querySelector('[data-testid="video-lap-compare"] input[type=range]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(r, r.max); r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+        await sleep(500);
+        await p.click('video-lap-compare-play');
+        await sleep(1500);
+        const again = await p.ev(`({ ref: !document.querySelector('[data-testid="video-lap-compare-ref-video"]').paused, own: !document.querySelector('[data-testid="video-lap-compare-own-video"]').paused, t: document.querySelector('[data-testid="video-lap-compare-ref-video"]').currentTime })`);
+        check(again.ref && again.own && again.t - refStart < 3, `終わりから再生し直すと 2 つとも始まりから動かない: ${JSON.stringify(again)}`);
+        await p.click('video-lap-compare-play');
+        await p.click('video-lap-compare-close');
+        // やめる (行を消す。動画は残す)
+        await p.ev(`window.confirm = () => true; [...document.querySelectorAll('[data-testid="library-video-ref-row"]')].find(r => r.innerText.includes('e2e 参考')).querySelector('[data-testid="library-video-ref-delete"]').click()`);
+        await p.waitFor(`![...document.querySelectorAll('[data-testid="library-video-ref-row"]')].some(r => r.innerText.includes('e2e 参考'))`, 10000, '参考ラップの行が消える');
+        check(fs.existsSync(video), '動画のファイルまで消えた');
+        check(!JSON.parse(fs.readFileSync(runsPath, 'utf8')).runs['20200102/E2EREF.MP4'], 'runs.json の行が残っている');
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+        const r2 = JSON.parse(fs.readFileSync(runsPath, 'utf8'));
+        delete r2.runs['20200102/E2EREF.MP4'];
+        fs.writeFileSync(runsPath, JSON.stringify(r2, null, 1));
+      }
+    }
+  },
+  {
+    name: 'メーターの配置 (PLAN-08): 部品をつかんで動かし、足して、名前を付けて保存すると overlays/ に入り、その並びになる。消すと元に戻る',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      const file = path.join(root, 'overlays', 'e2e_並び.overlay.json');
+      try {
+        await openRun(p, '8/15', 'run-open-video');
+        if (await p.exists('video-mode-watch')) await p.click('video-mode-watch');
+        await sleep(1000);
+        await p.click('overlay-edit-toggle');
+        await p.waitFor(`document.querySelector('[data-testid="overlay-edit-layer"]')`, 5000, '配置の枠');
+        // 速度をつかんで右へ 10% 動かす
+        const r = await p.ev(`(()=>{const b=document.querySelector('[data-testid="overlay-edit-part-speed"]').getBoundingClientRect(); const L=document.querySelector('[data-testid="overlay-edit-layer"]').getBoundingClientRect(); return {x:b.left+b.width/2, y:b.top+b.height/2, lw:L.width}})()`);
+        await p.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: r.x, y: r.y, button: 'left', clickCount: 1 });
+        for (let i = 1; i <= 5; i++) await p.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: r.x + r.lw * 0.02 * i, y: r.y, button: 'left' });
+        await p.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: r.x + r.lw * 0.1, y: r.y, button: 'left', clickCount: 1 });
+        await sleep(300);
+        check(/x 0\.12/.test(await p.ev(`document.querySelector('[data-testid="overlay-edit-props"]').innerText`)), '速度が 10% 動かない');
+        // 値の棒を足して保存
+        await p.click('overlay-edit-add');
+        await p.ev(`(()=>{const el=document.querySelector('[data-testid="overlay-edit-name"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'e2e 並び'); el.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+        await p.click('overlay-edit-save');
+        for (let i = 0; i < 30 && !fs.existsSync(file); i++) await sleep(200);
+        const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+        check(saved.parts.some(x => x.type === 'bar') && saved.parts.find(x => x.id === 'speed')?.x === 0.12, `保存した並びがおかしい: ${JSON.stringify(saved.parts.map(x => [x.id, x.type, x.x]))}`);
+        const win = await p.ev(`Object.entries(localStorage).filter(([k]) => k.startsWith('ds_video_window_')).map(([, v]) => JSON.parse(v).overlayLayout)`);
+        check(win.includes('user:e2e_並び'), `保存した並びがウインドウの並びにならない: ${JSON.stringify(win)}`);
+        // 開いている走行の runs.json の行にも覚える
+        for (let i = 0; i < 30 && !runsWithLayout(root).length; i++) await sleep(200);
+        check(runsWithLayout(root).length === 1, `走行の行に並びを覚えていない: ${JSON.stringify(runsWithLayout(root))}`);
+        // ウインドウの並びを自動に戻しても、走行を開き直すと覚えた並びになる
+        await p.click('overlay-edit-close');
+        await p.ev(`for (const [k, v] of Object.entries(localStorage)) if (k.startsWith('ds_video_window_')) localStorage.setItem(k, JSON.stringify({ ...JSON.parse(v), overlayLayout: 'auto' }))`);
+        await p.goto(`${APP}?r=${Date.now()}`);
+        await openRun(p, '8/15', 'run-open-video');
+        await p.waitFor(`Object.entries(localStorage).some(([k, v]) => k.startsWith('ds_video_window_') && JSON.parse(v).overlayLayout === 'user:e2e_並び')`, 15000, '開き直すと覚えた並び');
+        if (await p.exists('video-mode-watch')) await p.click('video-mode-watch');
+        await sleep(1000);
+        await p.click('overlay-edit-toggle');
+        await p.waitFor(`document.querySelector('[data-testid="overlay-edit-base"]')?.value === 'user:e2e_並び'`, 5000, '覚えた並びで編集が始まる');
+        // 小さな枠: 既定 (速度・周の時計・差) から始まり、保存すると small に入る
+        await p.click('overlay-edit-target-small');
+        await p.waitFor(`document.querySelector('[data-testid="overlay-edit-part-clock"]') && !document.querySelector('[data-testid="overlay-edit-part-map"]')`, 5000, '小さな枠の部品');
+        // 足すと小さな枠の並びになる (触らなければ既定のまま、保存しない)
+        await p.click('overlay-edit-add');
+        await p.click('overlay-edit-save');
+        for (let i = 0; i < 30 && JSON.parse(fs.readFileSync(file, 'utf8')).small?.length !== 4; i++) await sleep(200);
+        check(JSON.parse(fs.readFileSync(file, 'utf8')).small?.some(x => x.type === 'lapClock') && JSON.parse(fs.readFileSync(file, 'utf8')).small.length === 4, '小さな枠の部品が保存されない');
+        check(JSON.parse(fs.readFileSync(file, 'utf8')).parts.find(x => x.id === 'speed')?.x === 0.12, '小さな枠を直したら、ふつうの枠が変わった');
+        await p.click('overlay-edit-target-large');
+        // 名前だけ変える: 同じファイルの名前が変わる
+        await p.ev(`(()=>{const el=document.querySelector('[data-testid="overlay-edit-name"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'e2e 並び 改'); el.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+        await p.waitFor(`document.querySelector('[data-testid="overlay-edit-rename"]')`, 5000, '名前だけ変える');
+        await p.click('overlay-edit-rename');
+        for (let i = 0; i < 30 && JSON.parse(fs.readFileSync(file, 'utf8')).name?.[0] !== 'e2e 並び 改'; i++) await sleep(200);
+        check(JSON.parse(fs.readFileSync(file, 'utf8')).name?.[0] === 'e2e 並び 改', '名前が変わらない');
+        await p.waitFor(`[...document.querySelectorAll('[data-testid="overlay-edit-base"] option')].some(o => o.textContent === 'e2e 並び 改')`, 5000, '一覧の名前が変わる');
+        // 消すと、自動に戻り、一覧にも出ない
+        await p.ev(`window.confirm = () => true`);
+        await p.click('overlay-edit-delete');
+        await p.waitFor(`!document.querySelector('[data-testid="overlay-edit-panel"]')`, 5000, '消して閉じる');
+        for (let i = 0; i < 30 && !fs.readFileSync(file, 'utf8').includes('deleted'); i++) await sleep(200);
+        check(JSON.parse(fs.readFileSync(file, 'utf8')).deleted === true, '消した印が無い');
+        for (let i = 0; i < 30 && runsWithLayout(root).length; i++) await sleep(200);
+        check(!runsWithLayout(root).length, '消しても走行の行に並びが残っている');
+      } finally {
+        fs.rmSync(file, { force: true });
+        clearRunsLayout(root);
+      }
+    }
+  },
+  {
+    name: 'スマートフォンの解析: 下の欄の「動画」で、Car 1 の動画を見るだけで出す (道具の段・比べるは出さない)。グラフで動かすと動画も動く',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      await openRun(p, '8/15', 'run-open-analysis');
+      await p.viewport(390, 844, true);
+      try {
+        await sleep(800);
+        await p.click('mobile-panel-video');
+        await p.waitFor(`[...document.querySelectorAll('video')].some(v => v.offsetParent !== null && v.readyState >= 2)`, 20000, '下の欄の動画');
+        const info = await p.ev(`(()=>{const w=[...document.querySelectorAll('[data-testid="video-window"]')].find(x=>x.offsetParent!==null); return { toolbar: w.querySelector('[data-testid="video-toolbar"]').offsetParent !== null, videos: [...w.querySelectorAll('video')].filter(v=>v.offsetParent!==null).length, compare: !!w.querySelector('[data-testid="video-mode-compare"]') }})()`);
+        check(!info.toolbar && info.videos === 1 && !info.compare, `見るだけになっていない: ${JSON.stringify(info)}`);
+        await p.shot('phone_video_pane');
+        await checkVideoSync(p, '下の欄の動画');
+        // ほかの欄に替えると動画を外す
+        await p.click('mobile-panel-map');
+        await sleep(500);
+        check(!(await p.ev(`[...document.querySelectorAll('video')].some(v => v.offsetParent !== null)`)), 'コースに替えても動画が見えている');
+      } finally {
+        await p.send('Emulation.clearDeviceMetricsOverride').catch(() => {});
+        await p.send('Emulation.setTouchEmulationEnabled', { enabled: false }).catch(() => {});
+      }
+    }
+  },
+  {
+    name: 'ラップタイムの一覧は、開いている走行のコースで開く (いちばん新しい走行のコースではない。BUG-36)',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      // いちばん新しいのは 10/12 の筑波。8/30 の日光を開いてからラップタイムを開く
+      await openRun(p, '8/30', 'run-open-analysis');
+      await p.click('nav-library');
+      await p.waitFor(`document.querySelector('[data-testid="library-lap-history"]')`, 10000, 'ラップタイムのボタン');
+      await p.click('library-lap-history');
+      await p.waitFor(`document.querySelector('[data-testid="lap-history-course"]')?.value`, 20000, 'コースの選び');
+      const v = await p.ev(`(()=>{const s=document.querySelector('[data-testid="lap-history-course"]'); return s.options[s.selectedIndex].text})()`);
+      check(/日光|Nikko/.test(v), `開いている走行 (日光) のコースでない: ${v}`);
+      await p.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`);
+    }
+  },
+  {
+    name: 'Duo を開く・たたむ (PLAN-30): 解析は欄を作り直さず置き場所だけ替わり、再生は続く。開くとコースはいつも出て下の欄は動画、たたむと最後に触った欄',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      await openRun(p, '8/15', 'run-open-analysis');
+      const tier = () => p.ev(`document.querySelector('[data-testid="analysis-compact"]')?.dataset.tier ?? 'wide'`);
+      const shown = () => p.ev(`[...document.querySelectorAll('[data-testid^="mobile-panel-"]')].filter(b => b.className.includes('bg-red-600')).map(b => b.dataset.testid.slice(13))`);
+      const mapVisible = () => p.ev(`document.querySelector('[data-testid="analysis-map"]')?.offsetParent !== null`);
+      try {
+        // たたんだ (外の画面)
+        await p.viewport(466, 678, true);
+        await p.waitFor(`document.querySelector('[data-testid="analysis-compact"]')?.dataset.tier === 'phone'`, 5000, 'スマートフォンの段');
+        await p.click('mobile-panel-gg');
+        await p.ev(`document.querySelector('[data-testid="analysis-map"]').__keep = 1`);
+        check(!(await mapVisible()), 'たたんで GG を選んだのにコースが見えている');
+        // 開く: コースがいつも出る。下の欄は GG のまま (コース以外を選んでいたときはそのまま)
+        await p.viewport(951, 669, true);
+        await p.waitFor(`document.querySelector('[data-testid="analysis-compact"]')?.dataset.tier === 'medium'`, 5000, '中くらいの段');
+        check(await mapVisible(), '開いてもコースが出ない');
+        check(JSON.stringify(await shown()) === '["gg"]', `開いたら下の欄が GG でない: ${await shown()}`);
+        check(await p.ev(`document.querySelector('[data-testid="analysis-map"]').__keep === 1`), '開いたらコースマップが作り直された');
+        // 動画を出して再生し、たたむ・開くを繰り返しても、同じ動画のまま再生が続く
+        await p.click('mobile-panel-video');
+        await p.waitFor(`[...document.querySelectorAll('video')].some(v => v.offsetParent !== null && v.readyState >= 2)`, 20000, '下の欄の動画');
+        await p.ev(`[...document.querySelectorAll('video')].find(v => v.offsetParent !== null).__keep = 1`);
+        await p.ev(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>/^(再生|Play)$/.test(b.getAttribute('aria-label') ?? '') && b.offsetParent!==null); b?.click(); return !!b})()`);
+        await sleep(1500);
+        const t0 = await p.ev(`window.__laploupe.currentTimeSec`);
+        for (const [w, h] of [[669, 951], [466, 678], [951, 669]]) {
+          await p.viewport(w, h, true);
+          await sleep(900);
+        }
+        const v = await p.ev(`(()=>{const v=[...document.querySelectorAll('video')].find(v => v.offsetParent !== null); return v ? { keep: v.__keep === 1, paused: v.paused } : null})()`);
+        const t1 = await p.ev(`window.__laploupe.currentTimeSec`);
+        check(v && v.keep, `開く・たたむで動画が作り直された: ${JSON.stringify(v)}`);
+        check(t1 > t0 + 1.5 && v.paused === false, `開く・たたむで再生が止まった: ${t0} → ${t1} ${JSON.stringify(v)}`);
+        await p.ev(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>/^(一時停止|Pause)$/.test(b.getAttribute('aria-label') ?? '') && b.offsetParent!==null); b?.click()})()`);
+        // コースマップを触ってからたたむと、コースを出す
+        await p.ev(`document.querySelector('[data-testid="analysis-map"]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
+        await p.viewport(466, 678, true);
+        await p.waitFor(`document.querySelector('[data-testid="analysis-compact"]')?.dataset.tier === 'phone'`, 5000, 'たたむ');
+        await sleep(300);
+        check(JSON.stringify(await shown()) === '["map"]' && await mapVisible(), `コースを触ってたたんだのにコースでない: ${await shown()}`);
+        // コースを出したまま開くと下の欄は動画。その動画を触ってからたたむと、動画のまま (コースに戻らない)
+        await p.viewport(951, 669, true);
+        await p.waitFor(`document.querySelector('[data-testid="analysis-compact"]')?.dataset.tier === 'medium'`, 5000, '開く');
+        await sleep(300);
+        check(JSON.stringify(await shown()) === '["video"]', `コースを出したまま開いたら下の欄が動画でない: ${await shown()}`);
+        await p.ev(`document.querySelector('[data-testid="analysis-body"]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
+        await p.viewport(466, 678, true);
+        await p.waitFor(`document.querySelector('[data-testid="analysis-compact"]')?.dataset.tier === 'phone'`, 5000, 'たたむ');
+        await sleep(300);
+        check(JSON.stringify(await shown()) === '["video"]', `動画を触ってたたんだのに動画でない: ${await shown()}`);
+        // 動画の画面: 開いた横長の比べるは 2 つを左右に
+        await p.viewport(951, 669, true);
+        await sleep(600);
+        await p.click('nav-video');
+        await sleep(2500);
+        await p.click('video-mode-compare');
+        await sleep(3000);
+        const tiles = await p.ev(`[...document.querySelectorAll('video')].filter(v => v.offsetParent !== null).map(v => { const r = v.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top)] })`);
+        check(tiles.length === 2 && tiles[0][1] === tiles[1][1] && tiles[0][0] !== tiles[1][0], `開いた画面の比べるが左右に 2 つでない: ${JSON.stringify(tiles)}`);
+        await p.click('video-mode-watch');
+        // 縦に持つと、見るの動画の下にコースマップ
+        await p.viewport(669, 951, true);
+        await sleep(1200);
+        check(await p.exists('video-side-map'), '開いて縦に持っても、動画の下にコースマップが出ない');
+      } finally {
+        await p.send('Emulation.setDeviceMetricsOverride', { width: 0, height: 0, deviceScaleFactor: 0, mobile: false }).catch(() => {});
+        await p.send('Emulation.clearDeviceMetricsOverride').catch(() => {});
+        await p.send('Emulation.setTouchEmulationEnabled', { enabled: false }).catch(() => {});
+      }
+    }
+  },
+  {
+    name: '天候・気温・路面温度: 走行の詳細で選ぶと一覧に出て runs.json に入り、天候で絞り込める。書いた走行が無ければ絞り込みは出ない',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      const runsPath = path.join(root, 'sodegaura/runs.json');
+      const rowOf = () => Object.entries(JSON.parse(fs.readFileSync(runsPath, 'utf8')).runs).find(([k]) => k.includes('20260913'))?.[1];
+      const fill = (id, v) => p.ev(`(() => {
+        const el = document.querySelector('[data-testid="${id}"]');
+        el.focus();
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(v)});
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.blur();
+        el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      })()`);
+      const pick = v => p.ev(`(() => { const sel = document.querySelector('[data-testid="run-detail-weather"]'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, ${JSON.stringify(v)}); sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      try {
+        await p.click('nav-library');
+        await p.waitFor(`document.querySelectorAll('[data-testid="run-row"]').length > 0`, 20000, '走行の一覧');
+        check(!(await p.exists('library-weather')), '天候を書いた走行が無いのに絞り込みが出ている');
+        await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].find(r=>r.innerText.includes('9/13'))?.click()`);
+        await p.waitFor(`document.querySelector('[data-testid="run-detail-weather"]')`, 5000, '天候の欄');
+        check(await p.ev(`document.querySelector('[data-testid="run-detail-weather"]').value === ''`), '天候の既定が未設定でない');
+        await pick('wet');
+        await sleep(600);
+        await fill('run-detail-air-temp', '18');
+        await sleep(600);
+        await fill('run-detail-track-temp', '２２．５');
+        await p.waitFor(`[...document.querySelectorAll('[data-testid="run-row-conditions"]')].some(e => e.innerText.includes('ウェット') && e.innerText.includes('18℃') && e.innerText.includes('22.5℃'))`, 8000, '一覧の天候');
+        for (let i = 0; i < 40 && rowOf()?.trackTempC === undefined; i++) await sleep(200);
+        const row = rowOf();
+        check(row?.weather === 'wet' && row?.airTempC === 18 && row?.trackTempC === 22.5, `runs.json に入らない: ${JSON.stringify({ w: row?.weather, a: row?.airTempC, t: row?.trackTempC })}`);
+        // 範囲の外は書かない (前の値に戻す)
+        await fill('run-detail-air-temp', '500');
+        await sleep(800);
+        check(rowOf()?.airTempC === 18 && await p.ev(`document.querySelector('[data-testid="run-detail-air-temp"]').value === '18'`), '範囲の外の気温を書いた');
+        // 絞り込み: ウェットだけにすると 9/13 だけ
+        const filterWeather = v => p.ev(`(() => { const sel = document.querySelector('[data-testid="library-weather"]'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, ${JSON.stringify(v)}); sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+        await p.waitFor(`[...document.querySelectorAll('[data-testid="library-weather"] option')].some(o => o.value === 'wet')`, 5000, '天候の絞り込み');
+        await filterWeather('wet');
+        await sleep(500);
+        const rows = await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].map(r => r.innerText.split('\\n')[0])`);
+        check(rows.length === 1 && rows[0].includes('9/13'), `ウェットで絞ると 9/13 だけにならない: ${rows.join(' / ')}`);
+        await filterWeather('none');
+        await sleep(500);
+        check(!(await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].some(r => r.innerText.includes('9/13'))`)), '未設定で絞っても 9/13 が出る');
+        await filterWeather('');
+      } finally {
+        // 元に戻す
+        const j = JSON.parse(fs.readFileSync(runsPath, 'utf8'));
+        for (const r of Object.values(j.runs)) { delete r.weather; delete r.airTempC; delete r.trackTempC; }
+        fs.writeFileSync(runsPath, JSON.stringify(j, null, 1));
+      }
+    }
+  },
+  {
+    name: '書き出しの範囲を時間で決める・メーターに画像 (ロゴ) を置く (PLAN-38)',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      const file = path.join(root, 'overlays', 'e2e_ロゴ.overlay.json');
+      // 1 × 1 の PNG
+      const png = path.join(path.dirname(new URL(import.meta.url).pathname), 'out', 'e2e_logo.png');
+      fs.writeFileSync(png, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
+      const setInput = (id, v) => p.ev(`(() => { const el = document.querySelector('[data-testid="${id}"]'); el.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(v)}); el.dispatchEvent(new Event('input', { bubbles: true })); el.blur(); el.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); })()`);
+      try {
+        await openRun(p, '8/15', 'run-open-video');
+        if (await p.exists('video-mode-watch')) await p.click('video-mode-watch');
+        await sleep(800);
+        // 書き出しの範囲: 時間で決める → 0:10 から 0:25 で 15 秒
+        await p.click('video-mode-export');
+        await p.waitFor(`document.querySelector('[data-testid="export-range-custom"]')`, 5000, '書き出しの画面');
+        await p.click('export-range-custom');
+        await p.waitFor(`document.querySelector('[data-testid="export-custom-range"]')`, 3000, '範囲の欄');
+        await setInput('export-range-start', '0:10');
+        await sleep(300);
+        await setInput('export-range-end', '25');
+        await sleep(300);
+        const txt = await p.ev(`document.querySelector('[data-testid="export-custom-range"]').innerText`);
+        check(/15\.0/.test(txt), `範囲の長さが 15 秒でない: ${txt}`);
+        check(await p.ev(`document.querySelector('[data-testid="export-range-start"]').value === '0:10.0' && document.querySelector('[data-testid="export-range-end"]').value === '0:25.0'`), '範囲の欄の値が違う');
+        // 終わりを始まりより前にはしない
+        await setInput('export-range-end', '0:05');
+        await sleep(300);
+        check(await p.ev(`(() => { const a = document.querySelector('[data-testid="export-range-start"]').value, b = document.querySelector('[data-testid="export-range-end"]').value; return a < b || a.length < b.length; })()`), '終わりが始まりより前になった');
+        await p.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+        await sleep(400);
+        if (await p.exists('export-range-custom')) await p.ev(`[...document.querySelectorAll('button')].find(b => /キャンセル|閉じる/.test(b.innerText) && b.offsetParent)?.click()`);
+        await sleep(400);
+        // 画像の部品: 配置の編集で画像を足して保存すると、並びのファイルに画像が入る
+        await p.click('overlay-edit-toggle');
+        await p.waitFor(`document.querySelector('[data-testid="overlay-edit-panel"]')`, 5000, '配置の編集');
+        await p.setFiles('[data-testid="overlay-edit-image-file"]', [png]);
+        await p.waitFor(`[...document.querySelectorAll('[data-testid^="overlay-edit-part-"]')].length > 0 && document.querySelector('[data-testid="overlay-edit-image-replace"]')`, 5000, '画像の部品');
+        await p.ev(`(()=>{const el=document.querySelector('[data-testid="overlay-edit-name"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'e2e ロゴ'); el.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+        await p.click('overlay-edit-save');
+        for (let i = 0; i < 30 && !fs.existsSync(file); i++) await sleep(200);
+        const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+        const img = saved.parts.find(x => x.type === 'image');
+        check(img && /^data:image\/png;base64,/.test(img.src) && Math.abs(img.h - 0.16 * 16 / 9) < 0.01, `画像の部品が保存されない: ${JSON.stringify(img && { h: img.h, src: img.src.slice(0, 30) })}`);
+        await p.ev(`window.confirm = () => true`);
+        await p.click('overlay-edit-delete');
+        await p.waitFor(`!document.querySelector('[data-testid="overlay-edit-panel"]')`, 5000, '消して閉じる');
+      } finally {
+        fs.rmSync(file, { force: true });
+        fs.rmSync(png, { force: true });
+      }
+    }
+  },
+  {
+    name: '比べ方を車種・タイヤ・天候で絞り込む (PLAN-37): 走行の一覧と、ラップタイムの一覧 (ベストも絞った中で数える)',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      const runsPath = path.join(root, 'sodegaura/runs.json');
+      const orig = fs.readFileSync(runsPath, 'utf8');
+      const pick = (id, v) => p.ev(`(() => { const sel = document.querySelector('[data-testid="${id}"]'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, ${JSON.stringify(v)}); sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      try {
+        const j = JSON.parse(orig);
+        for (const [k, r] of Object.entries(j.runs)) {
+          if (k.includes('20260913')) Object.assign(r, { car: 'e2e 車A', tyre: 'e2e タイヤ', weather: 'wet' });
+          if (k.includes('20260918')) Object.assign(r, { car: 'e2e 車B', tyre: 'e2e タイヤ' });
+        }
+        fs.writeFileSync(runsPath, JSON.stringify(j, null, 1));
+        await p.goto(`${APP}?r=${Date.now()}`);
+        await p.click('nav-library');
+        await p.waitFor(`document.querySelector('[data-testid="library-car"]')`, 20000, '車種の絞り込み');
+        await pick('library-car', 'e2e 車A');
+        await sleep(500);
+        let rows = await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].map(r => r.innerText.split('\\n')[0])`);
+        check(rows.length === 1 && rows[0].includes('9/13'), `車種で絞ると 9/13 だけにならない: ${rows.join(' / ')}`);
+        await pick('library-car', '');
+        await pick('library-tyre', 'e2e タイヤ');
+        await sleep(500);
+        rows = await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].map(r => r.innerText.split('\\n')[0])`);
+        check(rows.length === 2 && rows.every(r => /9\/1[38]/.test(r)), `タイヤで絞ると 9/13・9/18 にならない: ${rows.join(' / ')}`);
+        await pick('library-tyre', '');
+        // ラップタイムの一覧: 袖ヶ浦でウェットにすると、ベストは 9/13 のもの
+        await p.click('library-lap-history');
+        await p.waitFor(`[...document.querySelectorAll('[data-testid="lap-history-course"] option')].some(o => o.textContent.includes('袖ヶ浦'))`, 20000, 'ラップタイムの一覧');
+        await p.ev(`(() => { const sel = document.querySelector('[data-testid="lap-history-course"]'); const o = [...sel.options].find(o => o.textContent.includes('袖ヶ浦')); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, o.value); sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+        await p.waitFor(`document.querySelector('[data-testid="lap-history-weather"]')`, 10000, 'ラップタイムの天候の絞り込み');
+        const bestAll = await p.ev(`document.body.innerText.match(/ベスト\\s*([0-9:.]+)/)?.[1]`);
+        await pick('lap-history-weather', 'wet');
+        await sleep(500);
+        const bestWet = await p.ev(`document.body.innerText.match(/ベスト\\s*([0-9:.]+)/)?.[1]`);
+        check(bestAll && bestWet && bestWet !== bestAll && bestWet.startsWith('1:44'), `ウェットで絞ったベストが 9/13 のものでない: ${bestAll} → ${bestWet}`);
+        check(await p.ev(`[...document.querySelectorAll('[data-testid="lap-history-run-conditions"]')].some(e => e.innerText.includes('e2e 車A') && e.innerText.includes('ウェット'))`), 'ラップタイムの一覧に車種・天候が出ない');
+        await p.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+      } finally {
+        fs.writeFileSync(runsPath, orig);
+      }
+    }
+  },
+  {
+    name: 'CSV の形式の定義 (PLAN-36): 設定で値だけの CSV の形式を作ると、走行を開いたとき横の <走行>.<xxx>.csv を読み、速度グラフの下の値の帯に出せる。計算式も帯に出る',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      const dir = path.join(root, 'sodegaura/20260815');
+      const nmea = fs.readFileSync(path.join(dir, '20260815092455.nmea'), 'utf8');
+      // 走行の始まりの UTC (最初の RMC の日時)
+      const m = /\$G.RMC,(\d{2})(\d{2})(\d{2})(?:\.\d+)?,A,[^\n]*?,(\d{2})(\d{2})(\d{2}),/.exec(nmea);
+      check(m, 'NMEA の RMC が見つからない');
+      const t0 = Date.UTC(2000 + Number(m[6]), Number(m[5]) - 1, Number(m[4]), Number(m[1]), Number(m[2]), Number(m[3]));
+      const sensorPath = path.join(dir, '20260815092455.e2e_obd.csv');
+      const rows = ['time_utc_ms,rpm,coolant_c'];
+      for (let s2 = -60; s2 < 3600; s2++) rows.push(`${t0 + s2 * 1000},${3000 + (s2 % 60) * 50},${80 + (s2 % 30) / 3}`);
+      fs.writeFileSync(sensorPath, rows.join('\n'));
+      const sample = path.join(path.dirname(new URL(import.meta.url).pathname), 'out', '20260815092455.e2e_obd.csv');
+      fs.writeFileSync(sample, rows.slice(0, 20).join('\n'));
+      const fmtDir = path.join(root, 'formats');
+      const pick = (sel, v) => p.ev(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, ${JSON.stringify(v)}); el.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      const fill = (sel, v) => p.ev(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(v)}); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      try {
+        // 設定で形式を作る
+        await p.click('nav-settings');
+        await p.waitFor(`document.querySelector('[data-testid="csv-format-new"]')`, 5000, 'CSV の形式を作る');
+        await p.click('csv-format-new');
+        await p.setFiles('[data-testid="csv-format-file"]', [sample]);
+        await p.waitFor(`document.querySelectorAll('[data-testid="csv-format-column"]').length === 3`, 5000, '列の一覧');
+        check(await p.ev(`document.querySelector('[data-testid="csv-format-kind"]').value === 'sensor' && document.querySelector('[data-testid="csv-format-sensor-key"]').value === 'e2e_obd'`), '値だけの CSV・ファイルの名前が当たらない');
+        check(await p.ev(`document.querySelector('[data-testid="csv-format-time"]').value === 'time_utc_ms' && document.querySelector('[data-testid="csv-format-time-as"]').value === 'utcMs'`), '時刻の列・形が当たらない');
+        // rpm は回転数 (当たる)、coolant_c は自分で名前を付ける
+        check(await p.ev(`document.querySelector('[data-testid="csv-format-target-1"]').value === 'rpm'`), '回転数が当たらない');
+        await pick('[data-testid="csv-format-target-2"]', 'custom');
+        await fill('[data-testid="csv-format-label-2"]', '水温');
+        await fill('[data-testid="csv-format-name"]', 'e2e OBD');
+        await p.click('csv-format-save');
+        await p.waitFor(`/保存しました/.test(document.querySelector('[data-testid="csv-format-note"]')?.innerText ?? '')`, 5000, '保存');
+        const saved = JSON.parse(fs.readFileSync(path.join(fmtDir, 'e2e_OBD.csvformat.json'), 'utf8'));
+        check(saved.kind === 'sensor' && saved.sensorKey === 'e2e_obd' && saved.columns.coolant_c.target === 'custom:coolant_c' && saved.columns.rpm.target === 'rpm', `保存した形式が違う: ${JSON.stringify(saved)}`);
+        await p.click('csv-format-close');
+        // 計算式
+        await p.click('calc-open');
+        await p.click('calc-add');
+        // 足した行 (いちばん下) に書く (前の試験の計算式が残っていても、それを書き換えないように)
+        const fillLast = (id, v) => p.ev(`(() => { const all = document.querySelectorAll('[data-testid="${id}"]'); const el = all[all.length - 1]; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(v)}); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+        await fillLast('calc-label', 'e2e mph');
+        await fillLast('calc-key', 'e2e_mph');
+        await fillLast('calc-expr', 'speed * 0.621');
+        await p.click('calc-save');
+        await p.waitFor(`/保存しました/.test(document.querySelector('[data-testid="calc-note"]')?.innerText ?? '')`, 5000, '計算式の保存');
+        check(JSON.parse(fs.readFileSync(path.join(fmtDir, 'calc.json'), 'utf8')).channels.some(c => c.key === 'e2e_mph'), '計算式が保存されない');
+        await p.click('calc-close');
+        // 走行を開くと、横の CSV を読んで、値の帯に出せる
+        await openRun(p, '8/15', 'run-open-analysis');
+        await p.waitFor(`document.querySelector('[data-testid="graph-strips-toggle"]')`, 15000, '値の帯のボタン');
+        await p.click('graph-strips-toggle');
+        await p.waitFor(`document.querySelector('[data-testid="graph-strip-custom:coolant_c"]') && document.querySelector('[data-testid="graph-strip-rpm"]') && document.querySelector('[data-testid="graph-strip-custom:e2e_mph"]')`, 15000, '値の帯の選び (水温・回転数・計算式)');
+        await p.click('graph-strip-custom:coolant_c');
+        await p.click('graph-strip-custom:e2e_mph');
+        await sleep(600);
+        await p.shot('csv_strips');
+        const pt = await p.ev(`(() => { const s = window.__laploupe; const ses = s.sessions.find(x => x.fileName?.includes('20260815')); return null; })()`);
+        void pt;
+        await p.click('graph-strips-toggle');
+      } finally {
+        fs.rmSync(sensorPath, { force: true });
+        fs.rmSync(sample, { force: true });
+        fs.rmSync(path.join(fmtDir, 'e2e_OBD.csvformat.json'), { force: true });
+        fs.rmSync(path.join(fmtDir, 'calc.json'), { force: true });
+        await p.ev(`localStorage.removeItem('ds_graph_strips')`).catch(() => {});
+      }
+    }
+  },
+  {
+    name: '走行を消す: 同じ日の別の走行・付けていない動画は残し、その走行のファイルと runs.json の行だけを消す',
+    target: 'electron',
+    async run(p) {
+      await p.goto(APP);
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      // 試験用の写しに、同じ日の走行を 2 本と、付けていない動画を作る
+      const dir = path.join(root, 'sodegaura/20200101');
+      fs.mkdirSync(dir, { recursive: true });
+      const src = fs.readFileSync(path.join(root, 'sodegaura/20260913/20260913092357.nmea'));
+      const A = '20200101090000', B = '20200101100000';
+      fs.writeFileSync(path.join(dir, `${A}.nmea`), src);
+      fs.writeFileSync(path.join(dir, `${A}.iphone_imu.csv`), 'time_utc_ms,g_long,g_lat,g_vert\n');
+      fs.writeFileSync(path.join(dir, `${A}.mov`), 'x');
+      fs.writeFileSync(path.join(dir, `${B}.nmea`), src);
+      fs.writeFileSync(path.join(dir, `${B}.mov`), 'y');
+      fs.writeFileSync(path.join(dir, 'GX099999.MP4'), 'z');
+      const runsPath = path.join(root, 'sodegaura/runs.json');
+      const runs = JSON.parse(fs.readFileSync(runsPath, 'utf8'));
+      runs.runs[`20200101/${A}`] = { updatedAt: new Date().toISOString(), id: 'r_e2edelA', name: 'e2e 消す走行', videos: [{ name: `${A}.mov` }] };
+      runs.runs[`20200101/${B}`] = { updatedAt: new Date().toISOString(), id: 'r_e2edelB', name: 'e2e 残す走行', videos: [{ name: `${B}.mov` }] };
+      fs.writeFileSync(runsPath, JSON.stringify(runs, null, 1));
+      try {
+        // 作ったファイルを読み直す (一覧は開いたときに読む)
+        await p.goto(`${APP}?r=${Date.now()}`);
+        await p.click('nav-library');
+        await p.waitFor(`[...document.querySelectorAll('[data-testid="run-row-name"]')].some(e => e.innerText === 'e2e 消す走行')`, 20000, '試験の走行の行');
+        await p.ev(`[...document.querySelectorAll('[data-testid="run-row"]')].find(r => r.innerText.includes('e2e 消す走行')).click()`);
+        await p.waitFor(`document.querySelector('[data-testid="run-delete"]')`, 5000, 'この走行を消す');
+        await p.click('run-delete');
+        await p.waitFor(`document.querySelector('[data-testid="run-delete-remove"]')`, 10000, '消すファイルの一覧');
+        const listed = await p.ev(`({ remove: document.querySelector('[data-testid="run-delete-remove"]').innerText, keep: document.querySelector('[data-testid="run-delete-keep"]')?.innerText ?? '' })`);
+        check(listed.remove.includes(`${A}.nmea`) && listed.remove.includes(`${A}.mov`) && listed.remove.includes(`${A}.iphone_imu.csv`), `消すファイルが足りない: ${listed.remove}`);
+        check(!listed.remove.includes(B) && !listed.remove.includes('GX099999'), `ほかの走行・付けていない動画まで消そうとしている: ${listed.remove}`);
+        check(listed.keep.includes('GX099999'), `付けていない動画が残すほうに出ない: ${listed.keep}`);
+        await p.click('run-delete-confirm');
+        await p.waitFor(`!document.querySelector('[data-testid="run-delete-dialog"]')`, 10000, '消し終わる');
+        const left = fs.readdirSync(dir).sort();
+        check(JSON.stringify(left) === JSON.stringify([`${B}.mov`, `${B}.nmea`, 'GX099999.MP4']), `残ったファイルが違う: ${left.join(', ')}`);
+        const after = JSON.parse(fs.readFileSync(runsPath, 'utf8')).runs;
+        check(!after[`20200101/${A}`] && !!after[`20200101/${B}`], 'runs.json の行の消え方が違う');
+        await p.waitFor(`![...document.querySelectorAll('[data-testid="run-row-name"]')].some(e => e.innerText === 'e2e 消す走行')`, 10000, '一覧から消える');
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+        const r2 = JSON.parse(fs.readFileSync(runsPath, 'utf8'));
+        delete r2.runs[`20200101/${A}`];
+        delete r2.runs[`20200101/${B}`];
+        fs.writeFileSync(runsPath, JSON.stringify(r2, null, 1));
+      }
     }
   },
   {
@@ -148,7 +872,7 @@ export const journeys = [
       await p.click('data-drawer-close');
       await p.click('nav-video');
       await sleep(6000);
-      const src = await p.ev(`decodeURIComponent(document.querySelector('video')?.currentSrc ?? '')`);
+      const src = await p.ev(`decodeURIComponent(([...document.querySelectorAll('video')].find(x=>x.offsetParent!==null) ?? document.querySelector('video'))?.currentSrc ?? '')`);
       check(src.includes('GX010017'), `動画が 9/18 のものにならない: ${src}`);
       await checkVideoSync(p, 'Car 1 を 9/18 に替えて動画へ');
     }
@@ -180,8 +904,9 @@ export const journeys = [
       await p.click('video-mode-compare');
       await sleep(5000);
       const tiles = async () => p.ev(`(()=>({
-        sel: [...document.querySelectorAll('select')].filter(x => /^自動/.test(x.options[0]?.text ?? '')).map(x => x.options[x.selectedIndex]?.text),
-        src: [...document.querySelectorAll('video')].map(v => decodeURIComponent(v.currentSrc || v.src).split('/').pop()),
+        // 見えているものだけ (解析の画面の左下にも車載動画の窓がある)
+        sel: [...document.querySelectorAll('select')].filter(x => x.offsetParent !== null && /^自動/.test(x.options[0]?.text ?? '')).map(x => x.options[x.selectedIndex]?.text),
+        src: [...document.querySelectorAll('video')].filter(v => v.offsetParent !== null).map(v => decodeURIComponent(v.currentSrc || v.src).split('/').pop()),
         none: /この時刻の映像はありません|この周を映している動画がありません/.test(document.body.innerText)
       }))()`);
       let t = await tiles();
@@ -204,7 +929,8 @@ export const journeys = [
       await p.waitFor(`document.querySelectorAll('[data-testid="run-row"]').length > 0`, 20000);
       await p.ev(`(()=>{const r=[...document.querySelectorAll('[data-testid="run-row"]')].find(r=>r.innerText.includes('9/13')); r?.click()})()`);
       await p.waitFor(`document.querySelector('[data-testid="run-detail"]')`, 5000);
-      const head = () => p.ev(`document.querySelector('[data-testid="run-detail"]').innerText.split('\\n').slice(0,3).join(' ')`);
+      // 見出しの「ベスト ・ N 周」の行 (名前・車種・タイヤの欄の数で行の位置は変わる)
+      const head = () => p.ev(`document.querySelector('[data-testid="run-detail"]').innerText.split('\\n').find(l => /^(ベスト|Best) /.test(l)) ?? ''`);
       const before = await head();
       await p.ev(`[...document.querySelectorAll('[data-testid="run-detail"] button[aria-label="隠す"]')][0].click()`);
       await sleep(4000);
@@ -294,6 +1020,125 @@ export const journeys = [
       await p.click('lap-timer-stop-yes');
       await sleep(800);
       check(await p.exists('bottom-tabs'), '測り終えてもタブが戻らない');
+    }
+  },
+  {
+    name: 'スマートフォンのアプリ: 内蔵カメラで前も一緒に撮る (映像の窓が 2 つ・メニューと重ならない・_front.mov もできる)',
+    target: 'phone',
+    async run(p) {
+      await p.viewport(390, 844, true);
+      await p.goto(`${APP}?native=mock`);
+      await p.ev(`localStorage.setItem('ds_timer_camera', JSON.stringify({ enabled: true, front: { enabled: false, preset: '1080p30', iso: null } }))`);
+      await p.goto(`${APP}?native=mock&camera=1`);
+      await p.click('nav-timer');
+      await sleep(600);
+      await p.click('lap-timer-menu');
+      await p.click('lap-timer-src-phone');
+      await sleep(300);
+      await p.click('lap-timer-menu');
+      await p.waitFor(`document.querySelector('[data-testid="lap-timer-camera-front-on"]')`, 3000, '前のカメラのチェック');
+      check(!(await p.exists('lap-timer-camera-live-front')), '前を選ぶ前に前の枠がある');
+      await p.click('lap-timer-camera-front-on');
+      await p.waitFor(`document.querySelector('[data-testid="lap-timer-camera-exposure-front"]')`, 3000, '前の ISO・シャッター');
+      const g = await p.ev(`(() => {
+        const r = s => document.querySelector(s).getBoundingClientRect();
+        const wrap = r('[data-testid="lap-timer-camera-live-wrap"]'), menu = document.querySelector('[data-testid="lap-timer-camera"]').closest('.overflow-y-auto').getBoundingClientRect();
+        const a = r('[data-testid="lap-timer-camera-live"]'), b = r('[data-testid="lap-timer-camera-live-front"]');
+        return { gap: wrap.top - menu.bottom, side: b.left >= a.right - 1, tall: a.height > a.width, inView: wrap.bottom <= innerHeight };
+      })()`);
+      check(g.gap >= 0, `映像の窓がメニューと重なる: ${g.gap}`);
+      check(g.side && g.tall && g.inView, `前後の枠の並びがおかしい: ${JSON.stringify(g)}`);
+      check(await p.exists('lap-timer-camera-front'), '前のカメラの設定がない');
+      // 測って止めると、後ろと前の動画ができる
+      await p.click('lap-timer-menu-backdrop');
+      await sleep(300);
+      await p.click('lap-timer-start-stop');
+      await sleep(800);
+      await p.click('lap-timer-start-stop');
+      await p.click('lap-timer-stop-yes');
+      await sleep(1000);
+      const files = await p.ev(`import('/src/native/bridge.ts').then(m => m.callNative('system.listRunFiles', {})).then(r => r.files.map(f => f.path).filter(x => x.endsWith('.mov')))`);
+      check(files.some(f => f.endsWith('_front.mov')) && files.some(f => !f.endsWith('_front.mov')), `動画が揃わない: ${JSON.stringify(files)}`);
+      await p.ev(`localStorage.removeItem('ds_timer_camera')`);
+    }
+  },
+  {
+    name: 'スマートフォンのアプリ: 走らずに測定を終えると、消すか聞き、消すとその走行のファイルが消える (LATER-18)',
+    target: 'phone',
+    async run(p) {
+      await p.viewport(390, 844, true);
+      // 端末の GPS のふり: 袖ヶ浦のピットで止まったまま
+      await p.send('Browser.grantPermissions', { origin: APP.replace(/\/$/, ''), permissions: ['geolocation'] }).catch(() => {});
+      await p.send('Emulation.setGeolocationOverride', { latitude: 35.3955, longitude: 140.0885, accuracy: 5 });
+      await p.goto(`${APP}?native=mock`);
+      await p.ev(`localStorage.removeItem('ds_timer_camera')`);
+      await p.click('nav-timer');
+      await sleep(600);
+      await p.click('lap-timer-menu');
+      await p.click('lap-timer-src-phone');
+      await sleep(300);
+      if (await p.exists('lap-timer-menu-backdrop')) await p.click('lap-timer-menu-backdrop');
+      await sleep(300);
+      await p.click('lap-timer-start-stop');
+      // 走行のログを書き始めたか (アプリのふりに届いた頼みで見る。ここで bridge.ts を import すると、
+      // 2 つ目の受け口ができてアプリへの答えを横取りしてしまうので、しない)
+      const createdLog = `window.__dsMockNative.requests.filter(r => r.method === 'system.appendFile' && r.params.createNew && /\\.nmea$/.test(r.params.path)).map(r => r.params.path)`;
+      for (let i = 0; i < 30 && !(await p.ev(createdLog)).length; i++) {
+        // 止まっている測位を続けて届ける (位置をごくわずかに動かして、watchPosition に知らせを出させる)
+        await p.send('Emulation.setGeolocationOverride', { latitude: 35.3955 + (i % 2) * 0.000001, longitude: 140.0885, accuracy: 5 });
+        await sleep(500);
+      }
+      const logs = await p.ev(createdLog);
+      check(logs.length > 0, '走行のファイルができない');
+      await p.click('lap-timer-start-stop');
+      await p.click('lap-timer-stop-yes');
+      await p.waitFor(`document.querySelector('[data-testid="lap-timer-idle-confirm"]')`, 10000, '走っていないようです の確かめ');
+      check(/走った距離は \d+ m/.test(await p.ev(`document.querySelector('[data-testid="lap-timer-idle-confirm"]').innerText`)), '走った距離が出ない');
+      await p.click('lap-timer-idle-discard');
+      await p.waitFor(`!document.querySelector('[data-testid="lap-timer-idle-confirm"]')`, 8000, '消して閉じる');
+      const deleted = await p.ev(`window.__dsMockNative.requests.filter(r => r.method === 'system.deleteRunFiles').flatMap(r => r.params.paths)`);
+      check(logs.every(l => deleted.includes(l)), `走行のログを消していない: ${JSON.stringify({ logs, deleted })}`);
+      await p.send('Emulation.clearGeolocationOverride').catch(() => {});
+    }
+  },
+  {
+    name: 'ブラウザ版の比べ方 (PLAN-18): ファイルに書き出し、周を替えてから読み込むと、同じログと周に戻る',
+    target: 'phone',
+    async run(p) {
+      await p.viewport(1440, 900, false);
+      await p.goto(APP);
+      await p.send('DOM.enable');
+      if (!fs.existsSync(SAMPLE_NMEA)) { p.notes.push(`読み込むログ ${SAMPLE_NMEA} がないので飛ばした`); return; }
+      const tmp = path.join(os.tmpdir(), path.basename(SAMPLE_NMEA));
+      fs.copyFileSync(SAMPLE_NMEA, tmp);
+      await p.setFiles('input[type=file]', [tmp]);
+      await sleep(4000);
+      const s0 = await p.state();
+      check(s0.sessions.length > 0 && s0.sessions[0].laps >= 3, `ログを読み込めていない: ${JSON.stringify(s0.sessions)}`);
+      const id = s0.sessions[0].id;
+      await p.ev(`window.__laploupe.selectCar(0, ${JSON.stringify(id)}, 3)`);
+      await sleep(800);
+      // 書き出し (ダウンロードの中身を横取りする)
+      await p.ev(`(() => { const orig = URL.createObjectURL; URL.createObjectURL = b => { b.text().then(t => { window.__dl = t; }); return orig(b); }; })()`);
+      // ブラウザ版の欄は Car が無くても出る (読み込むため) ので、引き出しが開いているかで見る
+      if (!(await p.exists('data-drawer-close'))) await p.click('toggle-data-drawer');
+      await p.waitFor(`document.querySelector('[data-testid="session-save-button"]')`, 5000, '比べ方を書き出すのボタン');
+      const dbg = await p.ev(`({ n: document.querySelectorAll('[data-testid="session-save-button"]').length, d: document.querySelector('[data-testid="session-save-button"]').disabled, cars: window.__laploupe.cars })`);
+      check(!dbg.d, `書き出すのボタンが押せない: ${JSON.stringify(dbg)}`);
+      await p.click('session-save-button');
+      await p.waitFor(`typeof window.__dl === 'string'`, 5000, '書き出したファイル');
+      const text = await p.ev(`window.__dl`);
+      const data = JSON.parse(text);
+      check(data.source === 'files' && data.cars?.[0]?.run === path.basename(SAMPLE_NMEA) && data.cars[0].lap === 3, `書き出しがおかしい: ${text}`);
+      // 周を替えてから読み込む
+      await p.ev(`window.__laploupe.selectCar(0, ${JSON.stringify(id)}, 2)`);
+      await sleep(800);
+      const json = path.join(os.tmpdir(), 'e2e.lapsession.json');
+      fs.writeFileSync(json, text);
+      await p.setFiles('[data-testid="session-import-input"]', [json]);
+      await p.waitFor(`document.querySelector('[data-testid="session-save"]')?.innerText.includes('読み込みました')`, 5000, '読み込みました');
+      const s1 = await p.state();
+      check(s1.cars.length === 1 && s1.cars[0].sessionId === id && s1.cars[0].lapNumber === 3, `読み込んだ Car が違う: ${JSON.stringify(s1.cars)}`);
     }
   },
   {
@@ -406,6 +1251,9 @@ export const journeys = [
       // 地図を押してコーナーを足す: 走行の線 (Car 1 の赤) の上で、札から離れた所を押す
       await p.click('corner-edit');
       await p.waitFor(`document.querySelectorAll('[data-testid="corner-edit-row"]').length === ${saved.corners.length}`, 5000, '編集の一覧 (2 回目)');
+      // 編集中は地図の上のボタンが減って地図が大きくなるので、描き直してから線を探す (地図の大きさが落ち着くまで待つ)
+      await p.waitFor(`(() => { const cv = [...document.querySelectorAll('canvas')].find(c => c.parentElement?.contains(document.querySelector('[data-testid="corner-edit-panel"]'))); if (!cv) return false; const w = cv.getBoundingClientRect().height; const ok = window.__mapH === w; window.__mapH = w; return ok; })()`, 5000, '地図の大きさ');
+      await sleep(1500);
       const spot = await p.ev(`(()=>{
         const panel = document.querySelector('[data-testid="corner-edit-panel"]').getBoundingClientRect();
         const cv = [...document.querySelectorAll('canvas')].find(c => c.parentElement?.contains(document.querySelector('[data-testid="corner-edit-panel"]')));
@@ -439,11 +1287,15 @@ export const journeys = [
         return best && { x: best.x, y: best.y, from };
       })()`);
       check(spot, '地図の上に走行の線が見つからない');
-      for (const type of ['mousePressed', 'mouseReleased']) await p.send('Input.dispatchMouseEvent', { type, x: spot.x, y: spot.y, button: 'left', clickCount: 1 });
+      await p.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: spot.x, y: spot.y, button: 'none', buttons: 0 });
+      await sleep(100);
+      for (const type of ['mousePressed', 'mouseReleased']) await p.send('Input.dispatchMouseEvent', { type, x: spot.x, y: spot.y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1 });
       await sleep(400);
       const rows = await p.ev(`document.querySelectorAll('[data-testid="corner-edit-row"]').length`);
       // 札の上を押したときは選ぶだけ (数は増えない)。そうでなければ 1 つ増える
-      check(rows === saved.corners.length + 1, `地図を押してもコーナーが足されない (${rows} 個、元 ${saved.corners.length} 個)`);
+      // コーナーの外を押したら 1 つ足し、中を押したらそのコーナーを選ぶ (日光はコースの多くがコーナーなので、どちらもある)
+      const tapPicked = await p.ev(`[...document.querySelectorAll('[data-testid="corner-edit-row"]')].some(r => r.className.includes('bg-amber-500'))`);
+      check(rows === saved.corners.length + 1 || (rows === saved.corners.length && tapPicked), `地図を押しても、コーナーが足されず選ばれもしない (${rows} 個、元 ${saved.corners.length} 個)`);
       // 走行の線をなぞる: なぞった範囲が 1 つのコーナーになり、選ばれる
       if (spot.from) {
         const steps = 12;

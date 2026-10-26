@@ -7,8 +7,11 @@ import type { PipPosition } from '../../services/videoViewStore';
  * - grid: 2 枠なら左右、3〜4 枠なら 2×2
  * - pip: 1 枠目の上に、2 枠目を小窓で重ねる
  * focus があれば (枠を押したとき)、その枠を大きく出し、ほかの枠を横に小さく並べる。
- * スマートフォン (compact): 走行比較の縦向きは、メインと比較の 1 台を縦に積む (同じ瞬間を見比べるため)。
- * それ以外は 1 枠だけを出し、左右のスワイプで枠を切り替える
+ * スマートフォン・中くらいの段 (compact): arrange で並べ方を決める
+ * - stack2: メインと比較の 1 台を縦に積む (スマートフォンの縦の走行比較。同じ瞬間を見比べるため)
+ * - row2: メインと比較の 1 台を左右に並べる (中くらいの段の横長の走行比較。PLAN-30)
+ * - grid: 3〜4 台を 2×2 (中くらいの段の走行比較)
+ * - swipe: 1 枠だけを出し、左右のスワイプで枠を切り替える
  */
 export type StageLayout = 'single' | 'grid' | 'pip';
 
@@ -21,7 +24,7 @@ interface VideoStageProps {
   pipPosition: PipPosition;
   pipRef: React.RefObject<HTMLDivElement | null>;
   renderTile: (index: number, size: TileSize) => React.ReactNode;
-  compact?: { stackTwo: boolean };
+  compact?: { arrange: 'stack2' | 'row2' | 'grid' | 'swipe' };
   /** 大きく出す枠を変える (スマートフォンのスワイプ) */
   onFocus?: (index: number) => void;
 }
@@ -39,10 +42,18 @@ export const VideoStage: React.FC<VideoStageProps> = ({ count, layout, focus, pi
 
   if (compact) {
     const current = focus !== null && focus < count ? focus : 0;
-    if (compact.stackTwo && count > 1) {
-      const other = current > 0 ? current : 1;
+    if (compact.arrange === 'grid' && count > 2) {
       return (
-        <div className="w-full h-full grid grid-cols-1 grid-rows-2 gap-px bg-line-1">
+        <div className="w-full h-full grid grid-cols-2 grid-rows-2 gap-px bg-line-1">
+          {Array.from({ length: count }, (_, i) => <div key={i} className="min-h-0 min-w-0 flex">{renderTile(i, 'full')}</div>)}
+        </div>
+      );
+    }
+    if (compact.arrange !== 'swipe' && count > 1) {
+      const other = current > 0 ? current : 1;
+      const row = compact.arrange !== 'stack2';
+      return (
+        <div className={`w-full h-full grid gap-px bg-line-1 ${row ? 'grid-cols-2 grid-rows-1' : 'grid-cols-1 grid-rows-2'}`}>
           <div className="min-h-0 min-w-0 flex">{renderTile(0, 'full')}</div>
           <div className="min-h-0 min-w-0 flex">{renderTile(other, 'full')}</div>
         </div>

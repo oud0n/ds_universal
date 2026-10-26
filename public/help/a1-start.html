@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja" data-lang="ja" data-device="iphone">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-ja="はじめに: インストールと保管場所 — LapLoupe の使い方" data-en="Getting started: install and storage folder — LapLoupe guide">はじめに: インストールと保管場所 — LapLoupe の使い方</title>
+<link rel="stylesheet" href="help.css">
+<script src="help.js" defer></script>
+</head>
+<body>
+<main>
+  <header class="top">
+    <a class="home" href="index.html" data-keep><span class="l-ja">LapLoupe の使い方</span><span class="l-en">LapLoupe guide</span></a>
+    <div class="switch" role="group" aria-label="device">
+      <button data-set-device="iphone">iPhone</button><button data-set-device="android">Android</button><button data-set-device="desktop"><span class="l-ja">デスクトップ</span><span class="l-en">Desktop</span></button><button data-set-device="browser"><span class="l-ja">ブラウザ</span><span class="l-en">Browser</span></button>
+    </div>
+    <div class="switch" role="group" aria-label="language"><button data-set-lang="ja">日本語</button><button data-set-lang="en">English</button></div>
+  </header>
+
+  <h1><span class="l-ja">はじめに: インストールと保管場所</span><span class="l-en">Getting started: install and storage folder</span></h1>
+  <p class="lead"><span class="l-ja">LapLoupe は、iPhone・Android のアプリ、デスクトップ版 (Mac・Windows)、ブラウザ版で使えます。走行のファイルは「保管場所」のフォルダにまとめます。iCloud Drive の同じフォルダを選ぶと、iPhone で測った走行を PC でもそのまま開けます。</span><span class="l-en">LapLoupe runs as an iPhone / Android app, a desktop app (Mac / Windows) and in the browser. Your runs live in a "storage folder"; choose the same iCloud Drive folder on each device and the runs you time on the iPhone open on the PC as they are.</span></p>
+
+  <ol class="steps ">
+    <li class="">
+      <span class="dev d-iphone"><span class="l-ja">App Store で「LapLoupe」を入れます。</span><span class="l-en">Install "LapLoupe" from the App Store.</span></span> <span class="dev d-android"><span class="l-ja">Android 版は、今は試験版です (配られた APK を入れます)。</span><span class="l-en">The Android app is a test version for now (install the APK you were given).</span></span> <span class="dev d-desktop"><span class="l-ja">GitHub の Releases から Mac 版・Windows 版を落として入れます。Mac で「壊れているため開けません」と出るときは、インストールの説明の手順で開けます。</span><span class="l-en">Download the Mac or Windows build from GitHub Releases. If macOS says the app is damaged, follow the steps in the install guide.</span></span> <span class="dev d-browser"><span class="l-ja">https://oud0n.github.io/ds_universal/ を開くだけです (入れる物はありません)。</span><span class="l-en">Just open https://oud0n.github.io/ds_universal/ (nothing to install).</span></span>
+      
+    </li>
+    <li class="dev d-iphone d-android d-desktop">
+      <span class="dev d-iphone d-android"><span class="l-ja">右上の設定のボタン (つまみの絵) を押し、<span class="ui">保管場所</span> の <span class="ui">フォルダを選ぶ (iCloud Drive など)</span> で、iCloud Drive に作った <b>LapLoupe</b> フォルダを選びます。選ばなければ、この端末の中に置きます。</span><span class="l-en">Tap the settings button (sliders icon, top right), then under Storage tap <span class="ui">Choose a folder (iCloud Drive etc.)</span> and pick the <b>LapLoupe</b> folder you made in iCloud Drive. Without it, runs stay inside the app.</span></span> <span class="dev d-desktop"><span class="l-ja">左下の <span class="ui">設定</span> の保管場所で、iPhone と同じ iCloud Drive の <b>LapLoupe</b> フォルダを選びます。</span><span class="l-en">In <span class="ui">Settings</span> (bottom left), choose the same iCloud Drive <b>LapLoupe</b> folder as on the iPhone.</span></span>
+      <figure class="phone dev d-iphone d-android"><img class="l-ja" src="img/a1/phone-ja-1.webp" alt="" loading="lazy"><img class="l-en" src="img/a1/phone-en-1.webp" alt="" loading="lazy"></figure>
+      <figure class="dev d-desktop"><img class="l-ja" src="img/a1/desktop-ja-1.webp" alt="" loading="lazy"><img class="l-en" src="img/a1/desktop-en-1.webp" alt="" loading="lazy"></figure>
+    </li>
+    <li class="dev d-iphone d-android d-desktop">
+      <span class="l-ja">保管場所の中は、サーキットごとのフォルダ (例: sodegaura) → 日付のフォルダ → 走行のファイルと動画、と並びます。ラップタイマーで測った走行は自動で入ります。GoPro の動画は、走行と同じ日付のフォルダに入れておくと、走行を開いたときに一緒に出ます。</span><span class="l-en">Inside, there is a folder per circuit (e.g. sodegaura), then a folder per day with the run files and videos. Runs from the lap timer go in automatically. Put GoPro videos in the same day folder as the run and they open with it.</span>
+      
+    </li>
+    <li class="dev d-iphone">
+      <span class="l-ja">デジスパイスのコースデータ (digspice フォルダ) を保管場所に置いたときは、「ファイル」アプリでその <b>digspice</b> フォルダを長押しし、<span class="ui">ダウンロードを保持</span> を選んでください。iCloud にだけあると、アプリを開くたびに 200 個ほどのファイルを取り込むので、走行や動画を開くのが遅くなります。小さなファイルなので、端末の空きはほとんど使いません。</span><span class="l-en">If you put DigSpice course data (the digspice folder) in the storage folder, long-press that <b>digspice</b> folder in the Files app and choose <span class="ui">Keep Downloaded</span>. While it lives only in iCloud, the app downloads about 200 files each time it opens, which slows down opening runs and videos. The files are small and take almost no space.</span>
+      
+    </li>
+  </ol>
+
+  <div class="note dev d-browser"><span class="l-ja"><b>ブラウザ版には「走行」の画面がありません。</b>保管場所 (走行のファイルを置くフォルダ) を使えないためです。ログのファイルは <span class="ui">ファイルを開く</span> で開いてください。</span><span class="l-en"><b>The browser version has no Runs screen,</b> because it cannot use a storage folder. Open log files with <span class="ui">Open file</span>.</span></div>
+
+  <div class="pager">
+    <a href="index.html" data-keep><span class="l-ja">← 目次</span><span class="l-en">← Contents</span></a>
+    <a href="a2-devices.html" data-keep><span class="l-ja">機器を登録する</span><span class="l-en">Registering devices</span> →</a>
+  </div>
+</main>
+</body>
+</html>

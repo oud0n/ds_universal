@@ -4,6 +4,8 @@
  * 位置として正しい点が 2 点に満たない走行は捨てる
  */
 
+import { currentCsvFormats } from './csvFormatStore';
+import { matchCsvFormat, parseLogWithFormat } from './csvFormats';
 import { parseDtb } from './dtbParser';
 import { keepRunParts, parseDigispiceRawBinary, SESSION_GAP_SEC } from './rawBinaryParser';
 import { parseCsv } from './csvParser';
@@ -113,7 +115,10 @@ export async function parseLogBuffer(fileName: string, buffer: ArrayBuffer, tr: 
       if (isMotecCsv(text) && !MOTEC_CSV_ENABLED) {
         throw new Error(tr('MoTeC CSV の読み込みには現在対応していません', 'Loading MoTeC CSV is not supported at the moment'));
       }
-      single = isRaceChronoCsv(text) ? parseRaceChronoCsv(text)
+      // 自分で決めた CSV の形式に合えば、それで読む (PLAN-36)
+      const fmt = matchCsvFormat(fileName, text, currentCsvFormats());
+      if (fmt?.kind === 'log') single = parseLogWithFormat(text, fmt);
+      else single = isRaceChronoCsv(text) ? parseRaceChronoCsv(text)
         : isAimCsv(text) ? parseAimCsv(text)
         : isMotecCsv(text) ? parseMotecCsv(text)
         : parseCsv(text);

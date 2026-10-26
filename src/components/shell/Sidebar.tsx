@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, CircleHelp } from 'lucide-react';
+import { openHelp } from '../HelpOverlay';
 import { useT } from '../../utils/i18n';
 import type { Screen } from '../../app/navPlan';
 import { SCREEN_META, screenLabel } from '../../app/screenMeta';
@@ -61,6 +62,17 @@ export const Sidebar: React.FC<{
       {items.map(item)}
       <div className="flex-1" />
       {bottom.map(item)}
+      {/* 使い方 (今の画面のページを開く) */}
+      <button
+        onClick={() => openHelp(current)}
+        title={t('使い方', 'Guide')}
+        aria-label={t('使い方', 'Guide')}
+        className={`h-10 rounded-lg flex items-center gap-2.5 text-sm text-slate-400 hover:text-slate-200 hover:bg-surface-3 cursor-pointer ${collapsed ? 'justify-center px-0' : 'px-3'}`}
+        data-testid="nav-help"
+      >
+        <CircleHelp size={18} className="shrink-0" />
+        {!collapsed && <span className="truncate flex-1 text-left">{t('使い方', 'Guide')}</span>}
+      </button>
       <button
         onClick={toggle}
         title={collapsed ? t('サイドバーを広げる', 'Expand sidebar') : t('サイドバーをたたむ', 'Collapse sidebar')}

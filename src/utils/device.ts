@@ -51,6 +51,16 @@ export function isMockNativeRequested(): boolean {
 export const isIOS: boolean = typeof navigator !== 'undefined'
   && (/iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
 
+/** iPad か (iPadOS は Mac と名乗るので、タッチの点の数でも見分ける。iPhone 用のアプリを iPad で動かしているときは iPhone と名乗る) */
+export const isIPad: boolean = typeof navigator !== 'undefined'
+  && (/iPad/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
+
+/** 画面に出す、この端末の呼び名 (iPhone・iPad。Android は「端末」) */
+export function myDeviceWord(android: boolean): { ja: string; en: string } {
+  if (android) return { ja: '端末', en: 'phone' };
+  return isIPad ? { ja: 'iPad', en: 'iPad' } : { ja: 'iPhone', en: 'iPhone' };
+}
+
 /**
  * 描き直しの重いブラウザか (Mac・iPhone の Safari などの WebKit)。Chrome・Edge・Electron は Chromium なので含めない。
  * Mac の Safari は、再生中に毎コマ (1 秒 60 回) 画面を描き直すと、動画のコマが落ちる (Chrome では落ちない。2026-10-19)

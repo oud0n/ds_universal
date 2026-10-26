@@ -157,11 +157,15 @@ export interface WindowViewState {
    * time: 周の始めからの同じ経過時間の映像 (比べる車も 1 倍で回す。差が開くと映る場所がずれる)
    */
   compareAlign: CompareAlign;
+  /** メーターの並び (PLAN-08)。'auto': ログの値で選ぶ (アクセルがあればデータ多め、無ければ標準)。同梱は builtin:… */
+  overlayLayout: string;
+  /** 並びの中で出さない部品の印 (速度・ラップの欄・コース図・G は上の show… で切り替える) */
+  hiddenParts: string[];
 }
 
 export type CompareAlign = 'distance' | 'time';
 
-const WINDOW_DEFAULT: WindowViewState = { mode: 'cameras', layout: 'grid', focus: null, pipPosition: 'bottom-right', showOverlay: true, showGForce: true, showLapPanel: true, showMap: true, lapRef: 'best', compareAlign: 'distance' };
+const WINDOW_DEFAULT: WindowViewState = { mode: 'cameras', layout: 'grid', focus: null, pipPosition: 'bottom-right', showOverlay: true, showGForce: true, showLapPanel: true, showMap: true, lapRef: 'best', compareAlign: 'distance', overlayLayout: 'auto', hiddenParts: [] };
 
 /**
  * ウインドウごとの表示の状態。key ごとにブラウザに覚える (読めないとき・書けないときは既定のまま。動作には要らない)

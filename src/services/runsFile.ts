@@ -11,6 +11,7 @@
  * - iCloud がぶつかったときに作る写し (runs 2.json など) も読み、行ごとに新しいほうを使う。書くときに本体へ入れる
  */
 
+import { isTempC, isWeather, type Weather } from './runWeather';
 import type { ClockSource } from './mediaClock';
 import type { LapFileStore } from './lapIndex';
 import type { RunStore } from './runStore';
@@ -60,9 +61,27 @@ export interface RunRow {
   updatedAt: string;
   name?: string;
   note?: string;
+  /**
+   * 自分のではない走行 (参考ラップ。速い人のログなど。PLAN-31)。あれば自分の走行ではない。driver: 誰の走行か、car: 車。
+   * ラップタイムの一覧の順位・ベストと、ラップタイマーの「これまでのベスト」には数えない
+   */
+  reference?: { driver?: string; car?: string };
+  /** 車種 (自分の走行。参考ラップの車は reference.car。2026-10-25) */
+  car?: string;
+  /** タイヤ (銘柄・コンパウンドなど。自由に書く。2026-10-25) */
+  tyre?: string;
+  /** 天候 (ドライ・ダンプ・ウェット・ヘビーウェット。未設定なら無し。2026-10-26) */
+  weather?: Weather;
+  /** 気温・路面温度 (℃。未設定なら無し) */
+  airTempC?: number;
+  trackTempC?: number;
+  /** 動画のメーターの並びの印 (同梱の並び std など、自分の並び user:<名前>。PLAN-08) */
+  overlayLayout?: string;
   /** 分かれた走行の何番目ごとの情報 (ログの時計の補正) */
   parts?: Record<string, { clockOffsetSec?: number; [key: string]: unknown }>;
   videos?: RunVideo[];
+  /** 消した印 (iCloud のぶつかったときの写しから行が戻らないように残す。読むときは無いものとする) */
+  deleted?: boolean;
   /** 2 版に読み替えられなかった 1 版の行 (捨てずに残す) */
   legacy?: unknown;
   [key: string]: unknown;
@@ -100,6 +119,18 @@ function cleanRow(e: Record<string, unknown>): RunRow | null {
   if (e.id !== undefined && typeof e.id !== 'string') delete row.id;
   if (e.name !== undefined && typeof e.name !== 'string') delete row.name;
   if (e.note !== undefined && typeof e.note !== 'string') delete row.note;
+  if (e.car !== undefined && typeof e.car !== 'string') delete row.car;
+  if (e.tyre !== undefined && typeof e.tyre !== 'string') delete row.tyre;
+  if (e.overlayLayout !== undefined && typeof e.overlayLayout !== 'string') delete row.overlayLayout;
+  if (e.weather !== undefined && !isWeather(e.weather)) delete row.weather;
+  if (e.airTempC !== undefined && !isTempC(e.airTempC)) delete row.airTempC;
+  if (e.trackTempC !== undefined && !isTempC(e.trackTempC)) delete row.trackTempC;
+  if (e.reference !== undefined) {
+    if (isObj(e.reference)) {
+      const r = e.reference as Record<string, unknown>;
+      row.reference = { ...(typeof r.driver === 'string' ? { driver: r.driver } : {}), ...(typeof r.car === 'string' ? { car: r.car } : {}) };
+    } else delete row.reference;
+  }
   if (e.parts !== undefined) {
     if (isObj(e.parts)) {
       const parts: NonNullable<RunRow['parts']> = {};
@@ -270,8 +301,12 @@ export async function readRunsFile(store: LapFileStore, folder: string): Promise
 
 /** 1 つの走行の行を探す (行の名前で。日付のフォルダへ移す前の、名前だけの行も) */
 export function findRunRow(file: RunsFile, runFile: string): RunRow | null {
-  return file.runs[runKey(runFile)] ?? file.runs[runStem(runFile)] ?? null;
+  const row = file.runs[runKey(runFile)] ?? (isLogName(runFile) ? file.runs[runStem(runFile)] : undefined) ?? null;
+  return row?.deleted ? null : row;
 }
+
+/** 走行のログ (.nmea・.bon4)。名前だけの古い行 (日付のフォルダへ移す前) を引くのはログだけ (動画の行は名前に拡張子が付き、サーキットのフォルダの同じ名前の動画と取り違えるため) */
+const isLogName = (file: string) => /\.(nmea|bon4)$/i.test(file);
 
 /** runs.json ごとの書き換えの順番 (2 つの走行の書き換えが同じ中身を読んで、互いの行を消さないように) */
 const runsWrites = new Map<string, Promise<unknown>>();
@@ -290,6 +325,35 @@ export function updateRun(store: RunStore, folder: string, file: string, change:
   return next;
 }
 
+/** 走行の行を消す (走行を消したとき)。ほかの走行の行はそのまま。書き方は updateRun と同じく 1 つずつ */
+export function removeRunRow(store: RunStore, folder: string, file: string): Promise<void> {
+  const key = `${folder}/${RUNS_FILE}`;
+  const run = async () => {
+    const text = await store.readTextStrict(`${folder}/${RUNS_FILE}`);
+    if (text === null) return;
+    if (!isRunsFileText(text)) throw new Error('runs.json could not be read');
+    let current = parseRunsFile(text);
+    for (const p of conflictCopies.get(folder) ?? []) current = mergeRunsFiles(current, parseRunsFile(await store.readText(p).catch(() => null)));
+    const k = runKey(file);
+    const short = runStem(file);
+    // 名前だけの古い行は、新しい行が無いときだけ (ログだけ)
+    const keys = k in current.runs ? [k] : isLogName(file) && short in current.runs ? [short] : [];
+    if (!keys.length) return;
+    // ぶつかったときの写しがあると、写しの行が次に読むときに戻るので、消した印 (新しい時刻) を残す
+    const tomb = (conflictCopies.get(folder) ?? []).length > 0;
+    for (const x of keys) {
+      if (tomb) current.runs[x] = { deleted: true, updatedAt: new Date().toISOString() };
+      else delete current.runs[x];
+    }
+    await store.writeText(`${folder}/${RUNS_FILE}`, JSON.stringify(current, null, 1));
+  };
+  const next = (runsWrites.get(key) ?? Promise.resolve()).then(run, run);
+  const tail = next.catch(() => undefined);
+  runsWrites.set(key, tail);
+  void tail.then(() => { if (runsWrites.get(key) === tail) runsWrites.delete(key); });
+  return next;
+}
+
 async function updateRunNow(store: RunStore, folder: string, file: string, change: (row: RunRow | undefined) => Partial<RunRow>): Promise<RunRow> {
   // 読めないとき (無いのではなく) は書かない (空とみなして書くと、ほかの走行の行を消すため)
   const text = await store.readTextStrict(`${folder}/${RUNS_FILE}`);
@@ -299,9 +363,11 @@ async function updateRunNow(store: RunStore, folder: string, file: string, chang
   const key = runKey(file);
   // 日付のフォルダへ移す前に、名前だけで書いた行は、新しい名前 (日付/名前) の行へ移す
   const short = runStem(file);
-  const old = short !== key ? current.runs[short] : undefined;
+  const old = short !== key && isLogName(file) && !(key in current.runs) ? current.runs[short] : undefined;
   if (old) delete current.runs[short];
-  const prev = current.runs[key] ?? old;
+  const found = current.runs[key] ?? old;
+  // 消した印の行は、無いものとして書き直す
+  const prev = found?.deleted ? undefined : found;
   const changed = change(prev);
   const row: RunRow = { ...changed, id: (typeof changed.id === 'string' ? changed.id : undefined) ?? prev?.id ?? newRunId(), updatedAt: new Date().toISOString() };
   current.runs[key] = row;

@@ -28,6 +28,8 @@ export interface RegisteredDevice {
   /** 記録の .csv の名前に使う名前 (<走行>.<この名前>.csv) */
   fileName: string;
   addedAt: number;
+  /** つなぎ方。spp: Bluetooth Classic のシリアル (Android の Drogger DG-PRO1S など)。無ければ Bluetooth LE */
+  transport?: 'spp';
 }
 
 const STORE_KEY = 'ds_devices_v1';

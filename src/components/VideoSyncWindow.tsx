@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   Play, Pause, SkipBack, SkipForward, Video, Upload, 
@@ -6,8 +6,7 @@ import {
   Clock, Gauge, Plus, Trash2, CheckCircle2, ChevronRight,
   Globe, AlertTriangle, Zap, Layers, ChevronLeft,
   Columns, PictureInPicture, MapPin, Download, X,
-  ArrowLeftRight, Volume2, VolumeX, Maximize2, ListChecks, Maximize, Minimize
-} from 'lucide-react';
+  ArrowLeftRight, Volume2, VolumeX, Maximize2, ListChecks, Maximize, Minimize, LayoutDashboard } from 'lucide-react';
 import { Session, TelemetryPoint, SelectedCarSlot, Lap } from '../types/telemetry';
 import { getAddVideoGpsLog, setAddVideoGpsLog } from '../services/videoPrefs';
 import { videoSyncManager, PlacedTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs, overlappingSessions, placeTracks } from '../services/videoSyncManager';
@@ -32,10 +31,16 @@ import {
 } from '../services/telemetryVideoExporter';
 import { canUseEncodeExport, exportEncodedVideo } from '../services/encodeVideoExporter';
 import { canExportWebmAlpha, exportOverlayOnly } from '../services/overlayOnlyExporter';
-import { drawCourseMap, drawLapPanel, hasTimedLaps, type OverlayPartsOptions } from './overlayParts';
+import { type OverlayPartsOptions } from './overlayParts';
+import { preloadOverlayImages, renderOverlayParts } from './overlayRender';
+import { AUTO_LAYOUT, BUILTIN_LAYOUTS, COMPARE_LAYOUT, SMALL_PARTS, SMALL_TILE_PX, availableChannels, hiddenKey, parseOverlayLayout, partChannels, partLabel, resolveLayout, visibleParts, type OverlayLayout, type OverlayPart } from '../services/overlayLayout';
+import { deleteCustomLayout, renameCustomLayout, layoutFileText, listCustomLayouts, saveCustomLayout } from '../services/overlayStore';
+import { canUseRunStore, getRunStore } from '../services/runStore';
+import { OverlayEditLayer, OverlayEditPanel } from './video/OverlayLayoutEditor';
 
 /** 走行比較の枠には、足した部品を出さない (枠が小さく、Car の札・比べる差と重なるため) */
-const NO_PARTS: OverlayPartsOptions = { lapPanel: false, map: false };
+// 走行比較の枠: 速度・G・小さなラップタイムだけ (枠が小さいので、ラップの欄・コース図などは出さない)
+const NO_PARTS: OverlayPartsOptions = { lapPanel: false, map: false, layout: COMPARE_LAYOUT };
 
 /** 1 コマずつ書く書き出しで周を選んだときに、前後に足す秒 (富士のストレートでも、立ち上がりから映るように) */
 const LAP_EXPORT_PAD_SEC = 10;
@@ -45,13 +50,44 @@ import { tr, useT } from '../utils/i18n';
 import { fileAccept, isIOS, isWebKitBrowser } from '../utils/device';
 import { setClockMaster } from '../services/clockMaster';
 import { sameCourseName } from '../utils/courseNames';
-import { useCompactLayout, useLandscape } from '../hooks/useCompactLayout';
+import { useCompactLayout, useLandscape, useMediumLayout } from '../hooks/useCompactLayout';
 import { EmptyLoadPrompt } from './EmptyLoadPrompt';
 import { RunFolderVideos } from './RunFolderVideos';
 import { SKIP_SEC, Skip10Icon } from './Skip10Icon';
 import { useWheelScrollX } from '../hooks/useWheelScrollX';
 import { useEscapeKey } from '../hooks/useEscapeKey';
-import { companionSessionsOfVideo } from '../services/runOpener';
+import { companionSessionsOfVideo, onOpenRun, openRunOverlayLayout, setOpenRunOverlayLayout } from '../services/runOpener';
+
+/** 書き出しの範囲の時刻 (分:秒.1 桁) */
+function formatRangeTime(sec: number): string {
+  const s = Math.max(0, sec);
+  const m = Math.floor(s / 60);
+  return `${m}:${(s - m * 60).toFixed(1).padStart(4, '0')}`;
+}
+
+/** 分:秒 (または秒だけ) を秒にする。読めなければ null */
+export function parseRangeTime(text: string): number | null {
+  const v = text.trim().replace(/[：]/g, ':').replace(/[０-９．]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xfee0));
+  const m = /^(?:(\d+):)?(\d+(?:\.\d+)?)$/.exec(v);
+  if (!m) return null;
+  const sec = (m[1] ? Number(m[1]) * 60 : 0) + Number(m[2]);
+  return Number.isFinite(sec) ? sec : null;
+}
+
+/** 書き出しの範囲の時刻の欄 (離れたとき・Enter で決める。読めなければ元に戻す) */
+const RangeTimeInput: React.FC<{ value: number; onCommit: (sec: number) => void; testId: string }> = ({ value, onCommit, testId }) => {
+  const [text, setText] = useState(formatRangeTime(value));
+  const commit = () => {
+    const v = parseRangeTime(text);
+    if (v === null) setText(formatRangeTime(value));
+    else if (Math.abs(v - value) > 0.04) onCommit(v);
+  };
+  return (
+    <input value={text} onChange={e => setText(e.target.value)} onBlur={commit}
+      onKeyDown={e => { if (!e.nativeEvent.isComposing && e.key === 'Enter') e.currentTarget.blur(); }}
+      inputMode="decimal" className="w-20 bg-surface-0 border border-line-3 rounded px-1.5 py-0.5 font-mono text-slate-200 text-right" data-testid={testId} />
+  );
+};
 
 /** 動画の音を消したか (この端末に覚えておく) */
 const VIDEO_MUTED_KEY = 'ds_video_muted';
@@ -70,6 +106,12 @@ interface VideoSyncWindowProps {
   targetSessionId?: string;  // 速度ウィンドウで選択中のセッションID
   targetLap?: any;           // 速度ウィンドウで選択中のラップ
   isGraphEmbedded?: boolean; // グラフ解析画面に埋め込まれているかどうか
+  /** 動画を 1 つ見るだけ (スマートフォンの解析の下の欄)。上の道具の段・比べる・マルチカメラは出さない */
+  simple?: boolean;
+  /** 中くらいの段の縦長で、動画の下に出すもの (コースマップ。PLAN-30) */
+  sidePanel?: React.ReactNode;
+  /** iCloud から取り込んでいる走行の動画 (取り込みが終わると自動で付く) */
+  downloading?: { names: string[]; done: number; gb?: string } | null;
   // 音を出さない (グラフ解析で、同じ動画をほかのウインドウも出しているとき。音が二重になるため)
   muted?: boolean;
   // 画面に見えているか。見えていないウインドウ (隠れている動画同期タブ・グラフ画面) では動画を再生しない
@@ -88,6 +130,8 @@ interface VideoSyncWindowProps {
   onSetClockOffset?: (sessionId: string, sec: number) => void;
   // 比較の車 (距離の補正・1 周の長さの伸縮を反映した周)。サブの動画の「走行比較」に使う (LATER-11)
   compareCars?: { slot: SelectedCarSlot; lap: Lap }[];
+  /** 走行を開いている途中 (動画の情報を読んでいる)。動画がまだ無ければ、案内の代わりに「読み込んでいます」を出す */
+  loading?: boolean;
 }
 
 /** 周の点 (周の始めからの時刻) で、時刻 t の距離 (km) を補間で求める */
@@ -144,11 +188,9 @@ function compareSessionTimeAtDistance(aligned: Lap, original: Lap, d: number): n
 }
 
 /**
- * テレメトリオーバーレイを Canvas に描画する共通関数 (リアルタイム表示 & 動画エクスポートで共用)
+ * テレメトリオーバーレイを Canvas に描画する共通関数 (リアルタイム表示 & 動画エクスポートで共用)。
+ * 部品はメーターの並び (PLAN-08。overlayLayout.ts) のとおりに置く。並びが無ければ標準 (速度・G・ラップの欄・コース図)
  */
-/** G メーターの大きさ (速度の枠に対する倍率) */
-const G_METER_SCALE = 1.3;
-
 export function drawTelemetryOverlayOnCanvas(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -157,166 +199,30 @@ export function drawTelemetryOverlayOnCanvas(
   baseSession: Session | undefined,
   baseLap: any,
   showGForce: boolean = true,
-  // PinP の小窓がある隅と、小窓がメインの映像に重なる幅 (canvas の座標)。その隅のメーターを小窓の横へずらす (BUG-23)
+  // PinP の小窓がある隅と、小窓がメインの映像に重なる幅 (canvas の座標)。その隅の部品を小窓の横へずらす (BUG-23)
   avoidCorner: PipPosition | null = null,
   pipOverlapW = 0,
   // 書き出す周 (前後を足して書き出すとき)。周の前は前の周のタイム (前の周がなければ 0:00.00)、周のあとはその周のタイムで止めておく
   holdLap: Lap | null = null,
-  // 足した部品 (ラップの欄・コース図。overlayParts.ts)
+  // 部品の出す・出さない (ラップの欄・コース図) と並び
   parts: OverlayPartsOptions = { lapPanel: false, map: false }
 ) {
-  const pipInset = Math.round(pipOverlapW) + 24;
-  if (pipOverlapW <= 0) avoidCorner = null;
-  const pts = baseSession?.points || baseLap?.points || [];
-  if (pts.length === 0) return;
-
-  // 二分探索で effectiveTime に最も近いポイントを高速検索 (O(log N))
-  let low = 0;
-  let high = pts.length - 1;
-  while (low < high - 1) {
-    const mid = Math.floor((low + high) / 2);
-    if (pts[mid].time < effectiveTime) {
-      low = mid;
-    } else {
-      high = mid;
-    }
-  }
-  const curPt: TelemetryPoint = Math.abs(pts[low].time - effectiveTime) <= Math.abs(pts[high].time - effectiveTime)
-    ? pts[low]
-    : pts[high];
-
-  // 1. デジタルスピードメーター (左下 - フラットデザイン)
-  ctx.save();
-  ctx.translate(avoidCorner === 'bottom-left' ? pipInset : 32, h - 96);
-
-  // フラット背景プレート
-  ctx.fillStyle = 'rgba(15, 20, 30, 0.85)';
-  ctx.beginPath();
-  ctx.roundRect(0, 0, 160, 72, 4);
-  ctx.fill();
-  ctx.strokeStyle = '#2d3852';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  // 速度数値
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 36px monospace';
-  ctx.textAlign = 'left';
-  ctx.fillText(`${curPt.speed.toFixed(0)}`, 14, 44);
-
-  ctx.font = 'bold 12px sans-serif';
-  ctx.fillStyle = '#94a3b8';
-  ctx.fillText('km/h', 105, 42);
-
-  // 速度カラーバー (フラット)
-  const maxScaleSpd = 200;
-  const spdRatio = Math.min(1, curPt.speed / maxScaleSpd);
-  ctx.fillStyle = '#1e293b';
-  ctx.fillRect(14, 54, 132, 6);
-  ctx.fillStyle = spdRatio > 0.8 ? '#ef4444' : spdRatio > 0.5 ? '#f59e0b' : '#3b82f6';
-  ctx.fillRect(14, 54, 132 * spdRatio, 6);
-
-  ctx.restore();
-
-  // 2. Gフォースメーター (右下 - フラットデザイン)
-  if (showGForce) {
-    ctx.save();
-    // G メーターだけ 1.3 倍に描く (2026-10-20。右下の角からの余白は変えない)
-    const gs = G_METER_SCALE;
-    ctx.translate(avoidCorner === 'bottom-right' ? w - pipInset - 96 * gs : w - 32 - 96 * gs, h - 24 - 72 * gs);
-    ctx.scale(gs, gs);
-
-    // フラット背景プレート
-    ctx.fillStyle = 'rgba(15, 20, 30, 0.85)';
-    ctx.beginPath();
-    ctx.roundRect(0, 0, 96, 72, 4);
-    ctx.fill();
-    ctx.strokeStyle = '#2d3852';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // フリクションサークル
-    const cX = 48;
-    const cY = 34;
-    const r = 22;
-
-    ctx.strokeStyle = '#334155';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(cX, cY, r, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(cX, cY, r * 0.5, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // 十字線
-    ctx.strokeStyle = '#1e293b';
-    ctx.beginPath();
-    ctx.moveTo(cX - r, cY); ctx.lineTo(cX + r, cY);
-    ctx.moveTo(cX, cY - r); ctx.lineTo(cX, cY + r);
-    ctx.stroke();
-
-    // 現在Gプロット (フラットソリッドレッド)
-    const scaleG = r / 1.5;
-    const gX = cX - (curPt.corneringG || 0) * scaleG;
-    const gY = cY + (curPt.accelG || 0) * scaleG;
-
-    ctx.fillStyle = '#ef4444';
-    ctx.beginPath();
-    ctx.arc(gX, gY, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.font = 'bold 8px monospace';
-    ctx.fillStyle = '#94a3b8';
-    ctx.textAlign = 'center';
-    ctx.fillText(`${(curPt.combinedG || 0).toFixed(2)}G`, cX, 66);
-
-    ctx.restore();
-  }
-
-  // コース図 (左上)。PinP の小窓が左上にあるときは、小窓の横へずらす
-  if (parts.map && baseSession) drawCourseMap(ctx, h, effectiveTime, baseSession, curPt, avoidCorner === 'top-left' ? pipInset : 24);
-
-  // ラップの欄 (右上、Best・Lap・セクター・タイム差)。出すときは、下の小さなラップタイムの箱の代わりにする
-  if (parts.lapPanel && baseSession && hasTimedLaps(baseSession)) {
-    drawLapPanel(ctx, w, effectiveTime, baseSession, holdLap, avoidCorner === 'top-right' ? pipInset : 24, parts.reference ?? null);
-    return;
-  }
-
-  // 3. ラップタイム情報 (右上 - フラットデザイン)
-  ctx.save();
-  ctx.translate(avoidCorner === 'top-right' ? w - pipInset - 150 : w - 170, 20);
-
-  ctx.fillStyle = 'rgba(15, 20, 30, 0.85)';
-  ctx.beginPath();
-  ctx.roundRect(0, 0, 150, 52, 4);
-  ctx.fill();
-  ctx.strokeStyle = '#2d3852';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  // 周の境目ちょうどは、あとの周
-  const currentLap = baseSession?.laps.filter(l => effectiveTime >= l.startTime && effectiveTime <= l.endTime).sort((a, b) => Number(!!a.isWholeSession) - Number(!!b.isWholeSession) || b.startTime - a.startTime)[0];
-  let lapLabel = currentLap ? `Lap ${currentLap.lapNumber}` : (baseLap ? `Lap ${baseLap.lapNumber}` : 'Out / In Lap');
-  let lapDisplayTime = currentLap ? (effectiveTime - currentLap.startTime) : (baseLap ? (effectiveTime - baseLap.startTime) : effectiveTime);
-  if (holdLap && effectiveTime > holdLap.endTime) {
-    lapLabel = `Lap ${holdLap.lapNumber}`;
-    lapDisplayTime = holdLap.lapTime;
-  } else if (holdLap && !currentLap && effectiveTime < holdLap.startTime) {
-    lapLabel = `Lap ${holdLap.lapNumber}`;
-    lapDisplayTime = 0;
-  }
-
-  ctx.fillStyle = '#94a3b8';
-  ctx.font = 'bold 10px sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText(lapLabel, 12, 18);
-
-  ctx.fillStyle = '#f8fafc';
-  ctx.font = 'bold 18px monospace';
-  ctx.fillText(formatMinSec(lapDisplayTime, 2), 12, 42);
-
-  ctx.restore();
+  if (!baseSession || baseSession.points.length === 0) return;
+  const full = parts.layout ?? resolveLayout(AUTO_LAYOUT, baseSession);
+  // 小さな枠は、並びの小さな枠の部品 (出さない部品の印は「並び/small」で別に持つ)
+  const layout = parts.small ? { ...full, id: `${full.id}/small`, parts: full.small ?? parts.smallDefault ?? SMALL_PARTS } : full;
+  const hidden = new Set(parts.hidden ?? []);
+  const shown = visibleParts(layout, baseSession, hidden).filter(p => (p.type !== 'gmeter' || showGForce) && (p.type !== 'map' || parts.map));
+  // ラップの欄を出さないときは、これまでの小さなラップタイムの箱にする
+  const list: OverlayPart[] = parts.lapPanel ? shown : shown.map(p => (p.type === 'lapPanel' ? { ...p, type: 'lapClock' } : p));
+  // PinP の小窓の四角 (その隅の、小窓がメインに重なる幅 × 高さの半分)
+  const avoid = avoidCorner && pipOverlapW > 0 ? {
+    x: avoidCorner.endsWith('left') ? 0 : w - pipOverlapW - 16,
+    y: avoidCorner.startsWith('top') ? 0 : h / 2,
+    w: pipOverlapW + 16,
+    h: h / 2
+  } : null;
+  renderOverlayParts(ctx, w, h, { t: effectiveTime, session: baseSession, lap: baseLap ?? null, holdLap, reference: parts.reference ?? null, avoid, onTileLoad: parts.onTileLoad }, list);
 }
 
 export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
@@ -331,6 +237,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   targetSessionId,
   targetLap,
   isGraphEmbedded = false,
+  simple = false,
+  sidePanel,
+  downloading = null,
   muted: muteAll = false,
   isVisible = true,
   playbackSpeed,
@@ -340,7 +249,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   onLoadFiles,
   viewKey,
   onSetClockOffset,
-  compareCars
+  compareCars,
+  loading = false
 }) => {
   const t = useT();
   // 動画の一覧と出すカメラは、どのウインドウでも同じにする (videoViewStore に 1 つだけ持つ)。
@@ -355,6 +265,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // スマートフォンの動画の画面では、上のボタンを折り返して大きく出す (グラフに埋め込んだ狭い枠は今までどおり横にスクロール)
   const phoneToolbar = isCompactLayout && !isGraphEmbedded;
   const isLandscape = useLandscape();
+  const isMedium = useMediumLayout();
   /** スマートフォンを横にしたとき (動画の上下の段を 1 段ずつにする) */
   const landscapePhone = phoneToolbar && isLandscape;
   const { pipPosition, showOverlay, showGForce } = win;
@@ -433,7 +344,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // 開いたまま数えると、ほかのタブで再生のキー操作が効かなくなる)
   useEscapeKey(showPinModal && isVisible, () => setShowPinModal(false));
   useEscapeKey(showExportModal && isVisible, () => setShowExportModal(false));
-  const [exportRange, setExportRange] = useState<'lap' | 'all'>('lap');
+  const [exportRange, setExportRange] = useState<'lap' | 'all' | 'custom'>('lap');
+  // 時間で決めた書き出しの範囲 (ログの時刻の秒。開始・終了)
+  const [customRange, setCustomRange] = useState<[number, number] | null>(null);
   const [exportResolution, setExportResolution] = useState<'1080p' | '720p'>('1080p');
   // 書き出しの方式。encode: 元のファイルを 1 コマずつ読んで書く (速く、コマが抜けない)。record: 再生しながら録る (これまでの方式)
   const [exportMethod, setExportMethod] = useState<'encode' | 'record' | 'overlay-png' | 'overlay-webm'>('overlay-png'); // 既定はメーターだけの動画 (編集ソフトで重ねる。2026-10-20)
@@ -498,11 +411,77 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   useEffect(() => {
     if (win.lapRef !== 'best' && sessions.length > 0 && !refLapPicked) setWin({ lapRef: 'best' });
   }, [win.lapRef, sessions.length, refLapPicked]);
-  const overlayParts: OverlayPartsOptions = {
-    lapPanel: win.showLapPanel,
-    map: win.showMap,
-    reference: refCar && refLapPicked ? { lap: refLapPicked, label: `Car${refCar.slot + 1}` } : null
+  // メーターの並び (PLAN-08)。自分の並びは保管場所 (無ければブラウザ) から読む
+  const [customLayouts, setCustomLayouts] = useState<OverlayLayout[]>([]);
+  const [layoutTick, setLayoutTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    void (canUseRunStore() ? getRunStore().catch(() => null) : Promise.resolve(null))
+      .then(store => listCustomLayouts(store))
+      .then(list => { if (alive) setCustomLayouts(list); }, () => {});
+    return () => { alive = false; };
+  }, [layoutTick]);
+  // 航空写真のタイルが読めたら描き直す (止めている画面でも写真が出るように。続けて読めたものは 1 回にまとめる)
+  const [, setTileTick] = useState(0);
+  const tileTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onTileLoad = useCallback(() => {
+    if (tileTimer.current) return;
+    tileTimer.current = setTimeout(() => { tileTimer.current = null; setTileTick(n => n + 1); }, 100);
+  }, []);
+  // 配置の編集 (パソコンだけ): 直している並び (下書き)・元の並び・選んだ部品
+  const [editLayout, setEditLayout] = useState<OverlayLayout | null>(null);
+  // 直している枠: large (ふつうの枠) / small (小さな枠。スマートフォン・走行比較の枠など)
+  const [editTarget, setEditTarget] = useState<'large' | 'small'>('large');
+  const [editBase, setEditBase] = useState('');
+  const [editSel, setEditSel] = useState<string | null>(null);
+  // 編集の欄を作り直す印 (元の並びを替えた・保存した・読み込んだとき、名前の欄などを新しくする)
+  const [editKey, setEditKey] = useState(0);
+  /** メーターの並びを選ぶ。開いている走行の runs.json の行にも覚え、次に開いたときもその並びにする (PLAN-08) */
+  const chooseLayout = (id: string, extra: Partial<typeof win> = {}) => {
+    setWin({ overlayLayout: id, ...extra });
+    void setOpenRunOverlayLayout(baseSession?.id, id);
   };
+  // 走行を開いたら (窓を開いたときに開いている走行も)、その走行に覚えた並びにする
+  const applyRunLayoutRef = useRef<() => void>(() => {});
+  applyRunLayoutRef.current = () => {
+    const id = openRunOverlayLayout(baseSession?.id);
+    if (id && id !== win.overlayLayout) setWin({ overlayLayout: id });
+  };
+  useEffect(() => onOpenRun(() => applyRunLayoutRef.current()), []);
+  useEffect(() => { applyRunLayoutRef.current(); }, [baseSession?.id]);
+  const overlayLayout = editLayout ?? resolveLayout(win.overlayLayout ?? AUTO_LAYOUT, baseSession, customLayouts);
+  // 画像の部品 (ロゴなど) は、書き出しの画面を開いたときに読んでおく (最初のコマから出るように)
+  useEffect(() => {
+    if (!showExportModal) return;
+    const srcs = [...overlayLayout.parts, ...(overlayLayout.small ?? [])].flatMap(p => (p.type === 'image' ? [p.src] : []));
+    if (srcs.length) void preloadOverlayImages(srcs);
+  }, [showExportModal, overlayLayout]);
+  const overlayParts: OverlayPartsOptions = {
+    // 編集の間は、出さないことにした部品も出す (置き場所が見えるように)
+    lapPanel: editLayout ? true : win.showLapPanel,
+    map: editLayout ? true : win.showMap,
+    reference: refCar && refLapPicked ? { lap: refLapPicked, label: `Car${refCar.slot + 1}` } : null,
+    layout: overlayLayout,
+    hidden: editLayout ? [] : win.hiddenParts ?? [],
+    onTileLoad
+  };
+  // 編集を始めた (保存した) ときの部品 (変えたまま閉じるときに確かめるため)
+  const [editOrig, setEditOrig] = useState('');
+  const snapshot = (l: OverlayLayout) => JSON.stringify({ parts: l.parts, small: l.small ?? null });
+  /** 直している枠の部品 (小さな枠の部品がまだ無ければ既定を使う) */
+  const editParts = editLayout ? (editTarget === 'small' ? editLayout.small ?? SMALL_PARTS : editLayout.parts) : [];
+  const setEditParts = (parts: OverlayPart[]) => setEditLayout(l => (l ? (editTarget === 'small' ? { ...l, small: parts } : { ...l, parts }) : l));
+  const confirmDiscard = () => !editLayout || snapshot(editLayout) === editOrig
+    || window.confirm(t('保存していない変更があります。捨てますか？', 'You have unsaved changes. Discard them?'));
+  const startLayoutEdit = () => {
+    const base = resolveLayout(win.overlayLayout ?? AUTO_LAYOUT, baseSession, customLayouts);
+    setEditBase(base.id);
+    setEditLayout({ ...base, parts: base.parts.map(p => ({ ...p })) });
+    setEditOrig(snapshot(base));
+    setEditTarget('large');
+    setEditSel(null);
+  };
+  const layoutStore = () => (canUseRunStore() ? getRunStore().catch(() => null) : Promise.resolve(null));
   const baseLap = targetLap || baseSession?.laps.find(l => l.lapNumber === baseSelected?.lapNumber) || baseSession?.laps[0];
   // グラフ画面の動画では、App の時刻は選んだ周の時刻 (0〜周のタイム)。周の外へは動かさない
   // (周の外の時刻にすると、次のコマで周の始めに戻ってしまう)
@@ -522,7 +501,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const renderSessionTime = isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec;
   // 走行比較は周がないと何も映せないので、周がないとき (GPS のない動画だけを読み込んだときなど) はマルチカメラで出す。
   // 選んだ表示 (win.mode) は変えないので、周のあるログを読み込めば走行比較に戻る
-  const isCompare = win.mode === 'compare' && !!baseLap;
+  const isCompare = !simple && win.mode === 'compare' && !!baseLap;
+
   // Car 2 がいないときに走行比較を押したら、Car 1 と同じログの、Car 1 の周以外でいちばん速い周を Car 2 に入れる
   // (動画 1 本・ログ 1 つでも、同じ動画の別の周どうしを比べられるように)
   const autoCompareLap = baseSession && baseLap
@@ -598,11 +578,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   };
   const tiles: Tile[] = isCompare
     ? compareTiles(renderSessionTime)
-    : cameras.map((m, i) => ({ media: m, position: positionInMedia(m, renderSessionTime), gauge: i === 0 ? { session: baseSession, lap: baseLap, time: renderSessionTime } : undefined }));
+    : (simple ? cameras.slice(0, 1) : cameras).map((m, i) => ({ media: m, position: positionInMedia(m, renderSessionTime), gauge: i === 0 ? { session: baseSession, lap: baseLap, time: renderSessionTime } : undefined }));
   const tileCount = tiles.length;
   const positions = tiles.map(x => x.position);
   // 同期の調整・書き出しの対象は、メインのカメラの今のチャプター
   const activeTrack: PlacedTrack | undefined = positions[0]?.track ?? mainMedia?.tracks[0];
+  /** 書き出しの範囲の時刻の元。再生の段の「全体」と同じ時刻 (ログの時刻) で出す */
+  const rangeBase = 0;
+  const rangeClock = (sec: number) => formatRangeTime(sec - rangeBase);
   // 元のファイルのない動画では、エンコードの方式は使えないので、これまでの方式にする
   useEffect(() => {
     if (exportMethod === 'encode' && activeTrack && !activeTrack.file) setExportMethod('record');
@@ -615,6 +598,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // 狭い枠ではこれらの段が場所を使い切り、動画の映る部分の高さが 0 になっていた (BUG-19)。同期の調整は動画同期の画面でもできる
   // 合わせる (同期) の道具を出しているか。動画の画面は「見る」から始める (PLAN-24 の作る順番の 5。ずれが大きいときは帯を出す)
   const [showSyncTools, setShowSyncTools] = useState(false);
+  // 比べる・合わせるなどへ移ったら、配置の編集を閉じる (編集は「見る」のメインの枠だけ)
+  useEffect(() => { if (isCompare || isCompactLayout || showSyncTools || showExportModal) setEditLayout(null); }, [isCompare, isCompactLayout, showSyncTools, showExportModal]);
   // 走行の確認 (RunsInspector) を開いているか
   const [showRuns, setShowRuns] = useState(false);
   // GoPro の動画の GPS も走行ログとして加えるか (次に読み込む動画から効く) LATER-12
@@ -792,13 +777,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const handleStartStageExport = () => {
     if (isAnyExporting || shownCount === 0) return;
     // 走行比較は周の中で比べるので、いつも周の範囲で書き出す (動画全体にすると、周の終わりで比べる車が止まったままになる)
-    const range: [number, number] | null = (exportRange === 'lap' || isCompare) && baseLap
+    const range: [number, number] | null = (exportRange === 'lap' || (isCompare && exportRange !== 'custom')) && baseLap
       ? [baseLap.startTime, baseLap.endTime]
+      : exportRange === 'custom' && customRange ? customRange
       : mainMedia ? [Math.max(0, mainMedia.startSec), mainMedia.endSec] : null;
     if (!range) return;
     const [start, end] = range;
     const W = exportResolution === '1080p' ? 1920 : 1280, H = exportResolution === '1080p' ? 1080 : 720;
-    const layout = isCompactLayout ? (isCompare && !isLandscape ? 'grid' : 'single') : win.layout;
+    const layout = isCompactLayout ? (isCompare && (!isLandscape || isMedium) ? 'grid' : 'single') : win.layout;
     const count = layout === 'single' ? 1 : layout === 'pip' ? Math.min(2, shownCount) : Math.min(4, shownCount);
     const rects = stageRects(count, layout, W, H, pipPosition);
     const firstTile = isCompactLayout && layout === 'single' ? bigTile : 0;
@@ -856,7 +842,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               ctx.save();
               ctx.translate(r.x, r.y);
               ctx.scale(r.w / 1280, r.h / 720);
-              ov.draw(ctx, 1280, 720, 0);
+              ov.draw(ctx, 1280, 720, 0, r.w);
               ctx.restore();
             }
             if (isCompare && tile) {
@@ -897,7 +883,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     // 周の前は 0:00.00 で待ち、周のあとはその周のタイムで止める)
     const frameByFrame = overlayOnly || (exportMethod === 'encode' && !!activeTrack?.file && canUseEncodeExport());
     const padSec = frameByFrame ? LAP_EXPORT_PAD_SEC : 0;
-    if (exportRange === 'lap' && baseLap) {
+    if (exportRange === 'custom' && customRange) {
+      [startSec, endSec] = customRange;
+    } else if (exportRange === 'lap' && baseLap) {
       startSec = baseLap.startTime - padSec;
       endSec = baseLap.endTime + padSec;
     } else if (activeTrack) {
@@ -912,7 +900,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
     const exportW = exportResolution === '1080p' ? 1920 : 1280;
     const exportH = exportResolution === '1080p' ? 1080 : 720;
-    const filename = `${circuitName || 'race'}_${exportRange === 'lap' && baseLap ? `Lap${baseLap.lapNumber}` : 'session'}_telemetry.mp4`;
+    const filename = `${circuitName || 'race'}_${exportRange === 'lap' && baseLap ? `Lap${baseLap.lapNumber}` : exportRange === 'custom' && customRange ? `${rangeClock(customRange[0]).replace(/[:.]/g, '')}-${rangeClock(customRange[1]).replace(/[:.]/g, '')}` : 'session'}_telemetry.mp4`;
 
     setIsExporting(true);
     videoViewStore.set({ isExporting: true });
@@ -1132,7 +1120,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     if (!g || !showOverlay || !isVisible) return null;
     return {
       tick: g.time,
-      draw: (ctx, w, h, avoidW) => drawTelemetryOverlayOnCanvas(ctx, w, h, g.time, g.session, g.lap, showGForce, i === 0 && win.layout === 'pip' && tileCount > 1 ? pipPosition : null, avoidW, null, isCompare ? NO_PARTS : overlayParts)
+      // 配置の編集の間は、G も出し、小窓をよけない (編集の枠と描いた位置をそろえる)
+      // 小さな枠 (狭く映っている枠・走行比較の枠) は、小さな枠の並び。編集で小さな枠を直している間は、メインの枠も小さな枠の並び
+      draw: (ctx, w, h, avoidW, displayW) => drawTelemetryOverlayOnCanvas(ctx, w, h, g.time, g.session, g.lap, editLayout ? true : showGForce, i === 0 && win.layout === 'pip' && tileCount > 1 && !editLayout ? pipPosition : null, avoidW, null,
+        isCompare
+          ? { ...NO_PARTS, layout: overlayLayout, small: true }
+          : { ...overlayParts, small: editLayout ? editTarget === 'small' : displayW < SMALL_TILE_PX })
     };
   };
 
@@ -1157,7 +1150,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       {/* スマートフォンでは、横にスクロールさせず折り返し、押しやすいよう大きくする (2026-10-20) */}
       <div
         ref={toolbarScrollRef}
-        className={fullView ? 'hidden' : phoneToolbar
+        className={fullView || simple ? 'hidden' : phoneToolbar
           ? 'bg-surface-1 border-b border-line-1 px-2 py-1.5 flex flex-wrap items-center gap-1 shrink-0 [&_button]:whitespace-nowrap [&_button]:shrink-0 [&_button]:min-h-9 [&_button]:text-xs [&_select]:min-h-9 [&_select]:text-sm [&_svg]:w-4 [&_svg]:h-4'
           : 'min-h-11 bg-surface-1 border-b border-line-1 px-3 py-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 shrink-0 [&_button]:whitespace-nowrap [&_button]:shrink-0'}
         data-testid="video-toolbar"
@@ -1172,7 +1165,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               狭い枠で右側が切れても押せるよう、いちばん左に置く */}
           {isGraphEmbedded && activeTrack && (
             <button
-              onClick={() => setShowSyncTools(v => !v)}
+              onClick={() => { if (confirmDiscard()) setShowSyncTools(v => !v); }}
               aria-pressed={showSyncTools}
               title={t('動画のタイムゾーン・再同期の段とタイムラインを出す / 隠す', 'Show / hide the time zone and resync row and the timeline')}
               className={`flex items-center gap-1 shrink-0 whitespace-nowrap px-2 py-1 rounded text-xs border transition-colors cursor-pointer ${
@@ -1211,7 +1204,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   key={id}
                   role="tab"
                   aria-selected={on}
-                  onClick={onClick}
+                  // メーターの配置を直している途中なら、捨ててよいか聞いてから替える (黙って捨てていた)
+                  onClick={() => { if (!on && !confirmDiscard()) return; onClick(); }}
                   disabled={!enabled}
                   className={`px-2.5 py-1 text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-40 ${on ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
                   data-testid={`video-mode-${id}`}
@@ -1387,6 +1381,20 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               <span className="hidden xl:inline">{t('走行の確認', 'Runs')}</span>
             </button>
           )}
+
+          {/* メーターの配置 (パソコンだけ。PLAN-08) */}
+          {media.length > 0 && !isCompactLayout && !isGraphEmbedded && win.showOverlay && !isCompare && (
+            <button
+              onClick={() => (editLayout ? (confirmDiscard() && setEditLayout(null)) : startLayoutEdit())}
+              aria-pressed={!!editLayout}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-xs border transition-colors cursor-pointer ${editLayout ? 'bg-sky-600 border-sky-500 text-white' : 'bg-surface-3 hover:bg-surface-5 text-slate-300 border-line-3'}`}
+              title={t('メーターの配置: 部品をつかんで動かし、大きさを変えて、並びとして保存する', 'Meter layout: drag parts, resize them and save the layout')}
+              data-testid="overlay-edit-toggle"
+            >
+              <LayoutDashboard size={12} />
+              <span className="hidden xl:inline">{t('メーターの配置', 'Meter layout')}</span>
+            </button>
+          )}
         </div>
 
         {/* 右側アクション群 (ピン留め・MP4エクスポート・プロジェクト保存)。スマートフォンでは右に寄せて折り返しに並べる */}
@@ -1409,7 +1417,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               スマートフォンでは出さない (書き出しはパソコン向け。スマートフォンの動画は「見る」と「合わせる」だけ。PLAN-24 の D5) */}
           {(activeTrack || baseSession) && !phoneToolbar && isGraphEmbedded && (
             <button
-              onClick={() => setShowExportModal(true)}
+              onClick={() => { if (confirmDiscard()) setShowExportModal(true); }}
               className={`flex items-center gap-1 px-2 py-1 rounded bg-red-700 hover:bg-red-600 text-xs font-bold text-white transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
               title={t('メーターオーバーレイ付きの動画をMP4形式で書き出し', 'Export the video with the gauge overlay as MP4')}
             >
@@ -1444,6 +1452,20 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           >
             {showOverlay ? <Eye size={14} /> : <EyeOff size={14} />}
           </button>
+          {/* スマートフォン: メーターの並びを選ぶ (編集はパソコンだけ。書き出しの画面が無いので、ここで選ぶ) */}
+          {phoneToolbar && showOverlay && media.length > 0 && (
+            <select
+              value={win.overlayLayout ?? AUTO_LAYOUT}
+              onChange={e => chooseLayout(e.target.value)}
+              className="order-1 bg-surface-3 border border-line-3 text-[11px] px-1.5 py-1 rounded text-slate-200 max-w-[7.5rem]"
+              aria-label={t('メーターの並び', 'Meter layout')}
+              data-testid="overlay-layout-phone"
+            >
+              <option value={AUTO_LAYOUT}>{t('メーター: 自動', 'Meters: auto')}</option>
+              {BUILTIN_LAYOUTS.map(l => <option key={l.id} value={l.id}>{t(l.name[0], l.name[1])}</option>)}
+              {customLayouts.map(l => <option key={l.id} value={l.id}>{l.name[0]}</option>)}
+            </select>
+          )}
         </div>
       </div>
 
@@ -1593,7 +1615,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               focus={win.focus}
               pipPosition={pipPosition}
               pipRef={pipRef}
-              compact={isCompactLayout ? { stackTwo: isCompare && !isLandscape } : undefined}
+              compact={isCompactLayout ? { arrange: !isCompare ? 'swipe' : isMedium ? (tileCount > 2 ? 'grid' : isLandscape ? 'row2' : 'stack2') : isLandscape ? 'swipe' : 'stack2' } : undefined}
               onFocus={i => setWin({ focus: i })}
               renderTile={(i, size) => {
                 const x = tiles[i];
@@ -1611,10 +1633,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     active={isVisible}
                     onSeeked={handleSeeked}
                     overlay={overlayFor(x, i)}
+                    editLayer={isMain && editLayout && size === 'full' ? (
+                      <OverlayEditLayer parts={editParts} selected={editSel} onSelect={setEditSel} onChange={setEditParts} />
+                    ) : undefined}
                     avoidRef={isMain && win.layout === 'pip' ? pipRef : undefined}
                     accent={isCompare ? x.color : undefined}
                     emptyText={isCompare ? t('この周を映している動画がありません', 'No video covers this lap') : undefined}
-                    onClick={win.layout === 'grid' && tileCount > 1 && size !== 'pip' ? () => setWin({ focus: win.focus === i ? null : i }) : undefined}
+                    onClick={win.layout === 'grid' && tileCount > 1 && size !== 'pip' && !editLayout ? () => setWin({ focus: win.focus === i ? null : i }) : undefined}
                     className="flex-1 w-full h-full"
                     children={isMain && gpsMismatchM !== null ? (
                       <button
@@ -1682,6 +1707,85 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               }}
             />
 
+            {editLayout && (
+              <OverlayEditPanel
+                draft={{ ...editLayout, parts: editParts }}
+                target={editTarget}
+                onTarget={target => { setEditTarget(target); setEditSel(null); }}
+                baseId={editBase}
+                custom={customLayouts}
+                channels={availableChannels(baseSession)}
+                selected={editSel}
+                onSelect={setEditSel}
+                onChange={setEditParts}
+                key={`edit:${editKey}`}
+                onPickBase={id => {
+                  if (!confirmDiscard()) return;
+                  const base = resolveLayout(id, baseSession, customLayouts);
+                  setEditKey(n => n + 1);
+                  setEditBase(base.id);
+                  setEditLayout({ ...base, parts: base.parts.map(p => ({ ...p })) });
+                  setEditOrig(snapshot(base));
+                  setEditSel(null);
+                }}
+                onSave={async (name, overwriteId) => {
+                  try {
+                    const saved = await saveCustomLayout(await layoutStore(), editLayout, name, overwriteId);
+                    // 欄は作り直さない (保存しましたの知らせを消さないように)。名前の欄は今のままで同じ
+                    setEditBase(saved.id);
+                    setEditLayout({ ...saved, parts: saved.parts.map(p => ({ ...p })) });
+                    setEditOrig(snapshot(saved));
+                    // 保存した並びを、このウインドウの並びにする (出さないことにした部品・ラップの欄・コース図・G も出す。編集で見えたとおりにする)
+                    chooseLayout(saved.id, { hiddenParts: [], showLapPanel: true, showMap: true, showGForce: true });
+                    setLayoutTick(n => n + 1);
+                    return null;
+                  } catch (e) {
+                    return e instanceof Error ? e.message : String(e);
+                  }
+                }}
+                onRename={async name => {
+                  const cur = customLayouts.find(l => l.id === editBase);
+                  if (!cur) return t('保存した並びが見つかりません', 'Saved layout not found');
+                  try {
+                    const renamed = await renameCustomLayout(await layoutStore(), cur, name);
+                    setEditLayout(l => (l ? { ...l, name: [name, name] } : l));
+                    // 読み直しを待たずに一覧の名前も替える (すぐ保存しても、名前を変えた並びに上書きできるように)
+                    setCustomLayouts(list => list.map(l => (l.id === renamed.id ? renamed : l)));
+                    setLayoutTick(n => n + 1);
+                    return null;
+                  } catch (e) {
+                    return e instanceof Error ? e.message : String(e);
+                  }
+                }}
+                onDelete={async () => {
+                  await deleteCustomLayout(await layoutStore(), editBase).catch(() => {});
+                  chooseLayout(AUTO_LAYOUT);
+                  setEditLayout(null);
+                  setLayoutTick(n => n + 1);
+                }}
+                onExport={() => {
+                  const url = URL.createObjectURL(new Blob([layoutFileText(editLayout)], { type: 'application/json' }));
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `${(editLayout.name[0] || 'layout').replace(/[\\/:*?"<>|\s]+/g, '_')}.overlay.json`;
+                  a.click();
+                  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+                }}
+                onImport={file => {
+                  void file.text().then(text => {
+                    const l = parseOverlayLayout(text, 'import');
+                    if (!l) { alert(t('メーターの並びのファイルではありません', 'Not a meter layout file')); return; }
+                    setEditLayout({ ...l, parts: l.parts.map(p => ({ ...p })) });
+                    setEditSel(null);
+                    // 読み込んだ並びは、まだどの自分の並びでもない (消すで元の並びを消さないように)
+                    setEditBase('import');
+                    setEditKey(n => n + 1);
+                  });
+                }}
+                onClose={() => { if (confirmDiscard()) setEditLayout(null); }}
+              />
+            )}
+
             {heavyCount >= 3 && (
               <div className="absolute top-2 right-2 z-30 bg-amber-950/90 border border-amber-600 text-amber-200 px-2 py-1 rounded text-[11px] max-w-xs">
                 {t('4K の動画を 3 つ以上同時に再生しています。引っかかるときは、GoPro の .LRV ファイルも一緒に読み込むと、小さな枠は低画質で軽く出せます', 'Three or more 4K videos are playing at once. If playback stutters, also load the GoPro .LRV files so the small views use the light low-res copies')}
@@ -1702,6 +1806,20 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               </div>
             )}
           </>
+        ) : loading ? (
+          // 走行を開いている途中 (動画を探し、情報を読み、同期を戻している)。終わると動画が出る
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 text-sm" data-testid="video-loading">
+            <span className="w-6 h-6 rounded-full border-2 border-slate-500 border-t-transparent animate-spin" />
+            {t('走行の動画を読み込んでいます…', 'Loading the run videos…')}
+          </div>
+        ) : downloading ? (
+          // iCloud から走行の動画を取り込んでいる間 (何を待っているのか分かるように)
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-300 text-sm text-center px-6" data-testid="video-downloading">
+            <span className="w-7 h-7 rounded-full border-2 border-sky-400 border-t-transparent animate-spin" />
+            <span className="font-bold">{t('動画を iCloud から取り込んでいます', 'Downloading the video from iCloud')}{downloading.names.length > 1 ? ` (${downloading.done}/${downloading.names.length})` : ''}</span>
+            <span className="text-xs text-slate-400">{downloading.names.join('・')}{downloading.gb ? ` (${downloading.gb} GB)` : ''}</span>
+            <span className="text-xs text-slate-500 max-w-sm">{t('終わると、自動でこの走行に動画が付きます。1 GB あたり数分かかることがあります。待っている間も、解析など ほかの画面は使えます。', 'The video is attached to this run automatically when done. It can take a few minutes per GB; you can use Analysis and other screens meanwhile.')}</span>
+          </div>
         ) : (
           // 動画がないときの案内 (グラフ・変換の画面と同じ形)
           <EmptyLoadPrompt
@@ -1716,6 +1834,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           </EmptyLoadPrompt>
         )}
       </div>
+
+      {/* 中くらいの段の縦長 (Duo を開いて縦に持つなど) で「見る」のときは、動画の下の余ったところにコースマップを出す (PLAN-30) */}
+      {sidePanel && isMedium && !isLandscape && !isCompare && !showSyncTools && !fullView && media.length > 0 && (
+        <div className="h-[34%] min-h-[180px] shrink-0 border-t border-line-1 overflow-hidden" data-testid="video-side-map">
+          {sidePanel}
+        </div>
+      )}
 
       {/* 4. チャプター分割動画 (GoPro/DJI) ナビゲーションバー */}
       {currentGroup && currentGroup.tracks.length > 1 && (
@@ -2198,8 +2323,59 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 >
                   {activeTrack ? t('動画全体', 'Whole video') : t('ログ全体', 'Whole log')}
                 </button>
+                <button
+                  onClick={() => {
+                    setExportRange('custom');
+                    // はじめは今の位置から 30 秒 (前に決めた範囲があればそれ)
+                    setCustomRange(r => r ?? [renderSessionTime, renderSessionTime + 30]);
+                  }}
+                  className={`col-span-2 px-2 py-1.5 rounded border text-xs font-bold transition-colors cursor-pointer ${
+                    exportRange === 'custom'
+                      ? 'bg-red-600 text-white border-red-500'
+                      : 'bg-surface-1 text-slate-400 border-line-3 hover:text-slate-200'
+                  }`}
+                  data-testid="export-range-custom"
+                >
+                  {t('時間で範囲を決める', 'Choose a time range')}
+                </button>
               </div>
             </div>
+
+            {/* 時間で範囲を決める (動画があれば動画の中の時刻、無ければログの始まりからの時刻) */}
+            {exportRange === 'custom' && customRange && (
+              <div className="space-y-1.5 text-[11px] bg-surface-1 border border-line-3 rounded p-2" data-testid="export-custom-range">
+                {(['start', 'end'] as const).map((which, k) => (
+                  <div key={which} className="flex items-center gap-2">
+                    <span className="w-8 text-slate-400">{which === 'start' ? t('開始', 'Start') : t('終了', 'End')}</span>
+                    <RangeTimeInput
+                      key={`${which}-${customRange[k]}`}
+                      value={customRange[k] - rangeBase}
+                      onCommit={v => setCustomRange(r => {
+                        if (!r) return r;
+                        const sec = rangeBase + v;
+                        return which === 'start' ? [sec, Math.max(sec + 1, r[1])] : [Math.min(r[0], sec - 1), sec];
+                      })}
+                      testId={`export-range-${which}`}
+                    />
+                    <button
+                      onClick={() => setCustomRange(r => {
+                        if (!r) return r;
+                        const now = renderSessionTime;
+                        return which === 'start' ? [now, Math.max(now + 1, r[1])] : [Math.min(r[0], now - 1), now];
+                      })}
+                      className="px-2 py-0.5 rounded border border-line-3 text-slate-300 hover:text-slate-100 cursor-pointer"
+                      data-testid={`export-range-${which}-now`}
+                    >
+                      {t('今の位置', 'Current position')}
+                    </button>
+                  </div>
+                ))}
+                <p className="text-slate-500">
+                  {t(`長さ ${(customRange[1] - customRange[0]).toFixed(1)} 秒。時刻は再生の段の「全体」と同じ時刻です (分:秒)`,
+                    `Length ${(customRange[1] - customRange[0]).toFixed(1)} s. Times match the "whole" playback bar (min:sec)`)}
+                </p>
+              </div>
+            )}
 
             {/* 枠の並びで書き出す (枠が 2 つ以上のとき) */}
             {tileCount > 1 && (
@@ -2244,22 +2420,43 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               </div>
             )}
 
-            {/* 重ねる部品 (画面の重ね表示にも効く) */}
+            {/* 重ねる部品 (画面の重ね表示にも効く)。メーターの並び (テンプレート) を選び、部品ごとに出す・出さない (PLAN-08) */}
             <div className="space-y-1">
-              <label className="text-[10px] font-medium text-slate-400">{t('重ねる部品:', 'Parts:')}</label>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-300">
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="checkbox" checked={win.showLapPanel} onChange={e => setWin({ showLapPanel: e.target.checked })} data-testid="part-lap-panel" />
-                  {t('ラップの欄 (ベスト・セクター・タイム差)', 'Lap panel (best, sectors, delta)')}
-                </label>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="checkbox" checked={win.showMap} onChange={e => setWin({ showMap: e.target.checked })} data-testid="part-map" />
-                  {t('コース図', 'Course map')}
-                </label>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="checkbox" checked={win.showGForce} onChange={e => setWin({ showGForce: e.target.checked })} data-testid="part-g" />
-                  {t('G', 'G')}
-                </label>
+              <label className="text-[10px] font-medium text-slate-400">{t('メーターの並び:', 'Meter layout:')}</label>
+              <select
+                value={win.overlayLayout ?? AUTO_LAYOUT}
+                onChange={e => chooseLayout(e.target.value)}
+                className="w-full bg-surface-1 border border-line-3 text-xs px-2 py-1 rounded outline-none text-slate-200 cursor-pointer"
+                data-testid="overlay-layout"
+              >
+                <option value={AUTO_LAYOUT}>{t(`自動 (${resolveLayout(AUTO_LAYOUT, baseSession).name[0]})`, `Auto (${resolveLayout(AUTO_LAYOUT, baseSession).name[1]})`)}</option>
+                {BUILTIN_LAYOUTS.map(l => <option key={l.id} value={l.id}>{t(l.name[0], l.name[1])}</option>)}
+                {customLayouts.map(l => <option key={l.id} value={l.id}>{l.name[0]}</option>)}
+              </select>
+              <label className="text-[10px] font-medium text-slate-400 block pt-1">{t('重ねる部品:', 'Parts:')}</label>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-300" data-testid="overlay-parts">
+                {(() => {
+                  const ch = availableChannels(baseSession);
+                  return overlayLayout.parts.map(p => {
+                    // ログに値が無い部品 (アクセルの無いログのアクセルの棒など) は出さない
+                    if (!partChannels(p).every(c => ch.has(c))) return null;
+                    const legacy = p.type === 'lapPanel' ? 'showLapPanel' : p.type === 'map' ? 'showMap' : p.type === 'gmeter' ? 'showGForce' : null;
+                    const key = hiddenKey(overlayLayout.id, p.id);
+                    const checked = legacy ? win[legacy] : !(win.hiddenParts ?? []).includes(key);
+                    const toggle = (on: boolean) => {
+                      if (legacy) setWin({ [legacy]: on } as Partial<typeof win>);
+                      else setWin({ hiddenParts: on ? (win.hiddenParts ?? []).filter(id => id !== key) : [...(win.hiddenParts ?? []), key] });
+                    };
+                    const label = p.type === 'lapPanel' ? t('ラップの欄 (ベスト・セクター・タイム差)', 'Lap panel (best, sectors, delta)') : partLabel(p, t('ja', 'en') === 'ja');
+                    return (
+                      <label key={p.id} className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={checked} onChange={e => toggle(e.target.checked)}
+                          data-testid={p.type === 'lapPanel' ? 'part-lap-panel' : p.type === 'map' ? 'part-map' : p.type === 'gmeter' ? 'part-g' : `part-${p.id}`} />
+                        {label}
+                      </label>
+                    );
+                  });
+                })()}
               </div>
               {win.showLapPanel && (
                 <div className="flex items-center gap-2 pt-1">

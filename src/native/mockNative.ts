@@ -97,6 +97,9 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   // ラップタイマーの記録のファイル (名前 → base64 をつないだもの。ふりなので、つなぎ方は気にしない)
   const concatBytes = (a: Uint8Array, b: Uint8Array) => { const out = new Uint8Array(a.length + b.length); out.set(a); out.set(b, a.length); return out; };
   const lapTimerFiles = new Map<string, string>();
+  let mockCamera: { startWallMs: number; front: boolean } | null = null;
+  let mockExposure: ReturnType<typeof setInterval> | null = null;
+  let mockSpp: ReturnType<typeof setInterval> | null = null;
   /** 保管先 (選んだフォルダ) に写したファイル */
   const syncedFiles = new Map<string, string>();
   /** 書いている最中のファイル (system.closeFiles で閉じるまで) */
@@ -175,7 +178,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   const handle = (req: NativeRequest): unknown => {
     switch (req.method) {
       case 'caps.get':
-        return { contractVersion: CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, iap: true } };
+        return { contractVersion: CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, iap: true, camera: true, spp: true, deleteFiles: true } };
       // アプリ内課金の模擬 (値段は日本円の例。買うとすぐ買えたことにする)
       case 'iap.products': {
         const { ids } = req.params as { ids: string[] };
@@ -292,12 +295,77 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         return {};
       case 'system.keepAwake':
         return {};
+      // 内蔵カメラのふり (撮った動画は中身のない小さなファイルにする)
+      case 'camera.permission':
+        return { camera: 'granted', mic: 'granted' };
+      case 'camera.lenses':
+        return { lenses: [
+          { id: 'mock-uw', position: 'back', kind: 'ultraWide', zoom: 0.5, isoMin: 32, isoMax: 2304, presets: ['1080p30', '1080p60', '2160p30'], multiCamPresets: ['1080p30', '1080p60'] },
+          { id: 'mock-w', position: 'back', kind: 'wide', zoom: 1, isoMin: 32, isoMax: 3072, presets: ['1080p30', '1080p60', '2160p30', '2160p60'], multiCamPresets: ['1080p30', '1080p60'] },
+          { id: 'mock-t', position: 'back', kind: 'tele', zoom: 5, isoMin: 32, isoMax: 2304, presets: ['1080p30', '2160p30'], multiCamPresets: [] },
+          { id: 'mock-f', position: 'front', kind: 'front', zoom: 1, isoMin: 32, isoMax: 2304, presets: ['1080p30', '1080p60'], multiCamPresets: ['1080p30'] }
+        ], multiCam: true };
+      case 'camera.start': {
+        const p = req.params as { lensId: string | null; preset: string; front?: unknown };
+        mockCamera = { startWallMs: Date.now(), front: !!p.front };
+        setTimeout(() => emit('camera.state', { recording: true }), 50);
+        return { lensId: p.lensId ?? 'mock-w', preset: p.preset };
+      }
+      case 'camera.preview': {
+        const { show, iso, front } = req.params as { show: boolean; iso?: number | null; front?: { iso: number | null } | null };
+        if (mockExposure) clearInterval(mockExposure);
+        mockExposure = null;
+        const ev = (v: number | null | undefined, which: 'main' | 'front') => ({ iso: v ?? (which === 'main' ? 125 : 400), shutterSec: v ? 1 / Math.round(v * 2.5) : which === 'main' ? 1 / 320 : 1 / 60, which });
+        if (show) mockExposure = setInterval(() => {
+          emit('camera.exposure', ev(iso, 'main'));
+          if (front) emit('camera.exposure', ev(front.iso, 'front'));
+        }, 300);
+        return {};
+      }
+      case 'camera.setIso':
+      case 'camera.setEv':
+        return {};
+      // Bluetooth Classic の Drogger のふり (袖ヶ浦の近くで円を回る NMEA を 10 Hz で送る)
+      case 'spp.pick':
+        return { deviceId: '00:1A:7D:DA:71:13', name: 'DG-PRO1S_mock' };
+      case 'spp.connect': {
+        const { deviceId } = req.params as { deviceId: string };
+        if (mockSpp) clearInterval(mockSpp);
+        setTimeout(() => emit('spp.state', { deviceId, state: 'connecting' }), 30);
+        setTimeout(() => emit('spp.state', { deviceId, state: 'connected' }), 400);
+        let k = 0;
+        mockSpp = setInterval(() => {
+          const t = new Date();
+          const a = (k++ / 600) * 2 * Math.PI;
+          const lat = 35.3943 + 0.001 * Math.sin(a), lon = 140.0879 + 0.0013 * Math.cos(a);
+          emit('spp.data', { deviceId, items: [{ t: performance.now() * 1e6, b: toBase64(new TextEncoder().encode(mockNmea(t, lat, lon, 60))) }] });
+        }, 100);
+        return {};
+      }
+      case 'spp.disconnect': {
+        const { deviceId } = req.params as { deviceId: string };
+        if (mockSpp) clearInterval(mockSpp);
+        mockSpp = null;
+        setTimeout(() => emit('spp.state', { deviceId, state: 'disconnected' }), 10);
+        return {};
+      }
+      case 'spp.shareLog':
+        return {};
+      case 'camera.stop': {
+        const { path, frontPath } = req.params as { path: string | null; frontPath?: string | null };
+        const cam = mockCamera;
+        mockCamera = null;
+        if (!cam) return { files: [] };
+        if (path) lapTimerFiles.set(path, '');
+        if (cam.front && frontPath) lapTimerFiles.set(frontPath, '');
+        const file = (p: string) => ({ path: p, startWallMs: cam.startWallMs, durationSec: (Date.now() - cam.startWallMs) / 1000, bytes: 0 });
+        return { files: [file(path ?? 'cam.mov')], frontFiles: cam.front ? [file(frontPath ?? 'cam_front.mov')] : [] };
+      }
       case 'system.motionStart':
       case 'system.motionStop':
         return {};
       case 'system.setOrientation': {
-        const { mode } = req.params as { mode: string };
-        return { orientation: mode === 'landscape' ? 'landscape' : 'portrait' };
+        return { orientation: 'portrait' };
       }
       case 'system.appendFile': {
         const { path, b64, truncate, createNew } = req.params as { path: string; b64: string; truncate?: boolean; createNew?: boolean };
@@ -337,14 +405,32 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         for (const p of [...openFiles]) if ((prefix && p.startsWith(prefix)) || paths?.includes(p)) openFiles.delete(p);
         return { open: openFiles.size };
       }
-      // 選んだフォルダへ移したものも、同じ置き場にあるものとして見せる (このふりの窓口は、走行の置き場の窓口を持たないため)
-      case 'system.listLapFiles':
-        return { files: [...visibleFiles().entries()].filter(([p]) => !p.startsWith('exports/')).map(([path, b64]) => ({ path, size: b64.length, mtimeMs: 0 })) };
-      case 'system.readLapFile': {
+      case 'system.deleteRunFiles': {
+        const { paths } = req.params as { paths: string[] };
+        const deleted: string[] = [];
+        for (const p of paths) { lapTimerFiles.delete(p); syncedFiles.delete(p); deleted.push(p); }
+        return { deleted, failed: [] };
+      }
+      case 'system.runRoot': {
+        // 動画を読む URL の頭 (開発サーバーで、マニュアルの写真を撮るときだけ。?mockVideoBase=http://localhost:.../)
+        const base = new URLSearchParams(window.location.search).get('mockVideoBase');
+        if (!base) throw { code: 'not-supported', message: 'no video base' };
+        return { urlBase: base };
+      }
+      case 'system.listRunFiles':
+        return { files: [...visibleFiles().entries()].filter(([p]) => !p.startsWith('exports/')).map(([path, b64]) => ({ path, size: b64.length, mtimeMs: 0, local: true })) };
+      case 'system.readRunFile': {
         const { path } = req.params as { path: string };
         const files = visibleFiles();
         if (!files.has(path)) throw { code: 'not-found', message: 'no file' };
         return { b64: files.get(path)! };
+      }
+      case 'system.writeRunFile': {
+        // 走行の置き場 (選んだフォルダがあればそこ) に書く
+        const { path, b64 } = req.params as { path: string; b64: string };
+        if (storage.kind === 'folder') { syncedFiles.set(path, b64); lapTimerFiles.delete(path); }
+        else lapTimerFiles.set(path, b64);
+        return {};
       }
       case 'system.shareFile':
         shared.push({ fileName: (req.params as { path: string }).path });
@@ -400,3 +486,16 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
     }
   };
 }
+
+/** ふりの Drogger の NMEA (GGA と RMC) */
+function mockNmea(t: Date, lat: number, lon: number, kmh: number): string {
+  const pad = (n: number, w: number) => String(Math.floor(n)).padStart(w, '0');
+  const tod = `${pad(t.getUTCHours(), 2)}${pad(t.getUTCMinutes(), 2)}${pad(t.getUTCSeconds(), 2)}.${pad(t.getUTCMilliseconds() / 10, 2)}`;
+  const dm = (v: number, w: number) => { const d = Math.floor(Math.abs(v)); return `${pad(d, w)}${((Math.abs(v) - d) * 60).toFixed(5).padStart(8, '0')}`; };
+  const date = `${pad(t.getUTCDate(), 2)}${pad(t.getUTCMonth() + 1, 2)}${pad(t.getUTCFullYear() % 100, 2)}`;
+  const sum = (b: string) => { let x = 0; for (let i = 0; i < b.length; i++) x ^= b.charCodeAt(i); return x.toString(16).toUpperCase().padStart(2, '0'); };
+  const gga = `GNGGA,${tod},${dm(lat, 2)},N,${dm(lon, 3)},E,4,24,0.6,30.0,M,39.0,M,,`;
+  const rmc = `GNRMC,${tod},A,${dm(lat, 2)},N,${dm(lon, 3)},E,${(kmh / 1.852).toFixed(2)},90.0,${date},,,D`;
+  return `$${gga}*${sum(gga)}\r\n$${rmc}*${sum(rmc)}\r\n`;
+}
+

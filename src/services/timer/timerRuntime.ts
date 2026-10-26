@@ -9,8 +9,8 @@ import { bleLoggerLink } from '../bleLoggerLink';
 import { LiveLapTimer, type LiveFix, type LiveLapEvent, type LiveLapState } from '../liveLapTimer';
 import { CIRCUIT_PRESETS, findMatchingCircuit } from '../circuitDatabase';
 import { LiveRunRecorder, closeRunFiles } from '../runRecorder';
-import { courseFolder } from '../../utils/courseNames';
-import { callNative, hasNative } from '../../native/bridge';
+import { courseFolder, UNSORTED_FOLDER } from '../../utils/courseNames';
+import { callNative, hasNative, onNative } from '../../native/bridge';
 import { PhoneImuRecorder } from '../phoneImu';
 import { getRunStore } from '../runStore';
 import { LAP_INDEX_FILE, lapKey, parseLapIndex } from '../lapIndex';
@@ -18,7 +18,27 @@ import { getLang } from '../../utils/i18n';
 import { setPositionSource, type PositionSource } from '../positionSource';
 import { digspiceFeed, distanceKm, phoneFeed, replayFeed, type PhoneInfo, type StopFeed } from './positionFeeds';
 import { LapDeviceSet, type LapDeviceStatus } from './lapDeviceSet';
+import { PhoneCameraRecorder, type CameraStatus } from './phoneCamera';
+import { GpsImuFusion } from './gpsImuFusion';
 import type { CircuitPreset, TelemetryPoint } from '../../types/telemetry';
+import { findRunRow, readRunsFile, removeRunRow } from '../runsFile';
+import { deleteRun as deleteRunRecord } from '../liveRunStore';
+import { planRunDelete } from '../runDelete';
+import type { RunItem } from '../runOpener';
+
+/** 測定終了のとき、走った距離がこれより短ければ「走っていないようです。消しますか」と聞く (LATER-18) */
+export const IDLE_RUN_M = 200;
+/** 走った距離に足さない、続けて届いた 2 つの測位の間の距離 (GPS の飛び) */
+const JUMP_M = 150;
+
+const FUSION_KEY = 'ds_timer_phone_fusion';
+/** 端末の GPS の間を G センサーで埋めるか (既定はオン) */
+export function loadPhoneFusion(): boolean {
+  try { return localStorage.getItem(FUSION_KEY) !== 'off'; } catch { return true; }
+}
+export function savePhoneFusion(on: boolean): void {
+  try { localStorage.setItem(FUSION_KEY, on ? 'on' : 'off'); } catch { /* 覚えられなくても測れる */ }
+}
 
 export type TimerSource = PositionSource | 'replay';
 
@@ -85,6 +105,8 @@ export interface TimerSnapshot {
   voice: boolean;
   measuring: boolean;
   savedRun: { laps: number; best: number | null } | null;
+  /** 走っていない走行 (測定開始を押したが動かずに終えた)。消すか聞く (LATER-18) */
+  idleRun: { fileBase: string; runId: string | null; distM: number } | null;
   saveError: string | null;
   syncNote: { ok: boolean; text: string } | null;
   phoneInfo: PhoneInfo;
@@ -92,6 +114,8 @@ export interface TimerSnapshot {
   devices: LapDeviceStatus[];
   /** 周をはじめから数え直した回数 (画面が、出した経過の覚えを捨てるため) */
   epoch: number;
+  /** 内蔵カメラの録画の様子 */
+  camera: CameraStatus;
 }
 
 export interface TimerRuntimeDeps {
@@ -108,6 +132,11 @@ export class TimerRuntime {
   private timer: LiveLapTimer | null = null;
   private fixes: LiveFix[] = [];
   private recorder: LiveRunRecorder | null = null;
+  /** この測定で走行のファイルを書き始めたか */
+  private measureWroteRun = false;
+  /** この測定で走った距離 (m。記録した測位をつないだもの) と、前の測位 */
+  private measureDistM = 0;
+  private lastRecorded: LiveFix | null = null;
   private readonly imu: PhoneImuRecorder;
   readonly devices: LapDeviceSet;
   private manualCourse = false;
@@ -119,15 +148,20 @@ export class TimerRuntime {
   private onHide = () => { if (document.visibilityState === 'hidden') void this.sync(); };
   private running = false;
   private pastBestToken = 0;
+  /** iPhone の GPS の間を G センサーで埋める (測っている間・端末の GPS のとき) */
+  private fusion: GpsImuFusion | null = null;
+  readonly camera: PhoneCameraRecorder;
+  private offCamera: (() => void) | null = null;
 
   constructor(private readonly deps: TimerRuntimeDeps, initialSource: TimerSource) {
     const firstReplay = deps.replayLogs()[0]?.id ?? '';
     this.snap = {
       source: initialSource, replayId: firstReplay, replaySpeed: 4, course: null, lap: null,
       lastPos: null, lastFixPerf: 0, flash: null, voice: true, measuring: false,
-      savedRun: null, saveError: null, syncNote: null, phoneInfo: { accuracy: null, error: null },
-      pastBest: null, devices: [], epoch: 0
+      savedRun: null, idleRun: null, saveError: null, syncNote: null, phoneInfo: { accuracy: null, error: null },
+      pastBest: null, devices: [], epoch: 0, camera: { recording: false, error: null }
     };
+    this.camera = new PhoneCameraRecorder(st => this.set({ camera: st }));
     this.imu = new PhoneImuRecorder(() => this.recorder?.current?.fileBase ?? null);
     this.devices = new LapDeviceSet({ onFix: f => this.handleFix(f), runBase: () => this.recorder?.current?.fileBase ?? null });
     this.devices.subscribe(() => this.set({ devices: this.devices.getSnapshot() }));
@@ -175,6 +209,7 @@ export class TimerRuntime {
     this.intervals.push(setInterval(() => { void this.flush(); }, SAVE_INTERVAL_MS));
     document.addEventListener('visibilitychange', this.onHide);
     window.addEventListener('pagehide', this.onHide);
+    if (hasNative()) this.offCamera = onNative('camera.state', e => this.camera.noteState(e.recording, e.error));
   }
 
   dispose(): void {
@@ -184,6 +219,10 @@ export class TimerRuntime {
     this.intervals = [];
     document.removeEventListener('visibilitychange', this.onHide);
     window.removeEventListener('pagehide', this.onHide);
+    this.offCamera?.();
+    this.offCamera = null;
+    // 画面を閉じたら録画も止める (測っていた走行の .mov として置く)
+    void this.camera.stop(this.recorder?.filesBase ?? null, this.cameraFolder());
     this.endFeed();
     void this.imu.stop();
     void this.devices.disconnect();
@@ -199,6 +238,8 @@ export class TimerRuntime {
 
   setSource(s: TimerSource): void {
     if (s === this.snap.source) return;
+    // 試すための再生中の録画は、再生をやめたら止める
+    if (this.snap.source === 'replay' && !this.snap.measuring) void this.camera.stop(null, this.cameraFolder());
     this.set({ source: s });
     if (s !== 'replay') setPositionSource(s);
     if (!this.running) return;
@@ -242,7 +283,13 @@ export class TimerRuntime {
         }
       };
     } else if (src === 'phone') {
-      this.stopFeed = phoneFeed(onFix, i => this.set({ phoneInfo: i }), this.deps.phoneMessages());
+      // 測っている間は、GPS の間を G センサーで埋めた測位を使う (設定でオンのとき)
+      // 本当の GPS の測位はログに書き、周の計測・画面には埋めた測位を使う (前は埋めた推定だけをログに書いていた)
+      this.stopFeed = phoneFeed(f => {
+        if (!this.fusion) { onFix(f); return; }
+        this.handleFix(f, 'record');
+        this.fusion.gps(f);
+      }, i => this.set({ phoneInfo: i }), this.deps.phoneMessages());
     } else if (src === 'replay') {
       this.stopFeed = replayFeed(this.deps.replayLogs().find(l => l.id === this.snap.replayId), this.snap.replaySpeed, onFix);
     }
@@ -285,8 +332,12 @@ export class TimerRuntime {
       const index = parseLapIndex(await store.readText(`${folder}/${LAP_INDEX_FILE}`).catch(() => null));
       if (!index || token !== this.pastBestToken) return;
       const hidden = new Set(index.hidden.map(h => lapKey(h.file, h.part, h.n)));
+      // 参考ラップ (自分のではない走行) は数えない (PLAN-31)
+      const runs = await readRunsFile(store, folder).catch(() => null);
+      if (token !== this.pastBestToken) return;
       let best: { time: number; startMs: number } | null = null;
       for (const [file, rec] of Object.entries(index.files)) {
+        if (runs && findRunRow(runs, file)?.reference) continue;
         for (const l of rec.laps) if (!hidden.has(lapKey(file, l.part, l.n)) && (!best || l.time < best.time)) best = { time: l.time, startMs: l.startMs };
       }
       if (token === this.pastBestToken) this.set({ pastBest: best });
@@ -319,14 +370,59 @@ export class TimerRuntime {
 
   // ---- 測位 ----
 
-  /** 測位を 1 つ受け取る (出どころによらず同じ) */
-  handleFix(fix: LiveFix): void {
+  /** iPhone の GPS の間を G センサーで埋める (測っている間・端末の GPS のとき)。埋めた測位は周の計測と画面だけに使う */
+  private startFusion(): void {
+    this.stopFusion();
+    if (this.snap.source !== 'phone' || !loadPhoneFusion()) return;
+    this.fusion = new GpsImuFusion(f => this.handleFix(f, 'time'));
+    this.imu.onCar = (t, l, a, y) => this.fusion?.imu(t, l, a, y);
+  }
+
+  private stopFusion(): void {
+    this.fusion = null;
+    this.imu.onCar = null;
+  }
+
+  /** この測定で走行のファイルを書き始めたか (測位が 1 つでも届いたか。途中で出どころを替えても、前に書いたものは数える) */
+  get hasRunFile(): boolean {
+    return this.measureWroteRun || !!this.recorder;
+  }
+
+  /** 内蔵カメラで撮るか。読み込んだログの再生では撮らない (試すときだけ、localStorage の ds_timer_camera_replay を 1 にすると撮る) */
+  private cameraOn(): boolean {
+    if (this.snap.source !== 'replay') return true;
+    try { return localStorage.getItem('ds_timer_camera_replay') === '1'; } catch { return false; }
+  }
+
+  /** 動画を置く未分類のフォルダ (測位が無かったときだけ使う) */
+  private cameraFolder(): string {
+    const c = this.snap.course;
+    return c ? courseFolder(c.name, c.folder, c.id) || UNSORTED_FOLDER : UNSORTED_FOLDER;
+  }
+
+  /**
+   * 測位を 1 つ受け取る (出どころによらず同じ)。role:
+   * - both: 記録にも周の計測にも使う (ふつう)
+   * - record: 走行のログに書くだけ (端末の GPS で G センサーで埋めるとき、本当の GPS の測位はログに残す)
+   * - time: 周の計測・画面だけ (G センサーで埋めた推定の測位。ログには書かない)
+   */
+  handleFix(fix: LiveFix, role: 'both' | 'record' | 'time' = 'both'): void {
+    // 動画の時刻合わせ: 機器の GPS の時刻と端末の時計の差を見る。端末の GPS は端末の時計なので差は 0 として扱う
+    if (fix.valid && role !== 'time' && this.cameraOn()) this.camera.noteFix(fix.tMs, this.snap.source === 'phone');
+    if (role === 'record') {
+      if (!fix.valid || !this.snap.measuring) return;
+      this.recordFix(fix);
+      return;
+    }
+    // 試すとき (ds_timer_camera_replay): 再生は「測る」にならないので、再生が動き出したら録画を始める
+    if (fix.valid && this.snap.source === 'replay' && !this.snap.measuring && this.cameraOn()) void this.camera.start();
     if (!fix.valid) return;
     this.snap = { ...this.snap, lastPos: fix, lastFixPerf: performance.now() };
     this.fixes.push(fix);
-    // 持つのは直近の 10 分ほど (コースの選び直しに使うだけ。走った測位は全部、記録の保存先にある)。
+    // 測っている間は、測定開始からの測位を 3 時間ほど (20 Hz で 216000 点) 持つ (途中でコースを選び直したとき、
+    // はじめから数え直せるように。前は 10 分ほどで、それより前の周が数え直せなかった。PLAN-29 の (4))。
     // 測る前は少なめにする (長く待っても、コースの選び直し (4800 点まで) が止まらないように)
-    if (this.fixes.length > (this.snap.measuring ? 12000 : 4000)) this.fixes.splice(0, 2000);
+    if (this.fixes.length > (this.snap.measuring ? 216000 : 4000)) this.fixes.splice(0, 2000);
     // コースを決めていなければ、初めの測位の所で選ぶ。周を数える前は、ときどき選び直す
     if (!this.snap.course) {
       const found = findMatchingCircuit(fix.latitude, fix.longitude);
@@ -337,13 +433,8 @@ export class TimerRuntime {
     // 測定開始を押すまでは、周を数えず記録もしない (ログの再生はいつも数える・記録しない)
     const src = this.snap.source;
     if (src !== 'replay' && !this.snap.measuring) return;
-    // 走っている間の記録 (ログの再生は記録しない)
-    if (src !== 'replay') {
-      const course = () => this.snap.course;
-      this.recorder ??= new LiveRunRecorder(src, () => course()?.name ?? '', m => this.set({ saveError: m }),
-        () => { const c = course(); return c ? courseFolder(c.name, c.folder, c.id) : ''; });
-      this.recorder.add(fix);
-    }
+    // 走っている間の記録 (ログの再生・推定の測位は記録しない)
+    if (src !== 'replay' && role === 'both') this.recordFix(fix);
     const timer = this.timer;
     if (!timer) return;
     const events = timer.push(fix);
@@ -365,6 +456,25 @@ export class TimerRuntime {
     if (events.length > 0) this.set({ lap: timer.getState() });
   }
 
+  /** 走行のログに書く (測っている間) */
+  private recordFix(fix: LiveFix): void {
+    const src = this.snap.source;
+    if (src === 'replay') return;
+    const course = () => this.snap.course;
+    this.recorder ??= new LiveRunRecorder(src, () => course()?.name ?? '', m => this.set({ saveError: m }),
+      () => { const c = course(); return c ? courseFolder(c.name, c.folder, c.id) : ''; });
+    this.measureWroteRun = true;
+    this.recorder.add(fix);
+    if (fix.valid) {
+      const prev = this.lastRecorded;
+      if (prev) {
+        const d = distanceKm(prev.latitude, prev.longitude, fix.latitude, fix.longitude) * 1000;
+        if (Number.isFinite(d) && d < JUMP_M) this.measureDistM += d;
+      }
+      this.lastRecorded = fix;
+    }
+  }
+
   setVoice(on: boolean): void {
     this.set({ voice: on });
   }
@@ -379,20 +489,31 @@ export class TimerRuntime {
     // 前の走行 (測る前に書いていたもの) は、ここで書き終える (選んだフォルダへ移せるように)
     void closeRunFiles(this.recorder?.filesBase);
     this.recorder = null;
+    this.measureWroteRun = false;
     // 押す前の測位で周を数えないよう、コースの選び直しに使う測位も捨てる
     this.fixes = [];
-    this.set({ measuring: true, savedRun: null, epoch: this.snap.epoch + 1 });
+    this.measureDistM = 0;
+    this.lastRecorded = null;
+    this.set({ measuring: true, savedRun: null, idleRun: null, epoch: this.snap.epoch + 1 });
     // カメラ (GoPro) の時計を合わせて録画を始める
     this.devices.startRun(new Date());
     // G センサーを読み始める (今の傾きを基準にするので、止まっているうちに押すのがよい)
     void this.imu.start();
+    // iPhone の GPS で測るときは、GPS の間を G センサーで埋める (1 Hz → 10 Hz)
+    this.startFusion();
+    // 内蔵カメラで録画を始める (設定でオンのとき。読み込んだログの再生で試すときは撮らない)
+    if (this.cameraOn()) void this.camera.start();
     this.chooseCourse(this.snap.course);
   }
 
   /** 測定終了: 書いた走行を閉じて保存し、選んだフォルダへ写す。周の表示は次に測り始めるまで残す */
   async stopMeasuring(): Promise<void> {
     if (!this.snap.measuring) return;
+    // 走った距離と回は、止めた時点のものを覚える (保存を待つ間に測り直すと、数え直した 0 m で前の走行を「走っていない」としてしまうため)
+    const distM = this.measureDistM;
+    const epoch = this.snap.epoch;
     this.set({ measuring: false });
+    this.stopFusion();
     // カメラの録画を止め、センサーの値を書き、次の走行の .csv に替える
     // センサーの .csv は、書き終えてから写す (写したあとに残りの行を書くと、選んだフォルダの .csv が欠けるため)
     const sensors = Promise.all([this.devices.stopRun(), this.imu.stop()]).catch(() => {});
@@ -402,10 +523,73 @@ export class TimerRuntime {
     const st = this.timer?.getState();
     await rec?.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true);
     if (rec) this.set({ savedRun: { laps: st?.laps.length ?? 0, best: st?.best?.timeSec ?? null } });
+    // 録画を止めて、.nmea と同じ所に .mov を置く (選んだフォルダへ写す前に)
+    await this.camera.stop(rec?.filesBase ?? null, this.cameraFolder());
     await sensors;
     // 書き終えたので、選んだフォルダへ移す (アプリの中に控えを残さない)
     await closeRunFiles(rec?.filesBase);
     await this.sync();
+    // ほとんど動いていなければ (ピットにいただけ)、消すか聞く
+    // 保存を待つ間に測り直した・数え直したときは聞かない (今の走行と取り違えないように)
+    if (rec?.filesBase && distM < IDLE_RUN_M && !this.snap.measuring && this.snap.epoch === epoch) {
+      this.set({ idleRun: { fileBase: rec.filesBase, runId: rec.current?.id ?? null, distM: Math.round(distM) } });
+    }
+  }
+
+  /** 走っていない走行を残す (聞いたのを閉じる) */
+  keepIdleRun(): void {
+    this.set({ idleRun: null });
+  }
+
+  /**
+   * 走っていない走行を消す: その走行のファイル (ログ・センサーの .csv・内蔵カメラの動画) と runs.json の行、端末の記録。
+   * 同じフォルダのほかの走行のファイルは、走行の画面の「この走行を消す」と同じ決め方で残す
+   */
+  async discardIdleRun(): Promise<string | null> {
+    const idle = this.snap.idleRun;
+    if (!idle) return null;
+    try {
+      const store = await getRunStore();
+      if (store?.remove) {
+        // 選んだフォルダへ移しきってから消す (アプリの中に残ったファイルが、あとで走行の行の無い走行として戻らないように)
+        if (hasNative()) {
+          const sync = await callNative('system.syncLapFiles', {}).catch(() => null);
+          if (sync && sync.kind === 'folder' && sync.failed > 0) throw new Error(sync.error ?? 'could not move files to the folder');
+        }
+        const files = await store.listAll();
+        const runsFile = await readRunsFile(store, idle.fileBase.slice(0, idle.fileBase.indexOf('/'))).catch(() => null);
+        const folder = idle.fileBase.slice(0, idle.fileBase.indexOf('/'));
+        const rest = idle.fileBase.slice(folder.length + 1);
+        const dir = idle.fileBase.slice(0, idle.fileBase.lastIndexOf('/') + 1);
+        const logs = files.filter(f => f.path.startsWith(dir) && !f.path.slice(dir.length).includes('/') && /\.(nmea|bon4)$/i.test(f.path));
+        // ほかの走行は runs.json の行の動画も持たせる (その走行にも付いている動画を消さないように)
+        const pseudo = (path: string): RunItem => {
+          const file = path.slice(folder.length + 1);
+          const entry = runsFile ? findRunRow(runsFile, file) : null;
+          return {
+            folder, file, courseName: null, startMs: null, lapCount: 0, best: null,
+            videos: entry?.videos?.map(v => v.name) ?? [], synced: false, folderVideos: [], laps: [], pending: false, entry
+          };
+        };
+        const mine = logs.find(f => f.path === `${idle.fileBase}.nmea`) ?? logs.find(f => f.path === `${idle.fileBase}.bon4`);
+        const item = pseudo(mine?.path ?? `${idle.fileBase}.nmea`);
+        const plan = planRunDelete(item, files, logs.filter(f => f.path !== mine?.path).map(f => pseudo(f.path)));
+        // 一覧に出なかったもの (まだアプリの中にある) も、この走行の名前のログ・内蔵カメラの動画は消す
+        const paths = new Set(plan.remove.map(f => f.path));
+        const keep = new Set(plan.keep.map(f => f.path));
+        for (const ext of ['.nmea', '.bon4', '.mov', '_front.mov', '.mp4', '_front.mp4']) if (!keep.has(`${idle.fileBase}${ext}`)) paths.add(`${idle.fileBase}${ext}`);
+        const r = await store.remove([...paths]);
+        if (r.failed.length) throw new Error(r.failed.map(f => f.error).join(', '));
+        // 行は .nmea の名前で作るが、デジスパイスの .bon4 だけの走行もあるので、消したログの名前の行も消す
+        await removeRunRow(store, folder, `${rest}.nmea`);
+        if (mine && !mine.path.endsWith('.nmea')) await removeRunRow(store, folder, mine.path.slice(folder.length + 1));
+      }
+      if (idle.runId) await deleteRunRecord(idle.runId).catch(() => {});
+      this.set({ idleRun: null, savedRun: null });
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    }
   }
 
   /** 周をはじめから数える (出どころを替えた・メニューで数え直した)。それまでの記録は保存して閉じ、次の測位から新しい走行にする */
@@ -416,13 +600,19 @@ export class TimerRuntime {
     const rec = this.recorder;
     this.recorder = null;
     const st = this.timer?.getState();
+    const measuring = this.snap.measuring;
     void (rec ? rec.flush({ lapCount: st?.laps.length ?? 0, bestLapSec: st?.best?.timeSec ?? null }, true) : Promise.resolve())
+      // 測っている途中なら、録画もそこで区切り、新しい走行として撮り始める
+      .then(() => this.camera.stop(rec?.filesBase ?? null, this.cameraFolder()))
+      .then(() => { if (measuring && this.snap.measuring && this.cameraOn()) void this.camera.start(); })
       .then(() => sensors).then(() => closeRunFiles(rec?.filesBase)).then(() => this.sync());
     this.fixes = [];
     this.set({ lastPos: null, epoch: this.snap.epoch + 1 });
     this.chooseCourse(this.snap.course);
     // 測っている途中で出どころを替えたときは、新しい走行としてカメラの録画を始め直す
     if (this.snap.measuring) this.devices.startRun(new Date());
+    // GPS の間を埋めるのは端末の GPS のときだけ (出どころを替えたら、付け直す)
+    if (this.snap.measuring) this.startFusion();
   }
 
   // ---- 保存 ----

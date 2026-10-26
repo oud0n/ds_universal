@@ -20,7 +20,7 @@ struct WebContainer: UIViewRepresentable {
         NativeBridge()
     }
 
-    func makeUIView(context: Context) -> WKWebView {
+    func makeUIView(context: Context) -> WebHost {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
@@ -60,10 +60,38 @@ struct WebContainer: UIViewRepresentable {
         } else {
             webView.load(URLRequest(url: start, cachePolicy: .reloadIgnoringLocalCacheData))
         }
-        return webView
+        return WebHost(webView: webView)
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) {}
+    func updateUIView(_ host: WebHost, context: Context) {}
+}
+
+/// Web の画面を置く枠。ふつうは画面いっぱい (端の避ける幅は、Web の側で env(safe-area-inset-*) を見て避ける)。
+/// 左右で避ける幅が違うとき (折りたたみの iPhone は、時計・電波の帯が右上に縦に並ぶ) だけ、Web をその幅だけ内側に置く
+/// (画面いっぱいに重なる画面の右上のボタンが、帯の下に隠れて押せなかった。iPhone の横向きは左右同じ幅なので、今までどおり)
+final class WebHost: UIView {
+    let webView: WKWebView
+
+    init(webView: WKWebView) {
+        self.webView = webView
+        super.init(frame: .zero)
+        backgroundColor = UIColor(red: 0x0f / 255, green: 0x11 / 255, blue: 0x17 / 255, alpha: 1)
+        addSubview(webView)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let inset = safeAreaInsets
+        let uneven = abs(inset.left - inset.right) > 1
+        webView.frame = uneven ? bounds.inset(by: UIEdgeInsets(top: 0, left: inset.left, bottom: 0, right: inset.right)) : bounds
+    }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        setNeedsLayout()
+    }
 }
 
 enum WebSource {

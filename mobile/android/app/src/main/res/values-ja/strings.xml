@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LapLoupe</string>
+    <string name="pick_device">GPS の受信機を選んでください</string>
+</resources>

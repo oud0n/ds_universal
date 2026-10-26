@@ -70,7 +70,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
                 "contractVersion": Self.contractVersion,
                 "platform": "ios",
                 "deviceKind": DeviceKind.current,
-                "features": ["ble": true, "iap": true]
+                "features": ["ble": true, "iap": true, "camera": true, "deleteFiles": true]
             ]))
         case let m where m.hasPrefix("ble.") || m.hasPrefix("recorder."):
             core.ble.handle(method: m, params: params, done: done)
@@ -78,6 +78,8 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
             core.system.handle(method: m, params: params, done: done)
         case let m where m.hasPrefix("iap."):
             core.iap.handle(method: m, params: params, done: done)
+        case let m where m.hasPrefix("camera."):
+            core.camera.handle(method: m, params: params, done: done)
         default:
             done(.failure(NativeError(.notSupported, "unknown method \(method)")))
         }
@@ -98,6 +100,13 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
     }
 
     private func send(_ message: [String: Any]) {
+        // JSON にできないもの (NaN・無限大など) が混ざっていたら送らない (JSONSerialization は例外を投げてアプリが落ちるため)
+        guard JSONSerialization.isValidJSONObject(message) else {
+            DebugLog.write("bridge: dropped a message that is not valid JSON: \(message["event"] ?? message["id"] ?? "?")")
+            // 答え (id のあるもの) は、捨てずにエラーの答えにする (捨てると、Web が答えを待ち続ける)
+            if let id = message["id"] { send(["id": id, "ok": false, "error": ["code": "io", "message": "reply could not be encoded"]]) }
+            return
+        }
         guard let data = try? JSONSerialization.data(withJSONObject: message),
               let json = String(data: data, encoding: .utf8),
               // JSON の文字列を、JavaScript の文字列の値として渡す (中身をそのまま実行しない)

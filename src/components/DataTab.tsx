@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { RunNoteField } from './RunNoteField';
+import { SessionSaveBar } from './SessionSaveBar';
 import { Session, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { CIRCUIT_PRESETS } from '../services/circuitDatabase';
 import {
@@ -25,6 +27,7 @@ import { formatMinSec } from '../utils/timeFormat';
 import { useCompactLayout } from '../hooks/useCompactLayout';
 import { GFilterLevel } from '../services/physics';
 import { circuitLabel, useLang, useT } from '../utils/i18n';
+import type { GSource } from '../services/imuG';
 
 interface DataTabProps {
   sessions: Session[];
@@ -46,6 +49,14 @@ interface DataTabProps {
   onRemoveSession: (sessionId: string) => void;
   onOpenInConvert: (sessionId: string) => void;
   onEditSessionName: (sessionId: string, newName: string) => void;
+  /** 走行のメモを変えた (PLAN-33) */
+  onEditSessionNote?: (sessionId: string, note: string) => void;
+  /** 今の Car の割り当てを、解析用のセッションとして保存する (PLAN-18)。エラーなら文、できたら null */
+  onSaveSession?: (name: string) => Promise<string | null>;
+  /** ブラウザ版: 書き出した比べ方を読み込む */
+  onImportSession?: (file: File) => Promise<string | null>;
+  /** 保存するときの名前の既定 */
+  sessionDefaultName?: string;
   // ログの時計の補正 (秒) を変える / 同じ時間のほかのログとの比べから見積もる (BUG-08)
   onSetClockOffset?: (sessionId: string, sec: number) => void;
   onEstimateClockOffset?: (sessionId: string) => Promise<ClockEstimateResult | string>;
@@ -60,6 +71,10 @@ interface DataTabProps {
   // G のならし方 (解析の設定)
   gFilterLevel: GFilterLevel;
   onChangeGFilterLevel: (level: GFilterLevel) => void;
+  /** iPhone の G センサーの値がある走行を開いているか */
+  hasImu?: boolean;
+  gSource?: GSource;
+  onChangeGSource?: (s: GSource) => void;
 }
 
 /** 時計の補正の見積もり。applied: 確かな見積もりなので入れた。入れていないもの (quality 'suggest') は「入れる」で入れる */
@@ -219,6 +234,10 @@ export const DataTab: React.FC<DataTabProps> = ({
   onRemoveSession,
   onOpenInConvert,
   onEditSessionName,
+  onEditSessionNote,
+  onSaveSession,
+  onImportSession,
+  sessionDefaultName,
   onSetClockOffset,
   onEstimateClockOffset,
   onSelectCircuitPreset,
@@ -228,7 +247,10 @@ export const DataTab: React.FC<DataTabProps> = ({
   onLoadCircuitFolder,
   onOpenFile,
   gFilterLevel,
-  onChangeGFilterLevel
+  onChangeGFilterLevel,
+  hasImu,
+  gSource,
+  onChangeGSource
 }) => {
   // スマートフォン向けの配置では、ラップ一覧を表でなく 1 周ずつのカードで出す
   const compact = useCompactLayout();
@@ -261,6 +283,10 @@ export const DataTab: React.FC<DataTabProps> = ({
 
   return (
     <div className={`flex flex-col h-full bg-surface-1 text-slate-200 overflow-y-auto overflow-x-hidden ${compact ? 'p-2 space-y-3' : 'p-4 space-y-6'}`}>
+      {/* 今の Car の割り当てを保存する (保管場所の走行を比べているとき。PLAN-18) */}
+      {onSaveSession && (selectedCars.length > 0 || onImportSession) && (
+        <SessionSaveBar defaultName={sessionDefaultName ?? ''} onSave={onSaveSession} onImport={onImportSession} canSave={selectedCars.length > 0} />
+      )}
       {/* 上部: コース設定 & プリセット切り替えバー */}
       <div className={`bg-surface-2 border border-line-2 rounded-xl shadow-md flex flex-wrap items-center justify-between ${compact ? 'p-3 gap-3' : 'p-4 gap-4'}`}>
         <div
@@ -475,6 +501,23 @@ export const DataTab: React.FC<DataTabProps> = ({
             ))}
           </div>
         </div>
+        {hasImu && onChangeGSource && (
+          <div className="flex flex-wrap items-center gap-3" data-testid="g-source">
+            <span className="text-xs font-bold text-slate-300">{t('G の出どころ', 'G source')}</span>
+            <div className="flex bg-surface-1 rounded p-0.5 border border-line-3" role="radiogroup" aria-label={t('G の出どころ', 'G source')}>
+              {([['sensor', t('端末の G センサー', 'Phone sensor')], ['calc', t('計算', 'Calculated')]] as const).map(([value, label]) => (
+                <button key={value} role="radio" aria-checked={gSource === value} onClick={() => onChangeGSource(value)}
+                  className={`px-3 py-1 rounded text-xs font-medium transition-colors ${gSource === value ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="w-full text-[11px] text-slate-400 leading-relaxed">
+              {t('アプリのラップタイマーで測った走行は、端末の G センサーの値も記録しています。「G センサー」にすると、ゆっくりした変化は計算した G、速い変化 (ブレーキの踏み始め・切り返し) は G センサーから取って合わせます。坂や端末の付け方のずれは残りません。',
+                'Runs timed with the app\'s lap timer also record the phone\'s G sensor. With "Phone sensor", slow changes come from the calculated G and fast changes (start of braking, direction changes) from the sensor. Slopes and mounting angle do not leak in.')}
+            </p>
+          </div>
+        )}
         <p className="text-[11px] text-slate-400 leading-relaxed">
           {t('G（加減速 G・横 G・合算 G）と旋回半径は、GPS の位置と車速の変化からアプリが計算しています（ロガーが G を測っているわけではありません）。 GPS の位置はわずかに揺れるので、計算した G も細かく揺れます。「ならし方」は、その揺れをどれだけ平らにするかの設定です。 強くするほど速度グラフの G 表示やフリクションサークルが落ち着きますが、急な変化（ブレーキの踏み始めなど）は鈍く、小さく出ます。 「標準」は記録レートに合わせてならし方を変えます。読み込み済みのログにもすぐ反映され、変換画面で書き出す「走行データCSV」・DTB の G もこの値になります。元のログファイルは変わりません。',
             'G (longitudinal, lateral and combined) and the turning radius are calculated by the app from changes in GPS position and speed (the logger does not measure G). GPS positions jitter slightly, so the calculated G jitters too. "Smoothing" sets how much of that jitter is flattened. Stronger smoothing calms the G display on the speed graph and the friction circle, but sudden changes (such as the start of braking) appear slower and smaller. "Standard" adapts to the logging rate. Changes apply immediately to loaded logs and to the G in the telemetry CSV and DTB exported on the convert page. The original log files are not changed.')}
@@ -533,6 +576,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                   <ClockOffsetControl session={session} onSet={onSetClockOffset} onEstimate={onEstimateClockOffset} />
                 )}
               </div>
+              {onEditSessionNote && <RunNoteField note={session.runNote} onSave={note => onEditSessionNote(session.id, note)} testId="session-note" />}
 
               {/* 変換画面へ・削除 */}
               <div className="flex items-center gap-1.5 flex-wrap">

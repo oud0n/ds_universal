@@ -1,3 +1,5 @@
 /* 設定アプリでアプリの言語を英語にしたときの、許可を聞く文 (iPhone の設定 → アプリ → このアプリ → 言語) */
 "NSBluetoothAlwaysUsageDescription" = "Bluetooth is used to receive the position and speed from your DigSpice while driving.";
 "NSLocationWhenInUseUsageDescription" = "Location is used when the lap timer counts laps with the iPhone GPS instead of a DigSpice.";
+"NSCameraUsageDescription" = "The camera records onboard video while the lap timer is measuring (saved in the same folder as the run log).";
+"NSMicrophoneUsageDescription" = "The microphone records engine sound into the onboard video (you can turn this off in settings).";

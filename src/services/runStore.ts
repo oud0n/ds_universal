@@ -4,7 +4,7 @@
  * 動画は lapfile://run/<道> で読む (丸ごと読まず、頼んだ範囲だけ読む。iPhone: RunFiles.swift、デスクトップ版: electron/main.cjs)
  */
 
-import { callNative, fromBase64, hasNative, NativeError, toBase64 } from '../native/bridge';
+import { callNative, fromBase64, hasNative, nativeCapabilities, NativeError, toBase64 } from '../native/bridge';
 import type { LapFileInfo, LapFileStore } from './lapIndex';
 
 export interface RunFileInfo extends LapFileInfo {
@@ -27,48 +27,65 @@ export interface RunStore extends LapFileStore {
   fileStatus(path: string): Promise<{ local: boolean; downloading: boolean }>;
   /** 動画を lapfile:// で読めるか (古いアプリは読めない) */
   supportsVideos(): Promise<boolean>;
+  /**
+   * 走行のファイルを消す (iPhone・デスクトップ版はゴミ箱へ)。消せない環境 (前の版のアプリ・ブラウザ版) では無い。
+   * サーキットのフォルダの中のものだけ (共有の控え・コース・セッションは消せない)
+   */
+  /** 消す (permanent: ゴミ箱へ移せず、すぐに消したもの。iPhone のアプリの中の保管場所など) */
+  remove?(paths: string[]): Promise<{ deleted: string[]; failed: Array<{ path: string; error: string }>; permanent?: string[] }>;
+}
+
+/** この置き場で走行のファイルを消せるか */
+export async function canRemoveRunFiles(store: RunStore | null): Promise<boolean> {
+  if (!store?.remove) return false;
+  if (!hasNative()) return true;
+  try { return !!(await nativeCapabilities())?.features.deleteFiles; } catch { return false; }
 }
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+/**
+ * 動画を読む URL の頭。iPhone・デスクトップ版は lapfile://run/、Android は https://appassets.androidplatform.net/run/
+ * (アプリが system.runRoot で教える。聞く前は lapfile://run/)
+ */
+let runUrlBase = 'lapfile://run/';
+
 /** lapfile://run/<道> (道の区切りごとに % で書く) */
 export function lapFileUrl(path: string): string {
-  return 'lapfile://run/' + path.split('/').map(encodeURIComponent).join('/');
+  return runUrlBase + path.split('/').map(encodeURIComponent).join('/');
 }
 
-/** アプリが lapfile:// を持っているか (system.runRoot に答えるか)。1 回だけ聞く */
+/**
+ * 動画の URL の頭をアプリに聞く (1 回だけ)。
+ * アプリには Web を入れて配っているので、Web とアプリの窓口はいつもそろっている (古いアプリ向けの別の道は 2026-10-25 に外した。PLAN-29)
+ */
 let nativeVideos: Promise<boolean> | null = null;
-const nativeSupportsVideos = () => (nativeVideos ??= callNative('system.runRoot', {}).then(() => true, e => !isOldApp(e)));
-
-/** 古いアプリ (走行の置き場の窓口がない) か */
-const isOldApp = (e: unknown) => e instanceof NativeError && e.code === 'not-supported';
+const nativeSupportsVideos = () => (nativeVideos ??= callNative('system.runRoot', {}).then(r => {
+  // 開発サーバーでは、ネイティブのふり (mockNative) が http://localhost の動画を出せるようにする (マニュアルの写真を撮るため)
+  const devLocal = import.meta.env.DEV && /^http:\/\/localhost[:/]/.test(r.urlBase ?? '');
+  if (r.urlBase && (/^(lapfile|https):\/\//.test(r.urlBase) || devLocal)) runUrlBase = r.urlBase.endsWith('/') ? r.urlBase : `${r.urlBase}/`;
+  return true;
+}, () => {
+  // 一時的な失敗 (起動直後など) のこともあるので、覚えずに次にまた聞く
+  nativeVideos = null;
+  return false;
+}));
 
 /** iPhone のアプリ。選んだフォルダがあればそこ、なければ書類の LapTimer/ */
 export function nativeRunStore(): RunStore | null {
   if (!hasNative()) return null;
+  // 動画の URL の頭 (Android は lapfile:// でない) を早めに聞いておく
+  void nativeSupportsVideos();
   let synced: Promise<unknown> | null = null;
   // 走っている間に書いた走行を、選んだフォルダへ写してから見る (写すのは 1 回だけ待つ)
   const sync = () => (synced ??= callNative('system.syncLapFiles', {}).catch(() => undefined));
-  const readBytes = async (path: string): Promise<Uint8Array> => {
-    try {
-      return fromBase64((await callNative('system.readRunFile', { path })).b64);
-    } catch (e) {
-      if (!isOldApp(e)) throw e;
-      return fromBase64((await callNative('system.readLapFile', { path })).b64);
-    }
-  };
+  const readBytes = async (path: string): Promise<Uint8Array> => fromBase64((await callNative('system.readRunFile', { path })).b64);
   const store: RunStore = {
     supportsVideos: nativeSupportsVideos,
     async listAll() {
       await sync();
-      try {
-        return (await callNative('system.listRunFiles', {})).files;
-      } catch (e) {
-        if (!isOldApp(e)) throw e;
-        const files: LapFileInfo[] = (await callNative('system.listLapFiles', {})).files;
-        return files.map(f => ({ ...f, local: true }));
-      }
+      return (await callNative('system.listRunFiles', {})).files;
     },
     // iCloud にだけあるファイルも local: false で渡す (周の控えは、それを落とさずに前の控えを残す。lapIndex.ts の reconcileFolder)
     list: () => store.listAll(),
@@ -89,12 +106,7 @@ export function nativeRunStore(): RunStore | null {
       }
     },
     async writeText(path, text) {
-      try {
-        await callNative('system.writeRunFile', { path, b64: toBase64(encoder.encode(text)) });
-      } catch (e) {
-        if (!isOldApp(e)) throw e;
-        await callNative('system.appendFile', { path, b64: toBase64(encoder.encode(text)), truncate: true });
-      }
+      await callNative('system.writeRunFile', { path, b64: toBase64(encoder.encode(text)) });
     },
     videoUrl: lapFileUrl,
     rangeReader: path => async (start, end) => {
@@ -106,6 +118,9 @@ export function nativeRunStore(): RunStore | null {
     },
     async startDownload(path) {
       await callNative('system.downloadRunFile', { path }).catch(() => undefined);
+    },
+    async remove(paths) {
+      return callNative('system.deleteRunFiles', { paths });
     }
   };
   return store;
@@ -148,7 +163,8 @@ export async function electronRunStore(): Promise<RunStore | null> {
     },
     async startDownload(path) {
       await api.startDownload?.(path);
-    }
+    },
+    ...(api.remove ? { remove: (paths: string[]) => api.remove!(paths) } : {})
   };
   return store;
 }

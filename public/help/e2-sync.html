@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja" data-lang="ja" data-device="iphone">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-ja="動画とログを合わせる — LapLoupe の使い方" data-en="Syncing video and log — LapLoupe guide">動画とログを合わせる — LapLoupe の使い方</title>
+<link rel="stylesheet" href="help.css">
+<script src="help.js" defer></script>
+</head>
+<body>
+<main>
+  <header class="top">
+    <a class="home" href="index.html" data-keep><span class="l-ja">LapLoupe の使い方</span><span class="l-en">LapLoupe guide</span></a>
+    <div class="switch" role="group" aria-label="device">
+      <button data-set-device="iphone">iPhone</button><button data-set-device="android">Android</button><button data-set-device="desktop"><span class="l-ja">デスクトップ</span><span class="l-en">Desktop</span></button><button data-set-device="browser"><span class="l-ja">ブラウザ</span><span class="l-en">Browser</span></button>
+    </div>
+    <div class="switch" role="group" aria-label="language"><button data-set-lang="ja">日本語</button><button data-set-lang="en">English</button></div>
+  </header>
+
+  <h1><span class="l-ja">動画とログを合わせる</span><span class="l-en">Syncing video and log</span></h1>
+  <p class="lead"><span class="l-ja">ふつうは、動画の撮影の時刻や GoPro の GPS で自動で合います。ずれているときだけ、<span class="ui">合わせる</span> で直します。直した結果は走行に覚え、ほかの端末でも同じに開きます。</span><span class="l-en">Normally the video syncs automatically from its timestamp or GoPro GPS. Only if it is off, fix it with <span class="ui">Sync</span>. The result is saved with the run and used on your other devices too.</span></p>
+
+  <figure class="video"><video data-src="video/V2_sync.mp4" controls playsinline muted preload="metadata"></video></figure>
+
+  <ol class="steps ">
+    <li class="">
+      <span class="l-ja">動画の画面で <span class="ui">合わせる</span> を押します。動画とログのタイムゾーン、<span class="ui">再同期</span>、動画とログが重なっている範囲のタイムラインが出ます。</span><span class="l-en">Press <span class="ui">Sync</span> on the video screen. You get the video and GPS time zones, <span class="ui">Resync</span> and a timeline of where video and log overlap.</span>
+      <figure class="phone dev d-iphone d-android"><img class="l-ja" src="img/e2/phone-ja-1.webp" alt="" loading="lazy"><img class="l-en" src="img/e2/phone-en-1.webp" alt="" loading="lazy"></figure>
+      <figure class="dev d-desktop d-browser"><img class="l-ja" src="img/e2/desktop-ja-1.webp" alt="" loading="lazy"><img class="l-en" src="img/e2/desktop-en-1.webp" alt="" loading="lazy"></figure>
+    </li>
+    <li class="">
+      <span class="l-ja">動画の時刻が何時間もずれているときは、タイムゾーンを直して <span class="ui">再同期</span> を押します。</span><span class="l-en">If the video is off by hours, fix the time zone and press <span class="ui">Resync</span>.</span>
+      
+    </li>
+    <li class="">
+      <span class="l-ja">少しずれているときは、<span class="ui">オフセット</span> の <span class="ui">-1s</span> <span class="ui">-0.05s</span> <span class="ui">+0.05s</span> <span class="ui">+1s</span> で合わせます。動画を計測線などはっきりした場面に止め、ログの位置もそこに合わせてから <span class="ui">現フレームで同期</span> を押しても合わせられます。</span><span class="l-en">For small offsets, nudge with <span class="ui">-1s</span> <span class="ui">-0.05s</span> <span class="ui">+0.05s</span> <span class="ui">+1s</span> under <span class="ui">Offset</span>. Or pause the video at a clear moment (crossing the line), move the log to the same place and press <span class="ui">Sync to this frame</span>.</span>
+      
+    </li>
+  </ol>
+
+  <div class="pager">
+    <a href="e1-video.html" data-keep>← <span class="l-ja">動画を見る</span><span class="l-en">Watching videos</span></a>
+    <a href="e3-compare.html" data-keep><span class="l-ja">動画で比べる</span><span class="l-en">Comparing with video</span> →</a>
+  </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ja" data-lang="ja" data-device="iphone">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-ja="走行を整理する (名前・車種・タイヤ・天候) — LapLoupe の使い方" data-en="Organise your runs (names, car, tyres, weather) — LapLoupe guide">走行を整理する (名前・車種・タイヤ・天候) — LapLoupe の使い方</title>
+<link rel="stylesheet" href="help.css">
+<script src="help.js" defer></script>
+</head>
+<body>
+<main>
+  <header class="top">
+    <a class="home" href="index.html" data-keep><span class="l-ja">LapLoupe の使い方</span><span class="l-en">LapLoupe guide</span></a>
+    <div class="switch" role="group" aria-label="device">
+      <button data-set-device="iphone">iPhone</button><button data-set-device="android">Android</button><button data-set-device="desktop"><span class="l-ja">デスクトップ</span><span class="l-en">Desktop</span></button><button data-set-device="browser"><span class="l-ja">ブラウザ</span><span class="l-en">Browser</span></button>
+    </div>
+    <div class="switch" role="group" aria-label="language"><button data-set-lang="ja">日本語</button><button data-set-lang="en">English</button></div>
+  </header>
+
+  <h1><span class="l-ja">走行を整理する (名前・車種・タイヤ・天候)</span><span class="l-en">Organise your runs (names, car, tyres, weather)</span></h1>
+  <p class="lead"><span class="l-ja">走行に名前・メモ・車種・タイヤ・天候・気温を書いておくと、一覧に出て、それで絞り込めます。どれも書かなくてかまいません (書いた人だけ使えます)。</span><span class="l-en">Give runs a name, notes, car, tyres, weather and temperatures; they show in the list and you can filter by them. All of it is optional.</span></p>
+
+  <figure class="video"><video data-src="video/V7_organize.mp4" controls playsinline muted preload="metadata"></video></figure>
+
+  <div class="note dev d-browser"><span class="l-ja"><b>ブラウザ版には「走行」の画面がありません。</b>保管場所 (走行のファイルを置くフォルダ) を使えないためです。ログのファイルは <span class="ui">ファイルを開く</span> で開いてください。</span><span class="l-en"><b>The browser version has no Runs screen,</b> because it cannot use a storage folder. Open log files with <span class="ui">Open file</span>.</span></div>
+
+  <ol class="steps dev d-iphone d-android d-desktop">
+    <li class="">
+      <span class="l-ja">走行を押して詳細を開き、名前・車種・タイヤを書き、天候 (ドライ・ダンプ・ウェット・ヘビーウェット) を選び、気温・路面温度を書きます。欄を離れると保存します。</span><span class="l-en">Open a run and fill in the name, car and tyres, choose the weather (dry, damp, wet, heavy wet) and enter air and track temperatures. Each field saves when you leave it.</span>
+      <figure class="phone dev d-iphone d-android"><img class="l-ja" src="img/c2/phone-ja-1.webp" alt="" loading="lazy"><img class="l-en" src="img/c2/phone-en-1.webp" alt="" loading="lazy"></figure>
+      <figure class="dev d-desktop"><img class="l-ja" src="img/c2/desktop-ja-1.webp" alt="" loading="lazy"><img class="l-en" src="img/c2/desktop-en-1.webp" alt="" loading="lazy"></figure>
+    </li>
+    <li class="">
+      <span class="l-ja">書いた値は一覧に出ます。一覧の上のドロップダウンで、コース・車種・タイヤ・天候を絞れます (書いた走行がある項目だけ出ます)。</span><span class="l-en">Entered values show in the list. Use the drop-downs above it to filter by course, car, tyres and weather (each appears only once some run has a value).</span>
+      <figure class="phone dev d-iphone d-android"><img class="l-ja" src="img/c2/phone-ja-3.webp" alt="" loading="lazy"><img class="l-en" src="img/c2/phone-en-3.webp" alt="" loading="lazy"></figure>
+      <figure class="dev d-desktop"><img class="l-ja" src="img/c2/desktop-ja-2.webp" alt="" loading="lazy"><img class="l-en" src="img/c2/desktop-en-2.webp" alt="" loading="lazy"></figure>
+    </li>
+    <li class="">
+      <span class="l-ja"><span class="ui">ラップタイム</span> にも同じ絞り込みがあり、ベスト・順位は絞った中で数えます (例: ウェットのベスト)。</span><span class="l-en"><span class="ui">Lap records</span> has the same filters, and bests and rankings count only the filtered runs (e.g. your best in the wet).</span>
+      
+    </li>
+    <li class="">
+      <span class="l-ja">速い人のログなど自分のではない走行は、<span class="ui">参考ラップ</span> に印を付けると「参考ラップ」の側に分かれ、自分のベスト・順位に数えなくなります。</span><span class="l-en">Tick <span class="ui">Reference lap</span> for runs that are not yours (a faster driver's log, say); they move to the reference side and are left out of your bests and rankings.</span>
+      
+    </li>
+    <li class="">
+      <span class="l-ja">いらない走行は、詳細のいちばん下の <span class="ui">この走行を消す…</span> で消します。消すファイルの一覧を確かめてから消します (同じ日のほかの走行や、付けていない動画は残します)。</span><span class="l-en">Delete a run with <span class="ui">Delete this run…</span> at the bottom of its details. You confirm the list of files first; other runs from the same day and unattached videos are kept.</span>
+      
+    </li>
+  </ol>
+
+  <div class="pager">
+    <a href="c1-runs.html" data-keep>← <span class="l-ja">走行を見返す</span><span class="l-en">Look back at your runs</span></a>
+    <a href="d1-analysis.html" data-keep><span class="l-ja">解析の画面の見方</span><span class="l-en">Reading the analysis screen</span> →</a>
+  </div>
+</main>
+</body>
+</html>

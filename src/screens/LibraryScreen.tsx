@@ -1,5 +1,9 @@
 import { sameCourseName } from '../utils/courseNames';
-import React, { useMemo, useState } from 'react';
+import { NO_FILTER, conditionsOf, effectiveFilter, filterOptions, hasValues, matchesFilter, type ConditionFilter } from '../services/runFilters';
+import { ConditionFilters } from '../components/ConditionFilters';
+import { WEATHERS, WEATHER_LABELS, isTempC, isWeather, type Weather } from '../services/runWeather';
+import type { RunMetaPatch } from '../services/runOpener';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart2, Bluetooth, ChevronRight, Cloud, EyeOff, FolderOpen, GitCompare, Loader2, Timer, Trophy, Video, X } from 'lucide-react';
 import { circuitLabel, useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
@@ -8,8 +12,19 @@ import { RunRow, fmtDate, useRuns } from '../components/RecentRuns';
 import { LapHistoryPanel } from '../components/LapHistoryPanel';
 import { runStem } from '../services/lapIndex';
 import { useStorageLabel } from '../components/StorageSettings';
-import { baseName, setRunLapHidden, type RunItem } from '../services/runOpener';
+import { baseName, setRunLapHidden, setRunMeta, type RunItem } from '../services/runOpener';
+import { RunNoteField } from '../components/RunNoteField';
 import { navStore } from '../app/navStore';
+import { deleteSession, listSessions, type LapSession, type SavedSession } from '../services/analysisSessions';
+import { deleteRun, planRunDelete, type RunDeletePlan } from '../services/runDelete';
+import { canRemoveRunFiles, type RunFileInfo } from '../services/runStore';
+import { isRunBeingWritten } from '../services/runRecorder';
+import { hasNative } from '../native/bridge';
+import { listVideoRefs, removeVideoLaps, videoRefCandidates, type VideoRef } from '../services/videoLaps';
+import { VideoLapCompare, VideoLapMarker, VideoRefPicker } from '../components/VideoRefLaps';
+
+/** 空でない値を、重ならないように (並びはそのまま) */
+const uniqueValues = (list: Array<string | undefined>) => [...new Set(list.map(v => v?.trim()).filter((v): v is string => !!v))].slice(0, 30);
 
 /** 一度に出す行の数 (数千件あっても固まらないよう、続きは「さらに表示」で足す) */
 const PAGE = 150;
@@ -19,6 +34,8 @@ interface Props {
   /** 横に広い画面 (デスクトップ・iPad)。走行の詳細を右の欄に出す。狭いときは画面いっぱいのシート */
   wide: boolean;
   onOpen: (r: RunItem) => void;
+  /** 保存した比べ方 (解析用のセッション。PLAN-18) を開く */
+  onOpenSession?: (s: LapSession) => void;
   onOpenVideo: (r: RunItem) => void;
   /** 比べる相手 (Car 2) として足す (走行をもう開いているときだけ) */
   onAddAsCar2?: (r: RunItem) => void;
@@ -26,6 +43,8 @@ interface Props {
   car1Course?: string | null;
   /** Car 1 の走行 (folder/file)。同じ走行は Car 2 にできない */
   car1Run?: string | null;
+  /** 解析で開いている走行 (folder/file)。開いている走行は消せない */
+  openRuns?: string[];
   onPickFiles: () => void;
   /** ラップタイムの記録から、走行のファイルを解析で開く */
   onOpenFile: (file: File) => void;
@@ -55,28 +74,80 @@ const sameRunFile = (a: string, b: string) => {
   return dir(a) === dir(b) && runStem(a) === runStem(b);
 };
 
-export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVideo, onAddAsCar2, car1Course = null, car1Run = null, onPickFiles, onOpenFile, busy, canTime = false }) => {
+export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSession, onOpenVideo, onAddAsCar2, car1Course = null, car1Run = null, openRuns = [], onPickFiles, onOpenFile, busy, canTime = false }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const { store, runs, error, noFolder, reload } = useRuns(active);
   const storageLabel = useStorageLabel(active);
   const [folder, setFolder] = useState<string | null>(null);
+  /** 自分の走行か、参考ラップ (自分のではない走行。PLAN-31) か */
+  const [owner, setOwner] = useState<'mine' | 'ref'>('mine');
+  // 車種・タイヤ・天候で絞る (PLAN-37。null: すべて、none: 未設定)
+  const [condFilter, setCondFilter] = useState<ConditionFilter>(NO_FILTER);
   const [shown, setShown] = useState(PAGE);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   /** 中身のない走行 (周も動画もない) を開いて見せている日 */
   const [showEmpty, setShowEmpty] = useState<Set<string>>(() => new Set());
+  /** 走行のファイルを消せる置き場か (前の版のアプリ・ブラウザ版では消せない) */
+  const [canDelete, setCanDelete] = useState(false);
+  useEffect(() => { let alive = true; void canRemoveRunFiles(store).then(v => { if (alive) setCanDelete(v); }); return () => { alive = false; }; }, [store]);
+  /** 消す確かめの画面 (走行と、消すファイルの案) */
+  const [deleting, setDeleting] = useState<{ item: RunItem; plan: RunDeletePlan | null; error?: string; running?: boolean } | null>(null);
+  /** 保存した比べ方 (解析用のセッション)。走行を読み直すたびに読み直す */
+  const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
+  const [sessionsOpen, setSessionsOpen] = useState(true);
+  /** 動画だけの参考ラップ (LATER-17)。走行を読み直すたびに読み直す */
+  const [videoRefs, setVideoRefs] = useState<VideoRef[]>([]);
+  const [refsTick, setRefsTick] = useState(0);
+  useEffect(() => {
+    if (!active || !store) return;
+    let alive = true;
+    void listVideoRefs(store).then(l => { if (alive) setVideoRefs(l); }, () => {});
+    return () => { alive = false; };
+  }, [active, store, runs, refsTick]);
+  /** 参考ラップにする動画を選ぶ画面 (null: 探している) / 印を打つ画面 / 比べる画面 */
+  const [picking, setPicking] = useState<RunFileInfo[] | null | false>(false);
+  const [marking, setMarking] = useState<{ path: string; existing: VideoRef | null } | null>(null);
+  const [comparing, setComparing] = useState<VideoRef | null>(null);
+  const startPick = () => {
+    if (!store) return;
+    setPicking(null);
+    void store.listAll().then(files => setPicking(videoRefCandidates(files, runs ?? [], videoRefs)), () => setPicking([]));
+  };
+  useEffect(() => {
+    if (!active || !store || !onOpenSession) return;
+    let alive = true;
+    void listSessions(store).then(l => { if (alive) setSavedSessions(l); }, () => {});
+    return () => { alive = false; };
+  }, [active, store, runs, onOpenSession]);
 
+  const refCount = useMemo(() => (runs ?? []).filter(r => !!r.entry?.reference).length, [runs]) + videoRefs.length;
+  // 参考ラップの区切りは、走行があれば出す (動画だけの参考ラップをそこから作れるように)
+  const showOwner = !!store && (runs?.length ?? 0) > 0;
+  const ownerNow = showOwner ? owner : 'mine';
+  // サーキットで絞る印: 今の区切り (自分の走行 / 参考ラップ) の走行の数 (参考ラップには動画だけの参考ラップも数える)
+  const ownerRuns = useMemo(() => (runs ?? []).filter(r => (ownerNow === 'ref') === !!r.entry?.reference), [runs, ownerNow]);
   const folders = useMemo(() => {
     const m = new Map<string, { label: string; count: number }>();
-    for (const r of runs ?? []) {
+    const label = (folder: string) => (runs ?? []).find(r => r.folder === folder)?.courseName ?? folder;
+    for (const r of ownerRuns) {
       const cur = m.get(r.folder);
       m.set(r.folder, { label: r.courseName ?? r.folder, count: (cur?.count ?? 0) + 1 });
     }
+    if (ownerNow === 'ref') for (const v of videoRefs) {
+      const cur = m.get(v.folder);
+      m.set(v.folder, { label: cur?.label ?? label(v.folder), count: (cur?.count ?? 0) + 1 });
+    }
     return [...m.entries()];
+  }, [runs, ownerRuns, ownerNow, videoRefs]);
+  // 車種・タイヤ・天候の絞り込み: 書いた走行がある項目だけ出す (使わない人には出さない)
+  const condOptions = useMemo(() => filterOptions(ownerRuns.filter(r => !folder || r.folder === folder).map(r => conditionsOf(r.entry))), [ownerRuns, folder]);
+  const condNow = effectiveFilter(condFilter, condOptions);
+  const showCond = hasValues(condOptions.car) || hasValues(condOptions.tyre) || hasValues(condOptions.weather);
+  const filtered = useMemo(() => (runs ?? []).filter(r => (!folder || r.folder === folder) && (ownerNow === 'ref') === !!r.entry?.reference && matchesFilter(conditionsOf(r.entry), condNow)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runs]);
-  const filtered = useMemo(() => (runs ?? []).filter(r => !folder || r.folder === folder), [runs, folder]);
+    [runs, folder, ownerNow, condNow.car, condNow.tyre, condNow.weather]);
   const selected = filtered.find(r => `${r.folder}/${r.file}` === selectedKey) ?? null;
 
   if (!active) return null;
@@ -97,6 +168,8 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
   };
 
   const select = (r: RunItem) => setSelectedKey(`${r.folder}/${r.file}`);
+  /** 車種・タイヤの候補 (書いたことのあるもの。新しい走行のものから) */
+  const carTyreChoices = { cars: uniqueValues((runs ?? []).map(r => (r.entry?.reference ? r.entry.reference.car : r.entry?.car))), tyres: uniqueValues((runs ?? []).map(r => r.entry?.tyre)) };
 
   const list = (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -112,17 +185,38 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
           <ChevronRight size={14} className="text-slate-500 shrink-0" />
         </button>
       )}
-      {folders.length > 1 && (
-        <div className="flex gap-1.5 px-3 pt-3 overflow-x-auto shrink-0">
-          {[[null, { label: t('すべて', 'All'), count: runs?.length ?? 0 }] as const, ...folders].map(([f, { label, count }]) => (
-            <button
-              key={f ?? '*'}
-              onClick={() => { setFolder(f); setShown(PAGE); setSelectedKey(null); }}
-              className={`px-3 py-1.5 rounded-full text-xs whitespace-nowrap border cursor-pointer ${folder === f ? 'bg-sky-600 border-sky-500 text-white' : 'bg-surface-3 border-line-2 text-slate-300'}`}
-            >
-              {f === 'unsorted' && label === 'unsorted' ? t('未分類', 'Unsorted') : f !== null ? circuitLabel(label) : label} <span className="opacity-70">{count}</span>
+      {/* 参考ラップがあるときだけ、自分の走行と分けて出す */}
+      {showOwner && (
+        <div className="flex gap-1 px-3 pt-3 shrink-0" data-testid="library-owner">
+          {(['mine', 'ref'] as const).map(o => (
+            <button key={o} onClick={() => { setOwner(o); setShown(PAGE); setSelectedKey(null); }}
+              className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer ${ownerNow === o ? 'bg-sky-600 border-sky-500 text-white' : 'bg-surface-2 border-line-2 text-slate-300'}`}
+              data-testid={`library-owner-${o}`}>
+              {o === 'mine' ? t('自分の走行', 'My runs') : refCount ? t(`参考ラップ ${refCount}`, `Reference laps ${refCount}`) : t('参考ラップ', 'Reference laps')}
             </button>
           ))}
+        </div>
+      )}
+      {/* 絞り込み: コース・天候をドロップダウンで 1 段に (コースの名前が長く、丸いボタンを並べると横に長くなるため)。
+          天候は書いた走行があるときだけ出す (使わない人には出さない) */}
+      {(folders.length > 1 || showCond) && (
+        <div className="grid grid-cols-2 gap-2 px-3 pt-3 shrink-0" data-testid="library-filters">
+          {folders.length > 1 && (
+            <select
+              value={folder ?? ''}
+              onChange={e => { setFolder(e.target.value || null); setShown(PAGE); setSelectedKey(null); }}
+              className={`${showCond ? '' : 'col-span-2'} w-full min-w-0 bg-surface-2 border rounded-lg text-xs px-2 py-1.5 cursor-pointer ${folder ? 'border-sky-500 text-sky-200' : 'border-line-2 text-slate-200'}`}
+              aria-label={t('コース', 'Course')}
+              data-testid="library-course"
+            >
+              <option value="">{t('コース: すべて', 'Course: all')} ({folders.reduce((n, [, f]) => n + f.count, 0)})</option>
+              {folders.map(([f, { label, count }]) => (
+                <option key={f} value={f}>{f === 'unsorted' && label === 'unsorted' ? t('未分類', 'Unsorted') : circuitLabel(label)} ({count})</option>
+              ))}
+            </select>
+          )}
+          <ConditionFilters filter={condNow} options={condOptions} testIdPrefix="library" selectClass="w-full"
+            onChange={f => { setCondFilter(f); setShown(PAGE); setSelectedKey(null); }} />
         </div>
       )}
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4" data-testid="library-list">
@@ -136,6 +230,82 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
           </div>
         )}
         {error && <p className="text-xs text-red-400 py-2">{error}</p>}
+        {/* 保存した比べ方 (解析で Car に割り当てた組み合わせ。PLAN-18) */}
+        {onOpenSession && store && savedSessions.length > 0 && (
+          <div data-testid="library-sessions">
+            <button onClick={() => setSessionsOpen(o => !o)} className="w-full flex items-center gap-1 text-[11px] font-bold text-slate-400 px-1 pb-1.5 cursor-pointer">
+              <GitCompare size={12} />{t(`保存した比べ方 ${savedSessions.length}`, `Saved comparisons ${savedSessions.length}`)}
+              <span className="ml-auto">{sessionsOpen ? '−' : '+'}</span>
+            </button>
+            {sessionsOpen && (
+              <div className="space-y-1.5">
+                {savedSessions.map(s => (
+                  <div key={s.path} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-2 border border-line-2" data-testid="library-session-row">
+                    <button onClick={() => onOpenSession(s.data)} disabled={busy} className="flex-1 min-w-0 text-left cursor-pointer disabled:opacity-50">
+                      <div className="text-xs font-bold text-slate-100 truncate">{s.data.name}</div>
+                      <div className="text-[11px] text-slate-500 truncate">
+                        {s.data.course?.name ? `${circuitLabel(s.data.course.name)} · ` : ''}{t(`${s.data.cars.length} 台`, `${s.data.cars.length} car${s.data.cars.length === 1 ? '' : 's'}`)} · {fmtDate(Date.parse(s.data.createdAt) || null, ja)}
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!window.confirm(t(`「${s.data.name}」を消しますか？ (走行は消えません)`, `Delete "${s.data.name}"? (The runs are kept)`))) return;
+                        void deleteSession(store, s.path).then(() => setSavedSessions(l => l.filter(x => x.path !== s.path)));
+                      }}
+                      className="p-1.5 rounded text-slate-500 hover:text-red-400 cursor-pointer" aria-label={t('消す', 'Delete')} data-testid="library-session-delete"
+                    ><X size={14} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {/* 動画だけの参考ラップ (LATER-17)。参考ラップの区切りの上に */}
+        {ownerNow === 'ref' && store && (
+          <div className="space-y-1.5" data-testid="library-video-refs">
+            <div className="flex items-center gap-2 px-1">
+              <span className="text-[11px] font-bold text-slate-400 flex-1">{t(`動画だけの参考ラップ ${videoRefs.length}`, `Video-only reference laps ${videoRefs.length}`)}</span>
+              <button onClick={startPick} className="flex items-center gap-1 px-2 py-1 rounded border border-line-3 hover:border-sky-500 text-[11px] text-slate-300 cursor-pointer" data-testid="library-video-ref-new">
+                <Video size={12} />{t('動画から作る', 'From a video')}
+              </button>
+            </div>
+            {refCount === 0 && (
+              <p className="text-[11px] text-slate-500 px-1" data-testid="library-ref-hint">
+                {t('ほかの人の走行のログは、自分の走行の詳細で「参考ラップ」に印を付けるとここに出ます。ログのない動画は「動画から作る」で。', 'Mark another driver’s log as "Reference lap" in its run details to list it here. For a video without a log, use "From a video".')}
+              </p>
+            )}
+            {videoRefs.filter(r => !folder || r.folder === folder).map(r => {
+              const best = r.laps.length ? Math.min(...r.laps.map(l => l.time)) : null;
+              return (
+                <div key={r.path} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-2 border border-line-2" data-testid="library-video-ref-row">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-bold text-slate-100 truncate">{r.row.name || r.file.slice(r.file.lastIndexOf('/') + 1)}</div>
+                    <div className="text-[11px] text-slate-500 truncate">
+                      {circuitLabel(runs?.find(x => x.folder === r.folder)?.courseName ?? r.folder)}
+                      {r.row.reference?.driver ? ` · ${r.row.reference.driver}` : ''}{r.row.reference?.car ? ` · ${r.row.reference.car}` : ''}
+                      {` · ${t(`${r.laps.length} 周`, `${r.laps.length} lap${r.laps.length === 1 ? '' : 's'}`)}`}{best !== null ? ` · ${formatLapTime(best)}` : ''}
+                    </div>
+                    {/* iCloud にだけある動画は、行の後ろで切れて見えないので、別の行に出す */}
+                    {r.remote && (
+                      <div className="flex items-center gap-1 text-[11px] text-amber-500" data-testid="library-video-ref-remote">
+                        <Cloud size={12} className="shrink-0" />{t('iCloud にだけあります (「ファイル」で落とすと比べられます)', 'Only in iCloud (download it in Files to compare)')}
+                      </div>
+                    )}
+                  </div>
+                  <button onClick={() => setComparing(r)} disabled={!r.laps.length || r.remote} title={r.remote ? t('iCloud から落としてから比べてください', 'Download it from iCloud first') : undefined} className="px-3 py-2 rounded bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50" data-testid="library-video-ref-compare">{t('比べる', 'Compare')}</button>
+                  <button onClick={() => setMarking({ path: r.path, existing: r })} className="px-3 py-2 rounded border border-line-3 text-slate-300 text-[11px] cursor-pointer" data-testid="library-video-ref-edit">{t('印', 'Marks')}</button>
+                  <button
+                    onClick={() => {
+                      if (!window.confirm(t('この参考ラップをやめますか？ (動画のファイルは消えません)', 'Remove this reference lap? (The video file is kept)'))) return;
+                      void removeVideoLaps(store, r).then(() => setRefsTick(n => n + 1), e => window.alert(t(`やめられませんでした: ${e instanceof Error ? e.message : String(e)}`, `Could not remove: ${e instanceof Error ? e.message : String(e)}`)));
+                    }}
+                    className="p-2.5 rounded text-slate-500 hover:text-red-400 cursor-pointer" aria-label={t('消す', 'Delete')} data-testid="library-video-ref-delete"
+                  ><X size={14} /></button>
+                </div>
+              );
+            })}
+          </div>
+        )}
         {runs && runs.length === 0 && !noFolder && !error && (
           // 初めて開いたとき: 次にすることを並べる
           <div className="py-6 space-y-3 max-w-sm mx-auto" data-testid="library-first-steps">
@@ -225,24 +395,36 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
         && !sameCourseName(selected.courseName, car1Course)}
       isCar1={car1Run === `${selected.folder}/${selected.file}`}
       onToggleLap={async (lap, hide) => { await setRunLapHidden(store, selected, lap, hide); reload(); }}
+      onSaveMeta={async patch => {
+        // 参考ラップの印を付けた・外したら、その走行が見える側の一覧に切り替える (詳細を開いたままにする)
+        if (patch.reference !== undefined) setOwner(patch.reference ? 'ref' : 'mine');
+        await setRunMeta(store, selected, patch).catch(() => undefined);
+        reload();
+      }}
       onClose={wide ? undefined : () => setSelectedKey(null)}
+      carTyreChoices={carTyreChoices}
+      onDelete={canDelete ? () => {
+        const item = selected;
+        setDeleting({ item, plan: null });
+        void store.listAll().then(files => setDeleting(d => (d && d.item === item ? { ...d, plan: planRunDelete(item, files, runs ?? []) } : d)),
+          e => setDeleting(d => (d ? { ...d, error: e instanceof Error ? e.message : String(e) } : d)));
+      } : undefined}
+      // 解析で開いている走行と、ラップタイマーがいま書いている走行は消せない
+      isOpen={openRuns.includes(`${selected.folder}/${selected.file}`) || isRunBeingWritten(`${selected.folder}/${selected.file}`.replace(/\.(nmea|bon4)$/i, ''))}
     />
   );
 
   return (
     <div className="h-full flex" data-testid="library-screen">
-      {wide ? (
-        <>
-          <div className="flex-1 min-w-0 max-w-3xl flex flex-col">{list}</div>
-          <div className="w-[380px] shrink-0 border-l border-line-2 flex flex-col min-h-0" data-testid="library-detail-pane">
-            {detail || <p className="text-xs text-slate-500 p-6 text-center">{t('走行を選ぶと、周の一覧と動画が出ます。', 'Select a run to see its laps and videos.')}</p>}
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="flex-1 min-w-0 flex flex-col max-w-2xl mx-auto">{list}</div>
-          {detail && <div className="absolute inset-0 z-[35] bg-surface-0 flex flex-col">{detail}</div>}
-        </>
+      {/* 広い画面 (パソコン・中くらいの段) は一覧の横に詳細、スマートフォンは詳細を一覧の上に重ねる。
+          開く・たたむ (Duo) で一覧・詳細を作り直さないよう、同じ木のまま置き方だけを替える (PLAN-30) */}
+      <div key="list" className={`flex-1 min-w-0 flex flex-col ${wide ? 'max-w-3xl' : 'max-w-2xl mx-auto'}`}>{list}</div>
+      {(wide || detail) && (
+        <div key="detail"
+          className={wide ? 'w-[380px] max-w-[55%] shrink-0 border-l border-line-2 flex flex-col min-h-0' : 'absolute inset-0 z-[35] bg-surface-0 flex flex-col'}
+          data-testid={wide ? 'library-detail-pane' : undefined}>
+          {detail || <p className="text-xs text-slate-500 p-6 text-center">{t('走行を選ぶと、周の一覧と動画が出ます。', 'Select a run to see its laps and videos.')}</p>}
+        </div>
       )}
       {historyOpen && <LapHistoryPanel onClose={() => setHistoryOpen(false)} onOpenRun={(file, run) => {
         setHistoryOpen(false);
@@ -250,11 +432,282 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
         const item = runs?.find(r => r.folder === run.folder && sameRunFile(r.file, run.file));
         if (item) onOpen(item); else onOpenFile(file);
       }} />}
+      {picking !== false && (
+        <VideoRefPicker candidates={picking} onClose={() => setPicking(false)} onPick={f => { setPicking(false); setMarking({ path: f.path, existing: null }); }} />
+      )}
+      {marking && store && (
+        <VideoLapMarker store={store} path={marking.path} existing={marking.existing} onClose={() => setMarking(null)}
+          onSaved={() => { setMarking(null); setOwner('ref'); setRefsTick(n => n + 1); }} />
+      )}
+      {comparing && store && <VideoLapCompare store={store} videoRef={comparing} runs={runs ?? []} onClose={() => setComparing(null)} />}
+      {deleting && store && (
+        <DeleteRunDialog
+          state={deleting}
+          onCancel={() => setDeleting(null)}
+          onConfirm={async () => {
+            if (!deleting.plan) return;
+            setDeleting(d => (d ? { ...d, running: true, error: undefined } : d));
+            try {
+              const { failed, permanent } = await deleteRun(store, deleting.item, deleting.plan);
+              if (permanent.length && !hasNative()) window.alert(t(`${permanent.length} 件はゴミ箱 (最近削除した項目) へ移せない場所だったので、すぐに消しました。`, `${permanent.length} file(s) could not be moved to the Trash and were deleted right away.`));
+              if (failed.length) {
+                setDeleting(d => (d ? { ...d, running: false, error: t(`消せなかったファイルがあります: ${failed.map(f => baseName(f.path)).join(', ')}`, `Some files could not be deleted: ${failed.map(f => baseName(f.path)).join(', ')}`) } : d));
+              } else {
+                setDeleting(null);
+                setSelectedKey(null);
+              }
+            } catch (e) {
+              setDeleting(d => (d ? { ...d, running: false, error: e instanceof Error ? e.message : String(e) } : d));
+            }
+            reload();
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+/** 走行を消す確かめの画面 (消すファイルと、残すファイルを理由つきで出す) */
+const DeleteRunDialog: React.FC<{
+  state: { item: RunItem; plan: RunDeletePlan | null; error?: string; running?: boolean };
+  onCancel: () => void;
+  onConfirm: () => void;
+}> = ({ state, onCancel, onConfirm }) => {
+  const t = useT();
+  useEscapeKey(true, onCancel);
+  const { plan } = state;
+  const total = plan ? plan.remove.reduce((n, f) => n + f.size, 0) : 0;
+  const size = (b: number) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1e3))} KB`);
+  const kind = (k: RunDeletePlan['remove'][number]['kind']) => ({ log: t('ログ', 'Log'), sensor: t('センサー', 'Sensor'), camera: t('内蔵カメラ', 'Camera'), video: t('付けた動画', 'Attached video') }[k]);
+  const reason = (r: RunDeletePlan['keep'][number]['reason']) => ({
+    'other-run': t('ほかの走行のファイル', 'Belongs to another run'),
+    'shared-video': t('ほかの走行にも付いている動画', 'Also attached to another run'),
+    'unattached-video': t('この走行に付けていない動画', 'Not attached to this run')
+  }[r]);
+  // ゴミ箱から戻せるのはデスクトップ版だけ。iPhone は「ファイル」の最近削除した項目に入るが、アプリが消したものは戻せない (2026-10-25 実機で確認)
+  const trash = !hasNative();
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" data-testid="run-delete-dialog">
+      <div className="w-full max-w-md max-h-[85vh] flex flex-col rounded-2xl bg-surface-1 border border-line-2 shadow-2xl">
+        <div className="px-4 py-3 border-b border-line-2">
+          <div className="text-sm font-bold text-slate-100">{t('この走行を消しますか？', 'Delete this run?')}</div>
+          <div className="text-xs text-slate-400 mt-0.5 truncate">{state.item.folder}/{state.item.file}</div>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3 text-xs">
+          {!plan && !state.error && <div className="flex items-center gap-2 text-slate-400"><Loader2 size={14} className="animate-spin" />{t('消すファイルを調べています…', 'Checking files…')}</div>}
+          {plan && (
+            <>
+              <div>
+                <div className="font-bold text-slate-300 mb-1">{t(`消すファイル (${plan.remove.length} 件・${size(total)})`, `Files to delete (${plan.remove.length}, ${size(total)})`)}</div>
+                <div className="space-y-0.5" data-testid="run-delete-remove">
+                  {plan.remove.map(f => (
+                    <div key={f.path} className="flex gap-2 text-slate-300"><span className="truncate flex-1">{baseName(f.path)}</span><span className="text-slate-500 shrink-0">{kind(f.kind)} · {size(f.size)}</span></div>
+                  ))}
+                </div>
+              </div>
+              {plan.keep.length > 0 && (
+                <div>
+                  <div className="font-bold text-slate-300 mb-1">{t('同じフォルダで残すファイル', 'Kept in the same folder')}</div>
+                  <div className="space-y-0.5" data-testid="run-delete-keep">
+                    {plan.keep.map(f => (
+                      <div key={f.path} className="flex gap-2 text-slate-400"><span className="truncate flex-1">{baseName(f.path)}</span><span className="text-slate-500 shrink-0">{reason(f.reason)}</span></div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <p className="text-[11px] text-slate-500">
+                {trash
+                  ? t('ファイルはゴミ箱へ移します (ゴミ箱から戻せます)。名前・メモ・同期などの走行の記録は消えます。', 'Files are moved to the Trash (you can restore them from there). The run’s name, notes and sync are removed.')
+                  : t('ファイルはすぐに消え、戻せません。名前・メモ・同期などの走行の記録も消えます。', 'Files are deleted right away and cannot be restored. The run’s name, notes and sync are removed too.')}
+              </p>
+            </>
+          )}
+          {state.error && <p className="text-amber-500">{state.error}</p>}
+        </div>
+        <div className="flex gap-2 px-4 py-3 border-t border-line-2">
+          <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl bg-surface-3 text-slate-200 text-sm font-bold cursor-pointer" data-testid="run-delete-cancel">{t('やめる', 'Cancel')}</button>
+          <button onClick={onConfirm} disabled={!plan || plan.remove.length === 0 || state.running} className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold cursor-pointer disabled:opacity-50" data-testid="run-delete-confirm">
+            {state.running ? t('消しています…', 'Deleting…') : t('消す', 'Delete')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * 車種・タイヤ (2026-10-25)。自由に書き、ほかの走行で書いたものを候補に出す。離れたとき・Enter で書く
+ */
+/** 天候・気温・路面温度 (どれも未設定でよい。温度は欄を離れたときに書く) */
+const ConditionsFields: React.FC<{
+  weather: Weather | null;
+  airTempC: number | null;
+  trackTempC: number | null;
+  onSave: (patch: RunMetaPatch) => void;
+}> = ({ weather, airTempC, trackTempC, onSave }) => {
+  const t = useT();
+  const ja = t('ja', 'en') === 'ja';
+  const [air, setAir] = useState(airTempC === null ? '' : String(airTempC));
+  const [track, setTrack] = useState(trackTempC === null ? '' : String(trackTempC));
+  const saved = useRef({ air: airTempC, track: trackTempC });
+  /** 書いた文字を温度にする (空は未設定、読めない・範囲の外は書かない) */
+  const parse = (v: string): number | null | undefined => {
+    const s = v.trim().replace(/[℃°cC]/g, '').replace(/[－−]/g, '-').replace(/[０-９．]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xfee0));
+    if (!s) return null;
+    const n = Math.round(Number(s) * 10) / 10;
+    return isTempC(n) ? n : undefined;
+  };
+  const save = () => {
+    const patch: RunMetaPatch = {};
+    const a = parse(air), tr = parse(track);
+    if (a !== undefined && a !== saved.current.air) patch.airTempC = a;
+    if (tr !== undefined && tr !== saved.current.track) patch.trackTempC = tr;
+    if (a === undefined) setAir(saved.current.air === null ? '' : String(saved.current.air));
+    if (tr === undefined) setTrack(saved.current.track === null ? '' : String(saved.current.track));
+    if (Object.keys(patch).length) { saved.current = { air: a === undefined ? saved.current.air : a, track: tr === undefined ? saved.current.track : tr }; onSave(patch); }
+  };
+  // 欄が消える (別の走行を選んだ) ときも、書きかけを書く
+  const latest = useRef(save);
+  latest.current = save;
+  useEffect(() => () => latest.current(), []);
+  const input = 'w-10 min-w-0 bg-transparent border-b border-line-3 focus:border-sky-500 text-xs text-slate-200 placeholder:text-slate-500 outline-none py-0.5 text-right';
+  const enter = (e: React.KeyboardEvent<HTMLInputElement>) => { if (!e.nativeEvent.isComposing && e.key === 'Enter') e.currentTarget.blur(); };
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5" data-testid="run-detail-conditions">
+      <span className="shrink-0 text-[10px] text-slate-500">{t('天候', 'Weather')}</span>
+      <select value={weather ?? ''} onChange={e => onSave({ weather: isWeather(e.target.value) ? e.target.value : null })}
+        className="bg-surface-1 border border-line-3 rounded text-xs text-slate-200 px-1 py-0.5" aria-label={t('天候', 'Weather')} data-testid="run-detail-weather">
+        <option value="">{t('未設定', 'Not set')}</option>
+        {WEATHERS.map(w => <option key={w} value={w}>{WEATHER_LABELS[w][ja ? 0 : 1]}</option>)}
+      </select>
+      {/* 気温・路面温度は 1 つのまとまり (狭いときは 2 つ一緒に次の行へ) */}
+      <span className="flex items-center gap-1 whitespace-nowrap">
+      <span className="flex items-center gap-1 whitespace-nowrap">
+      <span className="shrink-0 text-[10px] text-slate-500">{t('気温', 'Air')}</span>
+      <input value={air} onChange={e => setAir(e.target.value.slice(0, 6))} onBlur={save} onKeyDown={enter} inputMode="decimal"
+        placeholder="--" aria-label={t('気温 (℃)', 'Air temperature (°C)')} className={input} data-testid="run-detail-air-temp" />
+      <span className="text-[10px] text-slate-500">℃</span>
+      </span>
+      <span className="flex items-center gap-1 whitespace-nowrap ml-1">
+      <span className="shrink-0 text-[10px] text-slate-500">{t('路面', 'Track')}</span>
+      <input value={track} onChange={e => setTrack(e.target.value.slice(0, 6))} onBlur={save} onKeyDown={enter} inputMode="decimal"
+        placeholder="--" aria-label={t('路面温度 (℃)', 'Track temperature (°C)')} className={input} data-testid="run-detail-track-temp" />
+      <span className="text-[10px] text-slate-500">℃</span>
+      </span>
+      </span>
+    </div>
+  );
+};
+
+const CarTyreFields: React.FC<{
+  showCar: boolean;
+  car: string;
+  tyre: string;
+  choices?: { cars: string[]; tyres: string[] };
+  onSave: (patch: { car?: string; tyre?: string }) => void;
+}> = ({ showCar, car, tyre, choices, onSave }) => {
+  const t = useT();
+  const [c, setC] = useState(car);
+  const [ty, setTy] = useState(tyre);
+  const saved = useRef({ car, tyre });
+  const save = () => {
+    const patch: { car?: string; tyre?: string } = {};
+    if (showCar && c.trim() !== saved.current.car.trim()) patch.car = c;
+    if (ty.trim() !== saved.current.tyre.trim()) patch.tyre = ty;
+    if (Object.keys(patch).length) { saved.current = { car: showCar ? c : saved.current.car, tyre: ty }; onSave(patch); }
+  };
+  // 欄が消える (別の走行を選んだ) ときも、書きかけを書く
+  const latest = useRef(save);
+  latest.current = save;
+  useEffect(() => () => latest.current(), []);
+  const input = 'flex-1 min-w-0 bg-transparent border-b border-line-3 focus:border-sky-500 text-xs text-slate-200 placeholder:text-slate-500 outline-none py-0.5';
+  const enter = (e: React.KeyboardEvent<HTMLInputElement>) => { if (!e.nativeEvent.isComposing && e.key === 'Enter') e.currentTarget.blur(); };
+  return (
+    <div className="flex gap-2 mt-1.5" data-testid="run-detail-car-tyre">
+      {showCar && (
+        <>
+          <span className="shrink-0 text-[10px] text-slate-500 self-center">{t('車種', 'Car')}</span>
+          <input value={c} onChange={e => setC(e.target.value.slice(0, 40))} onBlur={save} onKeyDown={enter} list="run-car-choices"
+            placeholder={t('例: ロードスター', 'e.g. Roadster')} aria-label={t('車種', 'Car')} className={input} data-testid="run-detail-car" />
+          <datalist id="run-car-choices">{choices?.cars.map(v => <option key={v} value={v} />)}</datalist>
+        </>
+      )}
+      <span className="shrink-0 text-[10px] text-slate-500 self-center">{t('タイヤ', 'Tyres')}</span>
+      <input value={ty} onChange={e => setTy(e.target.value.slice(0, 40))} onBlur={save} onKeyDown={enter} list="run-tyre-choices"
+        placeholder={t('例: RE-71RS', 'e.g. RE-71RS')} aria-label={t('タイヤ', 'Tyres')} className={input} data-testid="run-detail-tyre" />
+      <datalist id="run-tyre-choices">{choices?.tyres.map(v => <option key={v} value={v} />)}</datalist>
     </div>
   );
 };
 
 /** 走行の詳細 (周の一覧・動画・解析で開く・動画を見る) */
+/** 走行の名前 (PLAN-32)。ファイルの名前は変えず、runs.json の行に書く。離れたとき・Enter で書く */
+const RunNameInput: React.FC<{ name: string; onSave: (name: string) => void }> = ({ name, onSave }) => {
+  const t = useT();
+  const [draft, setDraft] = useState(name);
+  const saved = useRef(name);
+  const save = () => { if (draft.trim() !== saved.current.trim()) { saved.current = draft; onSave(draft); } };
+  // 欄が消える (別の走行を選んだ) ときも、書きかけを書く
+  const latest = useRef({ draft, onSave });
+  latest.current = { draft, onSave };
+  useEffect(() => () => { const l = latest.current; if (l.draft.trim() !== saved.current.trim()) l.onSave(l.draft); }, []);
+  return (
+    <input
+      value={draft}
+      onChange={e => setDraft(e.target.value.slice(0, 60))}
+      onBlur={save}
+      onKeyDown={e => {
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+      }}
+      placeholder={t('名前を付ける (例: 朝の走行・雨)', 'Name this run (e.g. morning session, wet)')}
+      aria-label={t('走行の名前', 'Run name')}
+      data-testid="run-detail-name"
+      className="mt-1 w-full bg-transparent border-b border-line-3 focus:border-sky-500 text-sm text-slate-100 placeholder:text-slate-500 outline-none py-0.5"
+    />
+  );
+};
+
+/**
+ * 参考ラップの印 (自分のではない走行。PLAN-31)。印を付けると、誰の走行か・車を書ける。
+ * 参考ラップは、ラップタイムの一覧の順位・ベストと、ラップタイマーの「これまでのベスト」には数えない
+ */
+const ReferenceField: React.FC<{ reference: { driver?: string; car?: string } | undefined; ownCar?: string; onSave: (r: { driver?: string; car?: string } | null) => void }> = ({ reference, ownCar, onSave }) => {
+  const t = useT();
+  const [driver, setDriver] = useState(reference?.driver ?? '');
+  // 参考ラップにしたときは、書いてあった車種を車の欄に入れておく
+  const [car, setCar] = useState(reference?.car ?? ownCar ?? '');
+  // 印はすぐ切り替える (一覧を読み直す前に誰・車を書いても、書けるように)
+  const [on, setOn] = useState(!!reference);
+  const savedRef = useRef({ driver: reference?.driver ?? '', car: reference?.car ?? '' });
+  const save = () => {
+    if (on && (driver.trim() !== savedRef.current.driver.trim() || car.trim() !== savedRef.current.car.trim())) {
+      savedRef.current = { driver, car };
+      onSave({ driver, car });
+    }
+  };
+  // 欄が消える (別の走行を選んだ) ときも、書きかけを書く
+  const latestSave = useRef(save);
+  latestSave.current = save;
+  useEffect(() => () => latestSave.current(), []);
+  const enter = (e: React.KeyboardEvent<HTMLInputElement>) => { if (!e.nativeEvent.isComposing && e.key === 'Enter') e.currentTarget.blur(); };
+  const input = 'flex-1 min-w-0 bg-transparent border-b border-line-3 focus:border-sky-500 text-xs text-slate-200 placeholder:text-slate-500 outline-none py-0.5';
+  return (
+    <div className="mt-1.5 space-y-1">
+      <label className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer">
+        <input type="checkbox" checked={on} onChange={e => { setOn(e.target.checked); if (e.target.checked) savedRef.current = { driver, car }; onSave(e.target.checked ? { driver, car } : null); }} data-testid="run-detail-reference" />
+        {t('参考ラップ (自分の走行ではない。ベスト・順位に数えない)', 'Reference lap (not my run; not counted in bests or rankings)')}
+      </label>
+      {on && (
+        <div className="flex gap-2 pl-5">
+          <input value={driver} onChange={e => setDriver(e.target.value.slice(0, 40))} onBlur={save} onKeyDown={enter} placeholder={t('誰の走行か', 'Driver')} aria-label={t('誰の走行か', 'Driver')} className={input} data-testid="run-detail-ref-driver" />
+          <input value={car} onChange={e => setCar(e.target.value.slice(0, 40))} onBlur={save} onKeyDown={enter} placeholder={t('車', 'Car')} aria-label={t('車', 'Car')} className={input} data-testid="run-detail-ref-car" />
+        </div>
+      )}
+    </div>
+  );
+};
+
 const RunDetail: React.FC<{
   run: RunItem;
   busy: boolean;
@@ -268,7 +721,15 @@ const RunDetail: React.FC<{
   onToggleLap: (lap: RunItem['laps'][number], hide: boolean) => Promise<void>;
   /** 狭い画面のシートを閉じる (広い画面では右の欄なので無い) */
   onClose?: () => void;
-}> = ({ run, busy, onOpen, onOpenVideo, onAddAsCar2, otherCourse = false, isCar1 = false, onToggleLap, onClose }) => {
+  /** 走行の名前・メモを書く (PLAN-32・33) */
+  onSaveMeta?: (patch: RunMetaPatch) => Promise<void>;
+  /** 車種・タイヤの候補 (ほかの走行で書いたもの) */
+  carTyreChoices?: { cars: string[]; tyres: string[] };
+  /** この走行を消す (確かめの画面を出す)。消せない置き場では無い */
+  onDelete?: () => void;
+  /** 解析で開いている走行 (消せない) */
+  isOpen?: boolean;
+}> = ({ run, busy, onOpen, onOpenVideo, onAddAsCar2, otherCourse = false, isCar1 = false, onToggleLap, onClose, onSaveMeta, onDelete, isOpen = false, carTyreChoices }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const [order, setOrder] = useState<'run' | 'time'>('run');
@@ -287,6 +748,28 @@ const RunDetail: React.FC<{
       <div className="px-4 py-3 border-b border-line-2 flex items-start gap-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div className="flex-1 min-w-0">
           <div className="text-sm font-bold text-slate-100">{fmtDate(run.startMs, ja)} {run.courseName != null ? circuitLabel(run.courseName) : (run.folder === 'unsorted' ? t('未分類', 'Unsorted') : run.folder)}</div>
+          {onSaveMeta && <RunNameInput key={`${run.folder}/${run.file}`} name={run.entry?.name ?? ''} onSave={name => void onSaveMeta({ name })} />}
+          {onSaveMeta && <ReferenceField key={`ref-${run.folder}/${run.file}`} reference={run.entry?.reference} ownCar={run.entry?.car} onSave={reference => void onSaveMeta({ reference })} />}
+          {onSaveMeta && (
+            <CarTyreFields
+              key={`ct-${run.folder}/${run.file}`}
+              // 参考ラップの車は、参考ラップの欄 (誰・車) で書く
+              showCar={!run.entry?.reference}
+              car={run.entry?.car ?? ''}
+              tyre={run.entry?.tyre ?? ''}
+              choices={carTyreChoices}
+              onSave={patch => void onSaveMeta(patch)}
+            />
+          )}
+          {onSaveMeta && (
+            <ConditionsFields
+              key={`wx-${run.folder}/${run.file}`}
+              weather={isWeather(run.entry?.weather) ? run.entry.weather : null}
+              airTempC={isTempC(run.entry?.airTempC) ? run.entry.airTempC : null}
+              trackTempC={isTempC(run.entry?.trackTempC) ? run.entry.trackTempC : null}
+              onSave={patch => void onSaveMeta(patch)}
+            />
+          )}
           <div className="text-xs text-slate-400 mt-0.5">
             {run.pending
               ? t('☁️ iCloud にだけあるので、開くと周を数えます', '☁️ Only in iCloud; laps are counted when opened')
@@ -301,6 +784,7 @@ const RunDetail: React.FC<{
         )}
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-4">
+        {onSaveMeta && <RunNoteField key={`${run.folder}/${run.file}`} note={run.entry?.note} onSave={note => void onSaveMeta({ note })} testId="run-detail-note" />}
         {run.laps.length > 0 && (
           <section>
             <div className="flex items-center gap-2 mb-2">
@@ -343,6 +827,14 @@ const RunDetail: React.FC<{
             ))}
           </div>
         </section>
+        {onDelete && (
+          <section className="pt-2 border-t border-line-2">
+            <button onClick={onDelete} disabled={busy || isOpen} className="text-xs text-red-400 hover:text-red-300 disabled:text-slate-500 cursor-pointer disabled:cursor-not-allowed" data-testid="run-delete">
+              {t('この走行を消す…', 'Delete this run…')}
+            </button>
+            {isOpen && <p className="text-[11px] text-slate-500 mt-1">{t('解析で開いている走行と、ラップタイマーで書いている走行は消せません (解析の「走行とコース」から外す・測定を終える)', 'A run open in Analysis or being recorded by the lap timer cannot be deleted (remove it from Runs & course, or stop measuring)')}</p>}
+          </section>
+        )}
       </div>
       {onAddAsCar2 && visible.length > 0 && (
         <div className="shrink-0 px-4 pt-3 border-t border-line-2">

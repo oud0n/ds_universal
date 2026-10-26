@@ -72,6 +72,11 @@ export class PhoneImuRecorder {
   private lastBase: string | null = null;
   /** 周を数え直したとき: この時刻より前の値は前の走行へ */
   private split: { beforeMs: number; base: string } | null = null;
+  /** 測り始めてから走行のファイルができるまでの値 (できたら先に書く。PLAN-29 の (3)) */
+  private pending: Array<{ tMs: number; values: Record<string, number> }> = [];
+
+  /** 車の向きに直した値を受け取る (iPhone の GPS の間を埋めるため。gpsImuFusion.ts) */
+  onCar: ((tMs: number, longG: number, latG: number, yawDps: number) => void) | null = null;
 
   constructor(private readonly runBase: () => string | null) {}
 
@@ -105,6 +110,7 @@ export class PhoneImuRecorder {
     this.recorders.clear();
     this.lastBase = null;
     this.split = null;
+    this.pending = [];
   }
 
   /** ためた行を書く (ラップタイマーの保存と一緒に) */
@@ -135,6 +141,7 @@ export class PhoneImuRecorder {
       const a: Vec = [-b.ux[i], -b.uy[i], -b.uz[i]];
       const car = toCar(this.frame, a);
       const yawDps = dot([b.rx[i], b.ry[i], b.rz[i]], this.frame.up) * 180 / Math.PI;
+      this.onCar?.(b.t[i], car.long, car.lat, yawDps);
       this.record(b.t[i], { g_long: car.long, g_lat: car.lat, g_vert: car.vert, yaw_dps: yawDps, ax: a[0], ay: a[1], az: a[2] });
     }
   }
@@ -152,11 +159,20 @@ export class PhoneImuRecorder {
       }
       if (base) this.lastBase = base;
     }
-    if (!base) return;
+    if (!base) {
+      // 測っている間で、まだ走行のファイルが無い (コースが決まるまで最大 10 秒ほど) ときは取っておく (50 Hz で 1 分まで)
+      if (this.running) {
+        this.pending.push({ tMs, values });
+        if (this.pending.length > 3000) this.pending.shift();
+      }
+      return;
+    }
     let rec = this.recorders.get(base);
     if (!rec) {
       rec = new SensorCsvRecorder(base, 'iphone_imu', COLUMNS);
       this.recorders.set(base, rec);
+      for (const p of this.pending) rec.add(p.tMs, p.values);
+      this.pending = [];
     }
     rec.add(tMs, values);
   }

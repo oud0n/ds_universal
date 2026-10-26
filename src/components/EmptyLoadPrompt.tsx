@@ -16,7 +16,7 @@ export const EmptyLoadPrompt: React.FC<{
   children?: React.ReactNode;
 }> = ({ title, text, buttonLabel, onClick, testId, children }) => (
   <div className="flex flex-col w-full h-full p-4 overflow-y-auto">
-    <div className="m-auto flex flex-col items-center text-center gap-2">
+    <div className="m-auto w-full max-w-sm min-w-0 flex flex-col items-center text-center gap-2">
       <h2 className="text-sm font-bold text-slate-100">{title}</h2>
       <p className="text-xs text-slate-400 max-w-sm leading-relaxed">{text}</p>
       <button

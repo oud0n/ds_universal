@@ -7,6 +7,7 @@
  */
 
 import { getBleCentral } from '../bleCentral';
+import { sppCentral } from '../sppCentral';
 import { DeviceLink, type DeviceSample } from '../devices/deviceLink';
 import { loadDevices, type RegisteredDevice } from '../devices/deviceRegistry';
 import { SensorCsvRecorder } from '../sensorCsvRecorder';
@@ -46,6 +47,10 @@ export class LapDeviceSet {
   readonly devices: RegisteredDevice[];
   private links: DeviceLink[] = [];
   private recorders = new Map<string, SensorCsvRecorder>();
+  /** 測定開始の時刻 (走り始めてから、走行のファイルができるまでの値を取っておくため。PLAN-29 の (3)) */
+  private runStartMs: number | null = null;
+  /** 走行のファイルができる前に届いた値 (機器ごと) */
+  private pending = new Map<string, Array<{ tMs: number; values: Record<string, number> }>>();
   private cameraRunning = false;
   /** 測り始めたが、カメラがまだつながっていない (つながったら録画を始める) */
   private pendingCameraStart: Date | null = null;
@@ -101,10 +106,13 @@ export class LapDeviceSet {
     const wanted = this.devices.filter(d => (d.kind !== 'racebox' && d.kind !== 'drogger') || d.id === positionDevice?.id);
     if (wanted.length === 0) return;
     this.setStatuses(wanted.map(device => ({ device, state: 'connecting', text: '', ok: false })));
-    const central = await (this.deps.getCentral ?? getBleCentral)();
-    if (!central || gen !== this.generation) return;
+    // Bluetooth Classic の機器 (Android の Drogger DG-PRO1S など) は、BLE と同じ形の SPP の層でつなぐ
+    const central = wanted.some(d => d.transport !== 'spp') ? await (this.deps.getCentral ?? getBleCentral)() : null;
+    if (gen !== this.generation) return;
     for (const d of wanted) {
-      const link = new DeviceLink(d, central);
+      const c = d.transport === 'spp' ? sppCentral : central;
+      if (!c) continue;
+      const link = new DeviceLink(d, c);
       this.links.push(link);
       link.onState(s => {
         this.update(d.id, { state: s, ok: s === 'connected' });
@@ -153,12 +161,25 @@ export class LapDeviceSet {
   private record(d: RegisteredDevice, tMs: number, values: Record<string, number>) {
     const base = this.deps.runBase();
     const columns = COLUMNS[d.kind];
-    if (!base || !columns) return;
+    if (!columns) return;
+    if (!base) {
+      // 走り始めてから走行のファイルができるまで (コースが決まるまで最大 10 秒ほど) の値は取っておく
+      if (this.runStartMs !== null && tMs >= this.runStartMs) {
+        const list = this.pending.get(d.id) ?? [];
+        list.push({ tMs, values });
+        if (list.length > 2000) list.shift();
+        this.pending.set(d.id, list);
+      }
+      return;
+    }
     const key = `${base}|${d.id}`;
     let rec = this.recorders.get(key);
     if (!rec) {
       rec = new SensorCsvRecorder(base, d.fileName, columns);
       this.recorders.set(key, rec);
+      // ファイルができる前に取っておいた値を先に書く
+      for (const p of this.pending.get(d.id) ?? []) rec.add(p.tMs, p.values);
+      this.pending.delete(d.id);
     }
     rec.add(tMs, values);
   }
@@ -170,6 +191,8 @@ export class LapDeviceSet {
 
   /** 走り始めた: カメラの時計を合わせて録画を始める (1 回の走行で 1 回)。まだつながっていないカメラは、つながったときに始める */
   startRun(at: Date): void {
+    this.runStartMs = at.getTime();
+    this.pending.clear();
     if (this.cameraRunning) return;
     this.pendingCameraStart = at;
     const cams = this.links.filter(l => l.device.kind === 'gopro' && l.state === 'connected');
@@ -190,6 +213,8 @@ export class LapDeviceSet {
   /** 走行を終えた (周を数え直す): 録画を止め、センサーの値を書き、次の走行の .csv に替える */
   stopRun(): Promise<void> {
     this.pendingCameraStart = null;
+    this.runStartMs = null;
+    this.pending.clear();
     if (this.cameraRunning) {
       this.cameraRunning = false;
       for (const c of this.links.filter(l => l.device.kind === 'gopro')) void c.goproShutter(false).catch(() => {});

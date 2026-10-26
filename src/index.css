@@ -630,4 +630,9 @@ body {
   .touch-toolbar select {
     min-height: 30px;
   }
+  /* チェックボックスは 13px では指で押しにくいので大きくする (2026-10-26 の GUI の見直し) */
+  input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+  }
 }

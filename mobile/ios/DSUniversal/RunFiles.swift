@@ -47,6 +47,41 @@ enum RunFiles {
     }
 
     /// 置き場を使う許可をもらって f を呼ぶ
+    /// 待つかもしれないファイルの読み書き (iCloud の取り込み・ほかのアプリとの取り合いで待つ) をする列。
+    /// Swift の並行処理の共有のスレッド (Task.detached) で待つと、数が限られているので、待つものが重なると
+    /// ほかの読み書き (走行の一覧など) まで回らなくなり、アプリが「読み込んでいます」のまま止まっていた (iPad の実機。1.9 GB の動画の取り込み中)
+    nonisolated static let ioQueue = DispatchQueue(label: "runfiles.io", qos: .userInitiated, attributes: .concurrent)
+
+    static func background<T: Sendable>(_ f: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { c in ioQueue.async { c.resume(returning: f()) } }
+    }
+
+    /// 端末に落ちてきているか (iCloud にだけあるものは false)
+    static func isDownloaded(_ url: URL) -> Bool {
+        let fresh = URL(fileURLWithPath: url.path)
+        let placeholder = fresh.deletingLastPathComponent().appendingPathComponent(".\(fresh.lastPathComponent).icloud")
+        let exists = FileManager.default.fileExists(atPath: fresh.path)
+        if !exists { return !FileManager.default.fileExists(atPath: placeholder.path) }
+        let values = try? fresh.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey, .isUbiquitousItemKey])
+        return !(values?.isUbiquitousItem == true && values?.ubiquitousItemDownloadingStatus == .notDownloaded)
+    }
+
+    /// 落ちてきていなければ取り込みを頼み、timeout 秒まで待つ。落ちてきたら true。
+    /// (取り込みは iCloud の側で順番に進むので、大きな動画の取り込み中は小さなファイルもなかなか来ない。いつまでも待たない)
+    static func waitDownloaded(_ url: URL, timeout: TimeInterval) -> Bool {
+        if isDownloaded(url) { return true }
+        try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+        let until = Date().addingTimeInterval(timeout)
+        // 小さなファイルはすぐ来るので、はじめは細かく見る (0.5 秒ごとだと、コースのファイル 200 個で 2 分近くかかっていた)
+        var step: TimeInterval = 0.05
+        while Date() < until {
+            Thread.sleep(forTimeInterval: step)
+            if isDownloaded(url) { return true }
+            step = min(step * 2, 0.5)
+        }
+        return false
+    }
+
     static func withRoot<T>(_ f: (URL) throws -> T) rethrows -> T {
         let (url, scoped) = root()
         let access = scoped && url.startAccessingSecurityScopedResource()
@@ -176,6 +211,8 @@ enum RunFiles {
             if !FileManager.default.fileExists(atPath: url.path) && !FileManager.default.fileExists(atPath: placeholder.path) {
                 throw NativeError(.notFound, "no file")
             }
+            // iCloud にだけあるときは、取り込みを頼んで少し待つ。来なければ「読めない」(io) で返す (無い not-found とは分ける)
+            guard waitDownloaded(url, timeout: 15) else { throw NativeError(.io, "not downloaded yet") }
             var coordError: NSError?
             var result: Result<Data, Error> = .failure(NativeError(.io, "could not read"))
             NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { u in
@@ -222,6 +259,67 @@ enum RunFiles {
     /// コーナー (Corner/<フォルダ>.json と .bak)・コース編集で直したコースの計測線・セクター線・その一覧 (courses.json)
     static func isCourseText(_ rel: String) -> Bool {
         rel.range(of: #"^course/(Corner/[a-z0-9_]+\.json(\.bak)?|ControlLine/[^/]+\.cln|Sector/[^/]+\.sci|courses\.json)$"#, options: .regularExpression) != nil
+            // 解析用のセッション (保存した比べ方。PLAN-18。2026-10-25)
+            || rel.range(of: #"^sessions/[^/]+\.lapsession\.json$"#, options: .regularExpression) != nil
+            // メーターの並び (PLAN-08。2026-10-25)
+            || rel.range(of: #"^overlays/[^/]+\.overlay\.json$"#, options: .regularExpression) != nil
+            // CSV の形式の定義・計算式 (PLAN-36。2026-10-26)
+            || rel.range(of: #"^formats/([^/]+\.csvformat\.json|calc\.json)$"#, options: .regularExpression) != nil
+    }
+
+    /// 消してよい走行のファイルか (サーキットのフォルダの中のもの。共有の控え・コース・セッションは消さない)
+    static func isDeletableRunFile(_ rel: String) -> Bool {
+        let name = (rel as NSString).lastPathComponent
+        // 守るフォルダ: コース・比べ方・書き出し・メーターの並び・CSV の形式と計算式・デジスパイスのコースデータ (取り込み元/ は、取り込みに失敗したときの書きかけを消すので守らない)
+        let protected = ["course/", "sessions/", "exports/", "overlays/", "formats/", "digspice/"]
+        guard rel.contains("/"), !protected.contains(where: { rel.hasPrefix($0) }) else { return false }
+        return !["runs.json", "laptimes.json", "corners.json", "corners.json.bak"].contains(name) && !name.hasPrefix(".")
+    }
+
+    /// 走行のファイルを消す (「ファイル」の最近削除した項目へ移す。移せないときは消す)。選んだフォルダのときは、アプリの中の写しも消す
+    /// permanent: 最近削除した項目へ移せず、すぐに消したもの (アプリの中の保管場所など)
+    static func delete(_ paths: [String]) -> (deleted: [String], failed: [(String, String)], permanent: [String]) {
+        var deleted: [String] = []
+        var permanent: [String] = []
+        var failed: [(String, String)] = []
+        let fm = FileManager.default
+        withRoot { root in
+            let (_, scoped) = Self.root()
+            for rel in paths {
+                guard isDeletableRunFile(rel), let url = resolve(rel, in: root) else { failed.append((rel, "not deletable")); continue }
+                // iCloud にだけあるもの (.名前.icloud) は、その置き場所のファイルを消す
+                let placeholder = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).icloud")
+                let target = fm.fileExists(atPath: url.path) ? url : (fm.fileExists(atPath: placeholder.path) ? placeholder : nil)
+                var ok = target == nil
+                var message = ""
+                if let target {
+                    var coordError: NSError?
+                    NSFileCoordinator().coordinate(writingItemAt: target, options: .forDeleting, error: &coordError) { u in
+                        do {
+                            do { try fm.trashItem(at: u, resultingItemURL: nil) } catch { try fm.removeItem(at: u); permanent.append(rel) }
+                            ok = true
+                        } catch {
+                            message = error.localizedDescription
+                        }
+                    }
+                    if let coordError { ok = false; message = coordError.localizedDescription }
+                }
+                // 選んだフォルダのとき: まだ移していない、アプリの中の写しも消す (残すと、次に写したときに戻ってくる)。
+                // フォルダで消せなかったときは、写しは残す (消せたことにしない)。フォルダに無く、写ししか無いときは、それが最後の 1 つなので
+                // できればゴミ箱へ移し、移せずにすぐ消したら permanent に入れる
+                if ok, scoped, let local = resolve(rel, in: lapTimerRoot), fm.fileExists(atPath: local.path) {
+                    do {
+                        if target == nil {
+                            do { try fm.trashItem(at: local, resultingItemURL: nil) } catch { try fm.removeItem(at: local); permanent.append(rel) }
+                        } else {
+                            try fm.removeItem(at: local)
+                        }
+                    } catch { ok = false; message = error.localizedDescription }
+                }
+                if ok { deleted.append(rel) } else { failed.append((rel, message)) }
+            }
+        }
+        return (deleted, failed, permanent)
     }
 
     /// runs.json・laptimes.json・corners.json (コーナーの名前。前の中身の控え .bak も)・course/ のコースデータだけを書く (一時ファイルに書いてから入れ替える)
@@ -324,7 +422,12 @@ final class LapFileSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked Senda
         // 読めるのは動画だけ (ログ・控えは system.readRunFile で読む)
         guard let file = RunFiles.resolve(rel, in: root), RunFiles.videoExt.contains(file.pathExtension.lowercased()) else { return fail(task, 404, url) }
 
-        // iCloud から落ちてきていなければ、落ちてくるまで待つ (Web は開く前に、大きさを知らせて聞いておく)
+        // iCloud から落ちてきていなければ、待たずに断る (取り込みは頼んでおく)。待つと、大きな動画では何十分も読む列をふさいでいた。
+        // Web は、端末にある動画だけを付け、取り込みが終わってから付け直す
+        guard RunFiles.isDownloaded(file) else {
+            try? FileManager.default.startDownloadingUbiquitousItem(at: file)
+            return fail(task, 404, url)
+        }
         var coordError: NSError?
         var handle: FileHandle?
         var size: UInt64 = 0

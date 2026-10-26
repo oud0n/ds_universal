@@ -1,5 +1,6 @@
 import React from 'react';
-import { ChevronRight, Fuel, Download } from 'lucide-react';
+import { ChevronRight, Fuel, Download, CircleHelp } from 'lucide-react';
+import { openHelp } from '../components/HelpOverlay';
 import { setThemeSetting, useThemeSetting } from '../utils/theme';
 import { setLangSetting, useLangSetting, useT } from '../utils/i18n';
 import { desktopDownloadUrl, isBrowserVersionOnPc } from '../utils/desktopApp';
@@ -9,6 +10,7 @@ import type { NavPlan } from '../app/navPlan';
 import { navStore } from '../app/navStore';
 import { SCREEN_META, screenLabel } from '../app/screenMeta';
 import { StorageSettings } from '../components/StorageSettings';
+import { CsvFormatSettings } from '../components/CsvFormatSettings';
 import { getWriteBon4, setWriteBon4 } from '../services/runFormatSettings';
 import { hasNative } from '../native/bridge';
 
@@ -28,6 +30,7 @@ export const SettingsScreen: React.FC<{ plan: NavPlan; onOpenDonate?: () => void
       <div className="max-w-lg mx-auto p-3 space-y-5">
         <StorageSettings />
         {hasNative() && <RunFormatSetting />}
+        <CsvFormatSettings />
         {rows.length > 0 && (
           <section className="rounded-xl bg-surface-1 border border-line-2 overflow-hidden">
             {rows.map((s, i) => {
@@ -90,6 +93,9 @@ export const SettingsScreen: React.FC<{ plan: NavPlan; onOpenDonate?: () => void
         )}
 
         <section className="flex flex-col gap-2">
+          <button onClick={() => openHelp()} className="flex items-center gap-2 px-4 py-3 rounded-xl bg-surface-2 border border-line-2 text-slate-200 text-sm cursor-pointer" data-testid="settings-help">
+            <CircleHelp size={16} />{t('使い方 (操作の説明と動画)', 'Guide (how-tos and videos)')}
+          </button>
           {onOpenDonate && (
             <button onClick={onOpenDonate} className="flex items-center gap-2 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm cursor-pointer">
               <Fuel size={16} />{t('開発支援', 'Support')}

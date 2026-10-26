@@ -420,7 +420,16 @@ const LAP_TEXT_NAMES = new Set(['laptimes.json', 'runs.json', 'corners.json', 'c
 // 保管場所の course/ (デジスパイスのコースフォルダにならった形。2026-10-24): コーナー (Corner/<フォルダ>.json と .bak)・
 // コース編集で直したコースの計測線 (ControlLine/*.cln)・セクター線 (Sector/*.sci)・その名前などの一覧 (courses.json)
 const COURSE_TEXT = /^course\/(Corner\/[a-z0-9_]+\.json(\.bak)?|ControlLine\/[^/\\]+\.cln|Sector\/[^/\\]+\.sci|courses\.json)$/;
-const lapTextAllowed = (rel, full) => LAP_TEXT_NAMES.has(path.basename(full)) || COURSE_TEXT.test(String(rel).replace(/\\/g, '/'));
+// 解析用のセッション (sessions/<名前>.lapsession.json。保存した比べ方。PLAN-18。2026-10-25)
+const SESSION_TEXT = /^sessions\/[^/\\]+\.lapsession\.json$/;
+// メーターの並び (PLAN-08)
+const OVERLAY_TEXT = /^overlays\/[^/\\]+\.overlay\.json$/;
+// CSV の形式の定義・計算式 (PLAN-36)
+const FORMAT_TEXT = /^formats\/([^/\\]+\.csvformat\.json|calc\.json)$/;
+const lapTextAllowed = (rel, full) => {
+  const r = String(rel).replace(/\\/g, '/');
+  return LAP_TEXT_NAMES.has(path.basename(full)) || COURSE_TEXT.test(r) || SESSION_TEXT.test(r) || OVERLAY_TEXT.test(r) || FORMAT_TEXT.test(r);
+};
 const MAX_LAP_TEXT_BYTES = 20 * 1024 * 1024;
 /**
  * 保管場所からの道を、保管場所の中の実際の場所にする (外へ出る道は断る)。
@@ -558,6 +567,35 @@ ipcMain.handle('laps-file-status', async (_event, rel) => {
   if (await fs.promises.stat(full).then(() => true, () => false)) return { local: true, downloading: false };
   const placeholder = path.join(path.dirname(full), `.${path.basename(full)}.icloud`);
   return { local: false, downloading: await fs.promises.stat(placeholder).then(() => true, () => false) };
+});
+// 走行のファイルを消す (走行の画面の「この走行を消す」。2026-10-25)。ゴミ箱へ移す (戻せるように)。
+// サーキットのフォルダの中のものだけ (共有の控え・コース・セッションは消さない)
+const lapDeletable = rel => {
+  const r = String(rel).replace(/\\/g, '/');
+  const name = path.posix.basename(r);
+  // . や .. の区切りは断る (道を解いたあとに、守っているフォルダ・ファイルを指せないように)
+  if (r.split('/').some(s => s === '' || s === '.' || s === '..')) return false;
+  // 守るフォルダ: コース・比べ方・書き出し・メーターの並び・CSV の形式と計算式・デジスパイスのコースデータ (取り込み元/ は、取り込みに失敗したときの書きかけを消すので守らない)
+  return r.includes('/') && !/^(course|sessions|exports|overlays|formats|digspice)\//.test(r) && !name.startsWith('.') && !['runs.json', 'laptimes.json', 'corners.json', 'corners.json.bak'].includes(name);
+};
+ipcMain.handle('laps-delete', async (_event, rels) => {
+  const deleted = [];
+  const failed = [];
+  for (const rel of Array.isArray(rels) ? rels : []) {
+    const full = lapDeletable(rel) ? await lapPath(rel) : null;
+    if (!full) { failed.push({ path: String(rel), error: 'not deletable' }); continue; }
+    // iCloud にだけあるもの (.名前.icloud) は、その置き場所のファイルを消す
+    const placeholder = path.join(path.dirname(full), `.${path.basename(full)}.icloud`);
+    const target = await fs.promises.stat(full).then(() => full, () => fs.promises.stat(placeholder).then(() => placeholder, () => null));
+    if (!target) { deleted.push(rel); continue; }
+    try {
+      await shell.trashItem(target);
+      deleted.push(rel);
+    } catch (e) {
+      failed.push({ path: rel, error: String(e && e.message || e) });
+    }
+  }
+  return { deleted, failed };
 });
 ipcMain.handle('laps-start-download', async (_event, rel) => {
   const full = await lapPath(rel);
