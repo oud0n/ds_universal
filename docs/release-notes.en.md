@@ -38,6 +38,12 @@
 - Opening a run while iCloud was downloading a large video could leave the run list stuck on "Loading".
 - Opening another run during playback could leave the previous run's video; while videos download from iCloud, their progress is shown.
 - Reading DigSpice course data in the storage folder is faster (it slowed opening down when the files were only in iCloud; setting the digspice folder to "Keep Downloaded" in Files makes it faster still).
+- The video screen now asks before removing the main video or recalculating a hand-made sync from the time zones (the sync used to disappear without a question).
+- A name, note or car edited on the Runs screen did not always show for a run already open in Analysis.
+- A saved comparison could not be opened at all when Car 1's run was missing.
+- Video export no longer exports the whole run when no lap is selected, and keeps a time range inside the log; export file names no longer include "(ユーザー設置)".
+- Playback no longer keeps running unseen after leaving the Analysis or Video screen.
+- The sync offset field can now be cleared and accept negative numbers.
 - Other small fixes found in review.
 
 ## v1.0.3

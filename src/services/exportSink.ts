@@ -171,11 +171,12 @@ export async function createVideoSink(): Promise<VideoSink> {
     return {
       target: new StreamTarget(stream, { chunked: true }),
       onDisk: true,
-      finish: async () => {
+      finish: async type => {
         // StreamTarget は finalize で書き込み口を閉じる
         const file = await disk.handle.getFile();
         scheduleRemove(disk, file.size);
-        return file;
+        // ディスクのファイルには種類が付かないので、包んで付ける (中身は写さない。共有の画面で動画として扱われるように)
+        return type ? new Blob([file], { type }) : file;
       },
       abort: () => discard(disk)
     };
@@ -206,12 +207,12 @@ export async function createByteSink(): Promise<ByteSink> {
         chain = chain.then(() => disk.writer.append(data));
         return chain;
       },
-      finish: async () => {
+      finish: async type => {
         await chain;
         await disk.writer.close();
         const file = await disk.handle.getFile();
         scheduleRemove(disk, file.size);
-        return file;
+        return type ? new Blob([file], { type }) : file;
       },
       abort: () => discard(disk)
     };

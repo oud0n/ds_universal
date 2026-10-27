@@ -5,6 +5,7 @@
  * 式は点ごとにその場で計算する (点には書かない)
  */
 import type { TelemetryPoint } from '../types/telemetry';
+import { tr } from '../utils/i18n';
 
 export interface CalcChannel {
   key: string;
@@ -33,24 +34,24 @@ const FUNCS: Record<string, (...x: number[]) => number> = {
 /** 式を読む。読めなければ理由を投げる */
 export function parseExpr(src: string): Node {
   // 長すぎる式・入れ子の深すぎる式は読まない (深い入れ子で読み手が溢れて、画面ごと止まるため)
-  if (src.length > 200) throw new Error('式が長すぎます (200 文字まで)');
+  if (src.length > 200) throw new Error(tr('式が長すぎます (200 文字まで)', 'The formula is too long (200 characters max)'));
   let depth = 0;
   const toks = src.match(/\d+(?:\.\d+)?(?:e[-+]?\d+)?|[A-Za-z_][A-Za-z0-9_]*|>=|<=|==|!=|[-+*/(),<>]|\S/gi) ?? [];
   let i = 0;
   const peek = () => toks[i];
   const eat = (t?: string) => {
     const x = toks[i];
-    if (t !== undefined && x !== t) throw new Error(`「${t}」が要ります`);
+    if (t !== undefined && x !== t) throw new Error(tr(`「${t}」が要ります`, `"${t}" is missing`));
     i++;
     return x;
   };
   const primary = (): Node => {
-    if (++depth > 40) throw new Error('式の入れ子が深すぎます');
+    if (++depth > 40) throw new Error(tr('式の入れ子が深すぎます', 'The formula is nested too deeply'));
     try { return primaryInner(); } finally { depth--; }
   };
   const primaryInner = (): Node => {
     const t = peek();
-    if (t === undefined) throw new Error('式が途中で終わっています');
+    if (t === undefined) throw new Error(tr('式が途中で終わっています', 'The formula ends too early'));
     if (t === '(') { eat('('); const e = compare(); eat(')'); return e; }
     if (t === '-') { eat(); return { k: 'neg', a: primary() }; }
     if (t === '+') { eat(); return primary(); }
@@ -59,7 +60,7 @@ export function parseExpr(src: string): Node {
       eat();
       if (peek() === '(') {
         const name = t.toLowerCase();
-        if (!FUNCS[name]) throw new Error(`知らない関数です: ${t}`);
+        if (!FUNCS[name]) throw new Error(tr(`知らない関数です: ${t}`, `Unknown function: ${t}`));
         eat('(');
         const args: Node[] = [compare()];
         while (peek() === ',') { eat(','); args.push(compare()); }
@@ -68,7 +69,7 @@ export function parseExpr(src: string): Node {
       }
       return { k: 'var', name: t };
     }
-    throw new Error(`読めない文字です: ${t}`);
+    throw new Error(tr(`読めない文字です: ${t}`, `Unexpected character: ${t}`));
   };
   const term = (): Node => {
     let a = primary();
@@ -85,11 +86,14 @@ export function parseExpr(src: string): Node {
     while (['>', '<', '>=', '<=', '==', '!='].includes(peek() ?? '')) { const op = eat()!; a = { k: 'bin', op, a, b: sum() }; }
     return a;
   };
-  if (!toks.length) throw new Error('式が空です');
+  if (!toks.length) throw new Error(tr('式が空です', 'The formula is empty'));
   const e = compare();
-  if (i < toks.length) throw new Error(`読めない文字です: ${toks[i]}`);
+  if (i < toks.length) throw new Error(tr(`読めない文字です: ${toks[i]}`, `Unexpected character: ${toks[i]}`));
   return e;
 }
+
+/** 点にもともとある値の名前 (計算式の英字の名前には使えない。使うと、式からはもともとの値が読まれる) */
+export const BUILTIN_VALUE_NAMES = new Set(['index', 'time', 'satellites', 'timestamp', 'latitude', 'longitude', 'altitude', 'speed', 'heading', 'distance', 'throttle', 'brake', 'steering', 'rpm', 'gear']);
 
 /** 式に出てくる値の名前 */
 export function exprVars(n: Node): string[] {
