@@ -5,8 +5,8 @@
 
 | フォルダ | 端末 | 言語 | 状態 |
 |---|---|---|---|
-| `ios/` | iPhone・iPad | Swift (SwiftUI は外側の枠だけ) | デジスパイスとのつなぎ (BLE) まで |
-| `android/` | Android | Kotlin | Bluetooth Classic の GPS (Drogger DG-PRO1S) と保存 (2026-10-25 に最初の版) |
+| `ios/` | iPhone・iPad | Swift (SwiftUI は外側の枠だけ) | 1.1.0 を App Store に提出 (BLE の機器・ラップタイマー・内蔵カメラ・G センサー・保管場所・アプリ内課金) |
+| `android/` | Android | Kotlin | 友人向けの試験版 (Bluetooth Classic の GPS・BLE・内蔵カメラ・選んだフォルダ) |
 
 ## 決まり
 
@@ -41,11 +41,11 @@ npm run dev
 
 1. Xcode を一度開いて、追加の部品を入れておく
 2. `brew install xcodegen` のあと、`cd mobile/ios && xcodegen` で `DSUniversal.xcodeproj` を作る
-3. 開発中は、`project.yml` の `DS_WEB_URL` に Mac の開発サーバー (`npm run dev -- --host` で出る `http://192.168.x.x:5173/`) を書くと、
-   その画面を読み込む (Web を直すとすぐ反映される)。空なら公開版のページを読む
+3. ふだんは `npm run build` で作った `dist` をアプリに入れて読む (`DS_WEB_URL` は空)。開発中に Mac の開発サーバーを読みたいときは、
+   作るときに `DS_WEB_URL=http://<Mac の名前>.local:5173/ xcodegen` とする (http は .local などの近くのネットワークだけ通る)
 4. Bluetooth はシミュレーターでは使えないので、実機で試す (Apple の開発者の登録が要る)
 
-まだないもの: アプリに入れた Web を `app://` で読む (動画の範囲の読み出しと一緒に作る)、保存 (files)、記録 (recorder)、カメラ、センサー。
+シミュレーターで試すときは `xcodebuild … -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build` (docs/maintenance.md の 4・6)。
 
 ## TestFlight に送る (2026-10-23)
 

@@ -29,3 +29,11 @@ npm run build
 npm run dist:win   # Windows用 (.exe, .zip)
 npm run dist:mac   # macOS用 (.dmg, .zip / Apple Silicon arm64)
 ```
+
+## そのほかの資料
+
+- 構成: [architecture.md](architecture.md)
+- 試験・レビュー・リリースの手順: [maintenance.md](maintenance.md)
+- 文書の一覧と残件: [README.md](README.md)・[../TODO.md](../TODO.md)
+
+試験は `npx vitest run`、型は `npx tsc --noEmit -p .`。

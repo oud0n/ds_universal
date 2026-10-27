@@ -10,7 +10,7 @@ Log download and logger settings for DigSpice IV, racing line / speed / G analys
 
 ![Supported OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon-blue)
 ![Verification](https://img.shields.io/badge/Verified-macOS%20Only-amber)
-![Version](https://img.shields.io/badge/Version-1.0.0-red)
+![Version](https://img.shields.io/badge/Version-1.1.0-red)
 ![Device](https://img.shields.io/badge/Device-DigSpice%20IV-red)
 ![License](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-oud0n-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/oud0n)
@@ -94,7 +94,7 @@ Download the latest version for your OS from [GitHub Releases](https://github.co
 
 ### 🍎 macOS: if you see "is damaged and can't be opened"
 
-The app is not signed, so macOS shows this message (the file is not actually damaged).
+From v1.0.2 the Mac version is signed and notarized by Apple, so it opens normally. Only if an older version shows this message, open it as follows (the file is not actually damaged).
 
 1. Copy `LapLoupe.app` from the DMG to your Applications folder.
 2. Run this command in Terminal.app (it removes the mark added when the file was downloaded):
@@ -120,8 +120,9 @@ codesign --force --deep --sign - "/Applications/LapLoupe.app"
 | :--- | :--- |
 | [Features](docs/features.en.md) | details of each feature, where the course data (timing lines) comes from, features not implemented |
 | [Installation](docs/install.en.md) | requirements, detailed steps when the app won't open on macOS |
-| [Release notes](docs/release-notes.en.md) | changes in each version (latest: v1.0.0) |
+| [Release notes](docs/release-notes.en.md) | changes in each version (latest: v1.1.0) |
 | [Developer setup](docs/development.en.md) | running, building and packaging from source |
+| [Developer documents](docs/README.md) | architecture, procedures, design notes and open items (Japanese; for developers and AI agents) |
 | [Course data](courses/README.md) | the built-in course files and how they were made (Japanese) |
 | [Zenn article (Japanese)](https://zenn.dev/oud0n/articles/ace1347602c574) | why this app was made, and how the DigSpice's USB communication works |
 
