@@ -9,7 +9,7 @@ import {
   ArrowLeftRight, Volume2, VolumeX, Maximize2, ListChecks, Maximize, Minimize, LayoutDashboard } from 'lucide-react';
 import { Session, TelemetryPoint, SelectedCarSlot, Lap } from '../types/telemetry';
 import { getAddVideoGpsLog, setAddVideoGpsLog } from '../services/videoPrefs';
-import { videoSyncManager, PlacedTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs, overlappingSessions, placeTracks } from '../services/videoSyncManager';
+import { videoSyncManager, PlacedTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs, overlappingSessions, placeTracks, isClockManual } from '../services/videoSyncManager';
 import { clockOffsetIn, sessionStartUtcMs } from '../services/mediaClock';
 import { RunsInspector, syncBadgeOf, BADGE_CLASS } from './video/RunsInspector';
 import { getNextChapter, getPreviousChapter, groupVideoTracksByChapter } from '../services/videoChapterManager';
@@ -253,6 +253,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   loading = false
 }) => {
   const t = useT();
+  /** 手で合わせた同期を、時間帯からの計算で置き換えてよいか (手で合わせた動画だけ聞く。2026-10-27 のレビュー。確認なしに上書きされていた) */
+  const okToDropManualSync = (track: PlacedTrack) => !isClockManual(track) || confirm(t(
+    'この動画は手で同期を合わせています。時間帯から計算し直すと、合わせたずれは消えます。計算し直しますか？',
+    'This video was synced by hand. Recalculating from the time zones replaces that offset. Recalculate?'));
   // 動画の一覧と出すカメラは、どのウインドウでも同じにする (videoViewStore に 1 つだけ持つ)。
   // モード・並べ方・大きく出す枠・メーターは、ウインドウごとに持つ
   const storedTracks = useVideoTracks();
@@ -1330,7 +1334,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               )}
               {mainMedia && (
                 <button
-                  onClick={() => mainMedia.tracks.forEach(x => videoSyncManager.removeTrack(x.id))}
+                  onClick={() => {
+                    // 外すと、走行に保存した同期 (ずれ・ピン) も消える (2026-10-27 のレビュー。確認なしに消えていた)
+                    if (!confirm(t('メインの動画をこの走行から外します。合わせた同期 (ずれ・ピン) も消えます。動画のファイルは消えません (「この走行のフォルダの動画」から付け直せます)。外しますか？',
+                      'Remove the main video from this run? Its sync (offset and pins) is removed too. The video file itself is kept (you can add it again from the videos in this run\'s folder).'))) return;
+                    mainMedia.tracks.forEach(x => videoSyncManager.removeTrack(x.id));
+                  }}
                   disabled={isAnyExporting}
                   title={t('メインの動画を一覧から消す', 'Remove the main video from the list')}
                   className="p-1 hover:bg-red-950/60 text-slate-400 hover:text-red-400 rounded transition-colors cursor-pointer"
@@ -1525,7 +1534,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               <span className="text-slate-400 text-[10px] font-medium">{t('動画TZ:', 'Video TZ:')}</span>
               <select
                 value={activeTrack.videoTimezone || 'JST'}
-                onChange={e => videoSyncManager.resyncTrack(activeTrack.id, sessions, e.target.value, undefined, baseSession?.id)}
+                onChange={e => { if (okToDropManualSync(activeTrack)) videoSyncManager.resyncTrack(activeTrack.id, sessions, e.target.value, undefined, baseSession?.id); }}
                 className="bg-transparent text-slate-100 font-bold text-xs outline-none cursor-pointer"
               >
                 {TIMEZONE_OPTIONS.map(opt => (
@@ -1541,7 +1550,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               <span className="text-slate-400 text-[10px] font-medium">GPS TZ:</span>
               <select
                 value={activeTrack.gpsTimezone || 'JST'}
-                onChange={e => videoSyncManager.resyncTrack(activeTrack.id, sessions, undefined, e.target.value, baseSession?.id)}
+                onChange={e => { if (okToDropManualSync(activeTrack)) videoSyncManager.resyncTrack(activeTrack.id, sessions, undefined, e.target.value, baseSession?.id); }}
                 className="bg-transparent text-slate-100 font-bold text-xs outline-none cursor-pointer"
               >
                 {TIMEZONE_OPTIONS.map(opt => (
@@ -1554,7 +1563,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
             {/* 再同期ボタン */}
             <button
-              onClick={() => videoSyncManager.resyncTrack(activeTrack.id, sessions, activeTrack.videoTimezone, activeTrack.gpsTimezone, baseSession?.id)}
+              onClick={() => { if (okToDropManualSync(activeTrack)) videoSyncManager.resyncTrack(activeTrack.id, sessions, activeTrack.videoTimezone, activeTrack.gpsTimezone, baseSession?.id); }}
               className="flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px] transition-colors cursor-pointer"
               title={t('タイムゾーンに基づきオフセット再計算', 'Recalculate the offset from the time zones')}
             >
