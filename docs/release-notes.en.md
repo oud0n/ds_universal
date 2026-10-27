@@ -26,6 +26,8 @@
 
 **Changed**
 
+- **Video export**: the encode method (frame by frame, faster) can now be chosen for videos of runs opened from the storage folder too. Before, it was only available for videos opened by picking the file, and those runs fell back to recording while playing (iPhone and desktop).
+- **Meters in small frames**: narrow video frames (such as iPhone portrait) now show a small course map in the top-left corner.
 - The lap timer's screen orientation switch (auto / portrait / landscape) is gone. Orientation follows the device and is locked only while timing (on the folding iPhone it could get stuck).
 - The analysis animation window was merged into the track window.
 - The zoomed map now keeps north up by default, like the track map (heading-up is still available).

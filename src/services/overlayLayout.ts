@@ -155,8 +155,9 @@ export interface OverlayLayout {
 /** この幅 (画面の px) より狭い枠は、小さな枠の並びにする */
 export const SMALL_TILE_PX = 560;
 
-/** 小さな枠の既定の部品: 大きく読めるものだけ (速度・ラップタイム・G)。走行比較の枠も同じ */
+/** 小さな枠の既定の部品: 大きく読めるもの (速度・ラップタイム・G) と、左上の小さなコース図 */
 export const SMALL_PARTS: OverlayPart[] = [
+  { id: 'map', type: 'map', x: 0.03, y: 0.04, w: 0.22, h: 0.38 },
   { id: 'speed', type: 'speed', x: 0.03, y: 0.72, w: 0.32, h: 0.24 },
   { id: 'clock', type: 'lapClock', x: 0.6, y: 0.04, w: 0.37, h: 0.14 },
   { id: 'g', type: 'gmeter', x: 0.75, y: 0.66, w: 0.22, h: 0.3 }
@@ -217,8 +218,9 @@ export const BUILTIN_LAYOUTS: OverlayLayout[] = [
       { id: 'rpm', type: 'value', channel: 'rpm', label: 'RPM', x: 0.385, y: 0.85, w: 0.09, h: 0.07 },
       { id: 'gear', type: 'value', channel: 'gear', label: 'GEAR', x: 0.48, y: 0.85, w: 0.06, h: 0.07 }
     ],
-    // 小さな枠: 速度・アクセル・ブレーキ・ラップタイム (選んだ並びの違いが狭い枠でも分かるように)
+    // 小さな枠: コース図・速度・アクセル・ブレーキ・ラップタイム (選んだ並びの違いが狭い枠でも分かるように)
     small: [
+      { id: 'map', type: 'map', x: 0.03, y: 0.04, w: 0.22, h: 0.38 },
       { id: 'speed', type: 'speed', x: 0.03, y: 0.72, w: 0.32, h: 0.24 },
       { id: 'throttle', type: 'bar', channel: 'throttle', color: '#22c55e', label: 'THR', x: 0.37, y: 0.66, w: 0.06, h: 0.3 },
       { id: 'brake', type: 'bar', channel: 'brake', color: '#ef4444', label: 'BRK', x: 0.45, y: 0.66, w: 0.06, h: 0.3 },
@@ -236,6 +238,7 @@ export const BUILTIN_LAYOUTS: OverlayLayout[] = [
       { id: 'g', type: 'gmeter', x: 0.85, y: 0.775, w: 0.13, h: 0.18 }
     ],
     small: [
+      { id: 'map', type: 'map', x: 0.03, y: 0.04, w: 0.22, h: 0.38 },
       { id: 'speed', type: 'speed', x: 0.03, y: 0.5, w: 0.3, h: 0.22 },
       { id: 'clock', type: 'lapClock', x: 0.6, y: 0.04, w: 0.37, h: 0.14 },
       { id: 'graph', type: 'graph', channels: ['speed'], window: 'lap', compare: true, x: 0.03, y: 0.76, w: 0.94, h: 0.21 }

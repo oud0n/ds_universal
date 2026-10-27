@@ -11,13 +11,14 @@
  * ファイルの読み書きは mediabunny (MPL-2.0) を使う
  */
 
-import { ALL_FORMATS, BlobSource, Conversion, Input, Mp4OutputFormat, Output, canEncodeVideo } from 'mediabunny';
+import { ALL_FORMATS, BlobSource, Conversion, CustomSource, Input, Mp4OutputFormat, Output, canEncodeVideo, type Source } from 'mediabunny';
+import { isRemoteVideo, readRemoteRange, type RemoteVideo } from './remoteVideo';
 import { createVideoSink, type VideoSink } from './exportSink';
 import { downloadBlob, type VideoExportController } from './telemetryVideoExporter';
 
 export interface EncodeExportOptions {
-  /** 元の動画のファイル */
-  file: File;
+  /** 元の動画 (選んだファイル、または保管場所の動画。保管場所の動画は、要るところだけ読む) */
+  file: File | RemoteVideo;
   /** 書き出す範囲 (動画の中の秒) */
   startVideoSec: number;
   endVideoSec: number;
@@ -64,6 +65,33 @@ export function forceBaselineH264(): () => void {
   };
 }
 
+/** 一度に読む大きさの上限。iPhone のアプリは読んだ中身を base64 で渡すので、大きすぎないように分けて読む */
+const REMOTE_READ_CHUNK = 8 * 1024 * 1024;
+
+/** 保管場所の動画の [start, end) を、REMOTE_READ_CHUNK ずつに分けて読む */
+export async function readRemoteChunked(file: Pick<RemoteVideo, 'url' | 'readRange'>, start: number, end: number, chunk = REMOTE_READ_CHUNK): Promise<Uint8Array> {
+  const out = new Uint8Array(end - start);
+  for (let pos = start; pos < end; pos += chunk) {
+    const stop = Math.min(end, pos + chunk);
+    const buf = new Uint8Array(await readRemoteRange(file, pos, stop));
+    if (buf.byteLength !== stop - pos) throw new Error(`動画を読めませんでした (${pos}-${stop})`);
+    out.set(buf, pos - start);
+  }
+  return out;
+}
+
+/** 元の動画を mediabunny で読む口。保管場所の動画は、範囲を頼んで読む (デスクトップ版は lapfile://、iPhone はアプリの窓口) */
+export function encodeSource(file: File | RemoteVideo): Source {
+  if (!isRemoteVideo(file)) return new BlobSource(file);
+  return new CustomSource({
+    getSize: () => file.size,
+    read: (start, end) => readRemoteChunked(file, start, end),
+    // 続けて読むときは、先の分もまとめて読んでおく (読む回数を減らす)
+    prefetchProfile: 'network',
+    maxCacheSize: 64 * 1024 * 1024
+  });
+}
+
 export function exportEncodedVideo(options: EncodeExportOptions): VideoExportController {
   const { file, startVideoSec, endVideoSec, toSessionSec, drawOverlay, width, height, fps, bitrate = 8_000_000, outputFileName, onProgress, onWarning } = options;
   let conversion: Conversion | null = null;
@@ -82,7 +110,7 @@ export function exportEncodedVideo(options: EncodeExportOptions): VideoExportCon
     if (!(await canEncodeVideo('avc', { width, height, bitrate }))) {
       throw new Error('このブラウザでは H.264 で書き出せません');
     }
-    const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+    const input = new Input({ source: encodeSource(file), formats: ALL_FORMATS });
     // できたファイルは、ブラウザの中のファイル置き場に少しずつ書く (長い書き出しでメモリを使い切らない。exportSink.ts)。
     // そのときは MP4 の目次を最後に書く (先頭に置くには、全部をメモリに持つ必要がある)
     sink = await createVideoSink();
