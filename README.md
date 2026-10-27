@@ -10,7 +10,7 @@
 
 ![対応OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon-blue)
 ![検証状況](https://img.shields.io/badge/Verified-macOS%20Only-amber)
-![バージョン](https://img.shields.io/badge/Version-1.0.0-red)
+![バージョン](https://img.shields.io/badge/Version-1.1.0-red)
 ![デバイス](https://img.shields.io/badge/Device-DigSpice%20IV-red)
 ![ライセンス](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-oud0n-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/oud0n)
@@ -92,7 +92,7 @@
 
 ### 🍎 macOS で「壊れているため開けません」と出るとき
 
-署名していないアプリなので、macOS がこう表示します（ファイルが壊れているわけではありません）。
+v1.0.2 以降の Mac 版は、Apple の公証を受けた署名付きのアプリなので、ふつうにダブルクリックで開けます。それより前の版で、このメッセージが出たときだけ、次の手順で開いてください（ファイルが壊れているわけではありません）。
 
 1. DMG の中の `LapLoupe.app` を「アプリケーション」フォルダにコピーします。
 2. ターミナル.app で、次のコマンドを実行します（ダウンロードしたときに付く印を外します）。
@@ -118,8 +118,9 @@ codesign --force --deep --sign - "/Applications/LapLoupe.app"
 | :--- | :--- |
 | [機能の一覧](docs/features.md) | 各機能の詳しい説明、コースデータ（計測線）の出どころ、実装していない機能 |
 | [インストールの手順](docs/install.md) | 動作要件、macOS で開けないときの詳しい手順 |
-| [リリースノート](docs/release-notes.md) | 版ごとの変更点（最新は v1.0.0） |
+| [リリースノート](docs/release-notes.md) | 版ごとの変更点（最新は v1.1.0） |
 | [開発者向けセットアップ](docs/development.md) | ソースからの起動・ビルド・パッケージング |
+| [開発の資料の一覧](docs/README.md) | 構成・手順・設計書・残件 (開発する人・AI のエージェント向け) |
 | [コースデータ](courses/README.md) | 内蔵コースのファイルと、その作り方 |
 | [Zenn の記事](https://zenn.dev/oud0n/articles/ace1347602c574) | このアプリを作った経緯と、デジスパイスの USB 通信の仕組み |
 

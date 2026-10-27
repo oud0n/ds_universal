@@ -24,6 +24,9 @@ Download the latest installer / ZIP for your OS from [GitHub Releases](https://g
 When you open the app from the DMG, macOS may show the warning **"“LapLoupe” is damaged and can't be opened. You should move it to the Trash."**
 
 ### 💡 Cause
+
+**From v1.0.2 the Mac version is signed with a Developer ID and notarized by Apple, so this warning does not appear.** The rest of this section is for older versions.
+
 This app is developed by an individual and is not notarized or signed through the paid Apple Developer Program.  
 macOS Gatekeeper adds a quarantine flag (`com.apple.quarantine`) to unsigned, unnotarized apps downloaded from a browser, reports them as "damaged" (a BundleIntegrity warning) and kills them (SIGKILL) for protection. **The file is not actually damaged.**
 
