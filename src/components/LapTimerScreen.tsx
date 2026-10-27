@@ -82,8 +82,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     phoneMessages: () => ({
       unavailable: getLang() === 'ja' ? 'この端末では位置を使えません' : 'Location is not available on this device',
       denied: getLang() === 'ja'
-        ? '位置の許可がありません (アプリは設定アプリの LapLoupe で、ブラウザはサイトの設定で、位置情報を許可してください)'
-        : 'Location permission denied (allow Location for LapLoupe in the Settings app, or for this site in your browser)'
+        ? '位置の許可がありません (アプリは設定アプリの LapLoupe で、ブラウザはサイトの設定で、位置情報を許可してから、開き直してください)'
+        : 'Location permission denied (allow Location for LapLoupe in the Settings app, or for this site in your browser, then reopen it)'
     })
   }, (() => {
     // 位置の出どころ。前に選んだものを覚えておき、画面の上の印にも同じものを出す (services/positionSource.ts)
