@@ -29,3 +29,11 @@ npm run build
 npm run dist:win   # Windows (.exe, .zip)
 npm run dist:mac   # macOS (.dmg, .zip / Apple Silicon arm64)
 ```
+
+## More documents (Japanese)
+
+- Architecture: [architecture.md](architecture.md)
+- Testing, review and release: [maintenance.md](maintenance.md)
+- Document index and open items: [README.md](README.md), [../TODO.md](../TODO.md)
+
+Tests: `npx vitest run`; types: `npx tsc --noEmit -p .`.
