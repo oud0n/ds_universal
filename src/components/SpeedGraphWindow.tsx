@@ -906,11 +906,12 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
 
               return (
                 <div key={idx} className="flex items-center justify-between gap-3 font-mono">
-                  <span className="flex items-center gap-1.5 font-bold" style={{ color: c.slot.colorHex }}>
-                    <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: c.slot.colorHex }}></span>
-                    {c.slot.label}:
+                  {/* 長い走行の名前は 1 行で省く (折り返してグラフに重なっていた。BUG-39) */}
+                  <span className="flex items-center gap-1.5 font-bold min-w-0" style={{ color: c.slot.colorHex }} title={c.slot.label}>
+                    <span className="w-2 h-2 rounded-full inline-block shrink-0" style={{ backgroundColor: c.slot.colorHex }}></span>
+                    <span className="truncate max-w-[16rem] [@media(max-width:500px)]:max-w-[9rem]">{c.slot.label}</span>:
                   </span>
-                  <span className="font-bold text-slate-100">{curPt ? curPt.speed.toFixed(1) : '0.0'} km/h</span>
+                  <span className="font-bold text-slate-100 shrink-0">{curPt ? curPt.speed.toFixed(1) : '0.0'} km/h</span>
                 </div>
               );
             })}

@@ -144,15 +144,16 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
     const nextIdx = sectors.length + 1;
     // 最後がフィニッシュ (計測線まで) のときは、その前に足す (フィニッシュより後ろのセクターは区間がおかしくなる)
     const finishIdx = sectors.length > 0 && sectors[sectors.length - 1].id.endsWith('_finish') ? sectors.length - 1 : sectors.length;
+    // 計測線をずらした位置に仮に置く。計測線がまだ無い (2 点が同じ) ときも長さ 0 の線にしない (保存で弾かれていた。BUG-39)
+    const latA = (parseFloat(clLatA) || 0) + 0.002 * nextIdx, lonA = (parseFloat(clLonA) || 0) + 0.002 * nextIdx;
+    let latB = (parseFloat(clLatB) || 0) + 0.002 * nextIdx, lonB = (parseFloat(clLonB) || 0) + 0.002 * nextIdx;
+    if (Math.abs(latA - latB) < 1e-6 && Math.abs(lonA - lonB) < 1e-6) lonB = lonA + 0.0003;
     setSectors([
       ...sectors.slice(0, finishIdx),
       {
         id: `custom_s${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         name: `Sector ${nextIdx}`,
-        latA: (parseFloat(clLatA) || 0) + 0.002 * nextIdx,
-        lonA: (parseFloat(clLonA) || 0) + 0.002 * nextIdx,
-        latB: (parseFloat(clLatB) || 0) + 0.002 * nextIdx,
-        lonB: (parseFloat(clLonB) || 0) + 0.002 * nextIdx
+        latA, lonA, latB, lonB
       },
       ...sectors.slice(finishIdx)
     ]);

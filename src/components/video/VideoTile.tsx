@@ -69,6 +69,9 @@ export const VideoTile: React.FC<VideoTileProps> = ({
   const track = position?.track;
   const src = released ? undefined : (useProxy && track?.proxyUrl) || track?.objectUrl;
   const isReleased = released && !!track?.objectUrl;
+  // 読めない動画 (壊れた・0 バイト・対応していない形式)。前は黒いままメーターだけ動き、何も出なかった (BUG-39)
+  const [loadError, setLoadError] = useState(false);
+  useEffect(() => { setLoadError(false); }, [src]);
   // 同じ関数を渡し続ける (描くたびに付け外しすると、出たコマの見張りが切れるため)
   const setVideo = useCallback((el: HTMLVideoElement | null) => {
     videoRef.current = el;
@@ -144,6 +147,7 @@ export const VideoTile: React.FC<VideoTileProps> = ({
           // そこで、止めたままでも最初のコマを出すための一度だけの再生をする (Car を替えて動画が替わったときも。2026-10-22)
           onLoadedData={onSeeked}
           onLoadedMetadata={onSeeked}
+          onError={() => setLoadError(true)}
           src={src}
           // 保管場所の動画 (lapfile://) も書き出しの絵に描けるように (付けないと絵が汚れて録れず、音も消える)。
           // デスクトップ版・iPhone のアプリとも、Access-Control-Allow-Origin: * で返している
@@ -168,7 +172,12 @@ export const VideoTile: React.FC<VideoTileProps> = ({
       {editLayer && box && (
         <div className="absolute z-[16]" style={{ left: box.left, top: box.top, width: box.width, height: box.height }}>{editLayer}</div>
       )}
-      {src && position?.outOfRange && (
+      {src && loadError && (
+        <div className="absolute inset-0 z-[6] flex items-center justify-center bg-black/85 text-amber-300 text-[11px] text-center px-3 pointer-events-none" data-testid="video-tile-error">
+          {t('この動画は再生できません (ファイルが壊れているか、対応していない形式です)', 'This video cannot be played (the file is damaged or in an unsupported format)')}
+        </div>
+      )}
+      {src && !loadError && position?.outOfRange && (
         <div className="absolute inset-0 z-[5] flex items-center justify-center bg-black/80 text-slate-400 text-[11px] text-center px-2 pointer-events-none">
           {t('この時刻の映像はありません', 'No footage at this time')}
         </div>
