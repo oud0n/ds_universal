@@ -137,6 +137,8 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   const [saveError, setSaveError] = useState('');
 
   const [sectors, setSectors] = useState<Sector[]>(initialSectors);
+  // 入力を直したら、前の保存のときのエラーは消す (直したあとも赤い文が残っていた。2026-10-27 のレビュー)
+  useEffect(() => { setSaveError(''); }, [name, nameEn, folder, clLatA, clLonA, clLatB, clLonB, separateFinish, fin, sectors]);
 
   const handleAddSector = () => {
     const nextIdx = sectors.length + 1;

@@ -7,7 +7,7 @@ import { useT } from '../utils/i18n';
 import { useCompactLayout } from '../hooks/useCompactLayout';
 import { deleteCsvFormat, safeName, saveCalcChannels, saveCsvFormat, useCsvFormats } from '../services/csvFormatStore';
 import { guessDelimiter, sensorKeyOf, splitRow, validTimezone, type ColumnSpec, type ColumnTarget, type CsvFormat, type TimeAs } from '../services/csvFormats';
-import { parseExpr, type CalcChannel } from '../services/calcChannels';
+import { BUILTIN_VALUE_NAMES, exprVars, parseExpr, type CalcChannel } from '../services/calcChannels';
 import { CUSTOM_KEY_RE } from '../services/overlayLayout';
 
 export const CsvFormatSettings: React.FC = () => {
@@ -154,6 +154,9 @@ const CsvFormatEditor: React.FC<{ initial: CsvFormat | null; others: CsvFormat[]
     // 同じ名前、または名前は違ってもファイルの名前が同じになるもの (「My Log」と「My_Log」など) は、上書きになる
     const stemId = `user:${safeName(name)}`.toLowerCase();
     const clash = others.find(o => o.id !== f.id && (o.name === name || o.id.toLowerCase() === stemId));
+    // 値だけの CSV は、ファイルの名前 (<走行>.<名前>.csv) で形式を選ぶので、同じ名前のものが 2 つあると、どちらで読むか決まらない
+    const sameKey = f.kind === 'sensor' ? others.find(o => o.id !== f.id && o.id !== clash?.id && o.kind === 'sensor' && o.sensorKey === f.sensorKey) : undefined;
+    if (sameKey) { setNote({ ok: false, text: t(`ファイルの名前「${f.sensorKey}」は「${sameKey.name}」で使っています。別の名前にしてください`, `The file name part "${f.sensorKey}" is already used by "${sameKey.name}". Choose another one`) }); return; }
     if (clash && !window.confirm(t(`「${name}」に上書きしますか？`, `Overwrite "${name}"?`))) return;
     // 見出しは、使う列と時刻の列 (見分けるのに使う)
     const used = [...Object.entries(f.columns).filter(([, s]) => !s.ignore).map(([n]) => n), ...(f.time ? [f.time.column] : [])];
@@ -308,7 +311,13 @@ const CalcEditor: React.FC<{ initial: CalcChannel[]; onClose: () => void }> = ({
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const errOf = (c: CalcChannel): string | null => {
     if (!CUSTOM_KEY_RE.test(c.key)) return t('英字の名前は英小文字・数字・_', 'Key: lowercase letters, digits, _');
-    try { parseExpr(c.expr); return null; } catch (e) { return e instanceof Error ? e.message : String(e); }
+    if (BUILTIN_VALUE_NAMES.has(c.key)) return t(`「${c.key}」はもともとある値の名前なので、別の名前にしてください`, `"${c.key}" is a built-in value name; choose another key`);
+    let vars: string[];
+    try { vars = exprVars(parseExpr(c.expr)); } catch (e) { return e instanceof Error ? e.message : String(e); }
+    // 計算式の値は点に書かないので、ほかの計算式の値 (自分も) は式から読めない (前は保存できて、値が出ないだけだった)
+    const calcRef = vars.find(v => list.some(o => o.key === v));
+    if (calcRef) return t(`計算式の値「${calcRef}」は、式の中では使えません`, `A formula cannot use another formula's value ("${calcRef}")`);
+    return null;
   };
   const set = (i: number, patch: Partial<CalcChannel>) => { dirty.current = true; setList(l => l.map((c, k) => (k === i ? { ...c, ...patch } : c))); };
   const save = async () => {

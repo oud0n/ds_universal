@@ -583,6 +583,11 @@ export const App: React.FC = () => {
   }
   const isSessionClock = wantClockBase === 'session';
 
+  // 再生の段が無い画面に移ったとき・Car 1 を外したときは止める (前は見えないところで再生が進み続け、止めるボタンも無かった。2026-10-27 のレビュー)
+  useEffect(() => {
+    if (isPlaying && (!baseSession || (currentTab !== 'analysis' && currentTab !== 'video'))) setIsPlaying(false);
+  }, [isPlaying, baseSession, currentTab]);
+
   // セッション全体の時刻で、終わりまで再生したあとに再生を押したら、始めから再生する
   useEffect(() => {
     if (isPlaying && isSessionClock) setCurrentTimeSec(t => (t >= sessionEndTime - 1e-3 ? 0 : t));
@@ -1116,7 +1121,8 @@ export const App: React.FC = () => {
     const items = await listRuns(store).catch(() => [] as RunItem[]);
     const find = (c: LapSessionCar) => items.find(r => `${r.folder}/${r.file}` === c.run) ?? (c.id ? items.find(r => r.entry?.id === c.id) : undefined);
     const cars = [...saved.cars].sort((a, b) => a.slot - b.slot);
-    const firstItem = find(cars[0]);
+    // Car 1 の走行が消えていても、残っている走行で開く (いちばん前に残っているものを Car 1 にする。2026-10-27 のレビュー)
+    const firstItem = cars.map(find).find(x => !!x);
     if (!firstItem) {
       alert(tr('このセッションの走行が見つかりません (消したか、名前を変えた走行)', 'The runs of this session were not found (deleted or renamed)'));
       return;
@@ -1138,7 +1144,9 @@ export const App: React.FC = () => {
       // 計測線を直して周の番号が変わっていても、保存した周の始まりの時刻で選び直す
       const { lap, moved: m } = resolveSessionLap(s, c);
       if (m) moved++;
-      picks.push({ slot: c.slot, sessionId: s.id, lapNumber: lap, colorHex: colors[c.slot] ?? colors[0], label: `${s.sessionName} (L${lap})` });
+      // 見つからなかった Car があれば、前へ詰める (Car 1 が空にならないように)
+      const slot = picks.length;
+      picks.push({ slot, sessionId: s.id, lapNumber: lap, colorHex: colors[slot] ?? colors[0], label: `${s.sessionName} (L${lap})` });
     }
     if (picks.length) setSelectedCars(picks);
     navStore.go('analysis');
