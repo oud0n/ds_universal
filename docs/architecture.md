@@ -106,6 +106,6 @@ LapLoupe は、1 つの Web アプリ (React + TypeScript、`src/`) を 4 つの
 | 画面の通し (e2e) | `e2e/run.mjs`・`journeys.mjs`・`layout.mjs` | docs/maintenance.md の 3 |
 | iPhone の実機の計測 | `e2e/ios_compare_trace.mjs` | 同上 |
 
-## 7. 使っていない古いファイル
+## 7. 古いファイル
 
-ルートの `main.js`・`preload.js`・`renderer.js`・`styles.css` は v0.7.0 (DS Universal Suite) の頃のもので、今のビルドでは使っていない (Electron の入口は `electron/main.cjs`)。`digspice_cli.ps1`・`extract_pcap.py` は通信の解析に使った道具。消すかは持ち主の判断待ち (TODO の CLEAN-01)。
+v0.7.0 の頃のルートの `main.js`・`preload.js`・`renderer.js`・`styles.css` は 2026-10-28 に消した (Electron の入口は `electron/main.cjs`)。`digspice_cli.ps1`・`extract_pcap.py` は通信の解析に使った道具 (TODO の CLEAN-01)。
