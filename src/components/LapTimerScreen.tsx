@@ -575,14 +575,16 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               <div className="space-y-1.5">
                 {runs.slice(0, 20).map(r => {
                   const d = new Date(r.startedMs);
-                  // 記録中 (または、たった今まで書いていた) の走行は消せない
-                  const recording = rt.currentRunId === r.id || Date.now() - r.updatedMs < 10000;
+                  // 記録中 (または、たった今まで書いていた) の走行は消せない。「記録中」の札は、今書いている走行だけに出す
+                  // (たった今まで書いていた走行にも出すと、続けて始め・止めしたとき 2 つ以上に出ていた。BUG-39)
+                  const live = rt.currentRunId === r.id;
+                  const recording = live || Date.now() - r.updatedMs < 10000;
                   return (
                     <div key={r.id} className="rounded-lg bg-surface-2 px-2.5 py-2">
                       <div className="flex items-baseline gap-2 text-xs">
                         <span className="font-mono">{`${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`}</span>
                         <span className="truncate text-slate-300 flex-1 min-w-0">{r.courseName ? circuitLabel(r.courseName) : '—'}</span>
-                        {recording && <span className="text-red-500 text-[10px] whitespace-nowrap">{t('記録中', 'Recording')}</span>}
+                        {live && <span className="text-red-500 text-[10px] whitespace-nowrap">{t('記録中', 'Recording')}</span>}
                       </div>
                       <div className="text-[11px] text-slate-400 font-mono">
                         {t(`${r.lapCount} 周`, `${r.lapCount} lap${(r.lapCount) === 1 ? '' : 's'}`)}{r.bestLapSec !== null ? ` · ${t('ベスト', 'best')} ${formatLapTime(r.bestLapSec, 3)}` : ''}{` · ${Math.round(r.fixCount / 20 / 60) || '<1'} min`}
