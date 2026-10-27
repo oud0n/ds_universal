@@ -583,6 +583,11 @@ export const App: React.FC = () => {
   }
   const isSessionClock = wantClockBase === 'session';
 
+  // 再生の段が無い画面に移ったとき・Car 1 を外したときは止める (前は見えないところで再生が進み続け、止めるボタンも無かった。2026-10-27 のレビュー)
+  useEffect(() => {
+    if (isPlaying && (!baseSession || (currentTab !== 'analysis' && currentTab !== 'video'))) setIsPlaying(false);
+  }, [isPlaying, baseSession, currentTab]);
+
   // セッション全体の時刻で、終わりまで再生したあとに再生を押したら、始めから再生する
   useEffect(() => {
     if (isPlaying && isSessionClock) setCurrentTimeSec(t => (t >= sessionEndTime - 1e-3 ? 0 : t));
@@ -1116,7 +1121,8 @@ export const App: React.FC = () => {
     const items = await listRuns(store).catch(() => [] as RunItem[]);
     const find = (c: LapSessionCar) => items.find(r => `${r.folder}/${r.file}` === c.run) ?? (c.id ? items.find(r => r.entry?.id === c.id) : undefined);
     const cars = [...saved.cars].sort((a, b) => a.slot - b.slot);
-    const firstItem = find(cars[0]);
+    // Car 1 の走行が消えていても、残っている走行で開く (いちばん前に残っているものを Car 1 にする。2026-10-27 のレビュー)
+    const firstItem = cars.map(find).find(x => !!x);
     if (!firstItem) {
       alert(tr('このセッションの走行が見つかりません (消したか、名前を変えた走行)', 'The runs of this session were not found (deleted or renamed)'));
       return;
@@ -1138,7 +1144,9 @@ export const App: React.FC = () => {
       // 計測線を直して周の番号が変わっていても、保存した周の始まりの時刻で選び直す
       const { lap, moved: m } = resolveSessionLap(s, c);
       if (m) moved++;
-      picks.push({ slot: c.slot, sessionId: s.id, lapNumber: lap, colorHex: colors[c.slot] ?? colors[0], label: `${s.sessionName} (L${lap})` });
+      // 見つからなかった Car があれば、前へ詰める (Car 1 が空にならないように)
+      const slot = picks.length;
+      picks.push({ slot, sessionId: s.id, lapNumber: lap, colorHex: colors[slot] ?? colors[0], label: `${s.sessionName} (L${lap})` });
     }
     if (picks.length) setSelectedCars(picks);
     navStore.go('analysis');
@@ -1212,7 +1220,7 @@ export const App: React.FC = () => {
       const runPath = `${item.folder}/${item.file}`;
       const openedIds = runSessionsRef.current.get(runPath) ?? [];
       const already = latestRef.current.sessions.filter(x => openedIds.includes(x.id));
-      const added = already.length ? already : await loadFileData(item.file.slice(item.file.lastIndexOf('/') + 1), buffer);
+      let added = already.length ? already : await loadFileData(item.file.slice(item.file.lastIndexOf('/') + 1), buffer);
       runSessionsRef.current.set(runPath, added.map(x => x.id));
       runItemsRef.current.set(runPath, item);
       // 覚えている走行の名前・メモ (runs.json の行。PLAN-32・33) を、開いた走行の呼び名とメモにする
@@ -1220,13 +1228,16 @@ export const App: React.FC = () => {
       const meta = item.entry;
       // 車種 (runs.json の行。参考ラップは reference.car) は、ログの車の名前より先にする
       const carName = meta?.reference ? meta.reference.car : meta?.car;
-      if (!already.length && added.length && (meta?.name || meta?.note || carName)) {
-        added.forEach((x, i) => {
-          if (meta?.name) x.sessionName = i > 0 ? `${meta.name} (${i + 1})` : meta.name;
-          if (meta?.note) x.runNote = meta.note;
-          if (carName) x.vehicleName = carName;
-        });
-        setSessions(prev => prev.map(x => { const a = added.find(y => y.id === x.id); return a ? { ...x, sessionName: a.sessionName, runNote: a.runNote, vehicleName: a.vehicleName } : x; }));
+      // もう開いている走行でも、走行の画面で直した名前・メモ・車種にそろえる (前は初めて開いたときだけ。2026-10-27 のレビュー)
+      if (added.length && (meta?.name || meta?.note || carName)) {
+        const named = added.map((x, i) => ({
+          ...x,
+          ...(meta?.name ? { sessionName: i > 0 ? `${meta.name} (${i + 1})` : meta.name } : {}),
+          ...(meta?.note ? { runNote: meta.note } : {}),
+          ...(carName ? { vehicleName: carName } : {})
+        }));
+        added = named;
+        setSessions(prev => prev.map(x => { const a = named.find(y => y.id === x.id); return a ? { ...x, sessionName: a.sessionName, runNote: a.runNote, vehicleName: a.vehicleName } : x; }));
       }
       // iPhone のラップタイマーで測った走行なら、G センサーの値 (<走行>.iphone_imu.csv) を読んで G に合わせる
       // 読み終わるのを待たずに開く (30 分の走行で数 MB あり、開くのが遅くなっていた)。読めたら G を計算し直す

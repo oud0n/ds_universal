@@ -69,7 +69,15 @@ export async function loadCsvFormats(retries = 0): Promise<void> {
     publish();
     return;
   }
-  const files = (await s.listAll().catch(() => [])).filter(f => f.path.startsWith(`${FORMATS_DIR}/`));
+  // 一覧を読めなかったら、無いことにしない (計算式を「無い」として保存すると、formats/calc.json を空で上書きしてしまう。2026-10-27 のレビュー)
+  const listed = await s.listAll().catch(() => null);
+  if (!listed) {
+    calcReadable = false;
+    if (retries < 4) setTimeout(() => { void loadCsvFormats(retries + 1); }, 4000);
+    publish();
+    return;
+  }
+  const files = listed.filter(f => f.path.startsWith(`${FORMATS_DIR}/`));
   const out: CsvFormat[] = [];
   // iCloud にだけあって、まだ端末に取り込まれていないファイル (保管場所を選んだ直後など)。取り込みを頼んで、あとで読み直す
   let pending = false;

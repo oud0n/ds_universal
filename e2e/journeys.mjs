@@ -384,14 +384,14 @@ export const journeys = [
         await sleep(1000);
         await p.click('overlay-edit-toggle');
         await p.waitFor(`document.querySelector('[data-testid="overlay-edit-base"]')?.value === 'user:e2e_並び'`, 5000, '覚えた並びで編集が始まる');
-        // 小さな枠: 既定 (速度・周の時計・差) から始まり、保存すると small に入る
+        // 小さな枠: 既定 (コース図・速度・周の時計・G。1.1.0 からコース図も) から始まり、保存すると small に入る
         await p.click('overlay-edit-target-small');
-        await p.waitFor(`document.querySelector('[data-testid="overlay-edit-part-clock"]') && !document.querySelector('[data-testid="overlay-edit-part-map"]')`, 5000, '小さな枠の部品');
+        await p.waitFor(`document.querySelector('[data-testid="overlay-edit-part-clock"]') && document.querySelector('[data-testid="overlay-edit-part-map"]')`, 5000, '小さな枠の部品');
         // 足すと小さな枠の並びになる (触らなければ既定のまま、保存しない)
         await p.click('overlay-edit-add');
         await p.click('overlay-edit-save');
-        for (let i = 0; i < 30 && JSON.parse(fs.readFileSync(file, 'utf8')).small?.length !== 4; i++) await sleep(200);
-        check(JSON.parse(fs.readFileSync(file, 'utf8')).small?.some(x => x.type === 'lapClock') && JSON.parse(fs.readFileSync(file, 'utf8')).small.length === 4, '小さな枠の部品が保存されない');
+        for (let i = 0; i < 30 && JSON.parse(fs.readFileSync(file, 'utf8')).small?.length !== 5; i++) await sleep(200);
+        check(JSON.parse(fs.readFileSync(file, 'utf8')).small?.some(x => x.type === 'lapClock') && JSON.parse(fs.readFileSync(file, 'utf8')).small.length === 5, '小さな枠の部品が保存されない');
         check(JSON.parse(fs.readFileSync(file, 'utf8')).parts.find(x => x.id === 'speed')?.x === 0.12, '小さな枠を直したら、ふつうの枠が変わった');
         await p.click('overlay-edit-target-large');
         // 名前だけ変える: 同じファイルの名前が変わる

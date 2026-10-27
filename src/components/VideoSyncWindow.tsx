@@ -9,7 +9,8 @@ import {
   ArrowLeftRight, Volume2, VolumeX, Maximize2, ListChecks, Maximize, Minimize, LayoutDashboard } from 'lucide-react';
 import { Session, TelemetryPoint, SelectedCarSlot, Lap } from '../types/telemetry';
 import { getAddVideoGpsLog, setAddVideoGpsLog } from '../services/videoPrefs';
-import { videoSyncManager, PlacedTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs, overlappingSessions, placeTracks } from '../services/videoSyncManager';
+import { hasNative } from '../native/bridge';
+import { videoSyncManager, PlacedTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs, overlappingSessions, placeTracks, isClockManual } from '../services/videoSyncManager';
 import { clockOffsetIn, sessionStartUtcMs } from '../services/mediaClock';
 import { RunsInspector, syncBadgeOf, BADGE_CLASS } from './video/RunsInspector';
 import { getNextChapter, getPreviousChapter, groupVideoTracksByChapter } from '../services/videoChapterManager';
@@ -46,7 +47,7 @@ const NO_PARTS: OverlayPartsOptions = { lapPanel: false, map: false, layout: COM
 const LAP_EXPORT_PAD_SEC = 10;
 import { MasterTimelineTrackBar } from './MasterTimelineTrackBar';
 import { formatMinSec } from '../utils/timeFormat';
-import { tr, useT } from '../utils/i18n';
+import { getLang, tr, useT } from '../utils/i18n';
 import { fileAccept, isIOS, isWebKitBrowser } from '../utils/device';
 import { setClockMaster } from '../services/clockMaster';
 import { sameCourseName } from '../utils/courseNames';
@@ -75,6 +76,31 @@ export function parseRangeTime(text: string): number | null {
 }
 
 /** 書き出しの範囲の時刻の欄 (離れたとき・Enter で決める。読めなければ元に戻す) */
+/** 同期のずれ (秒) の入力。打っている間は文字のまま持ち、決めたとき (Enter・離れたとき) に数にする。
+ *  消す・マイナスを打つ途中も打てるように (前は数にならない文字を打つと戻っていた)。6 時間より大きいずれは打ち間違いとみなして戻す (2026-10-27 のレビュー) */
+const MAX_OFFSET_SEC = 6 * 3600;
+const OffsetInput: React.FC<{ value: number; onCommit: (sec: number) => void }> = ({ value, onCommit }) => {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const v = Number(draft.trim().replace(',', '.'));
+    if (draft.trim() !== '' && Number.isFinite(v) && Math.abs(v) <= MAX_OFFSET_SEC) onCommit(Number(v.toFixed(3)));
+    setDraft(null);
+  };
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={draft ?? String(Number(value.toFixed(3)))}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur(); } else if (e.key === 'Escape') { setDraft(null); e.currentTarget.blur(); } }}
+      className="w-20 bg-surface-1 border border-line-3 text-amber-400 font-mono font-bold px-1 py-0.5 rounded text-right outline-none focus:border-amber-400"
+      data-testid="video-sync-offset-input"
+    />
+  );
+};
+
 const RangeTimeInput: React.FC<{ value: number; onCommit: (sec: number) => void; testId: string }> = ({ value, onCommit, testId }) => {
   const [text, setText] = useState(formatRangeTime(value));
   const commit = () => {
@@ -253,6 +279,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   loading = false
 }) => {
   const t = useT();
+  /** 手で合わせた同期を、時間帯からの計算で置き換えてよいか (手で合わせた動画だけ聞く。2026-10-27 のレビュー。確認なしに上書きされていた) */
+  const okToDropManualSync = (track: PlacedTrack) => !isClockManual(track) || confirm(t(
+    'この動画は手で同期を合わせています。時間帯から計算し直すと、合わせたずれは消えます。計算し直しますか？',
+    'This video was synced by hand. Recalculating from the time zones replaces that offset. Recalculate?'));
   // 動画の一覧と出すカメラは、どのウインドウでも同じにする (videoViewStore に 1 つだけ持つ)。
   // モード・並べ方・大きく出す枠・メーターは、ウインドウごとに持つ
   const storedTracks = useVideoTracks();
@@ -776,8 +806,39 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
    * 枠の並びで書き出す (docs/video_sets_design.md の 9)。開始の位置へ移ってから、ふだんの再生で動画を動かし、
    * 見えている枠とメーターを 1 つの絵に描いて実時間で録る。下書きは .LRV の低画質のファイルで録る (軽い)
    */
+  /** 書き出すファイルの名前の頭 (コースの名前)。自分のコースの「(ユーザー設置)」は付けず、英語の表示では括弧の中の英語の名前にする */
+  const exportFileBase = (): string => {
+    const name = (circuitName || 'race').replace(/\s*\(ユーザー設置\)\s*$/, '');
+    const en = getLang() === 'en' ? /\(([\x20-\x7e]+)\)\s*$/.exec(name)?.[1] : undefined;
+    return (en ?? name).replace(/[\\/:*?"<>|]+/g, '_').trim() || 'race';
+  };
+  /** 枠の並びの書き出しの、範囲の印 (周なら L<番号>、ほかは始まり-終わり) */
+  const rangeTag = (start: number, end: number): string =>
+    baseLap && Math.abs(start - baseLap.startTime) < 0.01 && Math.abs(end - baseLap.endTime) < 0.01
+      ? `Lap${baseLap.lapNumber}` : `${rangeClock(start).replace(/[:.]/g, '')}-${rangeClock(end).replace(/[:.]/g, '')}`;
+
+  /** 基準の走行のログの範囲 (走行の時刻)。ログが無ければ null */
+  const logSpan = (): [number, number] | null => {
+    const pts = baseSession?.points;
+    return pts && pts.length > 1 ? [pts[0].time, pts[pts.length - 1].time] : null;
+  };
+  /** 書き出す範囲を確かめる。だめなら知らせて false (前は、周が無くても全体を書き出し、ログの外の範囲は何も言わずに終わった) */
+  const exportRangeOk = (): boolean => {
+    if (exportRange === 'lap' && !baseLap) {
+      alert(t('周が選ばれていません。解析の画面で Car 1 の周を選ぶか、「時間で範囲を決める」を使ってください', 'No lap is selected. Choose Car 1\'s lap on the analysis screen, or use "Choose a time range"'));
+      return false;
+    }
+    const span = logSpan();
+    if (exportRange === 'custom' && customRange && span && Math.min(customRange[1], span[1]) - Math.max(customRange[0], span[0]) < 1) {
+      alert(t('選んだ範囲に、走行のログがありません。範囲を選び直してください', 'The chosen range has no log data. Choose the range again'));
+      return false;
+    }
+    return true;
+  };
+
   const handleStartStageExport = () => {
     if (isAnyExporting || shownCount === 0) return;
+    if (!exportRangeOk()) return;
     // 走行比較は周の中で比べるので、いつも周の範囲で書き出す (動画全体にすると、周の終わりで比べる車が止まったままになる)
     const range: [number, number] | null = (exportRange === 'lap' || (isCompare && exportRange !== 'custom')) && baseLap
       ? [baseLap.startTime, baseLap.endTime]
@@ -828,7 +889,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         width: W,
         height: H,
         fps: exportFps,
-        outputFileName: `${circuitName || 'race'}_${isCompare ? 'compare' : 'cameras'}${exportDraft ? '_draft' : ''}.mp4`,
+        outputFileName: `${exportFileBase()}_${isCompare ? 'compare' : 'cameras'}_${rangeTag(start, end)}${exportDraft ? '_draft' : ''}.mp4`,
         onProgress: p => setExportProgress(p),
         // 音はメインの枠の動画から (走行比較では Car 1)
         audioFrom: playback.element(`tile-${firstTile}`),
@@ -872,6 +933,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     const el = mainVideo();
     const overlayOnly = exportMethod === 'overlay-png' || exportMethod === 'overlay-webm';
     if (isAnyExporting) return;
+    if (!exportRangeOk()) return;
     // メーターだけは、動画がなくても (ログだけでも) 書き出せる
     if (!overlayOnly && (!el || !activeTrack)) return;
     // 書き出しは動画を自分で再生する。ふだんの再生 (App の時刻) は止めておく
@@ -886,7 +948,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     const frameByFrame = overlayOnly || (exportMethod === 'encode' && !!encodeInput && canUseEncodeExport());
     const padSec = frameByFrame ? LAP_EXPORT_PAD_SEC : 0;
     if (exportRange === 'custom' && customRange) {
-      [startSec, endSec] = customRange;
+      const span = logSpan();
+      [startSec, endSec] = span ? [Math.max(customRange[0], span[0]), Math.min(customRange[1], span[1])] : customRange;
     } else if (exportRange === 'lap' && baseLap) {
       startSec = baseLap.startTime - padSec;
       endSec = baseLap.endTime + padSec;
@@ -902,7 +965,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
     const exportW = exportResolution === '1080p' ? 1920 : 1280;
     const exportH = exportResolution === '1080p' ? 1080 : 720;
-    const filename = `${circuitName || 'race'}_${exportRange === 'lap' && baseLap ? `Lap${baseLap.lapNumber}` : exportRange === 'custom' && customRange ? `${rangeClock(customRange[0]).replace(/[:.]/g, '')}-${rangeClock(customRange[1]).replace(/[:.]/g, '')}` : 'session'}_telemetry.mp4`;
+    const filename = `${exportFileBase()}_${exportRange === 'lap' && baseLap ? `Lap${baseLap.lapNumber}` : exportRange === 'custom' && customRange ? `${rangeClock(customRange[0]).replace(/[:.]/g, '')}-${rangeClock(customRange[1]).replace(/[:.]/g, '')}` : 'session'}_telemetry.mp4`;
 
     setIsExporting(true);
     videoViewStore.set({ isExporting: true });
@@ -1330,7 +1393,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               )}
               {mainMedia && (
                 <button
-                  onClick={() => mainMedia.tracks.forEach(x => videoSyncManager.removeTrack(x.id))}
+                  onClick={() => {
+                    // 外すと、走行に保存した同期 (ずれ・ピン) も消える (2026-10-27 のレビュー。確認なしに消えていた)
+                    if (!confirm(t('メインの動画をこの走行から外します。合わせた同期 (ずれ・ピン) も消えます。動画のファイルは消えません (「この走行のフォルダの動画」から付け直せます)。外しますか？',
+                      'Remove the main video from this run? Its sync (offset and pins) is removed too. The video file itself is kept (you can add it again from the videos in this run\'s folder).'))) return;
+                    mainMedia.tracks.forEach(x => videoSyncManager.removeTrack(x.id));
+                  }}
                   disabled={isAnyExporting}
                   title={t('メインの動画を一覧から消す', 'Remove the main video from the list')}
                   className="p-1 hover:bg-red-950/60 text-slate-400 hover:text-red-400 rounded transition-colors cursor-pointer"
@@ -1525,7 +1593,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               <span className="text-slate-400 text-[10px] font-medium">{t('動画TZ:', 'Video TZ:')}</span>
               <select
                 value={activeTrack.videoTimezone || 'JST'}
-                onChange={e => videoSyncManager.resyncTrack(activeTrack.id, sessions, e.target.value, undefined, baseSession?.id)}
+                onChange={e => { if (okToDropManualSync(activeTrack)) videoSyncManager.resyncTrack(activeTrack.id, sessions, e.target.value, undefined, baseSession?.id); }}
                 className="bg-transparent text-slate-100 font-bold text-xs outline-none cursor-pointer"
               >
                 {TIMEZONE_OPTIONS.map(opt => (
@@ -1541,7 +1609,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               <span className="text-slate-400 text-[10px] font-medium">GPS TZ:</span>
               <select
                 value={activeTrack.gpsTimezone || 'JST'}
-                onChange={e => videoSyncManager.resyncTrack(activeTrack.id, sessions, undefined, e.target.value, baseSession?.id)}
+                onChange={e => { if (okToDropManualSync(activeTrack)) videoSyncManager.resyncTrack(activeTrack.id, sessions, undefined, e.target.value, baseSession?.id); }}
                 className="bg-transparent text-slate-100 font-bold text-xs outline-none cursor-pointer"
               >
                 {TIMEZONE_OPTIONS.map(opt => (
@@ -1554,7 +1622,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
             {/* 再同期ボタン */}
             <button
-              onClick={() => videoSyncManager.resyncTrack(activeTrack.id, sessions, activeTrack.videoTimezone, activeTrack.gpsTimezone, baseSession?.id)}
+              onClick={() => { if (okToDropManualSync(activeTrack)) videoSyncManager.resyncTrack(activeTrack.id, sessions, activeTrack.videoTimezone, activeTrack.gpsTimezone, baseSession?.id); }}
               className="flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px] transition-colors cursor-pointer"
               title={t('タイムゾーンに基づきオフセット再計算', 'Recalculate the offset from the time zones')}
             >
@@ -2151,16 +2219,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             <span className="text-slate-400 flex items-center gap-1 text-[11px]">
               <Sliders size={12} className="text-amber-400" />
               {t('オフセット:', 'Offset:')}
-              <input
-                type="number"
-                step="0.05"
-                value={activeTrack.syncOffsetSec}
-                onChange={e => {
-                  const val = parseFloat(e.target.value);
-                  if (!isNaN(val)) setOffset(activeTrack.id, val);
-                }}
-                className="w-20 bg-surface-1 border border-line-3 text-amber-400 font-mono font-bold px-1 py-0.5 rounded text-right outline-none focus:border-amber-400"
-              />
+              <OffsetInput key={activeTrack.id} value={activeTrack.syncOffsetSec} onCommit={v => setOffset(activeTrack.id, v)} />
               s
             </span>
 
@@ -2354,7 +2413,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                       value={customRange[k] - rangeBase}
                       onCommit={v => setCustomRange(r => {
                         if (!r) return r;
-                        const sec = rangeBase + v;
+                        // ログの外は選べないようにする (前は 27 時間でも通り、ログの外だと何も書き出さずに終わった。2026-10-27 のレビュー)
+                        const span = logSpan();
+                        const raw = rangeBase + v;
+                        const sec = span ? Math.min(Math.max(raw, which === 'start' ? span[0] : span[0] + 1), which === 'start' ? span[1] - 1 : span[1]) : raw;
                         return which === 'start' ? [sec, Math.max(sec + 1, r[1])] : [Math.min(r[0], sec - 1), sec];
                       })}
                       testId={`export-range-${which}`}
@@ -2474,7 +2536,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                       const sess = sessions.find(s => s.id === c.sessionId);
                       const lap = sameCourse(sess) ? sess!.laps.find(l => l.lapNumber === c.lapNumber && !l.isWholeSession) : undefined;
                       if (!lap) return null;
-                      return <option key={c.slot} value={c.slot}>{`Car ${c.slot + 1}: ${c.label} L${lap.lapNumber} ${formatMinSec(lap.lapTime, 3)}`}</option>;
+                      return <option key={c.slot} value={c.slot}>{`Car ${c.slot + 1}: ${c.label.includes(`(L${lap.lapNumber})`) ? c.label : `${c.label} L${lap.lapNumber}`} ${formatMinSec(lap.lapTime, 3)}`}</option>;
                     })}
                   </select>
                 </div>
@@ -2553,7 +2615,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             </div>
 
             <p className="text-xs text-slate-400 leading-relaxed">
-              {t('完了するとブラウザのダウンロードフォルダに MP4 動画が保存されます。', 'When finished, the MP4 video is saved to your browser\'s download folder.')}
+              {/* 保存のされ方は、使っている形で違う (2026-10-27 のレビュー。アプリでもブラウザのダウンロードフォルダと出ていた) */}
+              {hasNative()
+                ? t('完了すると共有の画面が出ます。「\"ファイル\"に保存」などで保存してください。', 'When finished, the share sheet opens. Save it with "Save to Files" or similar.')
+                : (window as unknown as { electronAPI?: unknown }).electronAPI
+                  ? t('完了すると、保存する場所を聞きます。', 'When finished, you are asked where to save the file.')
+                  : t('完了すると、ブラウザのダウンロードフォルダに保存されます。', 'When finished, the file is saved to your browser\'s download folder.')}
             </p>
 
             <button
