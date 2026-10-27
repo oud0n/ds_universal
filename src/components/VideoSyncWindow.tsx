@@ -857,9 +857,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     setIsExporting(true);
     videoViewStore.set({ isExporting: true });
     stageRecordingRef.current = true;
+    // 枠の並びの書き出しは、ふだんの再生をそのまま録るので、等倍にしてから録る (2 倍などのままだと早送りの動画になっていた。BUG-39)。終わったら戻す
+    const speedBefore = playbackSpeed;
+    if (speedBefore !== 1) onChangePlaybackSpeed(1);
     seekTo(isGraphEmbedded && baseLap ? start - baseLap.startTime : start);
     const stopPlayback = () => { if (stageRef.current.isPlaying) togglePlayRef.current(); };
     const finish = () => {
+      if (speedBefore !== 1) onChangePlaybackSpeed(speedBefore);
       stageAbortRef.current = null;
       stageRecordingRef.current = false;
       exportControllerRef.current = null;
@@ -1527,7 +1531,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             <select
               value={win.overlayLayout ?? AUTO_LAYOUT}
               onChange={e => chooseLayout(e.target.value)}
-              className="order-1 bg-surface-3 border border-line-3 text-[11px] px-1.5 py-1 rounded text-slate-200 max-w-[7.5rem]"
+              className="order-1 bg-surface-3 border border-line-3 text-[11px] px-1.5 py-1 rounded text-slate-200 max-w-[9.5rem] min-w-[6.5rem]"
               aria-label={t('メーターの並び', 'Meter layout')}
               data-testid="overlay-layout-phone"
             >
