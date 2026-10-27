@@ -106,7 +106,8 @@ export const TimerCameraSettings: React.FC = () => {
     };
     placeRef.current = place;
     const onMove = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(place); };
-    void callNative('camera.permission', { request: true, audio: false }).then(p => {
+    // 音も録るなら、マイクの許可もここで聞く (測定を始めた瞬間に許可の画面が出て、録画が遅れないように)
+    void callNative('camera.permission', { request: true, audio: loadCameraSettings().audio }).then(p => {
       if (!alive) return;
       if (p.camera !== 'granted') { setLiveError('permission'); return; }
       allowed = true;
@@ -263,7 +264,11 @@ export const TimerCameraSettings: React.FC = () => {
             </div>
           )}
           <label className="flex items-center gap-2 text-xs text-slate-300">
-            <input type="checkbox" checked={s.audio} onChange={e => update({ audio: e.target.checked })} />
+            <input type="checkbox" checked={s.audio} onChange={e => {
+              update({ audio: e.target.checked });
+              // あとから音をオンにしたときも、ここでマイクの許可を聞く
+              if (e.target.checked) void callNative('camera.permission', { request: true, audio: true }).catch(() => {});
+            }} />
             {t('音も録る (エンジンの音)', 'Record sound (engine)')}
           </label>
           <label className="flex items-center gap-2 text-xs text-slate-300">

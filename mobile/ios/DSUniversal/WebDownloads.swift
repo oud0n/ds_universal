@@ -84,14 +84,33 @@ final class WebDownloads: NSObject, WKNavigationDelegate, WKDownloadDelegate, WK
 
     // MARK: - alert / confirm / prompt
 
-    private func present(_ alert: UIAlertController, or fallback: () -> Void) {
+    /// alert・confirm・prompt を出す。WebKit から受け取った completionHandler は、必ず 1 回呼ぶこと (呼ばないと WebKit がアプリを止める)。
+    /// 写真・ファイルの選択画面や共有の画面が閉じている途中に頼まれると、その上には出せない (UIKit は知らせずに断る)。
+    /// 「開く」→「写真ライブラリ」で写真を選んだ直後の「読み込みに失敗しました」で落ちていた (2026-10-27、シミュレーター)。
+    /// そこで、閉じ終わるまで少し待ってから出す。それでも出せなかったら、出さずに閉じたことにする (fallback)
+    private func present(_ alert: UIAlertController, attempt: Int = 0, or fallback: @escaping @MainActor () -> Void) {
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
               var top = (scene.windows.first(where: \.isKeyWindow) ?? scene.windows.first)?.rootViewController else {
             fallback()
             return
         }
-        while let presented = top.presentedViewController { top = presented }
+        while let presented = top.presentedViewController, !presented.isBeingDismissed { top = presented }
+        let busy = top.presentedViewController != nil || top.isBeingDismissed || top.isBeingPresented
+            || top.transitionCoordinator != nil || top.viewIfLoaded?.window == nil
+        if busy {
+            guard attempt < 20 else { fallback(); return }
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                guard let self else { fallback(); return }
+                self.present(alert, attempt: attempt + 1, or: fallback)
+            }
+            return
+        }
         top.present(alert, animated: true)
+        if alert.presentingViewController == nil {
+            DebugLog.write("alert could not be presented on \(type(of: top))")
+            fallback()
+        }
     }
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo,

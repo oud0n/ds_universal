@@ -60,9 +60,6 @@
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
-		<!-- 開発用: Tailscale の IP (100.x) の開発サーバーを http で読むため。アプリに Web を入れて app:// で読むようにしたら外す (App Store の審査で理由を聞かれる) -->
-		<key>NSAllowsArbitraryLoadsInWebContent</key>
-		<true/>
 	</dict>
 	<!-- 暗号: 通信は HTTPS (OS のもの) だけなので、輸出の申告の要る暗号は使っていない (アップロードのたびに聞かれないように) -->
 	<key>ITSAppUsesNonExemptEncryption</key>
