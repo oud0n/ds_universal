@@ -109,7 +109,8 @@ for (const [i, p] of PAGES.entries()) fs.writeFileSync(path.join(OUT, p.file), p
 fs.writeFileSync(path.join(OUT, 'index.html'), index());
 // サイトマップ (public/sitemap.xml)。トップと使い方のページ。Search Console に送る
 const today = new Date().toISOString().slice(0, 10);
-const urls = ['https://oud0n.github.io/ds_universal/', SITE, ...PAGES.map(p => SITE + p.file)];
+// 使い方のほかに、検索から来る人向けのページ (public/ に手で置いたもの) も載せる
+const urls = ['https://oud0n.github.io/ds_universal/', 'https://oud0n.github.io/ds_universal/digspice-mac.html', SITE, ...PAGES.map(p => SITE + p.file)];
 fs.writeFileSync(path.join(OUT, '../sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${urls.map(u => `  <url>\n    <loc>${u}</loc>\n    <lastmod>${today}</lastmod>\n  </url>`).join('\n')}

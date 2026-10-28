@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>デジスパイス (DigSpice IV) を Mac で使う方法 — LapLoupe</title>
+<meta name="description" content="デジスパイス (DigSpice IV) の公式の解析ソフトは Windows 用です。Mac では、非公式の無料アプリ LapLoupe で、USB でのログの吸い出し・本体の設定と、走行の解析・車載動画の同期ができます。手順と、できること・できないこと。">
+<link rel="canonical" href="https://oud0n.github.io/ds_universal/digspice-mac.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="デジスパイス (DigSpice IV) を Mac で使う方法">
+<meta property="og:description" content="非公式の無料アプリ LapLoupe で、Mac からデジスパイスのログを吸い出し、走行を解析する手順。">
+<meta property="og:url" content="https://oud0n.github.io/ds_universal/digspice-mac.html">
+<meta property="og:image" content="https://oud0n.github.io/ds_universal/og-image.jpg">
+<link rel="icon" type="image/svg+xml" href="./favicon.svg">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "デジスパイスは Mac で使えますか？",
+      "acceptedAnswer": { "@type": "Answer", "text": "公式の解析ソフトは Windows 用ですが、非公式の無料アプリ LapLoupe のデスクトップ版 (Apple Silicon の Mac) で、USB でつないでログの吸い出しと本体の設定ができ、走行の解析もできます。" }
+    },
+    {
+      "@type": "Question",
+      "name": "Mac のブラウザだけでも使えますか？",
+      "acceptedAnswer": { "@type": "Answer", "text": "ログの読み込み・解析・変換は、Safari を含むブラウザで https://oud0n.github.io/ds_universal/ を開くだけでできます。USB でデジスパイスにつなぐのは、Chrome か Edge だけです (Web Serial API を使うため)。" }
+    },
+    {
+      "@type": "Question",
+      "name": "Intel の Mac でも使えますか？",
+      "acceptedAnswer": { "@type": "Answer", "text": "デスクトップ版は Apple Silicon (M1 以降) の Mac 専用です。Intel の Mac では、Chrome か Edge でブラウザ版を使ってください。" }
+    },
+    {
+      "@type": "Question",
+      "name": "LapLoupe はデジスパイスの公式のソフトですか？",
+      "acceptedAnswer": { "@type": "Answer", "text": "いいえ。個人が作った非公式のソフトで、デジスパイスの販売元とは関係ありません。無料で、ログは端末の中だけで読み込み、どこにも送りません。" }
+    }
+  ]
+}
+</script>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; line-height: 1.8; margin: 0; padding: 0 16px; background: #fff; color: #1f2937; }
+  @media (prefers-color-scheme: dark) { body { background: #111827; color: #e5e7eb; } a { color: #93c5fd; } .note { background: #1f2937; } }
+  main { max-width: 42rem; margin: 0 auto; padding: 2rem 0 4rem; }
+  h1 { font-size: 1.6rem; line-height: 1.4; }
+  h2 { font-size: 1.2rem; margin-top: 2.2rem; border-bottom: 1px solid #9ca3af55; padding-bottom: .2rem; }
+  .note { background: #f3f4f6; border-radius: 8px; padding: .8rem 1rem; font-size: .92rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+  th, td { border: 1px solid #9ca3af66; padding: .4rem .6rem; text-align: left; vertical-align: top; }
+  code { font-size: .9em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>デジスパイス (DigSpice IV) を Mac で使う方法</h1>
+  <p>
+    デジスパイスの公式の解析ソフトは Windows 用で、Mac 版はありません。
+    Mac では、非公式の無料アプリ <strong>LapLoupe (ラップルーペ、旧名 DS Universal)</strong> を使うと、
+    USB でつないでログを吸い出し、本体の設定を変え、走行を解析できます。
+  </p>
+  <p class="note">LapLoupe は個人が作った非公式のソフトで、デジスパイスの販売元とは関係ありません。「デジスパイス」「DigSpice」はデジスパイス株式会社の商標です。</p>
+
+  <h2>方法は 2 つ</h2>
+  <div style="overflow-x:auto">
+  <table>
+    <tr><th></th><th>デスクトップ版 (おすすめ)</th><th>ブラウザ版</th></tr>
+    <tr><td>入れる物</td><td>アプリ (Mac 用。Apple の公証を受けた署名付き)</td><td>なし (ページを開くだけ)</td></tr>
+    <tr><td>対応する Mac</td><td>Apple Silicon (M1 以降)</td><td>どの Mac でも</td></tr>
+    <tr><td>USB での吸い出し・設定</td><td>できる</td><td>Chrome・Edge だけできる (Safari はできない)</td></tr>
+    <tr><td>走行の解析・動画の同期</td><td>できる</td><td>できる</td></tr>
+    <tr><td>走行の保管と一覧 (ラップタイムの記録)</td><td>できる (選んだフォルダ・iCloud Drive)</td><td>できない (開いている間だけ)</td></tr>
+  </table>
+  </div>
+
+  <h2>デスクトップ版で使う手順</h2>
+  <ol>
+    <li><a href="https://github.com/oud0n/ds_universal/releases">GitHub の Releases</a> から、Mac 用の <code>.dmg</code> を落として、LapLoupe を「アプリケーション」に入れます。</li>
+    <li>デジスパイス IV を USB ケーブルで Mac につなぎます (ドライバは要りません)。</li>
+    <li>LapLoupe の <strong>ロガー</strong> の画面で本体につなぎ、ログを吸い出します。公式と同じ形の <code>.bnx4</code> で保存します。</li>
+    <li>測位の間隔 (5 / 10 / 20 Hz)・記録を始める速度も、同じ画面で変えられます (本体から読み戻して確かめます)。</li>
+    <li>吸い出したログを開くと、コースを自動で見分けて、周・セクターのタイムを出します。</li>
+  </ol>
+
+  <h2>ブラウザ版で使う手順</h2>
+  <ol>
+    <li>Chrome か Edge で <a href="https://oud0n.github.io/ds_universal/">https://oud0n.github.io/ds_universal/</a> を開きます。</li>
+    <li>USB でつなぐときは <strong>ロガー</strong> の画面から。すでにあるログ (<code>.bnx4</code>・<code>.bon4</code>・<code>.dtb</code> など) は、ファイルを選ぶだけで開けます (Safari でも)。</li>
+  </ol>
+
+  <h2>Mac でできること</h2>
+  <ul>
+    <li>ラップ・セクタータイムの一覧、周どうし・ほかの走行との比較 (最大 4 台)</li>
+    <li>航空写真の上の走行ライン、車速・G のグラフ、フリクションサークル、コーナーごとの速度、ブレーキング</li>
+    <li>GoPro などの車載動画とログの同期、メーターを重ねた動画の書き出し</li>
+    <li>NMEA・GPX・VBO・CSV・KML などへの変換、ほかのロガー (AiM・RaceChrono・RaceBox など) のログの読み込み</li>
+  </ul>
+  <p>使い方の詳しい手順は <a href="help/">LapLoupe の使い方</a> にあります。</p>
+
+  <h2>できないこと</h2>
+  <ul>
+    <li>公式ソフトのドリフトの採点は、ありません (作る予定もありません)。</li>
+    <li>Windows 版の公式ソフトそのものを Mac で動かすものではありません。コースのデータは LapLoupe に入っているもの (国内 101・海外 26) を使い、公式ソフトのコースフォルダを持っていれば読み込めます。</li>
+  </ul>
+
+  <h2>よくある質問</h2>
+  <p><strong>Intel の Mac でも使えますか？</strong><br>デスクトップ版は Apple Silicon 専用です。Intel の Mac では Chrome か Edge でブラウザ版を使ってください。</p>
+  <p><strong>お金はかかりますか？</strong><br>無料です。ログは端末の中だけで読み込み、どこにも送りません。</p>
+  <p><strong>iPhone でも使えますか？</strong><br>iPhone・iPad のアプリ (Bluetooth でデジスパイスとつないでラップタイマーとして使える) を公開の準備中です。ブラウザ版は iPhone でもログの解析ができます。</p>
+  <p><strong>うまくいかないときは？</strong><br><a href="https://github.com/oud0n/ds_universal/issues">GitHub の Issue</a> でお知らせください。作った経緯と通信の仕組みは <a href="https://zenn.dev/oud0n/articles/ace1347602c574">Zenn の記事</a> にあります。</p>
+
+  <p style="margin-top:2.5rem"><a href="./">← LapLoupe のトップ</a></p>
+</main>
+</body>
+</html>
