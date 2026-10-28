@@ -812,7 +812,9 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
         if (!p) continue;
         const pos = toScreen(p.latitude, p.longitude);
         // 名前の長さに合わせた札 (「ダンロップ」などの名前も入るように)
-        const label = cornerLabel(c);
+        // 長い名前は 10 文字で省く (地図の上の段の道具に重なっていた。BUG-39。全部の名前はコーナーの表に出る)
+        const full = cornerLabel(c);
+        const label = [...full].length > 10 ? `${[...full].slice(0, 9).join('')}…` : full;
         const w = Math.max(18, ctx.measureText(label).width + 8);
         const picked = cornerDraft !== null && c.k === selectedCorner;
         if (picked) {

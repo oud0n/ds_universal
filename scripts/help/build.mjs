@@ -20,12 +20,19 @@ const HEADER = `  <header class="top">
     <div class="switch" role="group" aria-label="language"><button data-set-lang="ja">日本語</button><button data-set-lang="en">English</button></div>
   </header>`;
 
-const head = (titleJa, titleEn) => `<!doctype html>
+// 検索に出す説明と正しい URL (2026-10-28。使い方のページを検索で見つけてもらうため)
+const SITE = 'https://oud0n.github.io/ds_universal/help/';
+const plain = s => s.replace(/\[([^\]]+)\]/g, '$1').replace(/\*\*([^*]+)\*\*/g, '$1').replace(/`([^`]+)`/g, '$1');
+const descOf = lead => { const t = plain(lead[0]).replace(/\s+/g, ' ').trim(); return [...t].length > 120 ? `${[...t].slice(0, 119).join('')}…` : t; };
+
+const head = (titleJa, titleEn, desc, file) => `<!doctype html>
 <html lang="ja" data-lang="ja" data-device="iphone">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title data-ja="${esc(titleJa)}" data-en="${esc(titleEn)}">${esc(titleJa)}</title>
+<meta name="description" content="${esc(desc).replace(/"/g, '&quot;')}">
+<link rel="canonical" href="${SITE}${file === 'index.html' ? '' : file}">
 <link rel="stylesheet" href="help.css">
 <script src="help.js" defer></script>
 </head>
@@ -55,7 +62,7 @@ function texts(t) {
 }
 
 function page(p, i) {
-  let html = head(`${p.title[0]} — LapLoupe の使い方`, `${p.title[1]} — LapLoupe guide`);
+  let html = head(`${p.title[0]} — LapLoupe の使い方`, `${p.title[1]} — LapLoupe guide`, descOf(p.lead), p.file);
   html += `\n  <h1>${both(p.title)}</h1>\n  <p class="lead">${both(p.lead)}</p>\n`;
   // 操作の動画 (字幕は日本語・英語の両方が入っている。音なし)
   if (p.video) html += `\n  <figure class="video"><video data-src="video/${p.video}.mp4" controls playsinline muted preload="metadata"></video></figure>\n`;
@@ -80,7 +87,7 @@ function page(p, i) {
 }
 
 function index() {
-  let html = head('LapLoupe の使い方', 'LapLoupe guide');
+  let html = head('LapLoupe の使い方 (デジスパイス対応の走行ログ解析アプリ)', 'LapLoupe guide', 'LapLoupe (非公式、デジスパイスなどの GPS ロガーの走行ログ解析アプリ) の使い方。iPhone・Android・デスクトップ (Mac・Windows)・ブラウザごとの手順と画面。走行の測り方、解析、車載動画の同期と書き出し。', 'index.html');
   html += `\n  <h1><span class="l-ja">LapLoupe の使い方</span><span class="l-en">LapLoupe guide</span></h1>
   <p class="lead">
     <span class="l-ja">やりたいことから選んでください。上で使っている端末を選ぶと、その端末の手順と画面に変わります。</span>
@@ -100,6 +107,14 @@ ${PAGES.map(p => `      <li><a href="${p.file}" data-keep>${p.id} ${both(p.title
 
 for (const [i, p] of PAGES.entries()) fs.writeFileSync(path.join(OUT, p.file), page(p, i));
 fs.writeFileSync(path.join(OUT, 'index.html'), index());
+// サイトマップ (public/sitemap.xml)。トップと使い方のページ。Search Console に送る
+const today = new Date().toISOString().slice(0, 10);
+const urls = ['https://oud0n.github.io/ds_universal/', SITE, ...PAGES.map(p => SITE + p.file)];
+fs.writeFileSync(path.join(OUT, '../sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map(u => `  <url>\n    <loc>${u}</loc>\n    <lastmod>${today}</lastmod>\n  </url>`).join('\n')}
+</urlset>
+`);
 // 写真が足りないページを知らせる
 for (const p of PAGES) for (const b of p.blocks) for (const s of b.steps ?? []) for (const name of Object.values(s.img ?? {})) {
   const [dir, file] = name.replace('!narrow', '').replace('!wide', '').split('/');

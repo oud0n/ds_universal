@@ -1338,6 +1338,13 @@ export const App: React.FC = () => {
         circuitName: () => added[0]?.circuitName ?? '',
         setClockOffset: setSessionClockOffset
       });
+      // 走行に付けた動画のうち、読めなかったもの (壊れた・0 バイト・対応していない形式) を知らせる (前は何も言わずに外れていた。BUG-39)
+      if (cand.fromRuns && cand.local.length) {
+        const opened = new Set(videoSyncManager.getTracks().filter(t => t.remote).map(t => t.remote!.path));
+        const bad = cand.local.filter(v => !opened.has(v.path)).map(v => v.path.slice(v.path.lastIndexOf('/') + 1));
+        if (bad.length) alert(tr(`読めない動画がありました (${bad.join(', ')})。ファイルが壊れているか、対応していない形式です。ログはそのまま開きます。`,
+          `Some videos could not be read (${bad.join(', ')}). The file may be damaged or in an unsupported format. The log opens as usual.`));
+      }
       if (cand.missing.length) {
         const gb = (totalBytes(cand.missing) / 1e9).toFixed(1);
         const download = await askChoice(

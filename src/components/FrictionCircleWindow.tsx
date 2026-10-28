@@ -264,14 +264,14 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
       {/* メインCanvas & 数値表示 */}
       <div className={`flex-1 flex flex-col md:flex-row items-center p-2 gap-3 min-h-[200px] ${compact ? 'shrink-0' : ''}`}>
         {/* Canvas */}
-        <div className={`flex-1 w-full h-full relative ${compact ? 'min-h-[220px]' : 'min-h-[170px]'}`}>
+        <div className={`flex-1 min-w-0 w-full h-full relative ${compact ? 'min-h-[220px]' : 'min-h-[170px]'}`}>
           <canvas ref={canvasRef} className="w-full h-full block" />
           <canvas ref={dotCanvasRef} className="absolute inset-0 pointer-events-none block" />
         </div>
 
         {/* リアルタイム計測値パネル */}
         {basePoint && (
-          <div className="w-full md:w-36 bg-surface-1 border border-line-2 rounded p-2.5 flex flex-col gap-2 text-xs">
+          <div className="w-full md:w-36 md:shrink-0 bg-surface-1 border border-line-2 rounded p-2.5 flex flex-col gap-2 text-xs">
             <div className="text-[11px] font-bold text-slate-400 border-b border-line-2 pb-1">
               {t('基準車 (赤) の値', 'Reference car (red)')}
             </div>
