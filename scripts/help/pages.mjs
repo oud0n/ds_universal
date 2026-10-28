@@ -28,9 +28,9 @@ export const PAGES = [
       steps: [
         {
           text: {
-            iphone: ['App Store で「LapLoupe」を入れます。', 'Install "LapLoupe" from the App Store.'],
+            iphone: ['App Store で「LapLoupe」を入れます (公開の準備中です。それまでは TestFlight の試験版を使います)。', 'Install "LapLoupe" from the App Store (being prepared for release; until then, use the TestFlight test version).'],
             android: ['Android 版は、今は試験版です (配られた APK を入れます)。', 'The Android app is a test version for now (install the APK you were given).'],
-            desktop: ['GitHub の Releases から Mac 版・Windows 版を落として入れます。Mac で「壊れているため開けません」と出るときは、インストールの説明の手順で開けます。', 'Download the Mac or Windows build from GitHub Releases. If macOS says the app is damaged, follow the steps in the install guide.'],
+            desktop: ['GitHub の Releases から Mac 版・Windows 版を落として入れます。Mac 版は Apple の公証を受けた署名付きなので、そのまま開けます。', 'Download the Mac or Windows build from GitHub Releases. The Mac build is signed and notarized by Apple, so it opens as is.'],
             browser: ['https://oud0n.github.io/ds_universal/ を開くだけです (入れる物はありません)。', 'Just open https://oud0n.github.io/ds_universal/ (nothing to install).']
           }
         },
@@ -475,7 +475,7 @@ export const PAGES = [
         [['iPhone と PC で走行が違う', 'Runs differ between iPhone and PC'],
           ['両方で同じ iCloud Drive の LapLoupe フォルダを保管場所に選んでいるか確かめてください (→ A1)。iCloud が写し終わるまで少しかかることがあります。', 'Check that both use the same iCloud Drive LapLoupe folder as storage (→ A1). iCloud may take a little while to copy.']],
         [['Mac で「壊れているため開けません」と出る', 'macOS says the app is damaged'],
-          ['インストールの説明 (GitHub の docs/install.md) の手順で開けます。', 'Follow the steps in the install guide (docs/install.md on GitHub).']],
+          ['v1.0.2 から Mac 版は署名付きなので、新しい版を入れ直してください。古い版のときは、インストールの説明 (GitHub の docs/install.md) の手順で開けます。', 'From v1.0.2 the Mac build is signed; install the latest version. For an older version, follow the steps in the install guide (docs/install.md on GitHub).']],
         [['不具合を見つけた・要望がある', 'Found a bug or have a request'],
           ['GitHub の Issue でお知らせください: https://github.com/oud0n/ds_universal/issues', 'Please open a GitHub issue: https://github.com/oud0n/ds_universal/issues']]
       ]
