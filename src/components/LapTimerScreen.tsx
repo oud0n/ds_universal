@@ -10,7 +10,7 @@ import { LapHistoryPanel } from './LapHistoryPanel';
 import { deleteRun, listRuns, loadFixes, type RunMeta } from '../services/liveRunStore';
 import { fixesToBon4, fixesToNmea, runFileBase } from '../services/runFiles';
 import { callNative, hasNative, isAndroidApp, toBase64 } from '../native/bridge';
-import { canUseLoggerBle, myDeviceWord } from '../utils/device';
+import { canUseLoggerBle, isIPad, myDeviceWord } from '../utils/device';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { getPositionSource } from '../services/positionSource';
 import { navStore } from '../app/navStore';
@@ -490,6 +490,13 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       {/* 測定開始 / 測定終了 (ログの再生のときは出さない) */}
       {source !== 'replay' && (
         <div className="shrink-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-3">
+          {/* iPad のアプリはアプリから向きを固められない (iPadOS が聞かない) ので、測る前に回転ロックを勧める。
+              iPad のロックは今の向きのまま固まる。iPhone はアプリが固めるので出さない (iPhone のロックは縦にしか固まらない。BUG-38) */}
+          {!measuring && hasNative() && isIPad && (
+            <div className="text-[11px] text-amber-500 text-center" data-testid="lap-timer-ipad-rotation-hint">
+              {t('iPad は測っている間も画面が回ることがあります。取り付けた向きで、コントロールセンターの「画面の向きのロック」を入れてください', 'On iPad the screen may rotate while timing. Mount it, then turn on Rotation Lock in Control Center.')}
+            </div>
+          )}
           <button
             onClick={() => {
               // 位置の機器を登録していなければ、測らずに機器の画面へ (測れない記録を作らないように)
