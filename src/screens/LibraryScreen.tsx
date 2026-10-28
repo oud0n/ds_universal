@@ -168,6 +168,8 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
   };
 
   const select = (r: RunItem) => setSelectedKey(`${r.folder}/${r.file}`);
+  // 下の「走行」タブをもう一度押したら、開いている走行の詳細を閉じて一覧に戻る (2026-10-28)
+  useEffect(() => navStore.onReselect(s => { if (s === 'library') setSelectedKey(null); }), []);
   /** 車種・タイヤの候補 (書いたことのあるもの。新しい走行のものから) */
   const carTyreChoices = { cars: uniqueValues((runs ?? []).map(r => (r.entry?.reference ? r.entry.reference.car : r.entry?.car))), tyres: uniqueValues((runs ?? []).map(r => r.entry?.tyre)) };
 
