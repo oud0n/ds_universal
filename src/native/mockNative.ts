@@ -102,6 +102,8 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   let mockSpp: ReturnType<typeof setInterval> | null = null;
   /** 保管先 (選んだフォルダ) に写したファイル */
   const syncedFiles = new Map<string, string>();
+  /** アプリのゴミ箱 (印 → trash.json と預かったファイル) */
+  const trashBoxes = new Map<string, { manifest: string; files: Map<string, string>; mtimeMs: number }>();
   /** 書いている最中のファイル (system.closeFiles で閉じるまで) */
   const openFiles = new Set<string>();
   /** 走行の置き場に見えるファイル (選んだフォルダなら、移したものとアプリの中のもの) */
@@ -178,7 +180,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   const handle = (req: NativeRequest): unknown => {
     switch (req.method) {
       case 'caps.get':
-        return { contractVersion: CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, iap: true, camera: true, spp: true, deleteFiles: true } };
+        return { contractVersion: CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, iap: true, camera: true, spp: true, deleteFiles: true, trashFiles: true } };
       // アプリ内課金の模擬 (値段は日本円の例。買うとすぐ買えたことにする)
       case 'iap.products': {
         const { ids } = req.params as { ids: string[] };
@@ -410,6 +412,37 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         const deleted: string[] = [];
         for (const p of paths) { lapTimerFiles.delete(p); syncedFiles.delete(p); deleted.push(p); }
         return { deleted, failed: [] };
+      }
+      // アプリのゴミ箱のふり (RunTrash.swift と同じ: 印ごとに元の道のまま預かる)
+      case 'system.trashRunFiles': {
+        const { paths, id, manifest } = req.params as { paths: string[]; id: string; manifest: string };
+        const box = { manifest, files: new Map<string, string>(), mtimeMs: Date.now() };
+        const files = visibleFiles();
+        for (const p of paths) { const b = files.get(p); if (b !== undefined) box.files.set(p, b); lapTimerFiles.delete(p); syncedFiles.delete(p); }
+        trashBoxes.set(id, box);
+        return { moved: paths, failed: [] };
+      }
+      case 'system.listTrash':
+        return { items: [...trashBoxes].map(([id, b]) => ({ id, manifest: b.manifest, files: [...b.files].map(([path, b64]) => ({ path, size: b64.length })), mtimeMs: b.mtimeMs })) };
+      case 'system.restoreTrash': {
+        const { id } = req.params as { id: string };
+        const b = trashBoxes.get(id);
+        if (!b) return { restored: [], failed: [{ path: '', error: 'no such id' }] };
+        const restored: string[] = [];
+        const failed: Array<{ path: string; error: string }> = [];
+        for (const [p, b64] of b.files) {
+          if (visibleFiles().has(p)) { failed.push({ path: p, error: 'exists' }); continue; }
+          if (storage.kind === 'folder') syncedFiles.set(p, b64); else lapTimerFiles.set(p, b64);
+          b.files.delete(p);
+          restored.push(p);
+        }
+        if (!failed.length) trashBoxes.delete(id);
+        return { restored, failed };
+      }
+      case 'system.purgeTrash': {
+        const { ids } = req.params as { ids: string[] };
+        ids.forEach(id => trashBoxes.delete(id));
+        return { purged: ids, failed: [] };
       }
       case 'system.runRoot': {
         // 動画を読む URL の頭 (開発サーバーで、マニュアルの写真を撮るときだけ。?mockVideoBase=http://localhost:.../)
