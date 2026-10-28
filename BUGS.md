@@ -17,6 +17,7 @@ iOS の版と出したものをそろえるため、iPhone 周りの直しは次
 - ラップタイマーの一覧で、続けて始め・止めすると「記録中」が 2 つ以上出た。→ 今書いている走行だけに出す (`ios-next` の 24e53a5)。
 
 残り (重い順):
+0. **iPad のウィンドウ表示で、左上のウィンドウのボタン (閉じる・最小化などの 3 つの点) が、アプリの「開く」ボタン・左上の道具に重なる** (2026-10-28、持ち主の iPad Air 13 の実機)。iPadOS のウィンドウのボタンは safe area に入らないので、`env(safe-area-inset-*)` では避けられない。ネイティブで、ウィンドウのボタンを避ける余白 (iPadOS 26 からの `layoutGuide(for: .margins(cornerAdaptation: .horizontal))` など) を測り、Web に CSS の変数で渡して、上の段の左を空ける (全画面では 0)。
 1. **iPad では、測っている間も画面の向きが固まらない** (シミュレーターで再現)。Info.plist に `UIRequiresFullScreen` が無いので、iPadOS が向きの指定を聞かない。画面分割では固める頼みが断られる (`Orientation.swift` の apply)。
 2. **走行を消すと「消しています…」のまま止まる** (Duo のシミュレーター、3.2 GB の動画のある走行で 2 回)。`RunFiles.swift` の `fm.trashItem` が FileProvider で待ったまま返らない。シミュレーターだけの可能性があるので実機で確かめる。アプリの中のファイルは removeItem にする、時間で切る、など。
 3. **外のページを開くボタンが反応しない** (使い方の「ブラウザで開く」、「PC 版をダウンロード」)。`window.open` を受ける `createWebViewWith` が無い。1.0.3 から。直すと UIApplication.shared.open で Safari を開く。
