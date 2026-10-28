@@ -120,9 +120,12 @@ export async function purgeTrash(store: RunStore, ids: string[]): Promise<{ fail
   return store.trash.purge(ids);
 }
 
-/** 30 日を過ぎたものを本当に消す (走行の一覧を開いたとき)。残ったものを返す */
+/**
+ * 30 日を過ぎたものを本当に消す (走行の一覧を開いたとき)。残ったものを返す。
+ * 自動で消すのは、trash.json の時刻があるものだけ (フォルダの時刻は 0 や iCloud の古い時刻のことがあり、消したばかりのものを消しかねないため)
+ */
 export async function purgeExpired(store: RunStore, runs: TrashedRun[], now = Date.now()): Promise<TrashedRun[]> {
-  const old = runs.filter(r => r.expiresAt <= now).map(r => r.id);
+  const old = runs.filter(r => r.manifest && r.expiresAt <= now).map(r => r.id);
   if (!old.length) return runs;
   const { failed } = await purgeTrash(store, old);
   const kept = new Set(failed.map(f => f.path));

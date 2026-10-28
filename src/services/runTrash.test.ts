@@ -107,10 +107,12 @@ describe('アプリのゴミ箱', () => {
     expect(daysLeft(left[0], now)).toBe(5);
   });
 
-  it('trash.json が読めないものも、フォルダの時刻で並べて出す', async () => {
+  it('trash.json が読めないものも、フォルダの時刻で並べて出す。ただし自動では消さない', async () => {
     const { store, boxes } = memoryStore({});
-    boxes.set('x', { manifest: '{broken', files: new Map([['a/b.nmea', '1']]), mtimeMs: 5 });
+    boxes.set('x', { manifest: '{broken', files: new Map([['a/b.nmea', '1']]), mtimeMs: 0 });
     const [t] = await listTrash(store);
-    expect(t).toMatchObject({ id: 'x', manifest: null, trashedAt: 5 });
+    expect(t).toMatchObject({ id: 'x', manifest: null, trashedAt: 0 });
+    expect(await purgeExpired(store, [t], Date.UTC(2026, 9, 28))).toHaveLength(1);
+    expect(boxes.has('x')).toBe(true);
   });
 });
