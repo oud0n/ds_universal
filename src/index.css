@@ -641,8 +641,11 @@ body {
    全画面では点は出ないが、幅や表示の形で変えずにいつも空ける (作りを簡単にするため)。2026-10-28、BUG-38 */
 html.ipad-app body:not(:has([data-testid="sidebar"])) [data-testid="app-header"] { padding-left: max(84px, env(safe-area-inset-left)) !important; }
 html.ipad-app [data-testid="sidebar"] { padding-top: calc(env(safe-area-inset-top) + 52px) !important; }
-html.ipad-app [data-testid="lap-timer"].fixed > header { padding-left: 84px; }
+/* タイマー: 全画面のときと、左の列の無い窓でタブとして開いたとき (中身の上に重なって左上に来る) */
+html.ipad-app [data-testid="lap-timer"].fixed > header,
+html.ipad-app body:not(:has([data-testid="sidebar"])) [data-testid="lap-timer"] > header { padding-left: 84px; }
 /* 上の段の中身を、ウィンドウのボタン (3 つの点) と同じ高さにそろえる (点の中心は段のボタンより約 6pt 下にある。iOS の標準の段は自動でそろうが、自前の段なので合わせる) */
 html.ipad-app [data-testid="app-header"].touch-toolbar { padding-top: calc(max(0.25rem, env(safe-area-inset-top)) + 6px) !important; }
 html.ipad-app [data-testid="app-header"]:not(.touch-toolbar) { padding-top: calc(max(0.5rem, env(safe-area-inset-top)) + 6px) !important; }
-html.ipad-app [data-testid="lap-timer"].fixed > header { padding-top: 14px; }
+html.ipad-app [data-testid="lap-timer"].fixed > header,
+html.ipad-app body:not(:has([data-testid="sidebar"])) [data-testid="lap-timer"] > header { padding-top: 14px; }
