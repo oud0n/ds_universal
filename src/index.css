@@ -636,3 +636,9 @@ body {
     height: 20px;
   }
 }
+
+/* iPad のアプリ: ウィンドウのボタン (左上の 3 つの点) の下に、押す所を置かない (main.tsx が html に .ipad-app を付ける)。
+   全画面では点は出ないが、幅や表示の形で変えずにいつも空ける (作りを簡単にするため)。2026-10-28、BUG-38 */
+html.ipad-app body:not(:has([data-testid="sidebar"])) [data-testid="app-header"] { padding-left: max(84px, env(safe-area-inset-left)) !important; }
+html.ipad-app [data-testid="sidebar"] { padding-top: calc(env(safe-area-inset-top) + 52px) !important; }
+html.ipad-app [data-testid="lap-timer"].fixed > header { padding-left: 84px; }
