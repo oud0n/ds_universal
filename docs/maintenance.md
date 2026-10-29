@@ -67,12 +67,12 @@ E2E_APP=http://localhost:5184/ node e2e/run.mjs --electron 9334 --chrome 9224 [-
 
 - `mobile/ios/project.yml` の `MARKETING_VERSION` (1.1.0 など) と `CURRENT_PROJECT_VERSION` (送るたびに 1 つ上げる)。
 - `npm run build` → `cd mobile/ios && xcodegen` → archive → exportArchive (destination=upload)。
-- 署名とアップロードは、App Store Connect の API キー (役割 Admin) で行う。キーと ID は `_private/api_key/` (値はそこの README.md。git に入れない)。役割 Developer のキーは PC 版の公証用なので消さない。
+- 署名とアップロードは、App Store Connect の API キー (役割 Admin) で行う。キーと ID は `../private/api_key/` (値はそこの README.md。git に入れない)。役割 Developer のキーは PC 版の公証用なので消さない。
 - 提出したビルドのコミットにはタグ `ios-X.Y.Z-bN` を付ける。
 
 ### 6.2 App Store への提出
 
-- スクリーンショットは iPhone 6.1 インチ・iPhone Duo (外 1398×2034・内 2853×2007)・iPad 13 インチ (2752×2064 か 2064×2752) が要る。iPad は 1.1.0 から要る。元の画像は `_private/app_store_screenshots/`。
+- スクリーンショットは iPhone 6.1 インチ・iPhone Duo (外 1398×2034・内 2853×2007)・iPad 13 インチ (2752×2064 か 2064×2752) が要る。iPad は 1.1.0 から要る。元の画像は `../private/app_store_screenshots/`。
   - シミュレーターで撮る: `xcrun simctl status_bar <端末> override --time 9:41 --batteryState charged --batteryLevel 100`、暗い表示は `xcrun simctl ui <端末> appearance dark`。
   - 走行のデータは、データの入ったシミュレーターのアプリの `Documents/` と `Library/WebKit/` を写すと早い。
   - 車載動画が映る画面は、ミラーに映る顔などにモザイクをかける。筑波の映像は使わない。
@@ -91,7 +91,7 @@ E2E_APP=http://localhost:5184/ node e2e/run.mjs --electron 9334 --chrome 9224 [-
 
 `mobile/android/`。Bluetooth Classic の GPS (Drogger DG-PRO1S)・BLE・内蔵カメラ (CameraX)・選んだフォルダ (SAF)。配布はストアに出さず APK を渡している。実機の確認は友人の端末頼み。
 
-## 8. 秘密と持ち主だけの資料 (`_private/`、git に入れない)
+## 8. 秘密と持ち主だけの資料 (`../private/`、git に入れない)
 
 - `api_key/`: App Store Connect の API キー (README.md に ID と使い分け)。
 - `analytics.md`: アクセス数の見方 (GoatCounter のトークン付きの URL など。公開の場所に貼らない)。

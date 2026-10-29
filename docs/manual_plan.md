@@ -56,7 +56,7 @@
 - **録画**: 紹介動画と同じやり方を使う。デスクトップ版は CDP の画面の録画 (保管場所の写しを使う別のアプリ)、iPhone はシミュレーターの録画 (`simctl io recordVideo`)。手で操作せず、e2e と同じ手順をスクリプトにして録る (撮り直しが楽、間違えない)
 - **字幕・題名の札**: HTML を画面のない Chrome で PNG にして ffmpeg で重ねる (この ffmpeg には文字を描く機能がないため)
 - **画面の写真 (マニュアルのページ)**: e2e の手順で撮る (幅: iPhone 390、Duo 951、デスクトップ 1400)。言語は日本語・英語の両方を撮る。ダークで撮る
-- **置き場**: 元の素材・台本は `_private/manual/` (git に入れない)。できたページは `docs/help/` (公開)
+- **置き場**: 元の素材・台本は `../private/manual/` (git に入れない)。できたページは `docs/help/` (公開)
 
 ## 5. 作る順番
 
@@ -77,18 +77,18 @@
 ## 7. 作ったもの
 
 - `public/help/`: help.css・help.js (端末・言語の切り替え。アプリから開くときは `?device=iphone&lang=ja`。選んだものは覚える)、index.html (目次。できていないページは「準備中」)、c1-runs.html (C1 走行を見返す)
-- 画面の写真: `public/help/img/<ページ>/<phone|desktop>-<ja|en>-<番号>.webp` (スマホは 390 の幅を 2 倍、デスクトップは 1600 の幅。1 枚 40〜50 KB)。撮るスクリプトは `_private/manual/shots_<ページ>.mjs` (試験用の保管場所のパスは iCloud Drive の場所に差し替えて撮る)
+- 画面の写真: `public/help/img/<ページ>/<phone|desktop>-<ja|en>-<番号>.webp` (スマホは 390 の幅を 2 倍、デスクトップは 1600 の幅。1 枚 40〜50 KB)。撮るスクリプトは `../private/manual/shots_<ページ>.mjs` (試験用の保管場所のパスは iCloud Drive の場所に差し替えて撮る)
 - iPhone と Android は同じ写真 (同じ画面)、デスクトップとブラウザは手順が違う (ブラウザ版には保管場所がない)
 
 ## 8. 全ページ (2026-10-26)
 
 - 18 ページ (日本語・英語) を `scripts/help/pages.mjs` に書き、`node scripts/help/build.mjs` で `public/help/` の HTML を作る (目次・前後のページへのリンクも作る。写真が足りないと知らせる)
-- 写真 (スマホ・デスクトップ、日本語・英語、全部で約 80 枚・4.5 MB) は `_private/manual/shots_phone.mjs`・`shots_desktop.mjs` で撮る (共通の部品は `lib.mjs`)
-  - スマホ: 画面のない Chrome でネイティブのふり (`?native=mock`)。保管場所の写しの走行を入れ、動画は `_private/manual/media/` に複製 (クローン) したものを開発サーバーから読む (`?mockVideoBase=`。開発サーバーのときだけ)
+- 写真 (スマホ・デスクトップ、日本語・英語、全部で約 80 枚・4.5 MB) は `../private/manual/shots_phone.mjs`・`shots_desktop.mjs` で撮る (共通の部品は `lib.mjs`)
+  - スマホ: 画面のない Chrome でネイティブのふり (`?native=mock`)。保管場所の写しの走行を入れ、動画は `../private/manual/media/` に複製 (クローン) したものを開発サーバーから読む (`?mockVideoBase=`。開発サーバーのときだけ)
   - デスクトップ: 試験用のデスクトップ版 (保管場所の写し)。撮るあいだだけ runs.json に車種・タイヤ・天候を入れる
   - 試験用の保管場所のパスは iCloud Drive の場所の表示に差し替え、映像のルームミラー (9/18 はほおも) にはぼかしを重ねて撮る
   - タイマーは「読み込んだログを再生して試す」(16 倍速) で 2 周目に入ったところを撮る (出どころの札だけ「デジスパイス」の表示にする)
-- 動画 V1〜V8 (2026-10-26): `public/help/video/V*.mp4` (8 本・計 19 MB。字幕は日本語・英語を重ねて画面に出す。音なし)。録るスクリプトは `_private/manual/rec.mjs` (録画の部品)・`v3.mjs`・`vdesk.mjs` (V2・V5・V6)・`vphone.mjs` (V1・V4・V7・V8)
+- 動画 V1〜V8 (2026-10-26): `public/help/video/V*.mp4` (8 本・計 19 MB。字幕は日本語・英語を重ねて画面に出す。音なし)。録るスクリプトは `../private/manual/rec.mjs` (録画の部品)・`v3.mjs`・`vdesk.mjs` (V2・V5・V6)・`vphone.mjs` (V1・V4・V7・V8)
   - デスクトップ版は CDP の画面の録画 (startScreencast)。スマホは画面のない Chrome の 1 枚ずつの撮影 (連続の録画はスマホの細かさを無視して粗くなるため)。iPhone として振る舞わせる (UA)
   - ミラー (9/18 はほおも) のぼかし・保管場所のパスの差し替えは、録画の間ずっと続ける。押したところに黄色い丸を出す
   - ページは「やりたいこと」のページの見出しの下に動画を出す (pages.mjs の video)。iPhone のアプリには動画を入れず (project.yml の postBuildScripts で消す)、アプリの中のページは公開しているページの動画を読む (help.js)
