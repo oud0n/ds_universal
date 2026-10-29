@@ -8,6 +8,7 @@ LapLoupe (旧名 DS Universal) を直すエージェント (Claude・Codex・agy
 
 ## 読む順
 
+0. 持ち主の Mac では、上のフォルダの `../AGENTS.md` (作業場の置き場の決まり) を先に読む
 1. [docs/README.md](docs/README.md): 文書の一覧と状態
 2. [docs/architecture.md](docs/architecture.md): 構成・主なファイル・保管場所の形
 3. [docs/maintenance.md](docs/maintenance.md): 試験・レビュー・リリースの手順
