@@ -356,16 +356,6 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
             {t('画面が消えます: 設定の自動ロックを「なし」に', 'Screen may sleep: set Auto-Lock to Never')}
           </span>
         )}
-        {/* 内蔵カメラの録画中の印 (止まったときは理由) */}
-        {(snap.camera.recording || snap.camera.error) && (
-          <span className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-bold ${snap.camera.recording ? 'bg-red-600 text-white' : 'bg-amber-500/20 text-amber-400'}`} data-testid="lap-timer-camera-rec">
-            {snap.camera.recording ? <><span className="w-2 h-2 rounded-full bg-white animate-pulse" />REC</>
-              : snap.camera.error === 'thermal' ? t('熱で録画停止', 'Rec stopped (heat)')
-              : snap.camera.error === 'interrupted' ? t('録画が中断', 'Rec paused')
-              : snap.camera.error === 'permission' ? t('カメラの許可なし', 'No camera access')
-              : t('録画できません', 'Cannot record')}
-          </span>
-        )}
         <button onClick={() => setVoice(v => !v)} className={`p-2 rounded-full border border-line-3 shrink-0 ${wakeLockOk === false ? '' : 'ml-auto'}`} aria-label={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')} title={voice ? t('声を止める', 'Mute voice') : t('声で知らせる', 'Voice on')}>
           {voice ? <Volume2 size={18} /> : <VolumeX size={18} className="text-slate-400" />}
         </button>
@@ -381,9 +371,19 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       </header>
 
       {/* 真ん中: 大きな数字 */}
-      {/* センサー・カメラの様子 (登録した機器があるときだけ) */}
-      {lapDevices.statuses.some(x => x.device.kind !== 'racebox' && x.device.kind !== 'drogger') && (
+      {/* カメラ・センサーの様子 (録画しているか、登録した機器があるときだけ) */}
+      {(snap.camera.recording || snap.camera.error || lapDevices.statuses.some(x => x.device.kind !== 'racebox' && x.device.kind !== 'drogger')) && (
         <div className="flex flex-wrap gap-1.5 px-3 pb-1 text-[11px]" data-testid="lap-timer-devices">
+          {/* 内蔵カメラの録画中の印 (止まったときは理由)。上の段に置くと、細い窓で出どころの表示が切れていた */}
+          {(snap.camera.recording || snap.camera.error) && (
+            <span className={`shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full font-bold ${snap.camera.recording ? 'bg-red-600 text-white' : 'bg-amber-500/20 text-amber-400'}`} data-testid="lap-timer-camera-rec">
+              {snap.camera.recording ? <><span className="w-2 h-2 rounded-full bg-white animate-pulse" />REC</>
+                : snap.camera.error === 'thermal' ? t('熱で録画停止', 'Rec stopped (heat)')
+                : snap.camera.error === 'interrupted' ? t('録画が中断', 'Rec paused')
+                : snap.camera.error === 'permission' ? t('カメラの許可なし', 'No camera access')
+                : t('録画できません', 'Cannot record')}
+            </span>
+          )}
           {lapDevices.statuses.filter(x => x.device.kind !== 'racebox' && x.device.kind !== 'drogger').map(x => (
             <span key={x.device.id} className={`px-2 py-0.5 rounded-full border ${x.ok ? 'border-emerald-500/60 text-emerald-500' : 'border-amber-500/60 text-amber-500'}`}>
               {x.device.displayName}{x.text ? ` · ${x.text}` : ` · ${x.state}`}

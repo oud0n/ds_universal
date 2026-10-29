@@ -59,4 +59,19 @@ describe('内蔵カメラの録画 (区切り直し・熱)', () => {
     await flush();
     expect(calls).toContain('camera.permission');
   });
+
+  it('録画中に熱で止まったあと、冷めても「熱で録画停止」を出し続ける', async () => {
+    const rec = new PhoneCameraRecorder(() => {});
+    void rec.start();
+    await flush();
+    releasePermission?.();
+    await flush(); await flush();
+    expect(rec.status.recording).toBe(true);
+    rec.noteState(false, 'thermal', 'critical');
+    rec.noteState(false, undefined, 'nominal');
+    expect(rec.status).toEqual({ recording: false, error: 'thermal' });
+    // 撮り直せば、札は録画中に戻る
+    rec.noteState(true, undefined, 'nominal');
+    expect(rec.status).toEqual({ recording: true, error: null });
+  });
 });

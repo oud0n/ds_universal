@@ -175,6 +175,8 @@ export class PhoneCameraRecorder {
     if (error === 'thermal') this.hot = true;
     else if (thermal && thermal !== 'critical' && thermal !== 'serious') this.hot = false;
     if (!this.active) return;
+    // 熱の段階だけの知らせで、撮っていないときは、止まった理由の札を残す (冷めても、区切り直すまでは撮っていない)
+    if (!recording && !error && thermal) return;
     this.set({ recording, error: error ?? null });
   }
 

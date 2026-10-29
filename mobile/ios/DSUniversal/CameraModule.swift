@@ -906,6 +906,7 @@ final class CameraModule: NSObject {
     private func thermalChanged() {
         let s = ProcessInfo.processInfo.thermalState
         let name = s == .critical ? "critical" : s == .serious ? "serious" : s == .fair ? "fair" : "nominal"
+        DebugLog.write("camera: thermal \(name) recording=\(wantRecording)")
         if s == .critical && wantRecording {
             // 熱すぎる: 録画だけ止める (ログの記録は Web が続ける)。撮ったファイルは、測定終了のときに移す
             wantRecording = false
