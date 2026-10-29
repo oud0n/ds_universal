@@ -4,7 +4,7 @@ import { ConditionFilters } from '../components/ConditionFilters';
 import { WEATHERS, WEATHER_LABELS, isTempC, isWeather, type Weather } from '../services/runWeather';
 import type { RunMetaPatch } from '../services/runOpener';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BarChart2, Bluetooth, ChevronRight, Cloud, EyeOff, FolderOpen, GitCompare, Loader2, Timer, Trophy, Video, X } from 'lucide-react';
+import { BarChart2, Bluetooth, ChevronRight, Cloud, EyeOff, FolderOpen, GitCompare, Loader2, Timer, Trash2, Trophy, Video, X } from 'lucide-react';
 import { circuitLabel, useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { formatLapTime } from '../services/liveLapTimer';
@@ -18,7 +18,9 @@ import { addons } from '../addons';
 import { navStore } from '../app/navStore';
 import { deleteSession, listSessions, type LapSession, type SavedSession } from '../services/analysisSessions';
 import { deleteRun, planRunDelete, type RunDeletePlan } from '../services/runDelete';
-import { canRemoveRunFiles, type RunFileInfo } from '../services/runStore';
+import { canRemoveRunFiles, canTrashRunFiles, type RunFileInfo } from '../services/runStore';
+import { listTrash, purgeExpired, purgeTrash, restoreTrashedRun, trashRun, TRASH_DAYS, type TrashedRun } from '../services/runTrash';
+import { RunTrashPanel } from '../components/RunTrashPanel';
 import { isRunBeingWritten } from '../services/runRecorder';
 import { hasNative } from '../native/bridge';
 import { listVideoRefs, removeVideoLaps, videoRefCandidates, type VideoRef } from '../services/videoLaps';
@@ -93,6 +95,19 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
   /** 走行のファイルを消せる置き場か (前の版のアプリ・ブラウザ版では消せない) */
   const [canDelete, setCanDelete] = useState(false);
   useEffect(() => { let alive = true; void canRemoveRunFiles(store).then(v => { if (alive) setCanDelete(v); }); return () => { alive = false; }; }, [store]);
+  /** アプリのゴミ箱 (iPhone・iPad のアプリ。消した走行を 30 日のあいだ戻せる。2026-10-28) */
+  const [canTrash, setCanTrash] = useState(false);
+  useEffect(() => { let alive = true; void canTrashRunFiles(store).then(v => { if (alive) setCanTrash(v); }); return () => { alive = false; }; }, [store]);
+  const [trashed, setTrashed] = useState<TrashedRun[]>([]);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [trashTick, setTrashTick] = useState(0);
+  // 走行を読み直すたびに読み直す。30 日を過ぎたものは、ここで本当に消す
+  useEffect(() => {
+    if (!active || !store || !canTrash) return;
+    let alive = true;
+    void listTrash(store).then(l => purgeExpired(store, l)).then(l => { if (alive) setTrashed(l); }, () => {});
+    return () => { alive = false; };
+  }, [active, store, canTrash, runs, trashTick]);
   /** 消す確かめの画面 (走行と、消すファイルの案) */
   const [deleting, setDeleting] = useState<{ item: RunItem; plan: RunDeletePlan | null; error?: string; running?: boolean } | null>(null);
   /** 保存した比べ方 (解析用のセッション)。走行を読み直すたびに読み直す */
@@ -151,6 +166,10 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
     [runs, folder, ownerNow, condNow.car, condNow.tyre, condNow.weather]);
   const selected = filtered.find(r => `${r.folder}/${r.file}` === selectedKey) ?? null;
 
+  // 下の「走行」タブをもう一度押したら、開いている走行の詳細を閉じて一覧に戻る (2026-10-28)。
+  // フックなので、下の「隠れているときは何も出さない」より前に置く (後ろに置くと、タブを移ったとき React が落ちて画面が真っ黒になった。BUG-40)
+  useEffect(() => navStore.onReselect(s => { if (s === 'library') setSelectedKey(null); }), []);
+
   if (!active) return null;
 
   // 日付ごとにまとめる (並びは新しい順のまま)
@@ -183,6 +202,18 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
         >
           <FolderOpen size={14} className="shrink-0 text-slate-400" />
           <span className="truncate flex-1 text-left" title={storageLabel}>{storageLabel}</span>
+          <ChevronRight size={14} className="text-slate-500 shrink-0" />
+        </button>
+      )}
+      {/* 最近消した走行 (アプリのゴミ箱。あるときだけ) */}
+      {canTrash && trashed.length > 0 && (
+        <button
+          onClick={() => setTrashOpen(true)}
+          className="mx-3 mt-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-1 border border-line-2 text-xs text-slate-300 cursor-pointer hover:bg-surface-3"
+          data-testid="library-trash"
+        >
+          <Trash2 size={14} className="shrink-0 text-slate-400" />
+          <span className="truncate flex-1 text-left">{t(`最近消した走行 ${trashed.length}`, `Recently deleted ${trashed.length}`)}</span>
           <ChevronRight size={14} className="text-slate-500 shrink-0" />
         </button>
       )}
@@ -444,12 +475,16 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
       {deleting && store && (
         <DeleteRunDialog
           state={deleting}
+          mode={canTrash ? 'app-trash' : hasNative() ? 'permanent' : 'os-trash'}
           onCancel={() => setDeleting(null)}
           onConfirm={async () => {
             if (!deleting.plan) return;
             setDeleting(d => (d ? { ...d, running: true, error: undefined } : d));
             try {
-              const { failed, permanent } = await deleteRun(store, deleting.item, deleting.plan);
+              // アプリのゴミ箱があれば、そこへ移す (戻せる)。無ければ今までどおり消す
+              const { failed, permanent } = canTrash
+                ? { ...(await trashRun(store, deleting.item, deleting.plan)), permanent: [] as string[] }
+                : await deleteRun(store, deleting.item, deleting.plan);
               if (permanent.length && !hasNative()) window.alert(t(`${permanent.length} 件はゴミ箱 (最近削除した項目) へ移せない場所だったので、すぐに消しました。`, `${permanent.length} file(s) could not be moved to the Trash and were deleted right away.`));
               if (failed.length) {
                 setDeleting(d => (d ? { ...d, running: false, error: t(`消せなかったファイルがあります: ${failed.map(f => baseName(f.path)).join(', ')}`, `Some files could not be deleted: ${failed.map(f => baseName(f.path)).join(', ')}`) } : d));
@@ -464,6 +499,25 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
           }}
         />
       )}
+      {trashOpen && store && (
+        <RunTrashPanel
+          runs={trashed}
+          onClose={() => setTrashOpen(false)}
+          onRestore={async r => {
+            const { failed } = await restoreTrashedRun(store, r);
+            setTrashTick(n => n + 1);
+            reload();
+            return failed.length
+              ? t(`戻せなかったファイルがあります (同じ名前のファイルがある、など): ${failed.map(f => baseName(f.path)).join(', ')}`, `Some files could not be restored (a file with the same name exists, etc.): ${failed.map(f => baseName(f.path)).join(', ')}`)
+              : null;
+          }}
+          onPurge={async ids => {
+            const { failed } = await purgeTrash(store, ids);
+            setTrashTick(n => n + 1);
+            return failed.length ? t(`消せなかったものがあります: ${failed.map(f => f.error).join(', ')}`, `Some could not be deleted: ${failed.map(f => f.error).join(', ')}`) : null;
+          }}
+        />
+      )}
     </div>
   );
 };
@@ -471,9 +525,11 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
 /** 走行を消す確かめの画面 (消すファイルと、残すファイルを理由つきで出す) */
 const DeleteRunDialog: React.FC<{
   state: { item: RunItem; plan: RunDeletePlan | null; error?: string; running?: boolean };
+  /** app-trash: アプリのゴミ箱へ (30 日戻せる)、os-trash: OS のゴミ箱へ (デスクトップ版)、permanent: すぐ消える (Android・前の版のアプリ) */
+  mode: 'app-trash' | 'os-trash' | 'permanent';
   onCancel: () => void;
   onConfirm: () => void;
-}> = ({ state, onCancel, onConfirm }) => {
+}> = ({ state, mode, onCancel, onConfirm }) => {
   const t = useT();
   useEscapeKey(true, onCancel);
   const { plan } = state;
@@ -485,8 +541,8 @@ const DeleteRunDialog: React.FC<{
     'shared-video': t('ほかの走行にも付いている動画', 'Also attached to another run'),
     'unattached-video': t('この走行に付けていない動画', 'Not attached to this run')
   }[r]);
-  // ゴミ箱から戻せるのはデスクトップ版だけ。iPhone は「ファイル」の最近削除した項目に入るが、アプリが消したものは戻せない (2026-10-25 実機で確認)
-  const trash = !hasNative();
+  // OS のゴミ箱から戻せるのはデスクトップ版だけ。iPhone は「ファイル」の最近削除した項目に入るが、アプリが消したものは戻せない (2026-10-25 実機で確認)。
+  // そのため iPhone・iPad のアプリは、アプリのゴミ箱へ移す (runTrash.ts)
   return (
     <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" data-testid="run-delete-dialog">
       <div className="w-full max-w-md max-h-[85vh] flex flex-col rounded-2xl bg-surface-1 border border-line-2 shadow-2xl">
@@ -517,7 +573,9 @@ const DeleteRunDialog: React.FC<{
                 </div>
               )}
               <p className="text-[11px] text-slate-500">
-                {trash
+                {mode === 'app-trash'
+                  ? t(`走行の一覧の「最近消した走行」へ移します。${TRASH_DAYS} 日のあいだは、名前・メモ・同期ごと戻せます。`, `Moved to “Recently deleted” in the run list. You can restore it, with its name, notes and sync, for ${TRASH_DAYS} days.`)
+                  : mode === 'os-trash'
                   ? t('ファイルはゴミ箱へ移します (ゴミ箱から戻せます)。名前・メモ・同期などの走行の記録は消えます。', 'Files are moved to the Trash (you can restore them from there). The run’s name, notes and sync are removed.')
                   : t('ファイルはすぐに消え、戻せません。名前・メモ・同期などの走行の記録も消えます。', 'Files are deleted right away and cannot be restored. The run’s name, notes and sync are removed too.')}
               </p>

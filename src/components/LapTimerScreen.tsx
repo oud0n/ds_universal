@@ -10,7 +10,7 @@ import { LapHistoryPanel } from './LapHistoryPanel';
 import { deleteRun, listRuns, loadFixes, type RunMeta } from '../services/liveRunStore';
 import { fixesToBon4, fixesToNmea, runFileBase } from '../services/runFiles';
 import { callNative, hasNative, isAndroidApp, toBase64 } from '../native/bridge';
-import { canUseLoggerBle, myDeviceWord } from '../utils/device';
+import { canUseLoggerBle, isIPad, myDeviceWord } from '../utils/device';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { getPositionSource } from '../services/positionSource';
 import { navStore } from '../app/navStore';
@@ -82,8 +82,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     phoneMessages: () => ({
       unavailable: getLang() === 'ja' ? 'この端末では位置を使えません' : 'Location is not available on this device',
       denied: getLang() === 'ja'
-        ? '位置の許可がありません (アプリは設定アプリの LapLoupe で、ブラウザはサイトの設定で、位置情報を許可してください)'
-        : 'Location permission denied (allow Location for LapLoupe in the Settings app, or for this site in your browser)'
+        ? '位置の許可がありません (アプリは設定アプリの LapLoupe で、ブラウザはサイトの設定で、位置情報を許可してから、開き直してください)'
+        : 'Location permission denied (allow Location for LapLoupe in the Settings app, or for this site in your browser, then reopen it)'
     })
   }, (() => {
     // 位置の出どころ。前に選んだものを覚えておき、画面の上の印にも同じものを出す (services/positionSource.ts)
@@ -490,6 +490,13 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       {/* 測定開始 / 測定終了 (ログの再生のときは出さない) */}
       {source !== 'replay' && (
         <div className="shrink-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-3">
+          {/* iPad のアプリはアプリから向きを固められない (iPadOS が聞かない) ので、測る前に回転ロックを勧める。
+              iPad のロックは今の向きのまま固まる。iPhone はアプリが固めるので出さない (iPhone のロックは縦にしか固まらない。BUG-38) */}
+          {!measuring && hasNative() && isIPad && (
+            <div className="text-[11px] text-amber-500 text-center" data-testid="lap-timer-ipad-rotation-hint">
+              {t('iPad は測っている間も画面が回ることがあります。取り付けた向きで、コントロールセンターの「画面の向きのロック」を入れてください', 'On iPad the screen may rotate while timing. Mount it, then turn on Rotation Lock in Control Center.')}
+            </div>
+          )}
           <button
             onClick={() => {
               // 位置の機器を登録していなければ、測らずに機器の画面へ (測れない記録を作らないように)
@@ -575,14 +582,16 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               <div className="space-y-1.5">
                 {runs.slice(0, 20).map(r => {
                   const d = new Date(r.startedMs);
-                  // 記録中 (または、たった今まで書いていた) の走行は消せない
-                  const recording = rt.currentRunId === r.id || Date.now() - r.updatedMs < 10000;
+                  // 記録中 (または、たった今まで書いていた) の走行は消せない。「記録中」の札は、今書いている走行だけに出す
+                  // (たった今まで書いていた走行にも出すと、続けて始め・止めしたとき 2 つ以上に出ていた。BUG-39)
+                  const live = rt.currentRunId === r.id;
+                  const recording = live || Date.now() - r.updatedMs < 10000;
                   return (
                     <div key={r.id} className="rounded-lg bg-surface-2 px-2.5 py-2">
                       <div className="flex items-baseline gap-2 text-xs">
                         <span className="font-mono">{`${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`}</span>
                         <span className="truncate text-slate-300 flex-1 min-w-0">{r.courseName ? circuitLabel(r.courseName) : '—'}</span>
-                        {recording && <span className="text-red-500 text-[10px] whitespace-nowrap">{t('記録中', 'Recording')}</span>}
+                        {live && <span className="text-red-500 text-[10px] whitespace-nowrap">{t('記録中', 'Recording')}</span>}
                       </div>
                       <div className="text-[11px] text-slate-400 font-mono">
                         {t(`${r.lapCount} 周`, `${r.lapCount} lap${(r.lapCount) === 1 ? '' : 's'}`)}{r.bestLapSec !== null ? ` · ${t('ベスト', 'best')} ${formatLapTime(r.bestLapSec, 3)}` : ''}{` · ${Math.round(r.fixCount / 20 / 60) || '<1'} min`}

@@ -2701,7 +2701,7 @@ export const App: React.FC = () => {
       </div>
       </div>
       {plan.chrome === 'bottom' && !nav.locked && (
-        <BottomTabBar items={plan.primary} current={currentTab} onSelect={s => navStore.go(s)} badges={{ data: sessions.length }} />
+        <BottomTabBar items={plan.primary} current={currentTab} onSelect={s => (s === currentTab ? navStore.reselect(s) : navStore.go(s))} badges={{ data: sessions.length }} />
       )}
 
       {/* コース編集モーダル */}

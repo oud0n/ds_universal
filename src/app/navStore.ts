@@ -43,7 +43,19 @@ function set(next: NavState) {
   listeners.forEach(l => l());
 }
 
+/** 今いる下のタブをもう一度押したときの知らせ (その画面のいちばん上へ戻すため。iPhone のアプリのふつうの動き。2026-10-28) */
+const reselectListeners = new Set<(screen: Screen) => void>();
+
 export const navStore = {
+  /** 今いるタブをもう一度押した */
+  reselect(screen: Screen): void {
+    reselectListeners.forEach(l => l(screen));
+  },
+  /** 今いるタブをもう一度押したら呼ばれる */
+  onReselect(l: (screen: Screen) => void): () => void {
+    reselectListeners.add(l);
+    return () => { reselectListeners.delete(l); };
+  },
   subscribe(l: () => void): () => void {
     listeners.add(l);
     return () => { listeners.delete(l); };

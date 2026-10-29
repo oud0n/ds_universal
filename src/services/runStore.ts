@@ -33,6 +33,19 @@ export interface RunStore extends LapFileStore {
    */
   /** 消す (permanent: ゴミ箱へ移せず、すぐに消したもの。iPhone のアプリの中の保管場所など) */
   remove?(paths: string[]): Promise<{ deleted: string[]; failed: Array<{ path: string; error: string }>; permanent?: string[] }>;
+  /** アプリのゴミ箱 (iPhone・iPad のアプリだけ。runTrash.ts)。無い環境では今までどおり remove で消す */
+  trash?: {
+    move(paths: string[], id: string, manifest: string): Promise<{ moved: string[]; failed: Array<{ path: string; error: string }> }>;
+    list(): Promise<Array<{ id: string; manifest?: string; files: Array<{ path: string; size: number }>; mtimeMs: number }>>;
+    restore(id: string): Promise<{ restored: string[]; failed: Array<{ path: string; error: string }> }>;
+    purge(ids: string[]): Promise<{ purged: string[]; failed: Array<{ path: string; error: string }> }>;
+  };
+}
+
+/** この置き場にアプリのゴミ箱があるか (iPhone・iPad のアプリの新しい版だけ。Android・デスクトップ版・ブラウザ版は無い) */
+export async function canTrashRunFiles(store: RunStore | null): Promise<boolean> {
+  if (!store?.trash || !hasNative()) return false;
+  try { return !!(await nativeCapabilities())?.features.trashFiles; } catch { return false; }
 }
 
 /** この置き場で走行のファイルを消せるか */
@@ -121,6 +134,12 @@ export function nativeRunStore(): RunStore | null {
     },
     async remove(paths) {
       return callNative('system.deleteRunFiles', { paths });
+    },
+    trash: {
+      move: (paths, id, manifest) => callNative('system.trashRunFiles', { paths, id, manifest }),
+      list: async () => (await callNative('system.listTrash', {})).items,
+      restore: id => callNative('system.restoreTrash', { id }),
+      purge: ids => callNative('system.purgeTrash', { ids })
     }
   };
   return store;
