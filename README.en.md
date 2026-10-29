@@ -28,9 +28,10 @@ The app's screens are available in Japanese and English (it follows your device'
 
 ## 🏎️ Overview
 
-**LapLoupe (formerly DS Universal)** is an unofficial lap and track analyzer for the DigSpice IV, a GPS data logger for circuit driving. The official analysis software runs only on Windows; LapLoupe runs on **Mac, Windows and in the browser**, and you can also view logs in a smartphone browser.
+**LapLoupe (formerly DS Universal)** is an unofficial lap and track analyzer for the DigSpice IV, a GPS data logger for circuit driving. The official analysis software runs only on Windows; LapLoupe runs on **Mac, Windows, iPhone / iPad and in the browser**. The iPhone / iPad app is free on the [App Store](https://apps.apple.com/jp/app/id6826272937).
 
 - Connect the DigSpice over USB to download logs and change the logger's settings (works on a Mac too)
+- On the iPhone app, connect the DigSpice over Bluetooth and use it as a lap timer (the iPhone's own GPS works too)
 - Overlay and compare the driving line, speed, G and corner speeds between laps and cars
 - Sync onboard video from a GoPro and other cameras with the log automatically, and export video with gauges
 - Free and source-available. Logs are processed on your device and never sent to a server
@@ -85,7 +86,9 @@ Logs are processed on your device and never sent to a server (what the app does 
 
 ## 📥 Download and installation
 
-Download the latest version for your OS from [GitHub Releases](https://github.com/oud0n/ds_universal/releases).
+**iPhone / iPad**: get [LapLoupe on the App Store](https://apps.apple.com/jp/app/id6826272937) (free).
+
+**Mac / Windows**: download the latest version for your OS from [GitHub Releases](https://github.com/oud0n/ds_universal/releases).
 
 | OS | Files | Status |
 | :--- | :--- | :--- |
