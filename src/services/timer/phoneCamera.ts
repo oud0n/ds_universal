@@ -92,6 +92,10 @@ export class PhoneCameraRecorder {
   private stopping: Promise<void> | null = null;
   /** 始める途中で止められた (始められなかったことをエラーとして出さない) */
   private stopRequested = false;
+  /** 始める途中に、止めてからまた始めるよう頼まれた (区切り直し。始め終わったら、もう一度始める。BUG-38 の 9) */
+  private restartWanted = false;
+  /** 熱すぎて録画を止めた (冷めるまで、区切り直しでも撮り始めない。BUG-38 の 8) */
+  private hot = false;
   /** 撮り始めた時刻 (走行のファイルが無いときの動画の名前に使う) */
   private startedMs: number | null = null;
   /** 端末の時計から GPS の時計への差 (ミリ秒)。測位ごとに大きいほうへ寄せる */
@@ -120,7 +124,13 @@ export class PhoneCameraRecorder {
   async start(): Promise<void> {
     const s = loadCameraSettings();
     // 続けて呼ばれても (測位ごとなど) 1 回だけ始める
-    if (!s.enabled || this.active || this.starting) return;
+    if (!s.enabled || this.active) return;
+    if (this.starting) {
+      // 前の始めを止めるよう頼まれていたら、それが終わったあとで始め直す
+      if (this.stopRequested) this.restartWanted = true;
+      return;
+    }
+    if (this.hot) { this.set({ recording: false, error: 'thermal' }); return; }
     this.starting = true;
     this.stopRequested = false;
     try {
@@ -128,6 +138,10 @@ export class PhoneCameraRecorder {
       if (await cameraAvailable()) await this.begin(s);
     } finally {
       this.starting = false;
+    }
+    if (this.restartWanted) {
+      this.restartWanted = false;
+      await this.start();
     }
   }
 
@@ -157,7 +171,9 @@ export class PhoneCameraRecorder {
   }
 
   /** ネイティブの知らせ (裏に回って止まった・熱で止めた) */
-  noteState(recording: boolean, error?: string): void {
+  noteState(recording: boolean, error?: string, thermal?: string): void {
+    if (error === 'thermal') this.hot = true;
+    else if (thermal && thermal !== 'critical' && thermal !== 'serious') this.hot = false;
     if (!this.active) return;
     this.set({ recording, error: error ?? null });
   }
@@ -168,6 +184,7 @@ export class PhoneCameraRecorder {
    */
   stop(fileBase: string | null, fallbackFolder: string): Promise<void> {
     // 始める途中 (許可を聞いている・アプリが組み立てている) なら、始めないように印を付ける
+    this.restartWanted = false;
     if (this.starting) this.stopRequested = true;
     if (!this.active) return this.stopping ?? Promise.resolve();
     this.active = false;

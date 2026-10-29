@@ -3,7 +3,7 @@ import React, { useEffect, useSyncExternalStore } from 'react';
 import { Bluetooth, BluetoothSearching, Unlink, RefreshCw, Settings, Signal, Timer } from 'lucide-react';
 import { bleLoggerLink, loggerSerial, type LoggerLinkStatus } from '../services/bleLoggerLink';
 import { useT } from '../utils/i18n';
-import { hasNative } from '../native/bridge';
+import { hasNative, isAndroidApp } from '../native/bridge';
 import { usePositionSource } from '../services/positionSource';
 import { loadDevices } from '../services/devices/deviceRegistry';
 import { Smartphone } from 'lucide-react';
@@ -57,7 +57,7 @@ export const BleStatusPill: React.FC<{ onClick?: () => void }> = ({ onClick }) =
   if (source === 'racebox' || source === 'drogger' || source === 'phone') {
     // 上のバーは狭いので短く (スマートフォンの解析の画面で、ほかのボタンと並んでも切れないように)
     const name = source === 'phone'
-      ? (hasNative() ? (isIPad ? 'iPad GPS' : t('iPhone GPS', 'Phone GPS')) : t('端末の GPS', 'Device GPS'))
+      ? (hasNative() ? (isIPad ? 'iPad GPS' : isAndroidApp() ? t('端末の GPS', 'Phone GPS') : 'iPhone GPS') : t('端末の GPS', 'Device GPS'))
       : (loadDevices().find(d => d.kind === source)?.displayName ?? (source === 'racebox' ? 'RaceBox' : 'Drogger'));
     return (
       <button

@@ -209,7 +209,7 @@ export class TimerRuntime {
     this.intervals.push(setInterval(() => { void this.flush(); }, SAVE_INTERVAL_MS));
     document.addEventListener('visibilitychange', this.onHide);
     window.addEventListener('pagehide', this.onHide);
-    if (hasNative()) this.offCamera = onNative('camera.state', e => this.camera.noteState(e.recording, e.error));
+    if (hasNative()) this.offCamera = onNative('camera.state', e => this.camera.noteState(e.recording, e.error, e.thermal));
   }
 
   dispose(): void {

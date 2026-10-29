@@ -9,6 +9,7 @@
  */
 
 import { isTempC, isWeather, type Weather } from './runWeather';
+import { notifyRunsChanged } from './runsChanged';
 import type { Session } from '../types/telemetry';
 import { loadLapHistory } from './lapHistory';
 import { LAP_INDEX_FILE, groupRunsByFolder, queueLapIndexWrite, isRunVideoName, lapKey, parseLapIndex, runStem, setHidden, type LapRecord } from './lapIndex';
@@ -257,8 +258,12 @@ async function saveRun(run: OpenRun): Promise<void> {
     run.baseline = key;
     run.item.entry = row;
     // 次にこの走行を開き直すとき (Car 1 を替えて戻ったときなど) の動画の候補も、書いた中身にする (外した動画が戻らないように)
+    const synced = !!row.videos?.some(v => !!v.clock);
+    const videosChanged = synced !== run.item.synced || (row.videos?.length ?? 0) !== run.item.videos.length;
     run.item.videos = row.videos?.map(v => v.name) ?? [];
-    run.item.synced = !!row.videos?.some(v => !!v.clock);
+    run.item.synced = synced;
+    // 動画を外した・同期した: 走行の一覧の「同期済み」などをすぐ直す (BUG-39 の 4)
+    if (videosChanged) notifyRunsChanged();
   } catch {
     // 書けない (読めない形の runs.json など) ときは、次に変わったときにもう一度試す
   }

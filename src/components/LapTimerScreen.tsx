@@ -105,7 +105,12 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const setReplaySpeed = (s: number) => rt.setReplaySpeed(s);
   const lapDevices = { statuses: snap.devices, racebox: rt.devices.racebox, drogger: rt.devices.drogger };
   const flushRecording = useCallback((force = false) => rt.flush(force), [rt]);
-  const startMeasuring = () => rt.startMeasuring();
+  // 位置が取れない (許可が無い・使えない) ときは、測り始める前に確かめる (周を数えられない走行を作らないように。BUG-38 の 5)
+  const startMeasuring = () => {
+    const why = source === 'phone' ? phoneError : source === 'digspice' && link.permissionDenied ? (link.error ?? t('Bluetooth の許可がありません', 'Bluetooth permission denied')) : null;
+    if (why && !window.confirm(t(`位置を取れていません: ${why}\n\nこのまま測り始めますか？ (位置が取れるまで周は数えません)`, `No position: ${why}\n\nStart timing anyway? (Laps are not counted until a position arrives)`))) return;
+    rt.startMeasuring();
+  };
   const stopMeasuring = useCallback(() => rt.stopMeasuring(), [rt]);
   const resetRun = () => rt.resetRun();
   const setSaveError = (m: string | null) => rt.setSaveError(m);
@@ -205,6 +210,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   // ---- 表示する値 ----
   const sincePerf = (now - snap.lastFixPerf) / 1000;
   const lastFix = state?.lastFix ?? snap.lastPos;
+  // 位置が 3 秒より長く来なければ、速度は出さない (止まった最後の値を出し続けないように。BUG-38 の 4)。読み込んだログの再生は除く
+  const speedText = (unit: boolean) => lastFix && (source === 'replay' || sincePerf <= 3) ? `${Math.round(lastFix.speedKmh)}${unit ? ' km/h' : ''}` : unit ? '--- km/h' : '---';
   const rawElapsed = state?.lapStartMs != null && state.lastFix
     ? (state.lastFix.tMs - state.lapStartMs) / 1000 + Math.min(EXTRAPOLATE_SEC, Math.max(0, sincePerf)) * (source === 'replay' ? replaySpeed : 1)
     : null;
@@ -228,6 +235,12 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   // 出どころの状態
   // 選んだ出どころの機器を登録していない (測位が来ない)
   const needsRegister = (source === 'digspice' && link.status === 'none') || (source === 'racebox' && !lapDevices.racebox) || (source === 'drogger' && !lapDevices.drogger);
+  // この端末の GPS の位置が取れない理由 (許可が無いなど。iOS の英語のエラーはそのまま出さない)
+  const phoneError = source === 'phone' && phoneInfo.error
+    ? (/kCLErrorDomain|CoreLocation/i.test(phoneInfo.error) ? t('位置を取れません (屋内・機内モードなど。空の見える所で待つか、開き直してください)', 'Cannot get a position (indoors, Airplane Mode, etc. Wait under open sky or reopen the app)') : phoneInfo.error)
+    : null;
+  // 登録してあるのに、つながっていない (押すとつなぐ)
+  const canReconnect = !needsRegister && ((source === 'digspice' && link.status === 'idle') || ((source === 'racebox' || source === 'drogger') && !!(source === 'racebox' ? lapDevices.racebox : lapDevices.drogger) && !lapDevices.statuses.some(x => x.device.kind === source)));
   const sourceStatus = (() => {
     if (source === 'digspice') {
       const ok = link.status === 'fixing';
@@ -241,7 +254,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       return { ok: !!st?.ok, text: st ? `${st.device.displayName}: ${st.state}${st.text ? ` · ${st.text}` : ''}` : `${dev.displayName}: ${t('未接続', 'Not connected')}` };
     }
     if (source === 'phone') {
-      if (phoneInfo.error) return { ok: false, text: phoneInfo.error };
+      if (phoneError) return { ok: false, text: phoneError };
       const acc = phoneInfo.accuracy;
       return { ok: acc !== null && acc <= 30, text: acc === null ? (hasNative() ? t(`${phoneWord} の GPS: 測位待ち`, `${phoneWordEn === 'phone' ? 'Phone' : phoneWordEn} GPS: waiting`) : t('この端末の GPS: 測位待ち', 'Device GPS: waiting')) : t(`${hasNative() ? phoneWord : 'この端末'} の GPS ±${Math.round(acc)} m (1 Hz 前後・粗い)`, `Phone GPS ±${Math.round(acc)} m (~1 Hz, coarse)`) };
     }
@@ -317,20 +330,21 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       <header className="flex items-center gap-2 px-3 py-2 text-xs sm:text-sm shrink-0 min-w-0">
         <button
           type="button"
-          // デジスパイスにつないでいないときは、押すとつなぐ。登録していなければ機器の画面へ。測っている間は押せない (走りながら誤って押さないように)
-          disabled={measuring}
+          // デジスパイスにつないでいないときは、押すとつなぐ。登録していなければ機器の画面へ。
+          // 測っている間は、切れた機器をつなぎ直すときだけ押せる (走りながら誤ってメニューを開かないように。BUG-38 の 6)
+          disabled={measuring && !canReconnect}
           onClick={() => {
-            if (needsRegister) navStore.go('logger');
-            else if ((source === 'digspice' && link.status === 'idle') || ((source === 'racebox' || source === 'drogger') && !lapDevices.statuses.some(x => x.device.kind === source))) {
-              rt.connectSource();
-            } else setMenuOpen(o => !o);
+            if (canReconnect) rt.connectSource();
+            else if (measuring) return;
+            else if (needsRegister) navStore.go('logger');
+            else setMenuOpen(o => !o);
           }}
           // 幅が足りないときは、こちら (出どころの状態) を縮める (コースのボタンが「コ…」にならないように)
           className={`flex items-center gap-1 px-2 py-1 rounded-full border whitespace-nowrap overflow-hidden text-ellipsis min-w-0 ${sourceStatus.ok ? 'border-emerald-500/50 text-emerald-500 bg-emerald-500/10' : 'border-amber-500/50 text-amber-500 bg-amber-500/10'}`}
           data-testid="lap-timer-source"
         >
           {source === 'digspice' || source === 'racebox' || source === 'drogger' ? <Bluetooth size={14} className="shrink-0" /> : source === 'phone' ? <Smartphone size={14} className="shrink-0" /> : <PlayCircle size={14} className="shrink-0" />}
-          <span className="truncate">{sourceStatus.text}{(source === 'digspice' && link.status === 'idle') || ((source === 'racebox' || source === 'drogger') && (source === 'racebox' ? lapDevices.racebox : lapDevices.drogger) && !lapDevices.statuses.some(x => x.device.kind === source)) ? t(' (押すとつなぐ)', ' (tap to connect)') : ''}</span>
+          <span className="truncate">{sourceStatus.text}{canReconnect ? t(' (押すとつなぐ)', ' (tap to connect)') : ''}</span>
         </button>
         <button onClick={() => setCoursePicker(true)} disabled={measuring} className="flex items-center gap-1 px-2 py-1 rounded-full border border-line-3 text-slate-200 whitespace-nowrap shrink-0 max-w-[40vw] disabled:opacity-60" data-testid="lap-timer-course">
           <MapPin size={14} className="shrink-0" />
@@ -383,13 +397,15 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
             <div className="text-center space-y-2 max-w-full min-w-0" data-testid="lap-timer-idle">
               {/* 横向きのスマートフォンは高さが足りないので、コース名は 1 行にして入りきらない分は … にする (長い名前が 2 行になって、上下に重なっていた) */}
               <div className="font-bold [@media(max-height:500px)]:truncate" style={{ fontSize: needsRegister ? 'min(5.5vw, 7vh)' : 'min(7vw, 9vh)' }}>
-                {needsRegister ? t('位置の機器を登録してください', 'Register a position device') : course ? circuitLabel(course.name) : t('コースを決めています', 'Finding the course')}
+                {needsRegister ? t('位置の機器を登録してください', 'Register a position device') : phoneError ? t('位置を取れていません', 'No position') : course ? circuitLabel(course.name) : t('コースを決めています', 'Finding the course')}
               </div>
+              {/* 位置の許可が無いときなど。上の札では切れて読めないので、ここに全文を出す (BUG-38 の 13) */}
+              {!needsRegister && phoneError && <div className="text-amber-500 text-sm" data-testid="lap-timer-position-error">{phoneError}</div>}
               {needsRegister && (
                 <div className="text-slate-400 text-sm">{t(`上の印を押すと機器の画面へ。この ${phoneWord} の GPS で測るときは、メニューで選んでください。`, `Tap the badge above to register one, or choose this ${phoneWordEn}’s GPS in the menu.`)}</div>
               )}
               <div className="font-mono text-slate-300 tabular-nums" style={{ fontSize: 'min(9vw, 12vh)' }}>
-                {lastFix ? `${Math.round(lastFix.speedKmh)} km/h` : '--- km/h'}
+                {speedText(true)}
               </div>
               {pastBest && !needsRegister && (
                 <div className="text-slate-300 text-base" data-testid="lap-timer-past-best">
@@ -436,7 +452,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
             <div className="text-center space-y-2">
               <div className="font-bold" style={{ fontSize: 'min(7vw, 9vh)' }}>{t('計測線を待っています', 'Waiting for the line')}</div>
               <div className="font-mono text-slate-300 tabular-nums" style={{ fontSize: 'min(9vw, 12vh)' }}>
-                {lastFix ? `${Math.round(lastFix.speedKmh)} km/h` : '--- km/h'}
+                {speedText(true)}
               </div>
             </div>
           ) : (
@@ -465,7 +481,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           <div className="rounded-xl bg-surface-2 px-3 py-2">
             <div className="text-[11px] text-slate-400 font-sans">{t('ベスト', 'Best')}{state?.best ? ` (${t(`${state.best.number} 周目`, `L${state.best.number}`)})` : ''}</div>
             <div className="text-2xl sm:text-3xl font-bold text-amber-500">{state?.best ? formatLapTime(state.best.timeSec, 2) : '--:--'}</div>
-            <div className="text-lg text-slate-400"><span className="text-[11px] font-sans text-slate-500 mr-1">{t('速度', 'Speed')}</span>{lastFix ? `${Math.round(lastFix.speedKmh)} km/h` : '---'}</div>
+            <div className="text-lg text-slate-400"><span className="text-[11px] font-sans text-slate-500 mr-1">{t('速度', 'Speed')}</span>{lastFix && (source === 'replay' || sincePerf <= 3) ? `${Math.round(lastFix.speedKmh)} km/h` : '---'}</div>
           </div>
           {sectorCount > 0 && (
             <div className="col-span-2 landscape:col-span-1 [@media(orientation:landscape)_and_(max-height:500px)]:col-span-2 rounded-xl bg-surface-2 px-3 py-2 flex gap-2" data-testid="lap-timer-sectors">
