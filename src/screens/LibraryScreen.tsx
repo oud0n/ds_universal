@@ -14,6 +14,7 @@ import { runStem } from '../services/lapIndex';
 import { useStorageLabel } from '../components/StorageSettings';
 import { baseName, setRunLapHidden, setRunMeta, type RunItem } from '../services/runOpener';
 import { RunNoteField } from '../components/RunNoteField';
+import { addons } from '../addons';
 import { navStore } from '../app/navStore';
 import { deleteSession, listSessions, type LapSession, type SavedSession } from '../services/analysisSessions';
 import { deleteRun, planRunDelete, type RunDeletePlan } from '../services/runDelete';
@@ -733,6 +734,9 @@ const RunDetail: React.FC<{
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const [order, setOrder] = useState<'run' | 'time'>('run');
+  const lapViews = addons.lapListViews ?? [];
+  const [lapView, setLapView] = useState('');
+  const ExtraLapView = lapViews.find(v => v.id === lapView)?.Component;
   // 書き換えている間は、隠す・出すを押せなくする
   const [saving, setSaving] = useState(false);
   useEscapeKey(!!onClose, () => onClose?.());
@@ -789,13 +793,22 @@ const RunDetail: React.FC<{
           <section>
             <div className="flex items-center gap-2 mb-2">
               <span className="text-xs font-bold text-slate-300 flex-1">{t('周', 'Laps')}</span>
+              {lapViews.length > 0 && (
+                <div className="flex rounded-full border border-line-2 overflow-hidden mr-1" data-testid="run-detail-lap-views">
+                  {[{ id: '', label: ['タイム', 'Times'] as [string, string] }, ...lapViews].map(v => (
+                    <button key={v.id} onClick={() => setLapView(v.id)} className={`px-2.5 py-1 text-[11px] cursor-pointer ${lapView === v.id ? 'bg-sky-600 text-white' : 'text-slate-400'}`}>
+                      {t(v.label[0], v.label[1])}
+                    </button>
+                  ))}
+                </div>
+              )}
               {(['run', 'time'] as const).map(o => (
                 <button key={o} onClick={() => setOrder(o)} className={`px-2.5 py-1 rounded-full text-[11px] border cursor-pointer ${order === o ? 'bg-sky-600 border-sky-500 text-white' : 'border-line-2 text-slate-400'}`}>
                   {o === 'run' ? t('走った順', 'In order') : t('タイム順', 'By time')}
                 </button>
               ))}
             </div>
-            <div className="space-y-1">
+            {ExtraLapView ? <ExtraLapView laps={run.laps} order={order} /> : <div className="space-y-1">
               {laps.map(l => (
                 <div key={`${l.part ?? 1}-${l.n}`} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm ${l.hidden ? 'opacity-40' : l.time === best ? 'bg-fuchsia-500/10' : ''}`}>
                   <span className="w-12 text-xs text-slate-400">{l.part ? `${l.part}-` : ''}L{l.n}</span>
@@ -811,7 +824,7 @@ const RunDetail: React.FC<{
                   </button>
                 </div>
               ))}
-            </div>
+            </div>}
           </section>
         )}
         <section>
