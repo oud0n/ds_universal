@@ -4,11 +4,12 @@
 
 **日本語** | [English](README.en.md)
 
-**デジスパイス（DigSpice IV）を Mac・Windows・ブラウザで使える、非公式の走行ログ解析ソフト（ラップ・サーキットの走行解析 / Lap & Track Analyzer）**
+**デジスパイス（DigSpice IV）を Mac・Windows・iPhone・ブラウザで使える、非公式の走行ログ解析ソフト（ラップ・サーキットの走行解析 / Lap & Track Analyzer）**
 
 デジスパイスのログの吸い出し・本体の設定、走行ライン・車速・G の解析、GoPro などの車載動画との同期
 
-![対応OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon-blue)
+![対応OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon%20%7C%20iOS-blue)
+[![App Store](https://img.shields.io/badge/App%20Store-LapLoupe-0D96F6?logo=apple&logoColor=white)](https://apps.apple.com/jp/app/id6826272937)
 ![検証状況](https://img.shields.io/badge/Verified-macOS%20Only-amber)
 ![バージョン](https://img.shields.io/badge/Version-1.1.0-red)
 ![デバイス](https://img.shields.io/badge/Device-DigSpice%20IV-red)
@@ -26,9 +27,10 @@
 
 ## 🏎️ 概要
 
-**LapLoupe（旧名 DS Universal）** は、サーキット走行用の GPS データロガー「デジスパイスIV」のための、非公式の走行ログ解析ソフトです。公式の解析ソフトは Windows 専用ですが、LapLoupe は **Mac・Windows・ブラウザ** で動き、スマートフォンのブラウザでもログを見られます。
+**LapLoupe（旧名 DS Universal）** は、サーキット走行用の GPS データロガー「デジスパイスIV」のための、非公式の走行ログ解析ソフトです。公式の解析ソフトは Windows 専用ですが、LapLoupe は **Mac・Windows・iPhone / iPad・ブラウザ** で動きます。iPhone / iPad のアプリは [App Store](https://apps.apple.com/jp/app/id6826272937) で無料で公開しています。
 
 - デジスパイスを USB でつないで、ログの吸い出しと本体の設定ができます（Mac でも使えます）
+- iPhone のアプリでは、デジスパイスと Bluetooth でつないでラップタイマーとして使えます（iPhone の GPS だけでも測れます）
 - 走行ライン・車速・G・コーナーごとの速度を、ラップや車どうしで重ねて比べられます
 - GoPro などの車載動画を走行ログと自動で合わせ、メーターを重ねた動画を書き出せます
 - 無料で、ソースコードを公開しています。ログはお使いの端末の中で処理し、サーバーへ送りません
@@ -83,7 +85,9 @@
 
 ## 📥 ダウンロード & インストール
 
-[GitHub Releases](https://github.com/oud0n/ds_universal/releases) から、お使いの OS の最新版をダウンロードしてください。
+**iPhone / iPad**: [App Store の LapLoupe](https://apps.apple.com/jp/app/id6826272937) から入れてください（無料）。
+
+**Mac・Windows**: [GitHub Releases](https://github.com/oud0n/ds_universal/releases) から、お使いの OS の最新版をダウンロードしてください。
 
 | OS | ファイル | 動作状況 |
 | :--- | :--- | :--- |
