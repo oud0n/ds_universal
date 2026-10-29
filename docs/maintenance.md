@@ -8,7 +8,7 @@
 |---|---|
 | `main` | 出したもの。デスクトップ版のリリースのタグはここに付ける。push すると GitHub Pages (ブラウザ版) が出し直される |
 | `dev` | 次に出すものをまとめる所。直しは別のブランチで作り、テストを通してから dev にマージする |
-| `ios-next` | iPhone 周りの直しで、App Store に出しているものとずれないよう次の版まで dev に入れないもの |
+| `ios-next` | (2026-10-30 に dev に入れて終えた) iPhone 周りの直しも、ほかと同じく作業のブランチから dev に入れる。iPhone 版を出すかは下の版の番号の決まりで決める |
 | 作業のブランチ | `fix/…`・`feat/…`。worktree で作るときは `git add -A` を使わない (node_modules のリンクが入ったことがある) |
 | タグ `vX.Y.Z` | デスクトップ版のリリース (CI が Mac・Windows を作って GitHub Release に置く) |
 | タグ `ios-X.Y.Z-bN` | App Store に出した iOS のビルドのコミット (例: `ios-1.1.0-b14` = 3540e0b) |

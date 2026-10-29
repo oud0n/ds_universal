@@ -36,7 +36,7 @@ npm run build              # dist (アプリにも入る)
 - 試験の中で、デジスパイスに USB でつなぐボタン・本体の消去を押さない。
 - worktree では `git add -A` を使わない (node_modules のリンクが入る)。足すファイルを名前で指定する。
 - main へのマージ・push・タグ・App Store への提出・issue への返信は、持ち主が許してから。
-- iPhone 周りの直しは、App Store に出しているものとずれないよう、次の iOS の版まで `ios-next` に置く (docs/maintenance.md の 1)。
+- dev が本線。iPhone 周りの直しも dev に入れる (2026-10-30 に `ios-next` を dev に入れて終えた)。版の下の桁は PC と iPhone でずれてよく、PC だけの直しなら iPhone 版は出さない (docs/maintenance.md の 1)。
 - 文言は `t('日本語', 'English')` で両方書く。コメント・文書は短くわかりやすい日本語。
 - 変える前に、関係する試験 (vitest・必要なら e2e) を回す。見つけた不具合は BUGS.md に番号で足す。
 
