@@ -11,9 +11,7 @@ import {
   Circle,
   MapPin,
   Settings2,
-  Layers,
   Edit3,
-  FolderOpen,
   Globe,
   Repeat,
   X,
@@ -42,10 +40,6 @@ interface DataTabProps {
   onSetAlignLapLength: (value: boolean) => void;
   // 基準車のスロット (Car 1 が空のときは割り当てのある一番若いスロット)。基準車には距離補正を出さない
   baseSlot?: number;
-  // 登録済みのユーザーコースの数
-  userCircuitCount: number;
-  /** コースフォルダー一括設置で読み込んだコースデータを外す (読み込んだものがあるときだけ) */
-  onClearCircuitFolder?: () => void;
   onRemoveSession: (sessionId: string) => void;
   onOpenInConvert: (sessionId: string) => void;
   onEditSessionName: (sessionId: string, newName: string) => void;
@@ -63,9 +57,6 @@ interface DataTabProps {
   /** 当てはめなかったとき (確かめてやめたとき) は false */
   onSelectCircuitPreset: (presetId: string) => boolean;
   onOpenCircuitEditor: () => void;
-  onLoadPthFile: () => void;
-  onLoadClnFile: () => void;
-  onLoadCircuitFolder?: () => void;
   // 走行データのファイルを選ぶ (データがないときの案内をタップ・クリックしたとき)
   onOpenFile?: () => void;
   // G のならし方 (解析の設定)
@@ -229,8 +220,6 @@ export const DataTab: React.FC<DataTabProps> = ({
   alignLapLength,
   onSetAlignLapLength,
   baseSlot,
-  userCircuitCount,
-  onClearCircuitFolder,
   onRemoveSession,
   onOpenInConvert,
   onEditSessionName,
@@ -242,9 +231,6 @@ export const DataTab: React.FC<DataTabProps> = ({
   onEstimateClockOffset,
   onSelectCircuitPreset,
   onOpenCircuitEditor,
-  onLoadPthFile,
-  onLoadClnFile,
-  onLoadCircuitFolder,
   onOpenFile,
   gFilterLevel,
   onChangeGFilterLevel,
@@ -326,53 +312,6 @@ export const DataTab: React.FC<DataTabProps> = ({
               </optgroup>
             ))}
           </select>
-
-          {/* ユーザーコースフォルダ一括設置 */}
-          {onLoadCircuitFolder && (
-            <button
-              onClick={onLoadCircuitFolder}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700/80 hover:bg-emerald-600 text-xs text-white font-medium transition-colors shadow"
-              title={t('公式アプリや自前の Circuit/ControlLine フォルダを選択して一括登録', 'Select a Circuit/ControlLine folder (from the official app or your own) to install every course in it')}
-            >
-              <FolderOpen size={13} />
-              {t('コースフォルダ一括設置', 'Install course folder')}
-              {userCircuitCount > 0 && (
-                <span className="bg-emerald-900 text-emerald-200 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
-                  {userCircuitCount}
-                </span>
-              )}
-            </button>
-          )}
-          {/* 一括設置したコースデータを外す (内蔵のコースに戻す) */}
-          {onClearCircuitFolder && (
-            <button
-              onClick={onClearCircuitFolder}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-3 hover:bg-surface-4 border border-line-3 text-xs text-slate-300 font-medium transition-colors"
-              title={t('コースフォルダ一括設置で読み込んだコースデータを外して、内蔵のコースに戻す', 'Remove the course data installed from a folder and go back to the built-in courses')}
-              data-testid="clear-course-folder"
-            >
-              <X size={13} />
-              {t('一括設置を外す', 'Remove installed courses')}
-            </button>
-          )}
-
-          {/* コース図読込 */}
-          <button
-            onClick={onLoadPthFile}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
-          >
-            <Layers size={13} />
-            {t('コース図 (.pth)', 'Track map (.pth)')}
-          </button>
-
-          {/* コントロールライン読込 */}
-          <button
-            onClick={onLoadClnFile}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-4 hover:bg-surface-5 text-xs text-slate-300 border border-line-4 transition-colors"
-          >
-            <FileText size={13} />
-            {t('計測線 (.cln)', 'Timing line (.cln)')}
-          </button>
 
           {/* コース編集モーダルを開く */}
           <button
@@ -606,7 +545,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                 {session.controlLine
                   ? t('計測線を 2 回以上通過していないため、周回を区切れていません。計測線の位置が合っているか確認してください。', 'The timing line was not crossed twice or more, so laps could not be split. Check that the timing line is in the right place.')
                   : t('計測線が未設定のため、周回を区切れません。', 'No timing line is set, so laps cannot be split.')}
-                {t('「コースフォルダ一括設置」でコースデータを読み込むか、「コース編集」で計測線を設定してください。', ' Load course data with "Install course folder", or set a timing line in "Course editor".')}
+                {t('設定の「コースフォルダ一括設置」でコースデータを読み込むか、「コース編集」で計測線を設定してください。', ' Load course data with "Install course folder" in Settings, or set a timing line in "Course editor".')}
               </div>
             )}
 

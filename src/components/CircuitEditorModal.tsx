@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ControlLine, Sector } from '../types/telemetry';
-import { X, Plus, Trash2, Check, MapPin, Upload, Download } from 'lucide-react';
+import { X, Plus, Trash2, Check, MapPin, Upload, Download, Layers } from 'lucide-react';
 import { parseCln, exportCln } from '../services/pthParser';
 import { parseSci, exportSci, userCircuitStorage, UserCircuitItem } from '../services/userCircuitStorage';
 import { tr, useT, getLang } from '../utils/i18n';
@@ -21,6 +21,8 @@ interface CircuitEditorModalProps {
   onSavedCircuitsChange?: () => void;
   // ゴールの線 (スタートとゴールが別のコース)。無ければ計測線から計測線まで
   finishLine?: ControlLine;
+  /** コース図 (.pth) を読み込む (読み込んだログの近くのものに当てはめる。App.tsx の pthInputRef)。2026-10-29 に「走行とコース」から移した */
+  onLoadPthFile?: () => void;
   // remember: アプリに保存して、次から同じ場所のログに使う
   // extra: 英語名と、ラップタイマーの記録を入れるフォルダの名前 (半角の英字など。確かめてから渡す)、ゴールの線 (スタートとゴールが別のとき)
   onSaveCircuit: (name: string, controlLine: ControlLine, sectors: Sector[], remember: boolean, extra: { nameEn: string; folder: string; finishLine?: ControlLine }) => void;
@@ -63,6 +65,7 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
   sectors: initialSectors,
   onSavedCircuitsChange,
   finishLine,
+  onLoadPthFile,
   onSaveCircuit
 }) => {
   const t = useT();
@@ -412,6 +415,17 @@ export const CircuitEditorModal: React.FC<CircuitEditorModalProps> = ({
               <Download size={13} />
               {t('.cln / .sci に書き出す', 'Export .cln / .sci')}
             </button>
+            {onLoadPthFile && (
+              <button
+                onClick={onLoadPthFile}
+                className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-4 hover:bg-surface-5 text-slate-200 border border-line-4 text-[11px]"
+                title={t('コース図 (.pth) を読み込み、近くを走ったログの地図に描きます (計測線・セクターは変えません)', 'Loads a track map (.pth) and draws it on the map of logs run nearby (timing line and sectors are not changed)')}
+                data-testid="course-load-pth"
+              >
+                <Layers size={13} />
+                {t('コース図 (.pth) を読み込む', 'Load track map (.pth)')}
+              </button>
+            )}
             <input
               ref={fileInputRef}
               type="file"
