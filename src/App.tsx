@@ -2551,7 +2551,6 @@ export const App: React.FC = () => {
             alignLapLength={alignLapLength}
             onSetAlignLapLength={setAlignLapLength}
             baseSlot={baseSelected?.slot}
-            userCircuitCount={userCircuitCount}
             onOpenInConvert={id => {
               setConvertSessionId(id);
               navStore.go('convert');
@@ -2589,10 +2588,6 @@ export const App: React.FC = () => {
             onEstimateClockOffset={estimateSessionClockOffset}
             onSelectCircuitPreset={handleSelectCircuitPreset}
             onOpenCircuitEditor={() => setIsCircuitEditorOpen(true)}
-            onLoadPthFile={() => pthInputRef.current?.click()}
-            onLoadClnFile={() => clnInputRef.current?.click()}
-            onLoadCircuitFolder={() => folderInputRef.current?.click()}
-            onClearCircuitFolder={importedCourseFiles > 0 ? () => void clearCircuitFolder() : undefined}
             onOpenFile={() => fileInputRef.current?.click()}
             gFilterLevel={gFilterLevel}
             onChangeGFilterLevel={handleChangeGFilterLevel}
@@ -2658,7 +2653,15 @@ export const App: React.FC = () => {
             busy={runBusy}
           />
         )}
-        {currentTab === 'settings' && <SettingsScreen plan={plan} onOpenDonate={canDonate ? () => setIsDonateModalOpen(true) : undefined} />}
+        {currentTab === 'settings' && <SettingsScreen
+            plan={plan}
+            onOpenDonate={canDonate ? () => setIsDonateModalOpen(true) : undefined}
+            courseData={{
+              count: userCircuitCount,
+              onInstall: () => folderInputRef.current?.click(),
+              onClear: importedCourseFiles > 0 ? () => void clearCircuitFolder() : undefined
+            }}
+          />}
 
         {/* ラップタイマー。iPhone のアプリではタブの 1 つ (測っていない間はタブバーの上に収める)、ほかでは画面いっぱいに重ねる。
             ほかの画面へ行くと閉じる (Bluetooth・画面のロック止め・向きの固定も外れる。作る順番の 4 で、測るのを画面の外へ出す) */}
@@ -2718,6 +2721,7 @@ export const App: React.FC = () => {
         }
         sectors={currentSectors}
         finishLine={currentFinishLine}
+        onLoadPthFile={() => pthInputRef.current?.click()}
         onSavedCircuitsChange={() => setUserCircuitCount(userCircuitStorage.getCircuitCount())}
         onSaveCircuit={(name, cl, sec, remember, extra) => {
           // アプリに保存して、次から同じ場所のログに使う (閉じても消えない)

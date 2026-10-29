@@ -4,6 +4,12 @@
 
 [Back to the README](../README.en.md)
 
+## Next version (not released yet)
+
+**Changed**
+
+- **Course data import moved to Settings**: "Install course folder" and "Remove installed courses" moved from "Runs and course" in Analysis to "Course data" in Settings. Loading a track map (.pth) moved into the course editor. Timing lines (.cln) load from "Load .cln / .sci" in the course editor.
+
 ## v1.1.0
 
 **Added**
