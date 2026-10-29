@@ -9,9 +9,9 @@ ID の付け方: 不具合 `BUG-NN` (細かくは [BUGS.md](BUGS.md))、直す�
 
 | もの | 版 | 状態 |
 |---|---|---|
-| デスクトップ版 (Mac・Windows) | 1.1.0 | GitHub Release v1.1.0 (main bbe463a。2026-10-27 に 10-27 の直しを入れて出し直し) |
+| デスクトップ版 (Mac・Windows) | 1.1.0 | GitHub Release v1.1.0 (main 2c6000a。2026-10-27 に 10-27 の直しを入れて出し直し) |
 | ブラウザ版 | 1.1.0 | GitHub Pages (main の push で出る) |
-| iPhone / iPad のアプリ | 1.1.0 (14) | App Store で公開中 (2026-10-29 に審査を通って公開。https://apps.apple.com/jp/app/id6826272937。タグ ios-1.1.0-b14 = c3c1972) |
+| iPhone / iPad のアプリ | 1.1.0 (14) | App Store で公開中 (2026-10-29 に審査を通って公開。https://apps.apple.com/jp/app/id6826272937。タグ ios-1.1.0-b14 = 3540e0b) |
 | Android のアプリ | 0.2.x | 友人向けの試験版 (ストアには出していない) |
 
 1.1.0 のあとは、不具合の直しが中心になる見込み (持ち主、2026-10-27)。
