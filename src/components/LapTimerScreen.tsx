@@ -241,7 +241,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     : null;
   // 登録してあるのに、つながっていない (押すとつなぐ)
   const canReconnect = !needsRegister && ((source === 'digspice' && link.status === 'idle') || ((source === 'racebox' || source === 'drogger') && !!(source === 'racebox' ? lapDevices.racebox : lapDevices.drogger) && !lapDevices.statuses.some(x => x.device.kind === source)));
-  const sourceStatus = (() => {
+  // text は上の段に出す短い名前、detail は下の行に出す細かい所 (細い窓で、上の段の名前が切れていた)
+  const sourceStatus = ((): { ok: boolean; text: string; detail?: string } => {
     if (source === 'digspice') {
       const ok = link.status === 'fixing';
       return { ok, text: link.status === 'none' ? t('デジスパイスを登録してください (ロガー設定)', 'Register a DigSpice (Logger settings)') : statusLabel(link.status, link.rateHz) };
@@ -251,12 +252,15 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       const st = lapDevices.statuses.find(x => x.device.kind === source);
       if (!dev) return { ok: false, text: source === 'drogger' ? t('Drogger を登録してください (機器)', 'Register a Drogger (Devices)') : t('RaceBox を登録してください (機器)', 'Register a RaceBox (Devices)') };
       // つないでいなければ「未接続」(押すとつなぐ)
-      return { ok: !!st?.ok, text: st ? `${st.device.displayName}: ${st.state}${st.text ? ` · ${st.text}` : ''}` : `${dev.displayName}: ${t('未接続', 'Not connected')}` };
+      return st ? { ok: !!st.ok, text: `${st.device.displayName}: ${st.state}`, detail: st.text || undefined } : { ok: false, text: `${dev.displayName}: ${t('未接続', 'Not connected')}` };
     }
     if (source === 'phone') {
       if (phoneError) return { ok: false, text: phoneError };
       const acc = phoneInfo.accuracy;
-      return { ok: acc !== null && acc <= 30, text: acc === null ? (hasNative() ? t(`${phoneWord} の GPS: 測位待ち`, `${phoneWordEn === 'phone' ? 'Phone' : phoneWordEn} GPS: waiting`) : t('この端末の GPS: 測位待ち', 'Device GPS: waiting')) : t(`${hasNative() ? phoneWord : 'この端末'} の GPS ±${Math.round(acc)} m (1 Hz 前後・粗い)`, `Phone GPS ±${Math.round(acc)} m (~1 Hz, coarse)`) };
+      const name = hasNative() ? t(`${phoneWord} GPS`, `${phoneWordEn === 'phone' ? 'Phone' : phoneWordEn} GPS`) : t('この端末の GPS', 'Device GPS');
+      return acc === null
+        ? { ok: false, text: `${name}: ${t('測位待ち', 'waiting')}` }
+        : { ok: acc <= 30, text: name, detail: t(`±${Math.round(acc)} m・1 Hz 前後 (粗い)`, `±${Math.round(acc)} m · ~1 Hz (coarse)`) };
     }
     const log = replayLogs.find(l => l.id === replayId);
     return { ok: !!log, text: log ? t(`ログの再生 ×${replaySpeed}: ${log.name}`, `Replay ×${replaySpeed}: ${log.name}`) : t('再生するログがありません', 'No log to replay') };
@@ -346,9 +350,9 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           {source === 'digspice' || source === 'racebox' || source === 'drogger' ? <Bluetooth size={14} className="shrink-0" /> : source === 'phone' ? <Smartphone size={14} className="shrink-0" /> : <PlayCircle size={14} className="shrink-0" />}
           <span className="truncate">{sourceStatus.text}{canReconnect ? t(' (押すとつなぐ)', ' (tap to connect)') : ''}</span>
         </button>
-        <button onClick={() => setCoursePicker(true)} disabled={measuring} className="flex items-center gap-1 px-2 py-1 rounded-full border border-line-3 text-slate-200 whitespace-nowrap shrink-0 max-w-[40vw] disabled:opacity-60" data-testid="lap-timer-course">
+        <button onClick={() => setCoursePicker(true)} disabled={measuring} className="flex items-center gap-1 px-2 py-1 rounded-full border border-line-3 text-slate-200 whitespace-nowrap shrink-0 max-w-[40vw] disabled:opacity-60" data-testid="lap-timer-course" aria-label={course ? undefined : t('コース: 自動', 'Course: auto')} title={course ? undefined : t('コース: 自動', 'Course: auto')}>
           <MapPin size={14} className="shrink-0" />
-          <span className="truncate">{course ? circuitLabel(course.name) : t('コース: 自動', 'Course: auto')}</span>
+          <span className="truncate">{course ? circuitLabel(course.name) : t('自動', 'Auto')}</span>
         </button>
         {/* 右のボタンの並びは右に寄せる (余った幅は出どころの状態の表示に回す) */}
         {wakeLockOk === false && (
@@ -372,7 +376,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
 
       {/* 真ん中: 大きな数字 */}
       {/* カメラ・センサーの様子 (録画しているか、登録した機器があるときだけ) */}
-      {(snap.camera.recording || snap.camera.error || lapDevices.statuses.some(x => x.device.kind !== 'racebox' && x.device.kind !== 'drogger')) && (
+      {(snap.camera.recording || snap.camera.error || sourceStatus.detail || lapDevices.statuses.some(x => x.device.kind !== 'racebox' && x.device.kind !== 'drogger')) && (
         <div className="flex flex-wrap gap-1.5 px-3 pb-1 text-[11px]" data-testid="lap-timer-devices">
           {/* 内蔵カメラの録画中の印 (止まったときは理由)。上の段に置くと、細い窓で出どころの表示が切れていた */}
           {(snap.camera.recording || snap.camera.error) && (
@@ -383,6 +387,9 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
                 : snap.camera.error === 'permission' ? t('カメラの許可なし', 'No camera access')
                 : t('録画できません', 'Cannot record')}
             </span>
+          )}
+          {sourceStatus.detail && (
+            <span className={`px-2 py-0.5 ${sourceStatus.ok ? 'text-emerald-500' : 'text-amber-500'}`} data-testid="lap-timer-source-detail">{sourceStatus.detail}</span>
           )}
           {lapDevices.statuses.filter(x => x.device.kind !== 'racebox' && x.device.kind !== 'drogger').map(x => (
             <span key={x.device.id} className={`px-2 py-0.5 rounded-full border ${x.ok ? 'border-emerald-500/60 text-emerald-500' : 'border-amber-500/60 text-amber-500'}`}>
