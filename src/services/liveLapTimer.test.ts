@@ -114,6 +114,34 @@ describe('LiveLapTimer (円のコース)', () => {
     expect(laps[1].hadGap).toBe(true);
   });
 
+  it('過去の走行のベストを差の基準にし、この走行の方が速くなったらそちらに替える', () => {
+    // 過去のベスト: 22 m/s で回った周の跡 (距離と経過)
+    const C = 2 * Math.PI * R;
+    const pastTime = C / 22;
+    const trace: number[] = [];
+    for (let d = 0; d <= C; d += 10) trace.push(d, d / 22);
+    const timer = new LiveLapTimer({ controlLine, sectors });
+    timer.setPastReference({ timeSec: pastTime, trace, sectorsSec: [pastTime / 3, pastTime / 3, pastTime / 3], startMs: 1_600_000_000_000 });
+    // 20 m/s (遅い) で 2 周、25 m/s (速い) で 1 周
+    const events = run(timer, circleFixes([20, 20, 25, 20]));
+    const laps = events.filter(e => e.kind === 'lap');
+    // 1 周目から過去のベストと比べ、遅いので + でベストにはならない
+    expect(laps[0].kind === 'lap' && laps[0].diffToBestSec! > 0 && !laps[0].isBest).toBe(true);
+    let st = timer.getState();
+    // 25 m/s の周で、この走行の周が基準になる
+    expect(st.reference?.lapNumber).toBe(3);
+    expect(st.reference?.pastStartMs).toBeNull();
+    // セクターを跨いだ所の差 (ベストの周との差) が出て、周を終えると記録される
+    const sectorsEv = events.filter(e => e.kind === 'sector');
+    expect(sectorsEv.length).toBeGreaterThan(0);
+    expect(sectorsEv[0].kind === 'sector' && sectorsEv[0].deltaSec! > 0).toBe(true);
+    expect(st.laps[0].splitDeltas?.length).toBe(3);
+    // 過去の基準を外しても、この走行のベストの跡で差を出す
+    timer.setPastReference(null);
+    st = timer.getState();
+    expect(st.reference?.lapNumber).toBe(3);
+  });
+
   it('途切れた周は速くてもベストにせず、途切れたセクターだけセクターの基準から外す', () => {
     const timer = new LiveLapTimer({ controlLine, sectors });
     // 2 周目だけ速い (25 m/s)。その周の 2 つ目のセクターの中で 3 秒途切れる
