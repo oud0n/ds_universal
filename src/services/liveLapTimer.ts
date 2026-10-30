@@ -38,6 +38,8 @@ export interface LiveLap {
   hadGap: boolean;
   /** セクターごとの途切れ (sectorsSec と同じ並び)。途切れたセクターは、セクターのベストの基準にしない */
   sectorGaps?: boolean[];
+  /** セクター線・計測線を跨いだ所での、ベストの周との差 (セクターの数だけ。最後は周の差)。ベストが無かった所は null */
+  splitDeltas?: Array<number | null>;
 }
 
 export interface LiveLapEvent {
@@ -56,6 +58,33 @@ export interface LiveSectorEvent {
   timeSec: number;
   /** そのセクターのベストとの差 (秒)。ベストがまだないときは null */
   diffSec: number | null;
+  /** 跨いだ所での、ベストの周との差 (秒。同じ距離を走ったときとの差)。ベストがないときは null */
+  deltaSec: number | null;
+}
+
+/** 過去の走行のベストの周 (差の基準)。trace: 周の始まりからの距離 (m) と経過 (秒) の組 */
+export interface PastReference {
+  timeSec: number;
+  trace: number[];
+  sectorsSec: number[];
+  /** その周の始まり (UTC ミリ秒。何日の走行か出すため) */
+  startMs: number;
+}
+
+/** 差の基準にしている周 (過去の走行のベストか、この走行のベストの速い方) */
+export interface LapReference {
+  timeSec: number;
+  /** この走行の周なら何周目か (過去の走行なら null) */
+  lapNumber: number | null;
+  /** 過去の走行なら、その周の始まり (UTC ミリ秒) */
+  pastStartMs: number | null;
+}
+
+/** 今の周で終えたセクター */
+export interface LiveSector {
+  timeSec: number;
+  diffSec: number | null;
+  deltaSec: number | null;
 }
 
 export type LiveTimerEvent = LiveLapEvent | LiveSectorEvent;
@@ -68,11 +97,14 @@ export interface LiveLapState {
   /** 最後に使った測位 */
   lastFix: LiveFix | null;
   laps: LiveLap[];
+  /** この走行のベスト (途切れた周は入れない) */
   best: LiveLap | null;
+  /** 差の基準 (過去の走行のベストか、この走行のベストの速い方) */
+  reference: LapReference | null;
   /** ベストの周の、同じ距離を走ったときとの差 (秒。負なら速い)。ベストがないときは null */
   deltaSec: number | null;
   /** 今の周で終えたセクター */
-  currentSectors: Array<{ timeSec: number; diffSec: number | null }>;
+  currentSectors: LiveSector[];
   /** セクターの数 (計測線と重ならないセクター線の数 + 1。セクター線がなければ 0) */
   sectorCount: number;
   /** セクターの差の基準のタイム (セクターごとのベスト) */
@@ -130,14 +162,19 @@ export class LiveLapTimer {
   private nextSector = 0;
   private lastSplitMs = 0;
   private splitsSec: number[] = [];
-  private currentSectors: Array<{ timeSec: number; diffSec: number | null }> = [];
+  private currentSectors: LiveSector[] = [];
   /** 今の周の、走った距離 (m) と経過 (秒) の組 */
   private trace: number[] = [];
+  /** 差の基準の周の跡 (過去の走行のベストか、この走行のベスト) */
   private bestTrace: number[] | null = null;
+  /** この走行のベストの周の跡 */
+  private ownBestTrace: number[] | null = null;
   private laps: LiveLap[] = [];
   private best: LiveLap | null = null;
   /** セクターの差を出す基準 (セクターごとのベスト) */
   private refSectors: number[] = [];
+  /** 過去の走行のベスト (差の基準。この走行のベストが速くなるまで使う) */
+  private past: PastReference | null = null;
   private deltaSec: number | null = null;
 
   constructor(course: LiveCourse) {
@@ -182,8 +219,9 @@ export class LiveLapTimer {
       if (direction !== 0 && this.lapsDirection !== 0 && direction !== this.lapsDirection) {
         this.laps = [];
         this.best = null;
-        this.bestTrace = null;
-        this.refSectors = [];
+        this.ownBestTrace = null;
+        this.bestTrace = this.past?.trace ?? null;
+        this.refSectors = this.past ? [...this.past.sectorsSec] : [];
         this.lapsDirection = 0;
         this.lapNumber = null;
         this.deltaSec = null;
@@ -206,7 +244,7 @@ export class LiveLapTimer {
     if (!lapCrossed) {
       this.lapDistanceM += seg;
       if (this.lapStartMs !== null) {
-        const sectorEvent = this.checkSector(prev, fix, dt);
+        const sectorEvent = this.checkSector(prev, fix, dt, seg);
         if (sectorEvent) events.push(sectorEvent);
         const elapsed = (fix.tMs - this.lapStartMs) / 1000;
         this.trace.push(this.lapDistanceM, elapsed);
@@ -223,6 +261,7 @@ export class LiveLapTimer {
       lastFix: this.prev,
       laps: this.laps,
       best: this.best,
+      reference: this.reference(),
       deltaSec: this.deltaSec,
       currentSectors: this.currentSectors,
       sectorCount: this.sectorCount,
@@ -255,15 +294,16 @@ export class LiveLapTimer {
     const sectorGaps = complete ? [...this.splitGaps, this.sectorHadGap] : undefined;
     const lap: LiveLap = { number: this.lapNumber!, timeSec, sectorsSec, hadGap: this.lapHadGap, ...(sectorGaps ? { sectorGaps } : {}) };
     this.trace.push(this.lapDistanceM, timeSec);
-    const prevBest = this.best;
+    const prevRef = this.reference();
+    if (this.sectorGates.length > 0) {
+      lap.splitDeltas = [...this.currentSectors.map(c => c.deltaSec), prevRef ? timeSec - prevRef.timeSec : null];
+    }
     // 測位が途切れた周は、計測線の通過の時刻があやしいので、速くてもベスト (デルタの基準) にしない
-    const isBest = !lap.hadGap && (!prevBest || timeSec < prevBest.timeSec);
+    const isBest = !lap.hadGap && (!prevRef || timeSec < prevRef.timeSec);
     this.laps = [...this.laps, lap];
     this.lapsDirection = this.lapDirection;
-    if (isBest) {
-      this.best = lap;
-      this.bestTrace = this.trace;
-    }
+    if (!lap.hadGap && (!this.best || timeSec < this.best.timeSec)) { this.best = lap; this.ownBestTrace = this.trace; }
+    if (isBest) this.bestTrace = this.trace;
     // セクターの差の基準は、セクターごとのベスト (どの周のものでもよい)。ベストの周でセクター線を取りこぼしても基準が残る
     // 途切れたセクターは基準にしない (ほかのセクターは使う)
     if (lap.sectorsSec.length > 0) {
@@ -273,14 +313,40 @@ export class LiveLapTimer {
         return old !== undefined && old < t ? old : t;
       });
     }
-    return { kind: 'lap', lap, diffToBestSec: prevBest ? timeSec - prevBest.timeSec : null, isBest };
+    return { kind: 'lap', lap, diffToBestSec: prevRef ? timeSec - prevRef.timeSec : null, isBest };
+  }
+
+  /**
+   * 過去の走行のベストを差の基準にする (null で外す)。この走行のベストの方が速ければ、そちらのまま。
+   * セクターの基準も、過去の周のセクターと合わせて速い方にする
+   */
+  setPastReference(ref: PastReference | null): void {
+    this.past = ref && ref.trace.length >= 4 && ref.timeSec > 0 ? ref : null;
+    const own = this.best;
+    this.bestTrace = own && (!this.past || own.timeSec <= this.past.timeSec) ? this.ownBestTrace : this.past?.trace ?? null;
+    if (this.past) {
+      const ps = this.past.sectorsSec;
+      const n = Math.max(ps.length, this.refSectors.length);
+      this.refSectors = Array.from({ length: n }, (_, i) => {
+        const a = this.refSectors[i], b = ps[i];
+        return a === undefined ? b : b === undefined ? a : Math.min(a, b);
+      });
+    }
+    if (this.lapStartMs !== null && this.deltaSec === null && this.bestTrace) this.deltaSec = 0;
+  }
+
+  /** 差の基準 (過去の走行のベストか、この走行のベストの速い方) */
+  private reference(): LapReference | null {
+    const own = this.best, past = this.past;
+    if (own && (!past || own.timeSec <= past.timeSec)) return { timeSec: own.timeSec, lapNumber: own.number, pastStartMs: null };
+    return past ? { timeSec: past.timeSec, lapNumber: null, pastStartMs: past.startMs } : null;
   }
 
   /**
    * 次のセクター線から順に見て、横切った線のセクターを終える。
    * 線を取りこぼしても (測位の途切れ・線の外を通ったとき)、その先の線で続ける (取りこぼした所のタイムは NaN)
    */
-  private checkSector(prev: LiveFix, fix: LiveFix, dt: number): LiveSectorEvent | null {
+  private checkSector(prev: LiveFix, fix: LiveFix, dt: number, seg: number): LiveSectorEvent | null {
     for (let j = this.nextSector; j < this.sectorGates.length; j++) {
       const c = crossGate(prev, fix, this.sectorGates[j]);
       if (!c) continue;
@@ -290,20 +356,22 @@ export class LiveLapTimer {
       for (let k = this.nextSector; k < j; k++) {
         this.splitsSec.push(NaN);
         this.splitGaps.push(true);
-        this.currentSectors = [...this.currentSectors, { timeSec: NaN, diffSec: null }];
+        this.currentSectors = [...this.currentSectors, { timeSec: NaN, diffSec: null, deltaSec: null }];
       }
       const split = (tMs - this.lapStartMs!) / 1000;
       const prevSplit = j > 0 ? this.splitsSec[j - 1] : 0;
       const timeSec = split - prevSplit;
       const bestSector = this.refSectors[j];
       const diffSec = bestSector !== undefined && Number.isFinite(timeSec) ? timeSec - bestSector : null;
+      // 跨いだ所の距離は、この測位までに足した分から、線の先の分を引いたもの
+      const deltaSec = this.deltaAt(this.lapDistanceM - seg * (1 - c.t), split);
       this.splitsSec.push(split);
       this.splitGaps.push(this.sectorHadGap);
       this.sectorHadGap = false;
-      this.currentSectors = [...this.currentSectors, { timeSec, diffSec }];
+      this.currentSectors = [...this.currentSectors, { timeSec, diffSec, deltaSec }];
       this.nextSector = j + 1;
       this.lastSplitMs = tMs;
-      return { kind: 'sector', index: j, timeSec, diffSec };
+      return { kind: 'sector', index: j, timeSec, diffSec, deltaSec };
     }
     return null;
   }

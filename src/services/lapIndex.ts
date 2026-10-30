@@ -140,30 +140,45 @@ export function courseHash(course: Pick<LapCourse, 'controlLine' | 'sectors'>): 
   return fnv(0x811c9dc5) + fnv(0x2f6b5a1d);
 }
 
-/** .bon4 から周を数える (計測線で区切れた周だけ。ログ全体や途中で終わった周は入れない) */
-export function lapsFromBon4(name: string, bytes: Uint8Array, course: LapCourse): { startMs: number | null; laps: LapRecord[] } {
+/** 走行のファイルの点を、記録の空き (SESSION_GAP_SEC 以上) で分けた走行ごとに (.bon4 と .nmea で分け方・番号 part をそろえる) */
+function partsFromFile(name: string, bytes: Uint8Array): TelemetryPoint[][] {
+  if (/\.nmea$/i.test(name)) {
+    const { points } = parseNmea(new TextDecoder().decode(bytes), name);
+    const parts: TelemetryPoint[][] = [];
+    for (const p of points) {
+      const cur = parts[parts.length - 1];
+      if (cur && p.time - cur[cur.length - 1].time < SESSION_GAP_SEC) cur.push(p);
+      else parts.push([p]);
+    }
+    return keepRunParts(parts, p => p.time);
+  }
   const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  return lapsFromParts(parseDigispiceRawBinary(name, buffer).map(p => p.points as TelemetryPoint[]), course);
+  return parseDigispiceRawBinary(name, buffer).map(p => p.points as TelemetryPoint[]);
 }
 
-/**
- * .nmea から周を数える。.bon4 と同じく、記録の空き (SESSION_GAP_SEC 以上) で走行を分ける (分けた番号 part を .bon4 とそろえ、
- * 隠した周の印を引き継げるように)
- */
+/** .bon4 から周を数える (計測線で区切れた周だけ。ログ全体や途中で終わった周は入れない) */
+export function lapsFromBon4(name: string, bytes: Uint8Array, course: LapCourse): { startMs: number | null; laps: LapRecord[] } {
+  return lapsFromParts(partsFromFile(name, bytes), course);
+}
+
+/** .nmea から周を数える。.bon4 と同じく、記録の空きで走行を分ける (隠した周の印を引き継げるように) */
 export function lapsFromNmea(name: string, bytes: Uint8Array, course: LapCourse): { startMs: number | null; laps: LapRecord[] } {
-  const { points } = parseNmea(new TextDecoder().decode(bytes), name);
-  const parts: TelemetryPoint[][] = [];
-  for (const p of points) {
-    const cur = parts[parts.length - 1];
-    if (cur && p.time - cur[cur.length - 1].time < SESSION_GAP_SEC) cur.push(p);
-    else parts.push([p]);
-  }
-  return lapsFromParts(keepRunParts(parts, p => p.time), course);
+  return lapsFromParts(partsFromFile(name, bytes), course);
 }
 
 /** 走行のファイルから周を数える (.nmea か .bon4) */
 export function lapsFromFile(name: string, bytes: Uint8Array, course: LapCourse): { startMs: number | null; laps: LapRecord[] } {
-  return /\.nmea$/i.test(name) ? lapsFromNmea(name, bytes, course) : lapsFromBon4(name, bytes, course);
+  return lapsFromParts(partsFromFile(name, bytes), course);
+}
+
+/**
+ * 走行のファイルの、決まった周 (part・n は laptimes.json と同じ数え方) の点。ラップタイマーの差の基準にする。見つからなければ null
+ */
+export function lapPointsFromFile(name: string, bytes: Uint8Array, course: LapCourse, part: number | undefined, n: number): TelemetryPoint[] | null {
+  const points = partsFromFile(name, bytes)[(part ?? 1) - 1];
+  if (!points) return null;
+  const laps = extractLaps(points, course.controlLine, course.sectors).laps.filter(l => !l.isWholeSession && !l.isPartialLap);
+  return laps[n - 1]?.points ?? null;
 }
 
 /** 走行の名前 (日付のフォルダ・拡張子を除く)。同じ名前の .nmea と .bon4 は同じ走行 */
