@@ -22,7 +22,8 @@ The PC version and the iPhone / iPad app get different items ([iPhone] = the app
 **Fixed**
 
 - [iPhone] Buttons that open outside pages (such as "Open in browser" in the help) did nothing.
-- [iPhone] Built-in camera: resetting laps or switching the position source while the camera was starting left the new run without video. After a heat stop it waits until the phone cools down.
+- [iPhone] Built-in camera: resetting laps or switching the position source while the camera was starting left the new run without video. After a heat stop it waits until the phone cools down. After a heat stop, "Rec stopped (heat)" now stays until recording restarts (it disappeared when the phone cooled down, while nothing was recording). When another app takes the camera, it shows "Rec paused" and continues recording when the camera comes back.
+- [iPhone] In a narrow iPad window, the GPS label in the top bar was cut off (the lap timer now shows accuracy on a second line and the camera badge below the bar; other screens show Open and GPS as icons).
 - [iPhone] Lap timer list: "Recording" could show on two or more runs after quick start/stop. The message after denying location now says to allow it and reopen the app.
 - After removing the main video, the run list kept showing "Synced" for a while.
 - An unreadable air or track temperature is now reported (the previous value is kept).
