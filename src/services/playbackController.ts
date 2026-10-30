@@ -32,9 +32,14 @@ const CORRECT_STOP_SEC = 0.015;
 const RATE_CHANGE_INTERVAL_MS = 500;
 const MIN_RATE = 0.25;
 const MAX_RATE = 4;
-/** これより大きくずれたら飛ぶ。倍率のある枠 (走行比較) は、速さの変わり目で外れやすいので小さめにする */
+/**
+ * これより大きくずれたら飛ぶ。倍率のある枠 (走行比較の Car 2〜4) も、飛ぶのは大きくずれたときだけにする
+ * (iPhone の GoPro の動画は、飛ぶと 0.4 秒ほど止まる。再生を始めた直後の出遅れ 0.3〜0.5 秒でも飛んでいて、ガクガクして見えた。2026-10-30)
+ */
 const JUMP_SEC = 0.5;
-const JUMP_SEC_RATED = 0.25;
+const JUMP_SEC_RATED = 0.6;
+/** 倍率のある枠のずれを、速さで詰めるときの上限 (±)。飛ばない分、大きめに詰める */
+const MAX_CORRECTION_RATED = 0.2;
 // 速さを変えずにおく音のある動画 (Safari) は、これより遅れたら飛ぶ (再生を始めた直後の出遅れ 0.2〜0.5 秒を残さないため)
 const JUMP_SEC_AUDIBLE_FIXED = 0.2;
 // 音を出している動画のずれを詰め始める大きさ (音を消した動画より大きくして、速さを変える回数を減らす)
@@ -367,7 +372,8 @@ export class PlaybackController {
       if (isMaster || (audible && !this.adjustAudibleRate)) entry.correcting = false;
       else if (Math.abs(diff) > (audible ? CORRECT_START_SEC_AUDIBLE : CORRECT_START_SEC)) entry.correcting = true;
       else if (Math.abs(diff) < CORRECT_STOP_SEC) entry.correcting = false;
-      const correction = entry.correcting ? Math.max(-0.1, Math.min(0.1, diff * 0.5)) : 0;
+      const maxCorr = rated ? MAX_CORRECTION_RATED : 0.1;
+      const correction = entry.correcting ? Math.max(-maxCorr, Math.min(maxCorr, diff * 0.5)) : 0;
       const rate = Math.max(MIN_RATE * speed, Math.min(MAX_RATE * speed, base * (1 + correction)));
       // 速さを小刻みに変えない (2% より小さい変化と、前に変えてから 0.5 秒たたないうちの変化はしない)。
       // ただし詰め終えたら元の速さへすぐ戻す (倍率のある枠は、詰め終えた直後だけ。元の速さの揺れには付いていかない)
