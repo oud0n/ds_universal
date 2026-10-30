@@ -179,6 +179,32 @@ final class SystemModule {
                 let r = await RunFiles.background { RunFiles.delete(paths) }
                 done(.success(["deleted": r.deleted, "failed": r.failed.map { ["path": $0.0, "error": $0.1] }, "permanent": r.permanent]))
             }
+        // アプリのゴミ箱 (RunTrash。2026-10-28)
+        case "system.trashRunFiles":
+            guard let paths = params["paths"] as? [String], let id = params["id"] as? String, let manifest = params["manifest"] as? String else {
+                return done(.failure(NativeError(.notFound, "bad params")))
+            }
+            Task {
+                let r = await RunFiles.background { RunTrash.trash(paths, id: id, manifestText: manifest) }
+                done(.success(["moved": r.moved, "failed": r.failed.map { ["path": $0.0, "error": $0.1] }]))
+            }
+        case "system.listTrash":
+            Task {
+                let items = await RunFiles.background { RunTrash.list() }
+                done(.success(["items": items.map(\.dict)]))
+            }
+        case "system.restoreTrash":
+            guard let id = params["id"] as? String else { return done(.failure(NativeError(.notFound, "no id"))) }
+            Task {
+                let r = await RunFiles.background { RunTrash.restore(id: id) }
+                done(.success(["restored": r.restored, "failed": r.failed.map { ["path": $0.0, "error": $0.1] }]))
+            }
+        case "system.purgeTrash":
+            let ids = params["ids"] as? [String] ?? []
+            Task {
+                let r = await RunFiles.background { RunTrash.purge(ids: ids) }
+                done(.success(["purged": r.purged, "failed": r.failed.map { ["path": $0.0, "error": $0.1] }]))
+            }
         case "system.readRunRange":
             guard let rel = params["path"] as? String, let offset = params["offset"] as? Double, let length = params["length"] as? Int, offset >= 0 else {
                 return done(.failure(NativeError(.notFound, "bad params")))

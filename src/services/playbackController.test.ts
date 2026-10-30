@@ -3,7 +3,7 @@ import { PlaybackController, type PlaybackTarget } from './playbackController';
 
 /**
  * <video> の代わりに、ブラウザごとの動き方を時刻で再現する偽物。
- * 数字は、Chrome・Safari で測った値 (2026-10-20、_private のメモ) に合わせてある:
+ * 数字は、Chrome・Safari で測った値 (2026-10-20、リポジトリの外の private のメモ) に合わせてある:
  * - 再生を始めてから動き出すまで (startLagMs): Chrome 0.23 秒、Safari の音のある動画 0.46 秒
  * - 移動 (currentTime を変える) してから seeked まで (seekedAfterMs) と、動き出すまで (resumeAfterMs):
  *   Safari の音のある動画は seeked が 0.15〜0.4 秒、動き出すのは 0.5〜0.7 秒。音を消すと 0.04 秒・0.07 秒

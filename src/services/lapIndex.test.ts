@@ -127,7 +127,7 @@ describe('フォルダ分け', () => {
   });
 });
 
-const SODE = '../ds_universal/_private/samples/wd/sode0919.bon4';
+const SODE = '../private/samples/wd/sode0919.bon4';
 describe.skipIf(!existsSync(SODE))('実際のログ (袖ヶ浦)', () => {
   it('.bon4 から周を数える', () => {
     const preset = CIRCUIT_PRESETS.find(p => p.id === 'sodegaura')!;

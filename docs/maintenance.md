@@ -8,12 +8,15 @@
 |---|---|
 | `main` | 出したもの。デスクトップ版のリリースのタグはここに付ける。push すると GitHub Pages (ブラウザ版) が出し直される |
 | `dev` | 次に出すものをまとめる所。直しは別のブランチで作り、テストを通してから dev にマージする |
-| `ios-next` | iPhone 周りの直しで、App Store に出しているものとずれないよう次の版まで dev に入れないもの |
+| `ios-next` | (2026-10-30 に dev に入れて終えた) iPhone 周りの直しも、ほかと同じく作業のブランチから dev に入れる。iPhone 版を出すかは下の版の番号の決まりで決める |
 | 作業のブランチ | `fix/…`・`feat/…`。worktree で作るときは `git add -A` を使わない (node_modules のリンクが入ったことがある) |
 | タグ `vX.Y.Z` | デスクトップ版のリリース (CI が Mac・Windows を作って GitHub Release に置く) |
-| タグ `ios-X.Y.Z-bN` | App Store に出した iOS のビルドのコミット (例: `ios-1.1.0-b14` = c3c1972) |
+| タグ `ios-X.Y.Z-bN` | App Store に出した iOS のビルドのコミット (例: `ios-1.1.0-b14` = 3540e0b) |
 
-- iPhone のアプリと PC 版の番号はそろえる (1.1.0 など)。
+- 版の番号: X.Y (1.1 など) は、iPhone のアプリと PC 版でそろえる。いちばん下の桁 (1.1.**x**) は、そろえるのを基本にするが、ずれてもよい (2026-10-30 から)。
+  - PC 版だけの直しなら、PC 版だけ上げて出す (例: PC 1.1.2・iPhone 1.1.1 のまま)。iPhone 版は、iPhone に効く直しがあるときだけ出す。
+  - iPhone 版を出すときは、その時の PC 版の番号に合わせる (PC が 1.1.2 なら iPhone も 1.1.2。間の 1.1.1 は飛ばしてよい)。
+  - リリースノートには、どの版に何が入ったかを、PC・iPhone の区別が分かるように書く。
 - dev → main のマージ・push・タグは、持ち主の許しを得てから。
 
 ## 2. 毎回の確かめ
@@ -67,12 +70,12 @@ E2E_APP=http://localhost:5184/ node e2e/run.mjs --electron 9334 --chrome 9224 [-
 
 - `mobile/ios/project.yml` の `MARKETING_VERSION` (1.1.0 など) と `CURRENT_PROJECT_VERSION` (送るたびに 1 つ上げる)。
 - `npm run build` → `cd mobile/ios && xcodegen` → archive → exportArchive (destination=upload)。
-- 署名とアップロードは、App Store Connect の API キー (役割 Admin) で行う。キーと ID は `_private/api_key/` (値はそこの README.md。git に入れない)。役割 Developer のキーは PC 版の公証用なので消さない。
+- 署名とアップロードは、App Store Connect の API キー (役割 Admin) で行う。キーと ID は `../private/api_key/` (値はそこの README.md。git に入れない)。役割 Developer のキーは PC 版の公証用なので消さない。
 - 提出したビルドのコミットにはタグ `ios-X.Y.Z-bN` を付ける。
 
 ### 6.2 App Store への提出
 
-- スクリーンショットは iPhone 6.1 インチ・iPhone Duo (外 1398×2034・内 2853×2007)・iPad 13 インチ (2752×2064 か 2064×2752) が要る。iPad は 1.1.0 から要る。元の画像は `_private/app_store_screenshots/`。
+- スクリーンショットは iPhone 6.1 インチ・iPhone Duo (外 1398×2034・内 2853×2007)・iPad 13 インチ (2752×2064 か 2064×2752) が要る。iPad は 1.1.0 から要る。元の画像は `../private/app_store_screenshots/`。
   - シミュレーターで撮る: `xcrun simctl status_bar <端末> override --time 9:41 --batteryState charged --batteryLevel 100`、暗い表示は `xcrun simctl ui <端末> appearance dark`。
   - 走行のデータは、データの入ったシミュレーターのアプリの `Documents/` と `Library/WebKit/` を写すと早い。
   - 車載動画が映る画面は、ミラーに映る顔などにモザイクをかける。筑波の映像は使わない。
@@ -91,7 +94,7 @@ E2E_APP=http://localhost:5184/ node e2e/run.mjs --electron 9334 --chrome 9224 [-
 
 `mobile/android/`。Bluetooth Classic の GPS (Drogger DG-PRO1S)・BLE・内蔵カメラ (CameraX)・選んだフォルダ (SAF)。配布はストアに出さず APK を渡している。実機の確認は友人の端末頼み。
 
-## 8. 秘密と持ち主だけの資料 (`_private/`、git に入れない)
+## 8. 秘密と持ち主だけの資料 (`../private/`、git に入れない)
 
 - `api_key/`: App Store Connect の API キー (README.md に ID と使い分け)。
 - `analytics.md`: アクセス数の見方 (GoatCounter のトークン付きの URL など。公開の場所に貼らない)。

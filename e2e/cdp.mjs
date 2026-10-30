@@ -20,6 +20,11 @@ export class Page {
       const m = JSON.parse(e.data);
       if (m.id && this.pending.has(m.id)) { this.pending.get(m.id)(m); this.pending.delete(m.id); }
       if (m.method === 'Runtime.exceptionThrown') this.errors.push((m.params.exceptionDetails.exception?.description ?? m.params.exceptionDetails.text ?? '').slice(0, 300));
+      // 確かめの窓 (confirm など) は OK で閉じる (開いたままだと、ページが止まって試験が進まなかった)
+      if (m.method === 'Page.javascriptDialogOpening') {
+        this.notes.push(`窓: ${m.params.message.slice(0, 80)}`);
+        ws.send(JSON.stringify({ id: ++this.id, method: 'Page.handleJavaScriptDialog', params: { accept: true } }));
+      }
       if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') this.errors.push(m.params.args.map(a => a.value ?? a.description).join(' ').slice(0, 300));
     });
   }

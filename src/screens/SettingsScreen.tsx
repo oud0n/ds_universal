@@ -11,6 +11,7 @@ import { navStore } from '../app/navStore';
 import { SCREEN_META, screenLabel } from '../app/screenMeta';
 import { StorageSettings } from '../components/StorageSettings';
 import { CsvFormatSettings } from '../components/CsvFormatSettings';
+import { CourseDataSettings } from '../components/CourseDataSettings';
 import { getWriteBon4, setWriteBon4 } from '../services/runFormatSettings';
 import { hasNative } from '../native/bridge';
 
@@ -18,7 +19,12 @@ import { hasNative } from '../native/bridge';
  * 設定 (⚙)。2026-10-21 (PLAN-24 の 2)。今は、タブに並ばない画面 (データ管理・変換・ロガーなど) への入口と、テーマ・言語・開発支援。
  * 作る順番の 3 で、保管場所・機器の登録・単位などをここに足す
  */
-export const SettingsScreen: React.FC<{ plan: NavPlan; onOpenDonate?: () => void }> = ({ plan, onOpenDonate }) => {
+export const SettingsScreen: React.FC<{
+  plan: NavPlan;
+  onOpenDonate?: () => void;
+  /** コースのデータ (一括設置)。無ければ出さない */
+  courseData?: React.ComponentProps<typeof CourseDataSettings>;
+}> = ({ plan, onOpenDonate, courseData }) => {
   const t = useT();
   const theme = useThemeSetting();
   const lang = useLangSetting();
@@ -30,6 +36,7 @@ export const SettingsScreen: React.FC<{ plan: NavPlan; onOpenDonate?: () => void
       <div className="max-w-lg mx-auto p-3 space-y-5">
         <StorageSettings />
         {hasNative() && <RunFormatSetting />}
+        {courseData && <CourseDataSettings {...courseData} />}
         <CsvFormatSettings />
         {rows.length > 0 && (
           <section className="rounded-xl bg-surface-1 border border-line-2 overflow-hidden">

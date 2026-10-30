@@ -57,7 +57,7 @@ cd mobile/ios
 # CURRENT_PROJECT_VERSION (ビルド番号) は、送るたびに project.yml で上げる (同じ番号は送れない)
 xcodegen
 # 署名とアップロードは、App Store Connect の API キー (役割 Admin) で行う。Xcode の Apple ID が外れていても通る。
-# キーのファイル・キー ID・Issuer ID は git に入れない (リポジトリ直下の _private/api_key/。値はそこの README.md)
+# キーのファイル・キー ID・Issuer ID は git に入れない (リポジトリの外の ../private/api_key/。値はそこの README.md)
 KEY=(-authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
 xcodebuild -project DSUniversal.xcodeproj -scheme DSUniversal -configuration Release \
   -destination 'generic/platform=iOS' -archivePath /tmp/LapLoupe.xcarchive \

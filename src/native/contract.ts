@@ -58,8 +58,8 @@ export interface Capabilities {
   /** iap: アプリ内課金 (投げ銭) が使える (2026-10-24 に足した。前の版のアプリには無いので、無いときは使えないとみなす) */
   /** camera: 内蔵カメラで録画できる (2026-10-25 に足した。前の版のアプリには無い) */
   /** spp: Bluetooth Classic のシリアル (Android だけ。Drogger DG-PRO1S など。2026-10-25) */
-  /** deleteFiles: 走行のファイルを消せる (system.deleteRunFiles。2026-10-25) */
-  features: { ble: boolean; iap?: boolean; camera?: boolean; spp?: boolean; deleteFiles?: boolean };
+  /** deleteFiles: 走行のファイルを消せる (system.deleteRunFiles。2026-10-25)。trashFiles: アプリのゴミ箱へ移せる (system.trashRunFiles など。2026-10-28) */
+  features: { ble: boolean; iap?: boolean; camera?: boolean; spp?: boolean; deleteFiles?: boolean; trashFiles?: boolean };
 }
 
 /** 内蔵カメラの画質 */
@@ -258,6 +258,17 @@ export interface NativeMethods {
    * 選んだフォルダのときは、まだ移していないアプリの中の写しも消す
    */
   'system.deleteRunFiles': { params: { paths: string[] }; result: { deleted: string[]; failed: Array<{ path: string; error: string }> } };
+  /**
+   * アプリのゴミ箱 (2026-10-28)。走行のファイルを置き場の .trash/<id>/ へ元の道のまま移し、manifest を trash.json に書く。
+   * 「ファイル」の最近削除した項目は、アプリが消したものを戻せないため。戻す・本当に消すのも頼める
+   */
+  'system.trashRunFiles': { params: { paths: string[]; id: string; manifest: string }; result: { moved: string[]; failed: Array<{ path: string; error: string }> } };
+  /** ゴミ箱の中の走行。manifest は trash.json の中身 (読めなければ無い)、files は .trash/<id>/ の下の道 */
+  'system.listTrash': { params: Record<string, never>; result: { items: Array<{ id: string; manifest?: string; files: Array<{ path: string; size: number }>; mtimeMs: number }> } };
+  /** 元の場所へ戻す (同じ名前があるものは戻さず failed に入れる) */
+  'system.restoreTrash': { params: { id: string }; result: { restored: string[]; failed: Array<{ path: string; error: string }> } };
+  /** 本当に消す */
+  'system.purgeTrash': { params: { ids: string[] }; result: { purged: string[]; failed: Array<{ path: string; error: string }> } };
   'system.readRunRange': { params: { path: string; offset: number; length: number }; result: { b64: string } };
   /** ファイルが端末にあるか・iCloud から取り込み中か */
   'system.runFileStatus': { params: { path: string }; result: { local: boolean; downloading: boolean } };

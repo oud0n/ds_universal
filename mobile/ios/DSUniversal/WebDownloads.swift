@@ -45,6 +45,16 @@ final class WebDownloads: NSObject, WKNavigationDelegate, WKDownloadDelegate, WK
         decisionHandler(.allow, preferences)
     }
 
+    /// 新しい窓を開く頼み (window.open・target="_blank" のリンク)。アプリの中には窓を作らず、http(s)・mailto は Safari などで開く
+    /// (これが無いと、使い方の「ブラウザで開く」などのボタンが反応しなかった。BUG-38 の 3)
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction,
+                 windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if let url = navigationAction.request.url, ["http", "https", "mailto"].contains(url.scheme ?? "") {
+            UIApplication.shared.open(url)
+        }
+        return nil
+    }
+
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
                  decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void) {
         // 画面に出せない形 (動画のファイル・zip など) は、ダウンロードとして受け取る

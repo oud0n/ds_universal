@@ -171,6 +171,11 @@ enum RunFiles {
                 }
                 let values = try? file.resourceValues(forKeys: Set(keys))
                 if name.hasPrefix(".") {
+                    // 隠しフォルダ (アプリのゴミ箱 .trash・.Trash・.stversions など) の中は見ない (デスクトップ版と同じ。BUG-38 の 7)
+                    if values?.isRegularFile != true && !name.hasSuffix(".icloud") {
+                        e.skipDescendants()
+                        continue
+                    }
                     // iCloud の置き場所だけのファイル (.名前.icloud)。それ以外の隠しファイルは出さない
                     guard name.hasSuffix(".icloud"), name.count > 8 else { continue }
                     let real = String(name.dropFirst().dropLast(7))
@@ -496,5 +501,190 @@ final class LapFileSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked Senda
             send(task) { $0.didFailWithError(error) }
             lock.lock(); running.remove(ObjectIdentifier(task.task)); lock.unlock()
         }
+    }
+}
+
+/// アプリのゴミ箱 (2026-10-28)。走行を消すとき、置き場の .trash/<印>/ へ元の道のまま移す。
+/// 「ファイル」の最近削除した項目へ移すと、アプリが消したものは「復旧」を選べず戻せなかったため。
+/// 走行の記録 (runs.json の行) は Web が trash.json に書いて添える。戻すのも、30 日で本当に消すのも Web が頼む
+enum RunTrash {
+    static let folder = ".trash"
+    static let manifest = "trash.json"
+
+    /// 印 (英数字・- ・_ だけ。道に使うので、ほかの文字は断る)
+    static func isValidId(_ id: String) -> Bool {
+        !id.isEmpty && id.count <= 64 && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
+    }
+
+    /// iCloud にだけあるもの (.名前.icloud) も含めて、そこにあるか
+    private static func existing(_ url: URL) -> Bool {
+        let fm = FileManager.default
+        let placeholder = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).icloud")
+        return fm.fileExists(atPath: url.path) || fm.fileExists(atPath: placeholder.path)
+    }
+
+    /// ほかのアプリ (iCloud など) と取り合わないよう、ファイルの手続きを通して動かす。移す先のフォルダは作る
+    private static func move(_ from: URL, to: URL) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
+        var coordError: NSError?
+        var moveError: Error?
+        NSFileCoordinator().coordinate(writingItemAt: from, options: .forMoving, writingItemAt: to, options: .forReplacing, error: &coordError) { a, b in
+            do { try fm.moveItem(at: a, to: b) } catch { moveError = error }
+        }
+        if let e = moveError ?? coordError { throw e }
+    }
+
+    /// 走行のファイルをゴミ箱へ移し、trash.json を書く。選んだフォルダのときは、まだ移していないアプリの中の写しも片付ける
+    /// (選んだフォルダで移せたら写しは消す。フォルダに無く写ししか無いときは、写しをフォルダのゴミ箱へ移す)
+    static func trash(_ paths: [String], id: String, manifestText: String) -> (moved: [String], failed: [(String, String)]) {
+        var moved: [String] = []
+        var failed: [(String, String)] = []
+        guard isValidId(id) else { return ([], paths.map { ($0, "bad id") }) }
+        let fm = FileManager.default
+        RunFiles.withRoot { root in
+            let (_, scoped) = RunFiles.root()
+            let box = root.appendingPathComponent(folder, isDirectory: true).appendingPathComponent(id, isDirectory: true)
+            for rel in paths {
+                guard RunFiles.isDeletableRunFile(rel), let url = RunFiles.resolve(rel, in: root) else { failed.append((rel, "not deletable")); continue }
+                let dest = box.appendingPathComponent(rel)
+                let local = scoped ? RunFiles.resolve(rel, in: RunFiles.lapTimerRoot) : nil
+                let hasLocal = local.map { fm.fileExists(atPath: $0.path) } ?? false
+                do {
+                    if existing(url) {
+                        try move(url, to: dest)
+                        if hasLocal, let local { try fm.removeItem(at: local) }
+                    } else if hasLocal, let local {
+                        try move(local, to: dest)
+                    }
+                    // どこにも無いものは、もう無いので移したことにする (消すときと同じ)
+                    moved.append(rel)
+                } catch {
+                    failed.append((rel, error.localizedDescription))
+                }
+            }
+            if !moved.isEmpty {
+                do {
+                    try fm.createDirectory(at: box, withIntermediateDirectories: true)
+                    try write(Data(manifestText.utf8), to: box.appendingPathComponent(manifest))
+                } catch {
+                    DebugLog.write("trash: could not write manifest \(id) \(error.localizedDescription)")
+                }
+            }
+        }
+        return (moved, failed)
+    }
+
+    private static func write(_ data: Data, to url: URL) throws {
+        var coordError: NSError?
+        var writeError: Error?
+        NSFileCoordinator().coordinate(writingItemAt: url, options: .forReplacing, error: &coordError) { u in
+            do { try data.write(to: u, options: .atomic) } catch { writeError = error }
+        }
+        if let e = writeError ?? coordError { throw e }
+    }
+
+    struct Item: Sendable {
+        let id: String
+        let manifest: String?
+        let files: [(path: String, size: Int)]
+        let mtimeMs: Double
+        var dict: [String: Any] {
+            var d: [String: Any] = ["id": id, "files": files.map { ["path": $0.path, "size": $0.size] }, "mtimeMs": mtimeMs]
+            if let manifest { d["manifest"] = manifest }
+            return d
+        }
+    }
+
+    /// ゴミ箱の中の走行 (印・trash.json の中身・中のファイル)
+    static func list() -> [Item] {
+        RunFiles.withRoot { root in
+            let fm = FileManager.default
+            let top = root.appendingPathComponent(folder, isDirectory: true)
+            guard let ids = try? fm.contentsOfDirectory(atPath: top.path) else { return [] }
+            var out: [Item] = []
+            for id in ids where isValidId(id) {
+                let box = top.appendingPathComponent(id, isDirectory: true)
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: box.path, isDirectory: &isDir), isDir.boolValue else { continue }
+                var files: [(path: String, size: Int)] = []
+                var text: String?
+                let base = box.resolvingSymlinksInPath().path
+                let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey]
+                if let e = fm.enumerator(at: box, includingPropertiesForKeys: keys, options: []) {
+                    for case let file as URL in e {
+                        let path = file.resolvingSymlinksInPath().path
+                        guard path.hasPrefix(base + "/") else { continue }
+                        var rel = String(path.dropFirst(base.count + 1))
+                        var name = (rel as NSString).lastPathComponent
+                        var size = (try? file.resourceValues(forKeys: Set(keys)))?.fileSize ?? 0
+                        if name.hasPrefix(".") {
+                            guard name.hasSuffix(".icloud"), name.count > 8 else { continue }
+                            name = String(name.dropFirst().dropLast(7))
+                            rel = ((rel as NSString).deletingLastPathComponent as NSString).appendingPathComponent(name)
+                            if let data = try? Data(contentsOf: file),
+                               let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] {
+                                size = (plist["NSURLFileSizeKey"] as? Int) ?? 0
+                            }
+                        } else if (try? file.resourceValues(forKeys: Set(keys)))?.isRegularFile != true {
+                            continue
+                        }
+                        if rel == manifest {
+                            let url = box.appendingPathComponent(manifest)
+                            if RunFiles.waitDownloaded(url, timeout: 5) { text = try? String(contentsOf: url, encoding: .utf8) }
+                            continue
+                        }
+                        files.append((rel, size))
+                    }
+                }
+                let mtime = ((try? fm.attributesOfItem(atPath: box.path)[.modificationDate]) as? Date)?.timeIntervalSince1970 ?? 0
+                out.append(Item(id: id, manifest: text, files: files, mtimeMs: (mtime * 1000).rounded()))
+            }
+            return out
+        }
+    }
+
+    /// 元の場所へ戻す。元の場所に同じ名前があるものは戻さない (上書きしない)。全部戻せたら、その印のフォルダを消す
+    static func restore(id: String) -> (restored: [String], failed: [(String, String)]) {
+        var restored: [String] = []
+        var failed: [(String, String)] = []
+        guard isValidId(id) else { return ([], [("", "bad id")]) }
+        RunFiles.withRoot { root in
+            let box = root.appendingPathComponent(folder, isDirectory: true).appendingPathComponent(id, isDirectory: true)
+            let files = list().first { $0.id == id }?.files.map(\.path) ?? []
+            for rel in files {
+                guard let dest = RunFiles.resolve(rel, in: root), RunFiles.isDeletableRunFile(rel) else { failed.append((rel, "not restorable")); continue }
+                if existing(dest) { failed.append((rel, "exists")); continue }
+                do { try move(box.appendingPathComponent(rel), to: dest); restored.append(rel) } catch { failed.append((rel, error.localizedDescription)) }
+            }
+            if failed.isEmpty { remove(box) }
+        }
+        return (restored, failed)
+    }
+
+    /// 本当に消す (戻せない)
+    static func purge(ids: [String]) -> (purged: [String], failed: [(String, String)]) {
+        var purged: [String] = []
+        var failed: [(String, String)] = []
+        RunFiles.withRoot { root in
+            for id in ids {
+                guard isValidId(id) else { failed.append((id, "bad id")); continue }
+                let box = root.appendingPathComponent(folder, isDirectory: true).appendingPathComponent(id, isDirectory: true)
+                if let e = remove(box) { failed.append((id, e)) } else { purged.append(id) }
+            }
+        }
+        return (purged, failed)
+    }
+
+    /// フォルダを消す (無ければ何もしない)。失敗したらその文
+    @discardableResult
+    private static func remove(_ url: URL) -> String? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        var coordError: NSError?
+        var removeError: Error?
+        NSFileCoordinator().coordinate(writingItemAt: url, options: .forDeleting, error: &coordError) { u in
+            do { try FileManager.default.removeItem(at: u) } catch { removeError = error }
+        }
+        return (removeError ?? coordError)?.localizedDescription
     }
 }
