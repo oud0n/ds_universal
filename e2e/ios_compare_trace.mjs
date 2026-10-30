@@ -9,7 +9,8 @@
  *
  * 使い方: node e2e/ios_compare_trace.mjs [秒数=60] [query (例 clock=app)] [ラベル]
  * 環境変数: OPEN1・OPEN2 (開く走行の一覧の文字。既定 8/15・9/18)、IOS_WEB_PORT (既定 5192)、TRACE_SKIP_MS (再生の始めの数えない長さ。既定 1500)、
- * CAR2_LAP (Car 2 を、OPEN1 の走行のこの周にする。同じ動画の別の周を比べる。OPEN2 は使わない)
+ * CAR2_LAP (Car 2 を、OPEN1 の走行のこの周にする。同じ動画の別の周を比べる。OPEN2 は使わない)、
+ * ALIGN (distance: 地点で合わせる / time: 時間で合わせる。無ければ今の設定のまま)
  * 画面を読み込み直し、8/15 を動画つきで開き、9/18 を Car 2 に入れて「比べる」で再生し、
  * 動画ごとのコマの止まり (0.1 秒超)・速さの変更・位置の移動を出す。記録は e2e/out/ に置く。
  * アプリのコードは変えず、ios_trace_inject.js をページに入れて <video> の操作とコマを記録する
@@ -54,6 +55,12 @@ await p.click('nav-video');
 await sleep(1500);
 await p.click('video-mode-compare');
 await sleep(5000);
+if (process.env.ALIGN) {
+  const label = process.env.ALIGN === 'time' ? '時間' : '地点';
+  const ok = await p.ev(`(()=>{const g=document.querySelector('[role=radiogroup][aria-label="走行比較の合わせ方"]'); const b=g&&[...g.querySelectorAll('button')].find(b=>b.innerText.trim()===${JSON.stringify(label)}); b?.click(); return !!b})()`);
+  if (!ok) throw new Error('合わせ方のボタンがない');
+  await sleep(1500);
+}
 await p.ev(readFileSync(DIR + 'ios_trace_inject.js', 'utf8'));
 const setup = await p.ev(`JSON.stringify({ cars: window.__laploupe?.cars, videos: [...document.querySelectorAll('video')].map(v => decodeURIComponent((v.getAttribute('src')||'').split('/').pop()).slice(-30) + (v.muted ? ' (muted)' : ' (sound)')) })`);
 console.log('setup', setup);

@@ -38,8 +38,11 @@ const MAX_RATE = 4;
  */
 const JUMP_SEC = 0.5;
 const JUMP_SEC_RATED = 0.6;
-/** 倍率のある枠のずれを、速さで詰めるときの上限 (±)。飛ばない分、大きめに詰める */
-const MAX_CORRECTION_RATED = 0.2;
+/**
+ * 倍率のある枠のずれを、速さで詰めるときの上限 (±)。iPhone は速さを大きく変えると止まるので、10% より小さくして
+ * 0.5 秒に 1 回までの変え方に収める (2026-10-30 実機で、20% だと速さが行き来して止まっていた)
+ */
+const MAX_CORRECTION_RATED = 0.08;
 // 速さを変えずにおく音のある動画 (Safari) は、これより遅れたら飛ぶ (再生を始めた直後の出遅れ 0.2〜0.5 秒を残さないため)
 const JUMP_SEC_AUDIBLE_FIXED = 0.2;
 // 音を出している動画のずれを詰め始める大きさ (音を消した動画より大きくして、速さを変える回数を減らす)
@@ -350,13 +353,16 @@ export class PlaybackController {
     // 以前は揺れのたびに変えていて、1 秒に 12 回ほど速さを変え、そのたびに Car 2 のコマが止まっていた (BUG-32、2026-10-23 実機で計測)
     const rateNow = performance.now();
     const shouldSetRate = (target: number, smallOk: boolean): boolean => {
-      const d = Math.abs(el.playbackRate - target);
+      const d = Math.abs(el.playbackRate - avoidOne(target));
       if (d <= 0.001) return false;
       if (d > target * 0.1) return true;
       if (smallOk) return true;
       return d > target * 0.02 && rateNow - entry.rateChangedAt >= RATE_CHANGE_INTERVAL_MS;
     };
-    const setRate = (target: number) => { el.playbackRate = target; entry.rateChangedAt = rateNow; };
+    // 時計の元に付いていく枠は、ちょうど 1 倍にしない (iPhone は、1 倍とそれ以外を行き来するたびに映像が 0.3〜1 秒止まる。
+    // 時間で合わせる比べるで、詰め終えて 1 倍に戻すたびに止まっていた。2026-10-30 実機)。0.02% のずれは、ずれを詰める処理が吸収する
+    const avoidOne = (r: number) => (!isMaster && Math.abs(r - 1) < 0.0002 ? 1.0002 : r);
+    const setRate = (target: number) => { el.playbackRate = avoidOne(target); entry.rateChangedAt = rateNow; };
     const wasCorrecting = entry.correcting;
     if (seeking) {
       if (shouldSetRate(base, !rated)) setRate(base);
