@@ -66,9 +66,11 @@ export const BleStatusPill: React.FC<{ onClick?: () => void }> = ({ onClick }) =
         data-testid="ble-status-pill"
         className="flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-full border whitespace-nowrap min-w-0 border-line-3 text-slate-300"
         title={name}
+        aria-label={name}
       >
-        {source === 'phone' ? <Smartphone size={12} /> : <Bluetooth size={12} />}
-        <span className="font-sans font-bold truncate">{name}</span>
+        {source === 'phone' ? <Smartphone size={12} className="shrink-0" /> : <Bluetooth size={12} className="shrink-0" />}
+        {/* iPad の細い窓の上のバーでは印だけ (名前は title に) */}
+        <span className="font-sans font-bold truncate @max-[330px]:hidden">{name}</span>
       </button>
     );
   }

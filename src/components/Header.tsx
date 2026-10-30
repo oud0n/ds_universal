@@ -74,7 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   if (compact) {
     return (
-      <header data-testid="app-header" style={{ paddingLeft: 'max(0.5rem, env(safe-area-inset-left))', paddingRight: 'max(0.5rem, env(safe-area-inset-right))' }} className="touch-toolbar relative bg-surface-1 border-b border-line-1 text-slate-200 px-2 py-1 pt-[max(0.25rem,env(safe-area-inset-top))] flex items-center justify-between gap-2 select-none">
+      <header data-testid="app-header" style={{ paddingLeft: 'max(0.5rem, env(safe-area-inset-left))', paddingRight: 'max(0.5rem, env(safe-area-inset-right))' }} className="touch-toolbar relative bg-surface-1 border-b border-line-1 text-slate-200 px-2 py-1 pt-[max(0.25rem,env(safe-area-inset-top))] flex items-center justify-between gap-2 select-none @container">
         {secondary && screen !== 'settings' ? (
           <button onClick={() => navStore.back()} className="flex items-center gap-1 text-sm text-slate-200 px-1 py-1.5 rounded" data-testid="nav-back">
             <ChevronLeft size={18} />
@@ -86,9 +86,11 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenFile}
             className="flex items-center gap-1.5 text-xs bg-red-600 text-white font-bold px-3 py-1.5 rounded whitespace-nowrap"
+            aria-label={t('開く', 'Open')}
           >
             <FolderOpen size={16} />
-            {t('開く', 'Open')}
+            {/* iPad の細い窓 (左に窓のボタンの分が空く) では印だけ (上の GPS の印が切れていた) */}
+            <span className="@max-[330px]:hidden">{t('開く', 'Open')}</span>
           </button>
         )}
 
