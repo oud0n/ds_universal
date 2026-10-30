@@ -304,6 +304,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // 全部の <video> を、1 か所で App の時刻に合わせる
   // iPhone・iPad では、音のある動画の速さは変えない (映像が重くなるため)
   const playback = useRef(new PlaybackController(!isIOS && !isWebKitBrowser)).current;
+  /** 比べるの、枠 (Car) ごとの前の速さの倍率 (傾きを求められないときに使う) */
+  const compareRateRef = useRef(new Map<number, number>());
   // 上の段は、入りきらないときに横にスクロールする。マウスのホイールでも動かせるようにする
   const toolbarScrollRef = useWheelScrollX<HTMLDivElement>();
   const mainVideo = () => playback.element('tile-0');
@@ -593,11 +595,21 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       const position = !m ? null : ct === null || start === null ? noFootage(m) : positionAtMediaTime(m, ct - start);
       // 速さの倍率: 約 0.5 秒先までの、距離の対応の傾き (遅い車の動画ほど速く回す)
       // 周の終わり 0.5 秒は先の時刻が周の終わりにそろって傾きが 0 になるので、後ろの 0.5 秒で求める
+      // 前後 1 秒で求める (0.5 秒だと、位置の揺れで傾きが一瞬崩れ、そのたびに速さが大きく変わって iPhone で止まっていた)。
+      // 求められないとき (位置の揺れで時刻が進まない所) は、前の倍率のまま (前は 1 にしていて、速さが跳ねていた。2026-10-30)
       let rate: number | undefined;
       if (!isBase && ct !== null && !byTime) {
-        const nearEnd = pts.length > 0 && baseElapsed + 0.5 > pts[pts.length - 1].time;
-        const ahead = nearEnd ? null : timeAt(sessionTime + 0.5), behind = timeAt(sessionTime - 0.5);
-        rate = ahead !== null && ahead > ct ? (ahead - ct) / 0.5 : behind !== null && ct > behind ? (ct - behind) / 0.5 : 1;
+        const W = 1;
+        // 周の始め・終わりの 1 秒は、周の外の時刻が周の始め・終わりにそろって傾きが小さく出るので、周の中の側だけで求める
+        const nearEnd = pts.length > 0 && baseElapsed + W > pts[pts.length - 1].time;
+        const nearStart = pts.length > 0 && baseElapsed - W < pts[0].time;
+        const ahead = nearEnd ? null : timeAt(sessionTime + W), behind = nearStart ? null : timeAt(sessionTime - W);
+        const prev = compareRateRef.current.get(car.slot.slot);
+        rate = ahead !== null && behind !== null && ahead > behind ? (ahead - behind) / (2 * W)
+          : ahead !== null && ahead > ct ? (ahead - ct) / W
+          : behind !== null && ct > behind ? (ct - behind) / W
+          : prev ?? 1;
+        compareRateRef.current.set(car.slot.slot, rate);
       }
       return {
         media: m, position, rate, slot: car.slot.slot, color: car.slot.colorHex, chosen: !!chosenId,

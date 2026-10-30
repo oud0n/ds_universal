@@ -32,9 +32,14 @@ const CORRECT_STOP_SEC = 0.015;
 const RATE_CHANGE_INTERVAL_MS = 500;
 const MIN_RATE = 0.25;
 const MAX_RATE = 4;
-/** これより大きくずれたら飛ぶ。倍率のある枠 (走行比較) は、速さの変わり目で外れやすいので小さめにする */
+/**
+ * これより大きくずれたら飛ぶ。倍率のある枠 (走行比較の Car 2〜4) も、飛ぶのは大きくずれたときだけにする
+ * (iPhone の GoPro の動画は、飛ぶと 0.4 秒ほど止まる。再生を始めた直後の出遅れ 0.3〜0.5 秒でも飛んでいて、ガクガクして見えた。2026-10-30)
+ */
 const JUMP_SEC = 0.5;
-const JUMP_SEC_RATED = 0.25;
+const JUMP_SEC_RATED = 0.6;
+/** 倍率のある枠のずれを、速さで詰めるときの上限 (±)。飛ばない分、大きめに詰める */
+const MAX_CORRECTION_RATED = 0.2;
 // 速さを変えずにおく音のある動画 (Safari) は、これより遅れたら飛ぶ (再生を始めた直後の出遅れ 0.2〜0.5 秒を残さないため)
 const JUMP_SEC_AUDIBLE_FIXED = 0.2;
 // 音を出している動画のずれを詰め始める大きさ (音を消した動画より大きくして、速さを変える回数を減らす)
@@ -44,6 +49,9 @@ const CORRECT_START_SEC_AUDIBLE = 0.08;
 const MAX_SEEK_LEAD_SEC = 0.8;
 // 飛んだ移動が動き出すのを待つ長さの上限
 const SEEK_HOLD_MS = 1500;
+// 時計の元でない枠 (比べるの Car 2〜4) を動き出させるとき、動き出すまでにかかる時間 (まだ測っていないとき)。
+// iPhone の GoPro の動画は、音を消していても 0.5 秒ほどかかる (2026-10-30 実機で測った)
+const DEFAULT_START_LAG_SEC = 0.5;
 
 /**
  * <video> の今のファイル。src は替えたその場で替わる。currentSrc は読み込みが始まるまで前のファイルのままなので、それより先に見る
@@ -82,6 +90,9 @@ interface Entry {
   masterLast: { value: number; atMs: number } | null;
   /** 動かなかったので、時計の元にしない (進んだコマが出たら戻す。コマを知らせてもらえないブラウザでは 5 秒後) */
   masterBlockedUntil: number;
+  /** 再生を始めてから、進んだコマが出るまでにかかった時間 (秒。測ったもの) と、測っている再生の始め */
+  startLag: number;
+  playStart: { at: number; from: number } | null;
 }
 
 type FrameVideo = HTMLVideoElement & {
@@ -125,7 +136,7 @@ export class PlaybackController {
     const entry: Entry = {
       el, frame: null, frameHandle: null, correcting: false, rateChangedAt: 0, src: videoSrc(el),
       seekStartedAt: null, seekDone: false, seekTarget: 0, lastLocal: 0, lastSyncAt: null, seekAudible: false, seekLead: [0, 0],
-      appOffset: null, masterLast: null, masterBlockedUntil: 0,
+      appOffset: null, masterLast: null, masterBlockedUntil: 0, startLag: 0, playStart: null,
       onSeeked: () => {
         // 移動の途中で止めていたら、移動が終わったときに止める (止めたあとは sync が呼ばれないため)
         if (!this.playing && !el.paused) el.pause();
@@ -228,6 +239,12 @@ export class PlaybackController {
       // 時計の元にしないでいた動画が、進んだコマを出したら (動き出したら)、また時計の元にできる
       if (entry.masterBlockedUntil > 0 && entry.frame && meta.mediaTime > entry.frame.mediaTime + 0.001) entry.masterBlockedUntil = 0;
       entry.frame = { mediaTime: meta.mediaTime, at };
+      // 再生を始めてから、進んだコマが出るまでの時間を覚える (次に動き出させるとき、その分だけ先から始める)
+      if (entry.playStart && meta.mediaTime > entry.playStart.from + 0.01) {
+        const lag = Math.min(1.5, (at - entry.playStart.at) / 1000);
+        entry.startLag = entry.startLag > 0 ? (entry.startLag + lag) / 2 : lag;
+        entry.playStart = null;
+      }
       // 飛んだ先より進んだコマが出たら、動き出した。Safari は、移動が終わるとすぐ飛んだ先のコマを出し、そのあとしばらく止まることがある
       if (entry.seekDone && meta.mediaTime > entry.seekTarget + 0.01) this.noteSeekTime(entry, at);
       entry.frameHandle = v.requestVideoFrameCallback!(onFrame);
@@ -367,14 +384,43 @@ export class PlaybackController {
       if (isMaster || (audible && !this.adjustAudibleRate)) entry.correcting = false;
       else if (Math.abs(diff) > (audible ? CORRECT_START_SEC_AUDIBLE : CORRECT_START_SEC)) entry.correcting = true;
       else if (Math.abs(diff) < CORRECT_STOP_SEC) entry.correcting = false;
-      const correction = entry.correcting ? Math.max(-0.1, Math.min(0.1, diff * 0.5)) : 0;
+      const maxCorr = rated ? MAX_CORRECTION_RATED : 0.1;
+      const correction = entry.correcting ? Math.max(-maxCorr, Math.min(maxCorr, diff * 0.5)) : 0;
       const rate = Math.max(MIN_RATE * speed, Math.min(MAX_RATE * speed, base * (1 + correction)));
       // 速さを小刻みに変えない (2% より小さい変化と、前に変えてから 0.5 秒たたないうちの変化はしない)。
       // ただし詰め終えたら元の速さへすぐ戻す (倍率のある枠は、詰め終えた直後だけ。元の速さの揺れには付いていかない)
       const backToBase = !entry.correcting && (wasCorrecting || !rated);
       if (shouldSetRate(rate, backToBase)) setRate(rate);
     }
-    // 長さが分かっていれば再生を始める (iPhone の Safari は再生を始めるまでコマを読まないので、コマを読むのを待たない)
-    if (el.paused && el.readyState >= 1) playSafely(el);
+    // 長さが分かっていれば再生を始める (iPhone の Safari は再生を始めるまでコマを読まないので、コマを読むのを待たない)。
+    // 時計の元の動画 (音のある Car 1) がまだ動き出していなければ、ほかの枠は待つ (音を消した Car 2 だけ先に動き出して先へ出てしまい、
+    // 大きく速さを変えて詰めるところで、iPhone では止まって見えた。2026-10-30)
+    if (el.paused && el.readyState >= 1 && (isMaster || !this.master || this.masterMoving())) {
+      // 時計の元の動画に付いていく枠は、動き出すまでにかかる時間の分だけ先から始める
+      // (遅れて動き出し、大きくずれて飛ぶと、iPhone ではそこでまた 0.4 秒ほど止まっていた)
+      if (!isMaster && this.master) {
+        let lead = Math.min(MAX_SEEK_LEAD_SEC, (entry.startLag || DEFAULT_START_LAG_SEC) * base);
+        if (Number.isFinite(el.duration) && el.duration > 0 && localTime + lead >= el.duration) lead = 0;
+        const target = localTime + lead;
+        if (Math.abs(target - el.currentTime) > 0.02) {
+          el.currentTime = target;
+          entry.seekTarget = target;
+          entry.seekAudible = audible;
+          entry.seekStartedAt = nowMs;
+          entry.seekDone = false;
+          entry.frame = null;
+        }
+        entry.playStart = { at: nowMs, from: target };
+      }
+      playSafely(el);
+    }
+  }
+
+  /** 時計の元の動画が、コマを出して進んでいるか */
+  private masterMoving(): boolean {
+    const m = this.master;
+    if (!m || m.el.paused) return false;
+    if (!(m.el as FrameVideo).requestVideoFrameCallback) return true;
+    return m.frame !== null && performance.now() - m.frame.at < 300;
   }
 }
