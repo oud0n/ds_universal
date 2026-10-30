@@ -64,6 +64,8 @@ interface DataTabProps {
   onChangeGFilterLevel: (level: GFilterLevel) => void;
   /** iPhone の G センサーの値がある走行を開いているか */
   hasImu?: boolean;
+  /** 端末が揺れていた走行の名前 (G センサーの G が揺れる) */
+  imuWobbly?: string[];
   gSource?: GSource;
   onChangeGSource?: (s: GSource) => void;
 }
@@ -235,6 +237,7 @@ export const DataTab: React.FC<DataTabProps> = ({
   gFilterLevel,
   onChangeGFilterLevel,
   hasImu,
+  imuWobbly,
   gSource,
   onChangeGSource
 }) => {
@@ -454,7 +457,14 @@ export const DataTab: React.FC<DataTabProps> = ({
             <p className="w-full text-[11px] text-slate-400 leading-relaxed">
               {t('アプリのラップタイマーで測った走行は、端末の G センサーの値も記録しています。「G センサー」にすると、ゆっくりした変化は計算した G、速い変化 (ブレーキの踏み始め・切り返し) は G センサーから取って合わせます。坂や端末の付け方のずれは残りません。',
                 'Runs timed with the app\'s lap timer also record the phone\'s G sensor. With "Phone sensor", slow changes come from the calculated G and fast changes (start of braking, direction changes) from the sensor. Slopes and mounting angle do not leak in.')}
+              {' '}{t('G センサーの細かい振動は、上の「なめらか」に合わせて落とします。', 'Fine vibration in the sensor is filtered out according to the smoothing setting above.')}
             </p>
+            {gSource === 'sensor' && !!imuWobbly?.length && (
+              <p className="w-full text-[11px] text-amber-500 leading-relaxed" data-testid="imu-wobble-warning">
+                {t(`端末が揺れていたようです (${imuWobbly.join('・')})。ホルダーがやわらかいと、G が揺れて見えます。「なめらか」を強くするか、G の出どころを「計算」にしてください。次からは、端末をしっかり固定してください。`,
+                  `The phone seems to have been shaking (${imuWobbly.join(', ')}). A soft mount makes the G wobble. Set smoothing to Strong or the G source to Calculated, and mount the phone firmly next time.`)}
+              </p>
+            )}
           </div>
         )}
         <p className="text-[11px] text-slate-400 leading-relaxed">

@@ -71,7 +71,7 @@ import { applyPlan, type PartResult } from './services/import/importApply';
 import { electronWriter, nativeWriter } from './services/import/importWriters';
 import { LOG_EXTENSIONS } from './services/logLoader';
 import { getWriteBon4 } from './services/runFormatSettings';
-import { applyImuToSession, getGSource, parseImuCsv, setGSource, type GSource, type ImuTrack } from './services/imuG';
+import { applyImuToSession, getGSource, parseImuCsv, sessionImuWobbleG, setGSource, WOBBLE_LIMIT_G, type GSource, type ImuTrack } from './services/imuG';
 import { fileSessionCars, lapStartUtcMs, matchFileSession, parseLapSession, resolveSessionLap, saveSession, type LapSession, type LapSessionCar } from './services/analysisSessions';
 
 /**
@@ -416,6 +416,12 @@ export const App: React.FC = () => {
   const imuTracksRef = useRef(new Map<string, ImuTrack>());
   const [imuSessionIds, setImuSessionIds] = useState<string[]>([]);
   const [gSource, setGSourceState] = useState<GSource>(getGSource());
+  // 端末が揺れていた (やわらかいホルダーなど) 走行の名前。G センサーの G がフィルターをかけても揺れるので知らせる
+  const imuWobbly = useMemo(() => sessions.filter(s => {
+    const track = imuSessionIds.includes(s.id) ? imuTracksRef.current.get(s.id) : undefined;
+    const w = track ? sessionImuWobbleG(s, track) : null;
+    return w !== null && w > WOBBLE_LIMIT_G;
+  }).map(s => s.sessionName || s.fileName), [sessions, imuSessionIds]);
   const imuPendingRef = useRef(new Set<string>());
   useEffect(() => {
     const ready = sessions.filter(s => imuPendingRef.current.has(s.id)).map(s => s.id);
@@ -451,7 +457,7 @@ export const App: React.FC = () => {
       if (ids && !ids.has(s.id)) return s;
       let points = applyGFilter(s.points.map(p => ({ ...p })), level);
       const track = imuTracksRef.current.get(s.id);
-      if (track && source === 'sensor') points = applyImuToSession(points, s, track).points;
+      if (track && source === 'sensor') points = applyImuToSession(points, s, track, level).points;
       const { laps, bestLapIndex, theoreticalBestTime } = extractLaps(points, s.controlLine, s.sectors, s.finishLine);
       return { ...s, points, laps, bestLapIndex, theoreticalBestTime };
     }));
@@ -2592,6 +2598,7 @@ export const App: React.FC = () => {
             gFilterLevel={gFilterLevel}
             onChangeGFilterLevel={handleChangeGFilterLevel}
             hasImu={sessions.some(s => imuSessionIds.includes(s.id))}
+            imuWobbly={imuWobbly}
             gSource={gSource}
             onChangeGSource={handleChangeGSource}
           />
