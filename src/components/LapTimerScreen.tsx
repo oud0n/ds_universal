@@ -243,8 +243,9 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const lastLap = state?.laps[state.laps.length - 1] ?? null;
   const prevBestForLast = useMemo(() => {
     if (!state || state.laps.length < 2) return null;
-    const before = state.laps.slice(0, -1);
-    return Math.min(...before.map(l => l.timeSec));
+    // 途切れた周は比べる相手にしない (ベストと同じ決め方)
+    const before = state.laps.slice(0, -1).filter(l => !l.hadGap);
+    return before.length ? Math.min(...before.map(l => l.timeSec)) : null;
   }, [state]);
   const lastDiff = lastLap && prevBestForLast !== null ? lastLap.timeSec - prevBestForLast : null;
   // セクターを跨いだら、そのタイムを大きく出す (周を終えたときは、周の表示を先に出す)
@@ -265,7 +266,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const coarse = source === 'phone';
   const stale = measuring && source !== 'replay' && sincePerf > (coarse ? 2.5 : 0.6);
   const sectorShown = !flashing && sectorFlash && now < sectorFlash.until ? sectorFlash : null;
-  const lapVerdict: Verdict = flashing ? (flashing.isBest && flashing.diffToBestSec !== null ? 'better' : verdictOf(flashing.diffToBestSec, coarse)) : 'even';
+  // 測位が途切れた周は、タイムがあやしいので色を付けない
+  const lapVerdict: Verdict = !flashing || flashing.lap.hadGap ? 'even' : flashing.isBest && flashing.diffToBestSec !== null ? 'better' : verdictOf(flashing.diffToBestSec, coarse);
   const sectorVerdict: Verdict = sectorShown ? verdictOf(sectorShown.diffSec, coarse) : 'even';
   const flashBg = flashing ? verdictBg(lapVerdict, now - (flash!.until - display.lapHoldSec * 1000) < FLASH_STRONG_MS && !coarse)
     : sectorShown ? verdictBg(sectorVerdict, now - sectorShown.at < FLASH_STRONG_MS && !coarse) : '';
@@ -484,7 +486,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
           ) : flashing ? (
             <>
               <div className="text-slate-200 font-bold tracking-widest" style={{ fontSize: 'min(5vw, 6vh)' }}>
-                {t(`${flashing.lap.number} 周目`, `LAP ${flashing.lap.number}`)}{flashing.isBest && flashing.diffToBestSec !== null ? ` · ${t('ベスト', 'BEST')}` : lapVerdict === 'worse' ? ` · ${verdictWord(lapVerdict, t)}` : ''}
+                {t(`${flashing.lap.number} 周目`, `LAP ${flashing.lap.number}`)}{flashing.lap.hadGap ? ` · ${t('途切れあり', 'SIGNAL GAP')}` : flashing.isBest && flashing.diffToBestSec !== null ? ` · ${t('ベスト', 'BEST')}` : lapVerdict === 'worse' ? ` · ${verdictWord(lapVerdict, t)}` : ''}
               </div>
               <div className="font-mono font-bold tabular-nums leading-none text-[length:min(19vw,30vh)] portrait:text-[length:min(17vw,10vh)]" data-testid="lap-timer-flash">
                 {formatLapTime(flashing.lap.timeSec, 2)}
@@ -531,7 +533,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
         {/* 横向きのスマートフォン (高さが足りない) は、前の周とベストを横に並べ、区間はその下 (3 段だと上下にはみ出していた) */}
         <aside className="shrink-0 min-h-0 landscape:w-[34vw] grid grid-cols-2 landscape:grid-cols-1 [@media(orientation:landscape)_and_(max-height:500px)]:grid-cols-2 gap-2 content-center font-mono tabular-nums">
           <div className="rounded-xl bg-surface-2 px-3 py-2">
-            <div className="text-[11px] portrait:text-[length:3.4vw] text-slate-300 font-sans">{t('前の周', 'Last')}</div>
+            <div className="text-[11px] portrait:text-[length:3.4vw] text-slate-300 font-sans">{t('前の周', 'Last')}{lastLap?.hadGap && <span className="text-amber-500" data-testid="lap-timer-last-gap">{t(' · 途切れあり', ' · gap')}</span>}</div>
             <div className="text-2xl sm:text-3xl portrait:text-[length:min(9vw,5vh)] font-bold">{lastLap ? formatLapTime(lastLap.timeSec, 2) : '--:--'}</div>
             <div className={`text-lg portrait:text-[length:min(6.5vw,3.6vh)] font-bold ${deltaClass(lastDiff)}`}>{lastDiff !== null ? formatDelta(lastDiff) : ' '}</div>
           </div>

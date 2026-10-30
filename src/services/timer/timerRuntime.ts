@@ -81,11 +81,12 @@ export function lapSpeech(e: LiveLapEvent): { text: string; lang: string } {
   const d = e.diffToBestSec;
   if (ja) {
     const time = `${m > 0 ? `${m}分` : ''}${s}秒${tenth}`;
-    const diff = d === null ? '' : e.isBest ? '、ベスト' : `、プラス${Math.abs(d).toFixed(1)}`;
+    // 途切れた周は速くてもベストにしないので、そのときはマイナスと読む
+    const diff = d === null ? '' : e.isBest ? '、ベスト' : `、${d < 0 ? 'マイナス' : 'プラス'}${Math.abs(d).toFixed(1)}${e.lap.hadGap ? '、途切れあり' : ''}`;
     return { text: time + diff, lang: 'ja-JP' };
   }
   const time = `${m > 0 ? `${m} ` : ''}${s} point ${tenth}`;
-  const diff = d === null ? '' : e.isBest ? ', best lap' : `, plus ${Math.abs(d).toFixed(1)}`;
+  const diff = d === null ? '' : e.isBest ? ', best lap' : `, ${d < 0 ? 'minus' : 'plus'} ${Math.abs(d).toFixed(1)}${e.lap.hadGap ? ', signal gap' : ''}`;
   return { text: time + diff, lang: 'en-US' };
 }
 
