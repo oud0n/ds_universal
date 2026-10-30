@@ -14,7 +14,9 @@ import { courseFolder, UNSORTED_FOLDER } from '../../utils/courseNames';
 import { callNative, hasNative, onNative } from '../../native/bridge';
 import { PhoneImuRecorder } from '../phoneImu';
 import { getRunStore } from '../runStore';
-import { LAP_INDEX_FILE, lapKey, lapPointsFromFile, parseLapIndex } from '../lapIndex';
+import { LAP_INDEX_FILE, parseLapIndex } from '../lapIndex';
+import { carBestSource, makeReferenceContext, type LapReferenceSource } from './lapReferences';
+import { addons } from '../../addons';
 import { getLang } from '../../utils/i18n';
 import { setPositionSource, type PositionSource } from '../positionSource';
 import { digspiceFeed, distanceKm, phoneFeed, replayFeed, type PhoneInfo, type StopFeed } from './positionFeeds';
@@ -110,8 +112,11 @@ export interface TimerSnapshot {
   saveError: string | null;
   syncNote: { ok: boolean; text: string } | null;
   phoneInfo: PhoneInfo;
-  /** このコースの、選んだ車の過去の走行のベスト (差の基準にする) */
-  pastBest: { time: number; startMs: number } | null;
+  /** 差の基準にする過去の周 (比べる相手。既定はこのコースの、選んだ車のベスト)。tag: 「ベスト」の横に出す印 */
+  pastBest: { time: number; startMs: number; tag: [string, string] } | null;
+  /** 比べる相手の選び方 (refSources の id) と、選べるもの */
+  refId: string;
+  refSources: Array<{ id: string; label: [string, string] }>;
   /** 測る車 (走行に書き、過去のベストもこの車のものだけ使う。空なら車を書いていない走行) */
   car: string;
   /** 選べる車 (このコースの走行に書いた車) */
@@ -166,7 +171,7 @@ export class TimerRuntime {
       source: initialSource, replayId: firstReplay, replaySpeed: 4, course: null, lap: null,
       lastPos: null, lastFixPerf: 0, flash: null, voice: true, measuring: false,
       savedRun: null, idleRun: null, saveError: null, syncNote: null, phoneInfo: { accuracy: null, error: null },
-      pastBest: null, car: loadTimerCar(), cars: [], devices: [], epoch: 0, camera: { recording: false, error: null }
+      pastBest: null, car: loadTimerCar(), cars: [], refId: loadTimerRef(), refSources: referenceSources().map(r => ({ id: r.id, label: r.label })), devices: [], epoch: 0, camera: { recording: false, error: null }
     };
     this.camera = new PhoneCameraRecorder(st => this.set({ camera: st }));
     this.imu = new PhoneImuRecorder(() => this.recorder?.current?.fileBase ?? null);
@@ -328,6 +333,14 @@ export class TimerRuntime {
     if (changed) this.loadPastBest(c);
   }
 
+  /** 比べる相手を選ぶ */
+  setReference(id: string): void {
+    if (id === this.snap.refId) return;
+    saveTimerRef(id);
+    this.set({ refId: id });
+    this.loadPastBest(this.snap.course);
+  }
+
   /** 測る車を選ぶ (過去のベストを、その車のものに替える) */
   setCar(car: string): void {
     const v = car.trim();
@@ -358,27 +371,15 @@ export class TimerRuntime {
       this.set({ cars });
       const index = parseLapIndex(await store.readText(`${folder}/${LAP_INDEX_FILE}`).catch(() => null));
       if (!index || token !== this.pastBestToken) return;
-      const hidden = new Set(index.hidden.map(h => lapKey(h.file, h.part, h.n)));
-      let best: { file: string; part?: number; n: number; time: number; startMs: number; sectors: number[] } | null = null;
-      for (const [file, rec] of Object.entries(index.files)) {
-        const row = runs ? findRunRow(runs, file) : undefined;
-        if (row?.reference) continue;
-        if ((row?.car?.trim() ?? '') !== car) continue;
-        for (const l of rec.laps) if (!hidden.has(lapKey(file, l.part, l.n)) && (!best || l.time < best.time)) best = { file, ...l };
-      }
-      if (token !== this.pastBestToken) return;
-      this.set({ pastBest: best ? { time: best.time, startMs: best.startMs } : null });
-      if (!best || !course.controlLine) return;
-      // その周の走り (距離と経過) を読み出して、差の基準にする
-      const bytes = await store.read(`${folder}/${best.file}`).catch(() => null);
-      if (!bytes || token !== this.pastBestToken) return;
-      const pts = lapPointsFromFile(best.file, bytes, { name: course.name, controlLine: course.controlLine, sectors: course.sectors ?? [] }, best.part, best.n);
-      if (!pts || pts.length < 2 || token !== this.pastBestToken) return;
-      const trace: number[] = [];
-      for (const p of pts) trace.push((p.distance - pts[0].distance) * 1000, p.time - pts[0].time);
-      const ref: PastReference = { timeSec: best.time, trace, sectorsSec: best.sectors, startMs: best.startMs };
-      this.pastRef = { courseId: course.id, ref };
-      this.timer?.setPastReference(ref);
+      if (!course.controlLine) return;
+      const ctx = makeReferenceContext(store, folder, { name: course.name, controlLine: course.controlLine, sectors: course.sectors ?? [] }, car, index, runs);
+      const sources = referenceSources();
+      const source = sources.find(r => r.id === this.snap.refId) ?? carBestSource;
+      const choice = await source.load(ctx).catch(() => null);
+      if (!choice || token !== this.pastBestToken) return;
+      this.set({ pastBest: { time: choice.ref.timeSec, startMs: choice.ref.startMs, tag: choice.tag } });
+      this.pastRef = { courseId: course.id, ref: choice.ref };
+      this.timer?.setPastReference(choice.ref);
       this.set({ lap: this.timer?.getState() ?? null });
     })();
   }
@@ -709,4 +710,16 @@ async function writeRunCar(fileBase: string, car: string): Promise<void> {
   const i = fileBase.indexOf('/');
   if (i < 0) return;
   await updateRun(store, fileBase.slice(0, i), `${fileBase.slice(i + 1)}.nmea`, prev => (prev?.car ? prev : { ...prev, car }));
+}
+
+/** 比べる相手の選び方 (既定の「この車のベスト」と、差し込まれたもの) */
+function referenceSources(): LapReferenceSource[] {
+  return [carBestSource, ...(addons.lapReferences ?? [])];
+}
+const REF_KEY = 'ds_timer_ref';
+function loadTimerRef(): string {
+  try { return localStorage.getItem(REF_KEY) ?? carBestSource.id; } catch { return carBestSource.id; }
+}
+function saveTimerRef(id: string): void {
+  try { localStorage.setItem(REF_KEY, id); } catch { /* 覚えられなくても測れる */ }
 }

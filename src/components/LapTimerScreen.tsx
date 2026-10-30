@@ -124,6 +124,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   }, [rt]);
   const snap = useSyncExternalStore(rt.subscribe, rt.getSnapshot);
   const { source, course, flash, voice, measuring, savedRun, saveError, syncNote, phoneInfo, replayId, replaySpeed, pastBest } = snap;
+  const refLabel = snap.refSources.find(r => r.id === snap.refId)?.label ?? snap.refSources[0]?.label ?? ['この車のベスト', 'Best with this car'] as [string, string];
   const state = snap.lap;
   const setSource = (s: Source) => rt.setSource(s);
   const setVoice = (v: boolean | ((cur: boolean) => boolean)) => rt.setVoice(typeof v === 'function' ? v(snap.voice) : v);
@@ -482,12 +483,22 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
                       className="w-56 max-w-[60vw] bg-surface-2 border border-line-3 rounded-full px-3 py-1.5 text-center text-fg" data-testid="lap-timer-car-input" />
                     <datalist id="lap-timer-cars">{snap.cars.map(c => <option key={c} value={c} />)}</datalist>
                   </label>
+                  {snap.refSources.length > 1 && (
+                    <div className="flex flex-wrap justify-center gap-1.5" role="radiogroup" aria-label={t('比べる相手', 'Compare with')} data-testid="lap-timer-ref">
+                      {snap.refSources.map(r => (
+                        <button key={r.id} role="radio" aria-checked={snap.refId === r.id} onClick={() => rt.setReference(r.id)} data-testid={`lap-timer-ref-${r.id}`}
+                          className={`px-3 py-1 rounded-full text-xs border ${snap.refId === r.id ? 'bg-sky-600 border-sky-500 text-white' : 'border-line-3 text-slate-300'}`}>
+                          {t(...r.label)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="text-slate-300 text-base" data-testid="lap-timer-past-best">
                     {pastBest ? (
-                      <>{t('この車のベスト', 'Best with this car')} <span className="font-mono font-bold text-amber-500">{formatLapTime(pastBest.time, 2)}</span>
-                        <span className="text-slate-500 text-sm"> ({new Date(pastBest.startMs).getMonth() + 1}/{new Date(pastBest.startMs).getDate()})</span>
+                      <>{t(...refLabel)} <span className="font-mono font-bold text-amber-500">{formatLapTime(pastBest.time, 2)}</span>
+                        <span className="text-slate-500 text-sm"> ({t(...pastBest.tag)})</span>
                         <span className="block text-slate-500 text-xs">{t('このタイムとの差を出します', 'The delta compares with this lap')}</span></>
-                    ) : <span className="text-slate-500 text-sm">{t('この車の記録はまだありません (この走行のベストと比べます)', 'No record with this car yet (compares with this run)')}</span>}
+                    ) : <span className="text-slate-500 text-sm">{t('比べる記録がまだありません (この走行のベストと比べます)', 'No record to compare yet (compares with this run)')}</span>}
                   </div>
                 </div>
               )}
@@ -569,7 +580,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
             </div>
             <div className="px-4 py-3 min-w-0">
               <div className="font-sans text-[11px] portrait:text-[length:3.2vw] tracking-wider text-slate-400 truncate" data-testid="lap-timer-best-label">
-                {t('ベスト', 'BEST')}{state?.reference ? ` · ${state.reference.lapNumber !== null ? t(`${state.reference.lapNumber} 周目`, `L${state.reference.lapNumber}`) : `${new Date(state.reference.pastStartMs!).getMonth() + 1}/${new Date(state.reference.pastStartMs!).getDate()}`}` : pastBest ? ` · ${new Date(pastBest.startMs).getMonth() + 1}/${new Date(pastBest.startMs).getDate()}` : ''}
+                {t('ベスト', 'BEST')}{state?.reference ? ` · ${state.reference.lapNumber !== null ? t(`${state.reference.lapNumber} 周目`, `L${state.reference.lapNumber}`) : pastBest ? t(...pastBest.tag) : ''}` : pastBest ? ` · ${t(...pastBest.tag)}` : ''}
               </div>
               <div className="font-bold text-amber-500 text-2xl sm:text-3xl portrait:text-[length:min(8.5vw,4.6vh)] leading-tight">{state?.reference ? formatLapTime(state.reference.timeSec, 2) : pastBest ? formatLapTime(pastBest.time, 2) : '--:--'}</div>
               <div className="text-base portrait:text-[length:min(5.6vw,3.2vh)] text-slate-300">{lastFix && (source === 'replay' || sincePerf <= 3) ? `${Math.round(lastFix.speedKmh)}` : '---'}<span className="font-sans text-[11px] text-slate-400 ml-1">km/h</span></div>
