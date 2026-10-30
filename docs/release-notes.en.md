@@ -4,11 +4,29 @@
 
 [Back to the README](../README.en.md)
 
-## Next version (not released yet)
+## v1.1.1 (not released yet)
+
+The PC version and the iPhone / iPad app get different items ([iPhone] = the app only, [PC] = the PC and browser versions only, no mark = both).
+
+**Added**
+
+- **Recently deleted runs** [iPhone]: deleted runs stay in "Recently deleted" in the run list for 30 days and can be restored with their name, notes and sync. They are removed automatically after 30 days (the Files app's Recently Deleted could not restore files the app deleted).
+- **Tap the current tab again to go to the top** [iPhone]: with a run open, tapping "Runs" again goes back to the list.
 
 **Changed**
 
 - **Course data import moved to Settings**: "Install course folder" and "Remove installed courses" moved from "Runs and course" in Analysis to "Course data" in Settings. Loading a track map (.pth) moved into the course editor. Timing lines (.cln) load from "Load .cln / .sci" in the course editor.
+- **iPad windows** [iPhone]: nothing tappable sits under the window buttons (the three dots, top left). Before timing, the iPad suggests Rotation Lock (iPadOS does not let apps lock the orientation).
+- **Lap timer** [iPhone]: without a position (e.g. no permission) it asks before you start timing and shows the reason in the middle of the screen. If no position arrives for more than 3 seconds, the speed shows "---" instead of the last value. If Bluetooth drops while timing, tap the badge at the top to reconnect.
+
+**Fixed**
+
+- [iPhone] Buttons that open outside pages (such as "Open in browser" in the help) did nothing.
+- [iPhone] Built-in camera: resetting laps or switching the position source while the camera was starting left the new run without video. After a heat stop it waits until the phone cools down.
+- [iPhone] Lap timer list: "Recording" could show on two or more runs after quick start/stop. The message after denying location now says to allow it and reopen the app.
+- After removing the main video, the run list kept showing "Synced" for a while.
+- An unreadable air or track temperature is now reported (the previous value is kept).
+- Device names in English (iPad / iPhone) were wrong in a few places.
 
 ## v1.1.0
 

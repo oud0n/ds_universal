@@ -3,7 +3,7 @@ import React, { useEffect, useSyncExternalStore } from 'react';
 import { Bluetooth, BluetoothSearching, Unlink, RefreshCw, Settings, Signal, Timer } from 'lucide-react';
 import { bleLoggerLink, loggerSerial, type LoggerLinkStatus } from '../services/bleLoggerLink';
 import { useT } from '../utils/i18n';
-import { hasNative } from '../native/bridge';
+import { hasNative, isAndroidApp } from '../native/bridge';
 import { usePositionSource } from '../services/positionSource';
 import { loadDevices } from '../services/devices/deviceRegistry';
 import { Smartphone } from 'lucide-react';
@@ -57,7 +57,7 @@ export const BleStatusPill: React.FC<{ onClick?: () => void }> = ({ onClick }) =
   if (source === 'racebox' || source === 'drogger' || source === 'phone') {
     // 上のバーは狭いので短く (スマートフォンの解析の画面で、ほかのボタンと並んでも切れないように)
     const name = source === 'phone'
-      ? (hasNative() ? (isIPad ? 'iPad GPS' : t('iPhone GPS', 'Phone GPS')) : t('端末の GPS', 'Device GPS'))
+      ? (hasNative() ? (isIPad ? 'iPad GPS' : isAndroidApp() ? t('端末の GPS', 'Phone GPS') : 'iPhone GPS') : t('端末の GPS', 'Device GPS'))
       : (loadDevices().find(d => d.kind === source)?.displayName ?? (source === 'racebox' ? 'RaceBox' : 'Drogger'));
     return (
       <button
@@ -66,9 +66,11 @@ export const BleStatusPill: React.FC<{ onClick?: () => void }> = ({ onClick }) =
         data-testid="ble-status-pill"
         className="flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-full border whitespace-nowrap min-w-0 border-line-3 text-slate-300"
         title={name}
+        aria-label={name}
       >
-        {source === 'phone' ? <Smartphone size={12} /> : <Bluetooth size={12} />}
-        <span className="font-sans font-bold truncate">{name}</span>
+        {source === 'phone' ? <Smartphone size={12} className="shrink-0" /> : <Bluetooth size={12} className="shrink-0" />}
+        {/* iPad の細い窓の上のバーでは印だけ (名前は title に) */}
+        <span className="font-sans font-bold truncate @max-[330px]:hidden">{name}</span>
       </button>
     );
   }

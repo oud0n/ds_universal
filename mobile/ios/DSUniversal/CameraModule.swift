@@ -868,28 +868,45 @@ final class CameraModule: NSObject {
         interruptObservers.forEach { NotificationCenter.default.removeObserver($0) }
         let s = session
         interruptObservers = [
-        NotificationCenter.default.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: s, queue: .main) { note in
+        NotificationCenter.default.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: s, queue: .main) { [weak self] note in
             let e = note.userInfo?[AVCaptureSessionErrorKey] as? NSError
             DebugLog.write("camera: session runtime error \(e?.code ?? 0) \(e?.localizedDescription ?? "")")
-        },
-        NotificationCenter.default.addObserver(forName: AVCaptureSession.wasInterruptedNotification, object: s, queue: .main) { note in
-            let reason = note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int ?? -1
-            DebugLog.write("camera: session interrupted reason=\(reason)")
-        },NotificationCenter.default.addObserver(forName: AVCaptureSession.interruptionEndedNotification, object: session, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.wantRecording else { return }
-                let s = Box(value: self.session)
-                self.queue.async { if !s.value.isRunning { s.value.startRunning() } }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    for c in self.channels where c.active { self.beginSegment(c) }
-                }
+                self.core.emit("camera.state", ["recording": false, "error": "interrupted"])
+                // カメラの部品が落ちた (mediaServicesWereReset) ときは、組み直して続きを撮る
+                if e?.code == AVError.Code.mediaServicesWereReset.rawValue { self.resumeAfterInterruption() }
             }
+        },
+        NotificationCenter.default.addObserver(forName: AVCaptureSession.wasInterruptedNotification, object: s, queue: .main) { [weak self] note in
+            let reason = note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int ?? -1
+            DebugLog.write("camera: session interrupted reason=\(reason)")
+            // ファイルの閉じる知らせが来なくても、止まったことを画面に出す
+            MainActor.assumeIsolated {
+                guard let self, self.wantRecording else { return }
+                self.core.emit("camera.state", ["recording": false, "error": "interrupted"])
+            }
+        },
+        NotificationCenter.default.addObserver(forName: AVCaptureSession.interruptionEndedNotification, object: s, queue: .main) { [weak self] _ in
+            DebugLog.write("camera: session interruption ended")
+            MainActor.assumeIsolated { self?.resumeAfterInterruption() }
         }]
+    }
+
+    /// 止まったあと、まだ撮るつもりなら、続きを撮る (撮り始めると camera.state の recording: true が出る)
+    private func resumeAfterInterruption() {
+        guard wantRecording else { return }
+        let s = Box(value: session)
+        queue.async { if !s.value.isRunning { s.value.startRunning() } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            for c in self.channels where c.active { self.beginSegment(c) }
+        }
     }
 
     private func thermalChanged() {
         let s = ProcessInfo.processInfo.thermalState
         let name = s == .critical ? "critical" : s == .serious ? "serious" : s == .fair ? "fair" : "nominal"
+        DebugLog.write("camera: thermal \(name) recording=\(wantRecording)")
         if s == .critical && wantRecording {
             // 熱すぎる: 録画だけ止める (ログの記録は Web が続ける)。撮ったファイルは、測定終了のときに移す
             wantRecording = false

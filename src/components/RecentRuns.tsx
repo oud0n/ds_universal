@@ -4,6 +4,7 @@
  * - RunsSheet: 上の「読込」から開く、全部の走行 (サーキットで絞れる) と「ファイルを選ぶ」
  */
 import { conditionsText } from '../services/runWeather';
+import { notifyRunsChanged, onRunsChanged } from '../services/runsChanged';
 import React, { useEffect, useMemo, useState } from 'react';
 import { FolderOpen, Video, X, Loader2, ChevronRight } from 'lucide-react';
 import { circuitLabel, useT } from '../utils/i18n';
@@ -21,11 +22,8 @@ export function fmtDate(ms: number | null, ja: boolean): string {
   return `${d.getMonth() + 1}/${d.getDate()} (${w}) ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-const runsListeners = new Set<() => void>();
 /** 保管場所の走行が増えた・変わったことを、走行の一覧に知らせる (取り込みのあとなど。開いたままの一覧も読み直す) */
-export function notifyRunsChanged(): void {
-  runsListeners.forEach(f => f());
-}
+export { notifyRunsChanged };
 
 /** 走行の一覧を読み込む (開いている間に 1 回。notifyRunsChanged でも読み直す) */
 export function useRuns(enabled: boolean) {
@@ -33,8 +31,7 @@ export function useRuns(enabled: boolean) {
   const [reload, setReload] = useState(0);
   useEffect(() => {
     const f = () => setReload(n => n + 1);
-    runsListeners.add(f);
-    return () => { runsListeners.delete(f); };
+    return onRunsChanged(f);
   }, []);
   useEffect(() => {
     if (!enabled) return;

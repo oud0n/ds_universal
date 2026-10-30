@@ -101,6 +101,8 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
   const [trashed, setTrashed] = useState<TrashedRun[]>([]);
   const [trashOpen, setTrashOpen] = useState(false);
   const [trashTick, setTrashTick] = useState(0);
+  // 最後の 1 本を戻した・消したら、ゴミ箱の画面を閉じる (空の画面を残さない)
+  useEffect(() => { if (trashed.length === 0) setTrashOpen(false); }, [trashed]);
   // 走行を読み直すたびに読み直す。30 日を過ぎたものは、ここで本当に消す
   useEffect(() => {
     if (!active || !store || !canTrash) return;
@@ -609,6 +611,8 @@ const ConditionsFields: React.FC<{
   const [air, setAir] = useState(airTempC === null ? '' : String(airTempC));
   const [track, setTrack] = useState(trackTempC === null ? '' : String(trackTempC));
   const saved = useRef({ air: airTempC, track: trackTempC });
+  /** 読めなかった・範囲の外だった (元に戻したことを知らせる。BUG-37 の 6) */
+  const [bad, setBad] = useState(false);
   /** 書いた文字を温度にする (空は未設定、読めない・範囲の外は書かない) */
   const parse = (v: string): number | null | undefined => {
     const s = v.trim().replace(/[℃°cC]/g, '').replace(/[－−]/g, '-').replace(/[０-９．]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xfee0));
@@ -623,6 +627,7 @@ const ConditionsFields: React.FC<{
     if (tr !== undefined && tr !== saved.current.track) patch.trackTempC = tr;
     if (a === undefined) setAir(saved.current.air === null ? '' : String(saved.current.air));
     if (tr === undefined) setTrack(saved.current.track === null ? '' : String(saved.current.track));
+    setBad(a === undefined || tr === undefined);
     if (Object.keys(patch).length) { saved.current = { air: a === undefined ? saved.current.air : a, track: tr === undefined ? saved.current.track : tr }; onSave(patch); }
   };
   // 欄が消える (別の走行を選んだ) ときも、書きかけを書く
@@ -654,6 +659,7 @@ const ConditionsFields: React.FC<{
       <span className="text-[10px] text-slate-500">℃</span>
       </span>
       </span>
+      {bad && <span className="basis-full text-[10px] text-amber-500" data-testid="run-detail-temp-error">{t('温度は -30〜80 の数で書いてください (元の値に戻しました)', 'Enter a temperature from -30 to 80 (the previous value was kept)')}</span>}
     </div>
   );
 };

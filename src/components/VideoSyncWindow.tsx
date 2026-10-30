@@ -2140,6 +2140,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             onClick={onTogglePlay}
             className="p-2 rounded bg-red-600 hover:bg-red-500 text-white font-bold transition-colors cursor-pointer"
             title={isPlaying ? t('一時停止', 'Pause') : t('再生', 'Play')}
+            aria-label={isPlaying ? t('一時停止', 'Pause') : t('再生', 'Play')}
           >
             {isPlaying ? <Pause size={15} /> : <Play size={15} />}
           </button>
