@@ -371,6 +371,18 @@ describe('PlaybackController', () => {
     expect(sim.maxDiffOverLast(5000)).toBeLessThan(0.1);
   });
 
+  it('時間で合わせる比べるの Car 2 (倍率 1): ちょうど 1 倍と、それ以外を行き来しない (iPhone はそのたびに止まる)', () => {
+    const sim = new Sim(IPHONE_GOPRO_MUTED, { adjustAudibleRate: true, muted: true, clockEligible: false });
+    sim.rate = 1;
+    sim.play();
+    const seen = new Set<number>();
+    // 動き出すまで (始めの 2 秒) は、もとの 1 倍のこともある
+    sim.run(2000);
+    for (let i = 0; i < 600; i++) { sim.run(1000 / 60); seen.add(sim.video.playbackRate); }
+    expect([...seen].includes(1)).toBe(false);
+    expect(sim.maxDiffOverLast(3000)).toBeLessThan(0.1);
+  });
+
   it('走行比較の枠 (倍率あり) も揃う', () => {
     const sim = new Sim(CHROME, { adjustAudibleRate: true, muted: true });
     sim.rate = 1.2;

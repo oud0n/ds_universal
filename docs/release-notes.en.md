@@ -30,7 +30,7 @@ The PC version and the iPhone / iPad app get different items ([iPhone] = the app
 - [iPhone] In a narrow iPad window, the GPS label in the top bar was cut off (the lap timer now shows accuracy on a second line and the camera badge below the bar; other screens show Open and GPS as icons).
 - [iPhone] Lap timer list: "Recording" could show on two or more runs after quick start/stop. The message after denying location now says to allow it and reopen the app.
 - After removing the main video, the run list kept showing "Synced" for a while.
-- In Compare, Car 2’s video stuttered now and then. Car 2 now closes small gaps by speed instead of jumping, the speed multiplier is computed over a wider window so it no longer swings, and at the start Car 2 waits for Car 1 and starts ahead by its own start-up delay (measured on an iPhone, 3 × 60 s each: stalls went from 2–6 to 0–3, only at the start).
+- In Compare, Car 2’s video stuttered now and then. Car 2 now closes small gaps by speed instead of jumping, the speed multiplier is computed over a wider window so it no longer swings, at the start Car 2 waits for Car 1 and starts ahead by its own start-up delay, and Car 2 never sits at exactly 1× (the iPhone freezes the picture each time the rate switches between exactly 1× and anything else, which hit the Time alignment hardest). Measured on an iPhone, 3 × 60 s each for Place and Time: stalls went from 2–17 to 0.
 - An unreadable air or track temperature is now reported (the previous value is kept).
 - Device names in English (iPad / iPhone) were wrong in a few places.
 
