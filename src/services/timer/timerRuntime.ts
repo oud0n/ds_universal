@@ -6,6 +6,7 @@
  */
 
 import { bleLoggerLink } from '../bleLoggerLink';
+import { loadTimerDisplay } from './timerDisplay';
 import { LiveLapTimer, type LiveFix, type LiveLapEvent, type LiveLapState } from '../liveLapTimer';
 import { CIRCUIT_PRESETS, findMatchingCircuit } from '../circuitDatabase';
 import { LiveRunRecorder, closeRunFiles } from '../runRecorder';
@@ -53,8 +54,6 @@ export interface ReplayLog {
 const SYNC_INTERVAL_MS = 3 * 60 * 1000;
 /** 走っている間に、記録を保存する間隔 */
 const SAVE_INTERVAL_MS = 2000;
-/** 周を終えたあと、そのタイムを大きく出しておく長さ (ミリ秒) */
-export const FLASH_MS = 6000;
 
 const presetsWithLine = CIRCUIT_PRESETS.filter(c => c.controlLine);
 
@@ -440,7 +439,8 @@ export class TimerRuntime {
     const events = timer.push(fix);
     for (const e of events) {
       if (e.kind === 'lap') {
-        this.snap = { ...this.snap, flash: { event: e, until: performance.now() + FLASH_MS } };
+        // 周のタイムを大きく出し続ける秒数は、画面の設定 (timerDisplay.ts)
+        this.snap = { ...this.snap, flash: { event: e, until: performance.now() + loadTimerDisplay().lapHoldSec * 1000 } };
         // 周を終えたら、動画に印を付ける
         this.devices.lap();
         // 周を終えたら、すぐ保存する。選んだフォルダへは 3 分に 1 回まで写す
