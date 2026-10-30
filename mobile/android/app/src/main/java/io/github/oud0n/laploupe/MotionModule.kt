@@ -21,7 +21,7 @@ import org.json.JSONObject
 class MotionModule(private val ctx: Context, private val bridge: NativeBridge) : SensorEventListener {
     companion object {
         private const val G = 9.80665
-        private const val MAX_PENDING = 6000
+        private const val MAX_PENDING = 12000
     }
 
     private val sm = ctx.getSystemService(Context.SENSOR_SERVICE) as SensorManager

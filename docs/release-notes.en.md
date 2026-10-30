@@ -15,6 +15,7 @@ The PC version and the iPhone / iPad app get different items ([iPhone] = the app
 
 **Changed**
 
+- **Phone G sensor**: fine vibration (mount, body, engine) is now filtered out, following the G smoothing setting (Weak 4 Hz, Standard 2.5 Hz, Strong 1.5 Hz); before, the G kept wobbling whatever the smoothing. Runs where the phone was shaking are flagged under "G source". The sensor is now recorded 100 times a second.
 - **Course data import moved to Settings**: "Install course folder" and "Remove installed courses" moved from "Runs and course" in Analysis to "Course data" in Settings. Loading a track map (.pth) moved into the course editor. Timing lines (.cln) load from "Load .cln / .sci" in the course editor.
 - **iPad windows** [iPhone]: nothing tappable sits under the window buttons (the three dots, top left). Before timing, the iPad suggests Rotation Lock (iPadOS does not let apps lock the orientation).
 - **Lap timer** [iPhone]: without a position (e.g. no permission) it asks before you start timing and shows the reason in the middle of the screen. If no position arrives for more than 3 seconds, the speed shows "---" instead of the last value. If Bluetooth drops while timing, tap the badge at the top to reconnect.

@@ -11,6 +11,7 @@
  */
 import type { Session, TelemetryPoint } from '../types/telemetry';
 import { sessionStartUtcMs } from './mediaClock';
+import type { GFilterLevel } from './physics';
 
 export interface ImuTrack {
   /** UTC ミリ秒 (iPhone の時計) */
@@ -46,27 +47,71 @@ export function parseImuCsv(text: string | null): ImuTrack | null {
   return { t: Float64Array.from(t), long: Float32Array.from(long), lat: Float32Array.from(lat) };
 }
 
-/** utc の前後 halfMs の G センサーの値の平均 (無ければ null) */
-function imuMean(track: ImuTrack, utc: number, halfMs: number, start: number): { long: number; lat: number; next: number } | null {
-  const { t } = track;
-  let i = start;
-  while (i < t.length && t[i] < utc - halfMs) i++;
-  let n = 0, sl = 0, sa = 0;
-  for (let j = i; j < t.length && t[j] <= utc + halfMs; j++) { sl += track.long[j]; sa += track.lat[j]; n++; }
-  if (n === 0) return null;
-  return { long: sl / n, lat: sa / n, next: i };
+/**
+ * 低域のフィルターで残す上の周波数 (Hz)。「なめらか」の設定ごと。
+ * 端末の G センサーには、ホルダー・車体・エンジンの細かい振動 (袖ヶ浦の 1 台では 12〜25 Hz) が乗る。
+ * 運転で起きる G の変化 (ブレーキ・切り返し) は 3 Hz までに収まるので、それより上を捨てる
+ */
+export const IMU_CUTOFF_HZ: Record<GFilterLevel, number> = { weak: 4, standard: 2.5, strong: 1.5 };
+/** これより間が空いた所は、つながっていないものとして分けてフィルターをかけ、間の値は作らない (ミリ秒) */
+const GAP_MS = 200;
+
+/** 2 次の Butterworth の低域のフィルターの係数 (fs: 1 秒の点の数) */
+function butterLowPass(fc: number, fs: number): { b: [number, number, number]; a: [number, number] } {
+  const k = Math.tan(Math.PI * Math.min(fc, fs * 0.45) / fs), q = Math.SQRT1_2, n = 1 / (1 + k / q + k * k);
+  return { b: [k * k * n, 2 * k * k * n, k * k * n], a: [2 * (k * k - 1) * n, (1 - k / q + k * k) * n] };
 }
 
-/** 点ごとの G センサーの値 (点の間隔の分を平均。無い所は null) */
+/** 前から 1 回かける (はじめの値で始めて、立ち上がりの跳ねを出さない) */
+function filterOnce(f: ReturnType<typeof butterLowPass>, x: Float32Array, from: number, to: number, reverse: boolean): void {
+  const step = reverse ? -1 : 1;
+  let i = reverse ? to - 1 : from;
+  const x0 = x[i];
+  let x1 = x0, x2 = x0, y1 = x0, y2 = x0;
+  for (let c = from; c < to; c++, i += step) {
+    const v = f.b[0] * x[i] + f.b[1] * x1 + f.b[2] * x2 - f.a[0] * y1 - f.a[1] * y2;
+    x2 = x1; x1 = x[i]; y2 = y1; y1 = v; x[i] = v;
+  }
+}
+
+/** 前と後ろから 1 回ずつかける (遅れが出ない)。間の空いた所で分ける */
+function filtfilt(t: Float64Array, v: Float32Array, fc: number): Float32Array {
+  const out = Float32Array.from(v);
+  let from = 0;
+  for (let i = 1; i <= t.length; i++) {
+    if (i < t.length && t[i] - t[i - 1] <= GAP_MS) continue;
+    if (i - from >= 8) {
+      const fs = 1000 * (i - 1 - from) / (t[i - 1] - t[from]);
+      const f = butterLowPass(fc, fs);
+      filterOnce(f, out, from, i, false);
+      filterOnce(f, out, from, i, true);
+    }
+    from = i;
+  }
+  return out;
+}
+
+/** 低域のフィルターをかけた G センサーの値 (G センサーの値とフィルターごとに覚える) */
+const filteredCache = new WeakMap<ImuTrack, Map<number, ImuTrack>>();
+export function lowPassTrack(track: ImuTrack, fc: number): ImuTrack {
+  let m = filteredCache.get(track);
+  if (!m) { m = new Map(); filteredCache.set(track, m); }
+  let f = m.get(fc);
+  if (!f) { f = { t: track.t, long: filtfilt(track.t, track.long, fc), lat: filtfilt(track.t, track.lat, fc) }; m.set(fc, f); }
+  return f;
+}
+
+/** 点ごとの G センサーの値 (前後の値の間をつなぐ。G センサーの無い所・間が空いた所は null) */
 function imuAtPoints(points: TelemetryPoint[], track: ImuTrack, startUtc: number, offsetMs: number): Array<{ long: number; lat: number } | null> {
   const out: Array<{ long: number; lat: number } | null> = [];
-  let cursor = 0;
-  for (let i = 0; i < points.length; i++) {
-    const dt = i > 0 ? points[i].time - points[i - 1].time : i + 1 < points.length ? points[i + 1].time - points[i].time : 0.05;
-    const half = Math.max(5, Math.min(500, (dt * 1000) / 2));
-    const m = imuMean(track, startUtc + points[i].time * 1000 + offsetMs, half, cursor);
-    if (m) cursor = m.next;
-    out.push(m ? { long: m.long, lat: m.lat } : null);
+  const { t } = track;
+  let j = 0;
+  for (const p of points) {
+    const u = startUtc + p.time * 1000 + offsetMs;
+    while (j + 1 < t.length && t[j + 1] < u) j++;
+    if (j + 1 >= t.length || u < t[j] || t[j + 1] - t[j] > GAP_MS) { out.push(null); continue; }
+    const k = (u - t[j]) / (t[j + 1] - t[j]);
+    out.push({ long: track.long[j] + (track.long[j + 1] - track.long[j]) * k, lat: track.lat[j] + (track.lat[j + 1] - track.lat[j]) * k });
   }
   return out;
 }
@@ -88,8 +133,9 @@ function smooth(times: number[], v: Array<number | null>, windowSec: number): Ar
  * G センサーの時刻のずれ (ミリ秒) を探す。計算した加減速 G と、G センサーの加減速 G (同じくらいにならしたもの) の形が
  * いちばん合う (相関が大きい) ずれ。走っている所が短すぎて決まらなければ 0
  */
-export function alignImu(points: TelemetryPoint[], track: ImuTrack, startUtc: number): number {
+export function alignImu(points: TelemetryPoint[], rawTrack: ImuTrack, startUtc: number): number {
   const times = points.map(p => p.time);
+  const track = lowPassTrack(rawTrack, IMU_CUTOFF_HZ.weak);
   const calc = smooth(times, points.map(p => (p.speed > 15 ? p.accelG : null)), 0.4);
   let best = 0, bestScore = -Infinity;
   for (let off = -ALIGN_RANGE_MS; off <= ALIGN_RANGE_MS; off += ALIGN_STEP_MS) {
@@ -110,11 +156,11 @@ export function alignImu(points: TelemetryPoint[], track: ImuTrack, startUtc: nu
 
 /**
  * 点の G (加減速・横・合算) を、計算した G と G センサーを合わせたものに書き換える (points をそのまま直す)。
- * G センサーの無い所は計算した G のまま
+ * G センサーには、先に「なめらか」の設定の低域のフィルターをかける。G センサーの無い所は計算した G のまま
  */
-export function fuseImuG(points: TelemetryPoint[], track: ImuTrack, startUtc: number, offsetMs: number, windowSec = FUSE_WINDOW_SEC): TelemetryPoint[] {
+export function fuseImuG(points: TelemetryPoint[], track: ImuTrack, startUtc: number, offsetMs: number, level: GFilterLevel = 'standard', windowSec = FUSE_WINDOW_SEC): TelemetryPoint[] {
   const times = points.map(p => p.time);
-  const imu = imuAtPoints(points, track, startUtc, offsetMs);
+  const imu = imuAtPoints(points, lowPassTrack(track, IMU_CUTOFF_HZ[level]), startUtc, offsetMs);
   const calcLong = points.map(p => p.accelG), calcLat = points.map(p => p.corneringG);
   const lpCalcLong = smooth(times, calcLong, windowSec), lpCalcLat = smooth(times, calcLat, windowSec);
   const lpImuLong = smooth(times, imu.map(x => x?.long ?? null), windowSec);
@@ -134,15 +180,57 @@ export function fuseImuG(points: TelemetryPoint[], track: ImuTrack, startUtc: nu
 /** 見つけた時計のずれ (G センサーの値ごと・走行の始まりと点の数ごと)。ならし方を替えるたびに探し直すと重いので覚える */
 const offsetCache = new WeakMap<ImuTrack, Map<string, number>>();
 
-export function applyImuToSession(points: TelemetryPoint[], session: Pick<Session, 'points' | 'clockOffsetSec'>, track: ImuTrack): { points: TelemetryPoint[]; offsetMs: number } {
+export function applyImuToSession(points: TelemetryPoint[], session: Pick<Session, 'points' | 'clockOffsetSec'>, track: ImuTrack, level: GFilterLevel = 'standard'): { points: TelemetryPoint[]; offsetMs: number; wobbleG: number | null } {
   const start = sessionStartUtcMs({ ...session, points } as Session);
-  if (start === null) return { points, offsetMs: 0 };
+  if (start === null) return { points, offsetMs: 0, wobbleG: null };
   const key = `${start}|${points.length}`;
   let byKey = offsetCache.get(track);
   if (!byKey) { byKey = new Map(); offsetCache.set(track, byKey); }
   const offsetMs = byKey.get(key) ?? alignImu(points, track, start);
   byKey.set(key, offsetMs);
-  return { points: fuseImuG(points, track, start, offsetMs), offsetMs };
+  return { points: fuseImuG(points, track, start, offsetMs, level), offsetMs, wobbleG: imuWobbleG(points, track, start, offsetMs) };
+}
+
+/**
+ * 端末の揺れの判定。走っている間の 3〜8 Hz の揺れの強さ (G、5 秒ごとの RMS の中央値。加減速と横の大きいほう)。
+ * この帯は運転の G より速く、低域のフィルターでも消えきらないので、大きいとグラフが揺れる (やわらかいホルダーなど)
+ */
+export const WOBBLE_LIMIT_G = 0.08;
+const wobbleCache = new WeakMap<ImuTrack, Map<string, number | null>>();
+export function imuWobbleG(points: TelemetryPoint[], track: ImuTrack, startUtc: number, offsetMs: number): number | null {
+  const key = `${startUtc}|${offsetMs}|${points.length}`;
+  let m = wobbleCache.get(track);
+  if (!m) { m = new Map(); wobbleCache.set(track, m); }
+  if (m.has(key)) return m.get(key)!;
+  const hi = lowPassTrack(track, 8), lo = lowPassTrack(track, 3);
+  // 走っている時刻 (30 km/h より速い) を、点から 5 秒ごとに拾う
+  const moving = new Set<number>();
+  for (const p of points) if (p.speed > 30) moving.add(Math.floor((startUtc + p.time * 1000 + offsetMs) / 5000));
+  const sums = new Map<number, { l: number; a: number; n: number }>();
+  for (let i = 0; i < track.t.length; i++) {
+    const w = Math.floor(track.t[i] / 5000);
+    if (!moving.has(w)) continue;
+    const dl = hi.long[i] - lo.long[i], da = hi.lat[i] - lo.lat[i];
+    const s = sums.get(w) ?? { l: 0, a: 0, n: 0 };
+    s.l += dl * dl; s.a += da * da; s.n++;
+    sums.set(w, s);
+  }
+  const rms = [...sums.values()].filter(s => s.n >= 50).map(s => Math.max(Math.sqrt(s.l / s.n), Math.sqrt(s.a / s.n))).sort((x, y) => x - y);
+  const v = rms.length >= 6 ? rms[rms.length >> 1] : null;
+  m.set(key, v);
+  return v;
+}
+
+/** 開いている走行の揺れの判定 (applyImuToSession と同じ時計のずれを使う) */
+export function sessionImuWobbleG(session: Pick<Session, 'points' | 'clockOffsetSec'>, track: ImuTrack): number | null {
+  const start = sessionStartUtcMs(session as Session);
+  if (start === null) return null;
+  const key = `${start}|${session.points.length}`;
+  let byKey = offsetCache.get(track);
+  if (!byKey) { byKey = new Map(); offsetCache.set(track, byKey); }
+  const offsetMs = byKey.get(key) ?? alignImu(session.points, track, start);
+  byKey.set(key, offsetMs);
+  return imuWobbleG(session.points, track, start, offsetMs);
 }
 
 /** G の出どころの設定 (sensor: G センサーがある走行は合わせる / calc: いつも計算した G) */

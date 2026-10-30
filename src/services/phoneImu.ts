@@ -87,7 +87,8 @@ export class PhoneImuRecorder {
     this.baseline = null;
     this.off = onNative('system.motion', b => this.onBatch(b));
     try {
-      await callNative('system.motionStart', { hz: 50 });
+      // 1 秒に 100 回 (50 回だと、25 Hz より上の振動が低い揺れに化けて混ざる。解析で低域のフィルターをかける)
+      await callNative('system.motionStart', { hz: 100 });
       // 頼んでいる間に止められたら、アプリにも止めてもらう
       if (!this.running) await callNative('system.motionStop', {}).catch(() => {});
     } catch {

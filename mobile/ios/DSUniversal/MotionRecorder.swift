@@ -18,8 +18,8 @@ final class MotionRecorder {
     private var rotation: [[Double]] = [[], [], []]
     /// CMDeviceMotion の時刻 (起動からの秒) を UTC に直すための差
     private var uptimeToEpoch: Double = 0
-    /// 渡せないとき (画面が裏にいる間) にためておく上限 (50 Hz で 2 分)。超えたら古いものから捨てる
-    private static let maxPending = 6000
+    /// 渡せないとき (画面が裏にいる間) にためておく上限 (100 Hz で 2 分)。超えたら古いものから捨てる
+    private static let maxPending = 12000
     /// 値を渡す先 (Web への知らせ)
     private var emitter: (@MainActor ([String: Any]) -> Void)?
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignImu, fuseImuG, parseImuCsv, type ImuTrack } from './imuG';
+import { alignImu, fuseImuG, imuWobbleG, lowPassTrack, parseImuCsv, WOBBLE_LIMIT_G, type ImuTrack } from './imuG';
 import type { TelemetryPoint } from '../types/telemetry';
 
 // 本当の加減速 G: 4 秒ごとに 加速 0.3 G (2 秒) → ブレーキ −0.9 G (1 秒) → 0 (1 秒)
@@ -21,15 +21,16 @@ function points(): TelemetryPoint[] {
   return out;
 }
 
-/** 100 Hz の G センサー。時計が offsetMs 遅れ、坂の分 0.05 G ずれている */
-function imu(offsetMs: number): ImuTrack {
+/** 100 Hz の G センサー。時計が offsetMs 遅れ、坂の分 0.05 G ずれている。vib: 20 Hz の振動、wobble: 5 Hz の揺れ (G) */
+function imu(offsetMs: number, vib = 0, wobble = 0): ImuTrack {
   const n = 100 * 62;
   const t = new Float64Array(n), long = new Float32Array(n), lat = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const sec = i / 100 - 1;
     t[i] = START + sec * 1000 + offsetMs;
-    long[i] = trueLong(sec) + 0.05;
-    lat[i] = trueLat(sec);
+    const shake = vib * Math.sin(2 * Math.PI * 20 * sec) + wobble * Math.sin(2 * Math.PI * 5 * sec);
+    long[i] = trueLong(sec) + 0.05 + shake;
+    lat[i] = trueLat(sec) + shake;
   }
   return { t, long, lat };
 }
@@ -58,5 +59,35 @@ describe('iPhone の G センサーの G を合わせる', () => {
     const steady = p.filter(q => q.time % 4 > 0.8 && q.time % 4 < 1.2);
     const mean = steady.reduce((s, q) => s + q.accelG, 0) / steady.length;
     expect(Math.abs(mean - 0.3)).toBeLessThan(0.04);
+  });
+
+  it('20 Hz の振動は落とし、ブレーキの踏み始めは鈍らせない (なめらかの設定でフィルターを替える)', () => {
+    const rough = (pts: TelemetryPoint[]) => Math.sqrt(pts.slice(41, -40).reduce((s, q, i, a) => i ? s + (q.accelG - a[i - 1].accelG) ** 2 : s, 0) / (pts.length - 81));
+    const clean = fuseImuG(points(), imu(0), START, 0, 'standard');
+    const shaky = fuseImuG(points(), imu(0, 0.3), START, 0, 'standard');
+    // 0.3 G の振動を足しても、ざらつきはほとんど増えない
+    expect(rough(shaky)).toBeLessThan(rough(clean) * 1.3 + 0.01);
+    // ブレーキ (−0.9 G) の 0.15 秒後には、半分以上まで落ちている
+    const at = (pts: TelemetryPoint[], t: number) => pts.find(q => Math.abs(q.time - t) < 1e-6)!.accelG;
+    expect(at(shaky, 10.15)).toBeLessThan(-0.45);
+    // 強いほど、なめらか
+    const strong = fuseImuG(points(), imu(0, 0.3), START, 0, 'strong');
+    const weak = fuseImuG(points(), imu(0, 0.3), START, 0, 'weak');
+    expect(rough(strong)).toBeLessThanOrEqual(rough(weak));
+  });
+
+  it('フィルターは遅れを出さない (前後から 1 回ずつ)', () => {
+    const tr = imu(0);
+    const f = lowPassTrack(tr, 2.5);
+    // ブレーキの始まり (10 秒) の前後で、−0.3 G を切る時刻がずれていない
+    const cross = (v: Float32Array) => { for (let i = 1050; i < 1150; i++) if (v[i] < -0.3) return tr.t[i]; return NaN; };
+    expect(Math.abs(cross(f.long) - cross(tr.long))).toBeLessThanOrEqual(40);
+  });
+
+  it('端末が揺れていた (3〜8 Hz) ことを見つける', () => {
+    const p = points();
+    expect(imuWobbleG(p, imu(0), START, 0)!).toBeLessThan(WOBBLE_LIMIT_G);
+    expect(imuWobbleG(p, imu(0, 0.3), START, 0)!).toBeLessThan(WOBBLE_LIMIT_G);
+    expect(imuWobbleG(p, imu(0, 0, 0.2), START, 0)!).toBeGreaterThan(WOBBLE_LIMIT_G);
   });
 });
