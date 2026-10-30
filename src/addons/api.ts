@@ -1,5 +1,8 @@
 import type { ComponentType } from 'react';
 import type { RunItem } from '../services/runOpener';
+import type { LapReferenceSource } from '../services/timer/lapReferences';
+
+export type { IndexedLap, LapReferenceChoice, LapReferenceContext, LapReferenceSource } from '../services/timer/lapReferences';
 
 export const ADDON_API_VERSION = 1;
 
@@ -18,4 +21,5 @@ export interface AddonModule {
   apiVersion: number;
   name: string;
   lapListViews?: LapListView[];
+  lapReferences?: LapReferenceSource[];
 }
