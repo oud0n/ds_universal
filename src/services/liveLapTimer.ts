@@ -34,8 +34,10 @@ export interface LiveLap {
   timeSec: number;
   /** セクターごとのタイム。セクター線を取りこぼした周は空 */
   sectorsSec: number[];
-  /** この周の間に、測位が 2 秒より長く途切れた */
+  /** この周の間に、測位が 2 秒より長く途切れた (ベストの周・デルタの基準にしない) */
   hadGap: boolean;
+  /** セクターごとの途切れ (sectorsSec と同じ並び)。途切れたセクターは、セクターのベストの基準にしない */
+  sectorGaps?: boolean[];
 }
 
 export interface LiveLapEvent {
@@ -43,6 +45,7 @@ export interface LiveLapEvent {
   lap: LiveLap;
   /** その周を終える前のベストとの差 (秒。負なら速い)。初めての周は null */
   diffToBestSec: number | null;
+  /** ベストを更新した (途切れた周は、速くてもベストにしない) */
   isBest: boolean;
 }
 
@@ -120,6 +123,9 @@ export class LiveLapTimer {
   private lastCrossMs = -Infinity;
   private lapDistanceM = 0;
   private lapHadGap = false;
+  /** 今のセクターの間に途切れた / 終えたセクターごとの途切れ */
+  private sectorHadGap = false;
+  private splitGaps: boolean[] = [];
   /** 今の周で次に横切るセクター線 */
   private nextSector = 0;
   private lastSplitMs = 0;
@@ -155,9 +161,10 @@ export class LiveLapTimer {
     const dt = fix.tMs - prev.tMs;
     if (dt > GAP_BREAK_MS) {
       this.lapHadGap = true;
+      this.sectorHadGap = true;
       return [];
     }
-    if (dt > GAP_MARK_MS) this.lapHadGap = true;
+    if (dt > GAP_MARK_MS) { this.lapHadGap = true; this.sectorHadGap = true; }
 
     const events: LiveTimerEvent[] = [];
     const seg = distanceM(prev, fix);
@@ -229,6 +236,8 @@ export class LiveLapTimer {
     this.lapStartMs = tMs;
     this.lapDistanceM = distanceSoFar;
     this.lapHadGap = false;
+    this.sectorHadGap = false;
+    this.splitGaps = [];
     this.nextSector = 0;
     this.lastSplitMs = tMs;
     this.splitsSec = [];
@@ -243,10 +252,12 @@ export class LiveLapTimer {
     const sectorsSec = complete
       ? [...this.splitsSec.map((s, i) => s - (i > 0 ? this.splitsSec[i - 1] : 0)), timeSec - this.splitsSec[this.splitsSec.length - 1]]
       : [];
-    const lap: LiveLap = { number: this.lapNumber!, timeSec, sectorsSec, hadGap: this.lapHadGap };
+    const sectorGaps = complete ? [...this.splitGaps, this.sectorHadGap] : undefined;
+    const lap: LiveLap = { number: this.lapNumber!, timeSec, sectorsSec, hadGap: this.lapHadGap, ...(sectorGaps ? { sectorGaps } : {}) };
     this.trace.push(this.lapDistanceM, timeSec);
     const prevBest = this.best;
-    const isBest = !prevBest || timeSec < prevBest.timeSec;
+    // 測位が途切れた周は、計測線の通過の時刻があやしいので、速くてもベスト (デルタの基準) にしない
+    const isBest = !lap.hadGap && (!prevBest || timeSec < prevBest.timeSec);
     this.laps = [...this.laps, lap];
     this.lapsDirection = this.lapDirection;
     if (isBest) {
@@ -254,8 +265,13 @@ export class LiveLapTimer {
       this.bestTrace = this.trace;
     }
     // セクターの差の基準は、セクターごとのベスト (どの周のものでもよい)。ベストの周でセクター線を取りこぼしても基準が残る
+    // 途切れたセクターは基準にしない (ほかのセクターは使う)
     if (lap.sectorsSec.length > 0) {
-      this.refSectors = lap.sectorsSec.map((t, i) => (this.refSectors[i] !== undefined && this.refSectors[i] < t ? this.refSectors[i] : t));
+      this.refSectors = lap.sectorsSec.map((t, i) => {
+        const old = this.refSectors[i];
+        if (sectorGaps?.[i]) return old;
+        return old !== undefined && old < t ? old : t;
+      });
     }
     return { kind: 'lap', lap, diffToBestSec: prevBest ? timeSec - prevBest.timeSec : null, isBest };
   }
@@ -273,6 +289,7 @@ export class LiveLapTimer {
       // 取りこぼした線
       for (let k = this.nextSector; k < j; k++) {
         this.splitsSec.push(NaN);
+        this.splitGaps.push(true);
         this.currentSectors = [...this.currentSectors, { timeSec: NaN, diffSec: null }];
       }
       const split = (tMs - this.lapStartMs!) / 1000;
@@ -281,6 +298,8 @@ export class LiveLapTimer {
       const bestSector = this.refSectors[j];
       const diffSec = bestSector !== undefined && Number.isFinite(timeSec) ? timeSec - bestSector : null;
       this.splitsSec.push(split);
+      this.splitGaps.push(this.sectorHadGap);
+      this.sectorHadGap = false;
       this.currentSectors = [...this.currentSectors, { timeSec, diffSec }];
       this.nextSector = j + 1;
       this.lastSplitMs = tMs;
