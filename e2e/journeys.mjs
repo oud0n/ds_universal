@@ -957,6 +957,21 @@ export const journeys = [
     }
   },
   {
+    name: 'バージョン情報 (PLAN-44): 設定に版の番号が出る。手元の版は新しい版を確かめず、知らせの帯も出ない',
+    target: 'electron',
+    async run(p) {
+      const version = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+      await p.goto(APP);
+      await p.click('nav-settings');
+      await p.waitFor(`document.querySelector('[data-testid="about-version"]')`, 5000, 'バージョン情報');
+      const shown = await p.ev(`document.querySelector('[data-testid="about-version"]').textContent`);
+      check(shown === version, `版の番号が ${shown} (package.json は ${version})`);
+      check(await p.exists('about-update-off'), '手元の版なのに、新しい版を確かめる欄が出ている');
+      check(!(await p.exists('update-banner')), '手元の版なのに、知らせの帯が出ている');
+      check(await p.exists('about-release-notes'), '更新の記録のボタンが無い');
+    }
+  },
+  {
     name: 'スマートフォンのアプリ: タブ・設定の開け閉め・⚙ の中の画面から戻る',
     target: 'phone',
     async run(p) {

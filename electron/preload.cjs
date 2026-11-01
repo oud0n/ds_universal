@@ -31,5 +31,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     startDownload: (p) => ipcRenderer.invoke('laps-start-download', p),
     remove: (paths) => ipcRenderer.invoke('laps-delete', paths)
   },
+  // 更新 (PLAN-44)。onState は登録を解除する関数を返す
+  update: {
+    getState: () => ipcRenderer.invoke('update-get-state'),
+    check: () => ipcRenderer.invoke('update-check'),
+    download: () => ipcRenderer.invoke('update-download'),
+    install: () => ipcRenderer.invoke('update-install'),
+    openReleases: () => ipcRenderer.invoke('update-open-releases'),
+    onState: (callback) => {
+      const listener = (_event, value) => callback(value);
+      ipcRenderer.on('update-state', listener);
+      return () => ipcRenderer.removeListener('update-state', listener);
+    }
+  },
   isElectron: true
 });

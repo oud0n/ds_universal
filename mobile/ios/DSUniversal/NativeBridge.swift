@@ -14,6 +14,13 @@ import WebKit
 @MainActor
 final class NativeBridge: NSObject, WKScriptMessageHandler {
     static let contractVersion = 1
+    /// 版の番号 (1.2.0 (16))。設定の「バージョン情報」に出す
+    static let appVersion: String = {
+        let info = Bundle.main.infoDictionary
+        let v = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let b = info?["CFBundleVersion"] as? String
+        return b.map { "\(v) (\($0))" } ?? v
+    }()
     static let handlerName = "dsNative"
 
     private weak var webView: WKWebView?
@@ -70,7 +77,8 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
                 "contractVersion": Self.contractVersion,
                 "platform": "ios",
                 "deviceKind": DeviceKind.current,
-                "features": ["ble": true, "iap": true, "camera": true, "deleteFiles": true, "trashFiles": true]
+                "features": ["ble": true, "iap": true, "camera": true, "deleteFiles": true, "trashFiles": true],
+                "appVersion": Self.appVersion
             ]))
         case let m where m.hasPrefix("ble.") || m.hasPrefix("recorder."):
             core.ble.handle(method: m, params: params, done: done)

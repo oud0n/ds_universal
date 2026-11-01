@@ -30,6 +30,13 @@ class NativeBridge(private val activity: MainActivity, private val webView: WebV
     }
 
     private val main = Handler(Looper.getMainLooper())
+
+    /** 版の番号 (0.3.0 (6))。設定の「バージョン情報」に出す */
+    private fun appVersion(): String = try {
+        val info = activity.packageManager.getPackageInfo(activity.packageName, 0)
+        "${info.versionName ?: "?"} (${androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(info)})"
+    } catch (_: Exception) { "?" }
+
     val system = SystemModule(activity, this)
     val spp = SppModule(activity, this)
     val ble = BleModule(activity, this)
@@ -57,7 +64,8 @@ class NativeBridge(private val activity: MainActivity, private val webView: WebV
                         .put("contractVersion", CONTRACT_VERSION)
                         .put("platform", "android")
                         .put("deviceKind", "phone")
-                        .put("features", JSONObject().put("ble", true).put("iap", false).put("camera", true).put("spp", true).put("deleteFiles", true))))
+                        .put("features", JSONObject().put("ble", true).put("iap", false).put("camera", true).put("spp", true).put("deleteFiles", true))
+                        .put("appVersion", appVersion())))
                     method == "system.motionStart" || method == "system.motionStop" -> motion.handle(method, params, done)
                     method.startsWith("system.") -> system.handle(method, params, done)
                     method.startsWith("spp.") -> spp.handle(method, params, done)

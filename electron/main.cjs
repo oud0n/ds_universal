@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeTheme, protocol 
 const { Readable } = require('stream');
 const path = require('path');
 const fs = require('fs');
+const { setupUpdater } = require('./updater.cjs');
 
 // GoPro 4K/60fps 等の H.265 (HEVC) ハードウェアアクセラレーション再生の有効化
 app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport');
@@ -750,6 +751,7 @@ async function serveLapFile(request) {
 app.whenReady().then(() => {
   protocol.handle('lapfile', serveLapFile);
   createWindow();
+  setupUpdater(() => mainWindow);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

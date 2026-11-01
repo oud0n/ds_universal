@@ -59,6 +59,9 @@ E2E_APP=http://localhost:5184/ node e2e/run.mjs --electron 9334 --chrome 9224 [-
 1. `package.json` の `version` と、`docs/release-notes.md`・`release-notes.en.md` の節を書く。
 2. dev → main にマージして push。ブラウザ版 (Pages) は main の push で出し直される (`.github/workflows/pages.yml`)。
 3. `git tag -a vX.Y.Z main -m "LapLoupe X.Y.Z"` → `git push origin vX.Y.Z`。CI (`build-and-release.yml`) が Mac (署名・公証。リポジトリの secrets) と Windows を作り、GitHub Release を作る (説明はコミットから自動)。公証に 10〜30 分かかる。
+   - タグのビルドだけ、新しい版を確かめる (`electron/updater.cjs`。CI が `-c.extraMetadata.autoUpdate=true` を付ける)。リリースには `latest.yml`・`latest-mac.yml`・`*.blockmap` も置く (無いと、前の版のアプリが新しい版を見つけられない)。手元・タグでない CI のビルドは確かめない。
+   - 出したら、前の版のアプリで「新しい版を確かめる」→「入れる」→「再起動して入れる」が通るか、一度は確かめる。画面だけなら、開発中に `LAPLOUPE_FAKE_UPDATE=1.9.0` (zip 版などの形は `LAPLOUPE_FAKE_UPDATE_MODE=manual` も) で起こすと、新しい版があるふりをする。
+   - Windows のインストーラーの名前は `LapLoupe-Setup-X.Y.Z.exe` (空白を入れない。GitHub が空白を「.」に変え、目録と名前がずれるため)。
 4. 同じ番号で出し直すとき (ダウンロードが 0 のときだけ): `gh release delete vX.Y.Z --yes` → `git push origin :refs/tags/vX.Y.Z` → タグを付け直して push。
 5. 試験版のページ: `gh workflow run pages.yml -f preview_ref=<ブランチ>` で /ds_universal/preview/ に出る (保存は本番と分かれる)。
 

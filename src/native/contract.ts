@@ -60,6 +60,8 @@ export interface Capabilities {
   /** spp: Bluetooth Classic のシリアル (Android だけ。Drogger DG-PRO1S など。2026-10-25) */
   /** deleteFiles: 走行のファイルを消せる (system.deleteRunFiles。2026-10-25)。trashFiles: アプリのゴミ箱へ移せる (system.trashRunFiles など。2026-10-28) */
   features: { ble: boolean; iap?: boolean; camera?: boolean; spp?: boolean; deleteFiles?: boolean; trashFiles?: boolean };
+  /** アプリの版の番号 (1.2.0 (16) など。2026-11-02 に足した。前の版のアプリには無い) */
+  appVersion?: string;
 }
 
 /** 内蔵カメラの画質 */

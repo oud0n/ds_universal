@@ -4,6 +4,13 @@
 
 [Back to the README](../README.en.md)
 
+## v1.3.0 (not released yet)
+
+**Added**
+
+- **About**: Settings › Other now shows the version, with links to the release notes and GitHub.
+- **Updates for the PC version** [PC]: The app checks for a new version when it starts and shows a notice at the bottom right. "Install" downloads it; it is installed when you choose "Restart and install" or when you quit. Nothing is downloaded without asking. You can also check from Settings › About. The Windows zip version and a Mac app opened outside the Applications folder cannot replace themselves, so they open the download page instead. This starts with the version that has it; from an older version, install once by hand.
+
 ## v1.2.0 (not released yet)
 
 The PC version and the iPhone / iPad app get different items ([iPhone] = the app only, [PC] = the PC and browser versions only, no mark = both).

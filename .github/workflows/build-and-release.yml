@@ -17,6 +17,10 @@ on:
 permissions:
   contents: read
 
+# タグで作った版だけが、新しい版を確かめる (electron/updater.cjs。手元で作った版は確かめない)
+env:
+  UPDATE_ARGS: ${{ startsWith(github.ref, 'refs/tags/') && '-- -c.extraMetadata.autoUpdate=true' || '' }}
+
 jobs:
   build:
     name: Build on ${{ matrix.os }}
@@ -30,11 +34,15 @@ jobs:
             artifact_pattern: |
               release/*.exe
               release/*.zip
+              release/*.blockmap
+              release/latest.yml
           - os: macos-latest
             target_cmd: npm run dist:mac
             artifact_pattern: |
               release/*.dmg
               release/*.zip
+              release/*.blockmap
+              release/latest-mac.yml
 
     steps:
       - name: Checkout code
@@ -54,7 +62,9 @@ jobs:
 
       - name: Build Electron Package (Windows)
         if: matrix.os == 'windows-latest'
-        run: ${{ matrix.target_cmd }}
+        # PowerShell は npm に渡す -- を消すので bash で動かす
+        shell: bash
+        run: ${{ matrix.target_cmd }} ${{ env.UPDATE_ARGS }}
 
       # Mac 版: Secrets に Developer ID の証明書があれば署名し、タグ (または手動で notarize を選んだとき) は公証もする。
       # Secrets がないとき (フォークなど) は、これまでどおり署名なしで作る
@@ -107,7 +117,7 @@ jobs:
             export APPLE_API_ISSUER="$APPLE_API_ISSUER_VALUE"
             echo "公証します"
           fi
-          ${{ matrix.target_cmd }}
+          ${{ matrix.target_cmd }} ${{ env.UPDATE_ARGS }}
 
       # タグ (リリース) のときは、署名か公証が通っていなければ止める (署名なし・公証なしのものをリリースに上げない)
       - name: Check macOS signature
