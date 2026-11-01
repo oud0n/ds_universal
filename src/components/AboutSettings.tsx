@@ -69,7 +69,7 @@ const UpdateRow: React.FC<{ update: DesktopUpdateState }> = ({ update: u }) => {
       <p className={`text-sm ${u.status === 'available' || u.status === 'ready' ? 'text-sky-300' : u.status === 'error' ? 'text-amber-400' : 'text-slate-300'}`} data-testid="about-update-status">
         {u.status === 'checking' && t('新しい版を確かめています…', 'Checking for updates…')}
         {u.status === 'none' && t('いまの版が最新です。', 'You have the latest version.')}
-        {u.status === 'idle' && t('新しい版は、起動したときに確かめます。', 'Updates are checked when the app starts.')}
+        {u.status === 'idle' && (u.autoCheck ? t('新しい版は、起動したときに確かめます。', 'Updates are checked when the app starts.') : t('新しい版は、ボタンを押したときだけ確かめます。', 'Updates are checked only when you press the button.'))}
         {u.status === 'available' && t(`新しい版 ${u.version} があります。`, `Version ${u.version} is available.`)}
         {u.status === 'downloading' && t(`新しい版 ${u.version ?? ''} を落としています… ${u.percent}%`, `Downloading ${u.version ?? ''}… ${u.percent}%`)}
         {u.status === 'ready' && t(`新しい版 ${u.version} の準備ができました。閉じたときにも入れ替わります。`, `Version ${u.version} is ready. It is also installed when you quit.`)}
@@ -103,6 +103,13 @@ const UpdateRow: React.FC<{ update: DesktopUpdateState }> = ({ update: u }) => {
         )}
       </div>
       {checkedAt && u.status !== 'checking' && <p className="text-[10px] text-slate-500">{t(`確かめた時刻: ${checkedAt}`, `Last checked: ${checkedAt}`)}</p>}
+      <label className="flex items-start gap-2.5 pt-1 text-sm text-slate-200 cursor-pointer">
+        <input type="checkbox" checked={u.autoCheck} onChange={e => desktopUpdate.setAutoCheck(e.target.checked)} className="mt-0.5 w-4 h-4 accent-sky-600" data-testid="about-update-auto" />
+        <span className="flex-1">
+          {t('起動したときに新しい版を確かめる', 'Check for updates when the app starts')}
+          <span className="block text-[11px] text-slate-500">{t('GitHub の新しい版の番号を読むだけで、ログ・設定は送りません。切ると、上のボタンを押したときだけ通信します。', 'It only reads the latest version number from GitHub; no logs or settings are sent. When off, it connects only when you press the button above.')}</span>
+        </span>
+      </label>
     </div>
   );
 };

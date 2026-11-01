@@ -57,6 +57,7 @@ export const desktopUpdate = {
   check: () => api()?.check().then(s => { state = s; emit(); }),
   download: () => api()?.download().then(s => { state = s; emit(); }),
   install: () => api()?.install(),
+  setAutoCheck: (on: boolean) => api()?.setAutoCheck(on).then(s => { state = s; emit(); }),
   openReleases: () => api()?.openReleases(),
   dismiss: (version: string | null) => { dismissed = version; emit(); },
 };
