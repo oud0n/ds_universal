@@ -320,7 +320,8 @@ let gFilterLevel: GFilterLevel = (() => {
   } catch {
     // 保存先が使えないときは既定のまま
   }
-  return 'standard';
+  // 既定は「強」(フリクションサークルの「なめらか」。持ち主、2026-11-01。前は「標準」)
+  return 'strong';
 })();
 
 export function getGFilterLevel(): GFilterLevel {
