@@ -184,8 +184,9 @@ export const TimerCameraSettings: React.FC = () => {
           {errorText || label}
         </div>
         {e && (
-          <div className={`text-[11px] ${PORT_SMALL} text-slate-400 font-mono truncate`} data-testid={which === 'main' ? 'lap-timer-camera-exposure' : 'lap-timer-camera-exposure-front'}>
-            ISO {Math.round(e.iso)}<span className={PORT_HIDE}> ・</span> <span className={PORT_HIDE}>{t('シャッター', 'Shutter')} </span>{shutter(e.shutterSec)}<span className={PORT_HIDE}> {t('秒', 's')}</span>
+          // 切らずに、入りきらないときは ISO とシャッターの間で折り返す (iPad で 2 つ並べると、シャッターの値が … で切れていた。BUG-38 の 14)
+          <div className={`text-[11px] ${PORT_SMALL} text-slate-400 font-mono leading-tight`} data-testid={which === 'main' ? 'lap-timer-camera-exposure' : 'lap-timer-camera-exposure-front'}>
+            <span className="whitespace-nowrap">ISO {Math.round(e.iso)}<span className={PORT_HIDE}> ・</span></span> <span className="whitespace-nowrap"><span className={PORT_HIDE}>{t('シャッター', 'Shutter')} </span>{shutter(e.shutterSec)}<span className={PORT_HIDE}> {t('秒', 's')}</span></span>
           </div>
         )}
       </div>

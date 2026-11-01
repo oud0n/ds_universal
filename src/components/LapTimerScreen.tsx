@@ -456,11 +456,13 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
         </div>
       )}
       <main className="flex-1 min-h-0 flex flex-col landscape:flex-row items-stretch gap-2 px-3 pb-3">
-        <section className={`relative flex-1 min-w-0 min-h-0 flex flex-col items-center justify-center overflow-hidden rounded-3xl px-3 transition-colors duration-300 ${measuring || source === 'replay' ? (flashBg || 'bg-surface-1') : ''}`} data-testid="lap-timer-main" data-verdict={flashing ? lapVerdict : sectorShown ? sectorVerdict : undefined}>
+        <section className={`relative flex-1 min-w-0 min-h-0 flex flex-col items-center justify-center overflow-hidden rounded-3xl px-3 [container-type:inline-size] transition-colors duration-300 ${measuring || source === 'replay' ? (flashBg || 'bg-surface-1') : ''}`} data-testid="lap-timer-main" data-verdict={flashing ? lapVerdict : sectorShown ? sectorVerdict : undefined}>
           {!measuring && source !== 'replay' ? (
             <div className="text-center space-y-2 max-w-full min-w-0" data-testid="lap-timer-idle">
               {/* 横向きのスマートフォンは高さが足りないので、コース名は 1 行にして入りきらない分は … にする (長い名前が 2 行になって、上下に重なっていた) */}
-              <div className="font-bold [@media(max-height:500px)]:truncate" style={{ fontSize: needsRegister ? 'min(5.5vw, 7vh)' : 'min(7vw, 9vh)' }}>
+              {/* 字の大きさは、この欄の幅 (cqw) で決める (画面の幅で決めると、iPad の横向きで右に欄があるとき入りきらず、最後の 1 字だけ次の行に落ちていた)。
+                  折り返すときは行の長さをそろえる */}
+              <div className="font-bold [text-wrap:balance] [@media(max-height:500px)]:truncate" style={{ fontSize: needsRegister ? 'min(7cqw, 7vh)' : 'min(9cqw, 9vh)' }}>
                 {needsRegister ? t('位置の機器を登録してください', 'Register a position device') : phoneError ? t('位置を取れていません', 'No position') : course ? circuitLabel(course.name) : t('コースを決めています', 'Finding the course')}
               </div>
               {/* 位置の許可が無いときなど。上の札では切れて読めないので、ここに全文を出す (BUG-38 の 13) */}
