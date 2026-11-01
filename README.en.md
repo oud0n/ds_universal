@@ -34,7 +34,7 @@ The app's screens are available in Japanese and English (it follows your device'
 - On the iPhone app, connect the DigSpice over Bluetooth and use it as a lap timer (the iPhone's own GPS works too)
 - Overlay and compare the driving line, speed, G and corner speeds between laps and cars
 - Sync onboard video from a GoPro and other cameras with the log automatically, and export video with gauges
-- Free and source-available. Logs are processed on your device and never sent to a server
+- Free and source-available. Logs are processed on your device and never sent to a server (the desktop app only asks GitHub whether a new version exists; you can turn this off in Settings)
 
 ---
 

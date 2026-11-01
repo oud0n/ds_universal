@@ -1,4 +1,5 @@
 // デスクトップ版の更新 (PLAN-44)。GitHub Releases の latest.yml / latest-mac.yml を見て、新しい版を知らせる。
+// 通信するのは GitHub の目録を読むときと、[入れる] で落とすときだけ (ログ・設定は送らない)。
 // 勝手には落とさない: 画面の [入れる] で落とし、落とし終わったら [再起動して入れる] か、閉じたときに入れ替える。
 // 確かめるのは、タグで作った版 (package.json の autoUpdate が true) だけ。
 // 入れ替えられない置き方 (Windows の zip 版、Mac の「アプリケーション」の外) では、知らせてダウンロードのページを開くだけ
@@ -27,6 +28,21 @@ function canReplace() {
   return false;
 }
 
+// 起動したとき・開いたまま確かめるか (設定の「バージョン情報」。既定は確かめる)。画面より先に読むので、ここに置く
+const settingsPath = () => path.join(app.getPath('userData'), 'update-settings.json');
+function readAutoCheck() {
+  try {
+    return JSON.parse(fs.readFileSync(settingsPath(), 'utf8')).autoCheck !== false;
+  } catch {
+    return true;
+  }
+}
+function writeAutoCheck(on) {
+  try {
+    fs.writeFileSync(settingsPath(), JSON.stringify({ autoCheck: !!on }));
+  } catch { /* 書けなくても、この起動のあいだは切り替える */ }
+}
+
 function setupUpdater(getWindow) {
   // 試験用: 開発中だけ、LAPLOUPE_FAKE_UPDATE=1.9.0 のように新しい版があるふりをする (落とす・入れるもふり)
   const fake = !app.isPackaged ? process.env.LAPLOUPE_FAKE_UPDATE : undefined;
@@ -34,6 +50,7 @@ function setupUpdater(getWindow) {
   const state = {
     enabled,
     mode: fake ? (process.env.LAPLOUPE_FAKE_UPDATE_MODE === 'manual' ? 'manual' : 'auto') : (enabled && canReplace() ? 'auto' : 'manual'),
+    autoCheck: readAutoCheck(),
     status: 'idle',
     current: app.getVersion(),
     version: null,
@@ -106,11 +123,13 @@ function setupUpdater(getWindow) {
   ipcMain.handle('update-check', async () => { await check(); return { ...state }; });
   ipcMain.handle('update-download', async () => { await download(); return { ...state }; });
   ipcMain.handle('update-install', () => { install(); return { ...state }; });
+  ipcMain.handle('update-set-auto-check', (_event, on) => { writeAutoCheck(on); set({ autoCheck: !!on }); return { ...state }; });
   ipcMain.handle('update-open-releases', () => shell.openExternal(RELEASES_URL));
 
+  // 止めているときは、設定の「新しい版を確かめる」を押したときだけ通信する
   if (enabled) {
-    setTimeout(() => { check(); }, FIRST_CHECK_MS);
-    setInterval(() => { check(); }, RECHECK_MS).unref?.();
+    setTimeout(() => { if (state.autoCheck) check(); }, FIRST_CHECK_MS);
+    setInterval(() => { if (state.autoCheck) check(); }, RECHECK_MS).unref?.();
   }
 }
 

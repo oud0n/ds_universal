@@ -14,6 +14,7 @@ interface ElectronAPI {
     check: () => Promise<DesktopUpdateState>;
     download: () => Promise<DesktopUpdateState>;
     install: () => Promise<DesktopUpdateState>;
+    setAutoCheck: (on: boolean) => Promise<DesktopUpdateState>;
     openReleases: () => Promise<void>;
     onState: (callback: (state: DesktopUpdateState) => void) => () => void;
   };
@@ -41,6 +42,8 @@ interface DesktopUpdateState {
   enabled: boolean;
   /** auto: 落として入れ替える。manual: ダウンロードのページを開くだけ */
   mode: 'auto' | 'manual';
+  /** 起動したときに確かめるか (止めると、設定のボタンを押したときだけ通信する) */
+  autoCheck: boolean;
   status: 'idle' | 'checking' | 'none' | 'available' | 'downloading' | 'ready' | 'error';
   current: string;
   version: string | null;

@@ -94,6 +94,8 @@ Use it straight from your browser without installing anything. Logs are loaded, 
 
 The app only talks to outside services to show maps (map tiles), to fetch course definitions automatically (the course centre coordinates are sent to the OpenStreetMap Overpass API), and when you open an exported map HTML file (the display script comes from unpkg.com and the map tiles from OpenStreetMap). The browser version also uses [GoatCounter](https://www.goatcounter.com/) to count visits (it sends the page opened, the referrer and similar; no cookies are used and no log contents are sent). The desktop version does not include it.
 
+The desktop app asks GitHub whether a new version exists when it starts and every 6 hours while open (it only reads the release manifest `latest.yml`; no logs or settings are sent, and a new version is downloaded only when you press "Install"). Turn off "Check for updates when the app starts" in Settings › About to connect only when you press the button. Locally built copies never check.
+
 - Analysis: <https://oud0n.github.io/ds_universal/>
 - Log conversion: <https://oud0n.github.io/ds_universal/#convert>
 

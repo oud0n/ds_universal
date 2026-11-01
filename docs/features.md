@@ -95,6 +95,8 @@ iPhone / iPad のアプリは 2026-10-27 に App Store の審査に出してい�
 
 外部と通信するのは、地図の表示（地図タイルの取得）、コース定義の自動取得（コース中心の座標を OpenStreetMap の Overpass API に送信）、書き出した地図 HTML を開いたとき（表示用スクリプトを unpkg.com から、地図タイルを OpenStreetMap から取得）です。また、ブラウザ版はアクセス数を数えるために [GoatCounter](https://www.goatcounter.com/) を使っています（開いたページ・参照元などを送ります。Cookie は使わず、ログの内容は送りません）。デスクトップ版には入っていません。
 
+デスクトップ版は、起動したときと開いたまま 6 時間ごとに、新しい版があるかを GitHub に確かめます（GitHub Releases の目録 `latest.yml` を読むだけで、ログ・設定は送りません。「入れる」を押したときだけ新しい版を落とします）。設定の「バージョン情報」の「起動したときに新しい版を確かめる」を切ると、ボタンを押したときだけ通信します。手元で作った版は確かめません。
+
 - 解析画面: <https://oud0n.github.io/ds_universal/>
 - ログ変換ページ: <https://oud0n.github.io/ds_universal/#convert>
 
