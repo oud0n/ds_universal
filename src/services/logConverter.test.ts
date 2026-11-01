@@ -227,12 +227,9 @@ describe('.bon4 で書き出す', () => {
 });
 
 describe('.bon4 の読み込み', () => {
-  it('1/100 秒が 99 の点 (時刻が前後と合わない点) は読まない', () => {
-    const n = 5;
-    const buf = new ArrayBuffer(8 + n * 26);
+  const bon4Of = (rows: Array<[number, number, number]>) => {
+    const buf = new ArrayBuffer(8 + rows.length * 26);
     const v = new DataView(buf);
-    // 24.94 → (99: 位置は 25.0 前後) → 25.10 → 25.15 → 25.20
-    const rows: Array<[number, number, number]> = [[24, 94, 0], [25, 99, 1], [25, 10, 2], [25, 15, 3], [25, 20, 4]];
     rows.forEach(([sec, sub, k], i) => {
       const o = 8 + i * 26;
       v.setUint16(o, 0x2085, true);
@@ -249,8 +246,18 @@ describe('.bon4 の読み込み', () => {
       v.setUint8(o + 24, sec);
       v.setUint8(o + 25, sub);
     });
-    const [part] = parseDigispiceRawBinary('a.bon4', buf);
-    const times = (part.points as TelemetryPoint[]).map(p => p.timestamp);
-    expect(times).toEqual(['2026-09-13T00:42:24.940Z', '2026-09-13T00:42:25.100Z', '2026-09-13T00:42:25.150Z', '2026-09-13T00:42:25.200Z']);
+    return buf;
+  };
+
+  it('1/100 秒が 99 の点 (秒だけ 1 秒先に繰り上がった点、BUG-41) は 1 秒戻して残す', () => {
+    // 24.94 → (25.99: 本当は 24.99) → 25.10 → 25.15 → 25.20
+    const [part] = parseDigispiceRawBinary('a.bon4', bon4Of([[24, 94, 0], [25, 99, 1], [25, 10, 2], [25, 15, 3], [25, 20, 4]]));
+    expect((part.points as TelemetryPoint[]).map(p => p.timestamp)).toEqual(['2026-09-13T00:42:24.940Z', '2026-09-13T00:42:24.990Z', '2026-09-13T00:42:25.100Z', '2026-09-13T00:42:25.150Z', '2026-09-13T00:42:25.200Z']);
+  });
+
+  it('99 の点で、前後と合わず戻せないものは読まない', () => {
+    // 24.94 → 24.99 → 25.10 (飛んでいないので戻せない。公式ソフトと同じく捨てる)
+    const [part] = parseDigispiceRawBinary('a.bon4', bon4Of([[24, 94, 0], [24, 99, 1], [25, 10, 2], [25, 15, 3], [25, 20, 4]]));
+    expect((part.points as TelemetryPoint[]).map(p => p.timestamp)).toEqual(['2026-09-13T00:42:24.940Z', '2026-09-13T00:42:25.100Z', '2026-09-13T00:42:25.150Z', '2026-09-13T00:42:25.200Z']);
   });
 });
