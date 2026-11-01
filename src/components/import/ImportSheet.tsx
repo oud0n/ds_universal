@@ -4,6 +4,8 @@ import { circuitLabel, useT } from '../../utils/i18n';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import type { ImportPart, ImportPlan } from '../../services/import/importPlan';
 import type { PartResult } from '../../services/import/importApply';
+import { addons, type RunPoints, type SameRunView } from '../../addons';
+import type { SameTimeRun } from '../../services/import/importPlan';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const hm = (ms: number) => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
@@ -36,14 +38,22 @@ export const ImportSheet: React.FC<{
   onOpenOnly: () => void;
   /** 時間の重なる保管場所の走行を開く (取り込まない。PLAN-43) */
   onOpenStored?: (base: string) => void;
+  /** 保管場所の走行の点を読む */
+  loadStored?: (base: string) => Promise<RunPoints[]>;
+  /** 保管場所の走行と、開いたログを並べて開く */
+  onOpenBoth?: (base: string) => void;
   /** 取り込んだあと、解析で開く */
   onOpenAfter?: () => void;
   onClose: () => void;
   /** 複数のファイルを一度に取り込むとき、何番目か */
   position?: { index: number; total: number };
-}> = ({ plan, position, phase, progress, results, onToggle, onApply, onOpenOnly, onOpenStored, onOpenAfter, onClose }) => {
+}> = ({ plan, position, phase, progress, results, onToggle, onApply, onOpenOnly, onOpenStored, loadStored, onOpenBoth, onOpenAfter, onClose }) => {
   const t = useT();
-  useEscapeKey(phase !== 'writing', onClose);
+  const views = addons.sameRunViews ?? [];
+  // 部品の窓 (時間の重なる走行の行から開く)
+  const [shown, setShown] = React.useState<{ view: SameRunView; part: ImportPart; run: SameTimeRun } | null>(null);
+  useEscapeKey(phase !== 'writing' && !shown, onClose);
+  useEscapeKey(!!shown, () => setShown(null));
   const checked = plan.parts.filter(p => p.checked).length;
   const circuits = new Set(plan.parts.filter(p => p.dest.kind === 'circuit').map(p => p.course?.id)).size;
   const label = (p: ImportPart) => {
@@ -56,7 +66,7 @@ export const ImportSheet: React.FC<{
   const color = (p: ImportPart) => (p.kind === 'transit' ? '#64748b' : p.kind === 'unknown' ? '#f59e0b' : p.kind === 'stage' ? '#a78bfa' : '#10b981');
   return (
     <div className="fixed inset-0 z-[60] bg-black/70 flex items-stretch sm:items-center justify-center" role="dialog" aria-modal="true" data-testid="import-sheet">
-      <div className="bg-surface-1 border border-line-2 w-full sm:max-w-3xl sm:max-h-[86vh] sm:rounded-2xl flex flex-col overflow-hidden shadow-2xl">
+      <div className="relative bg-surface-1 border border-line-2 w-full sm:max-w-3xl sm:max-h-[86vh] sm:rounded-2xl flex flex-col overflow-hidden shadow-2xl">
         <div className="flex items-start gap-2 px-4 py-3 border-b border-line-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
           <div className="flex-1 min-w-0">
             <h2 className="text-sm font-bold text-slate-100 truncate">{position && <span className="mr-1.5 font-mono text-sky-400" data-testid="import-position">{position.index}/{position.total}</span>}{t(`取り込み: ${plan.sourceName}`, `Import: ${plan.sourceName}`)}</h2>
@@ -106,6 +116,17 @@ export const ImportSheet: React.FC<{
                           <FolderOpen size={11} />{t('保管場所の走行を開く', 'Open the stored run')}
                         </button>
                       )}
+                      {loadStored && phase === 'confirm' && views.map(v => (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={e => { e.preventDefault(); e.stopPropagation(); setShown({ view: v, part: p, run: o }); }}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-line-3 text-slate-200 hover:bg-surface-3 cursor-pointer whitespace-nowrap"
+                          data-testid={`import-view-${v.id}`}
+                        >
+                          {t(v.label[0], v.label[1])}
+                        </button>
+                      ))}
                     </div>
                   )) : p.already && <div className="text-[11px] text-sky-500">{t('取り込み済み (同じ走行がもうある)', 'Already imported')}</div>}
                   {p.checked && (p.overlaps?.length || p.already) ? <div className="text-[11px] text-amber-400">{t('別の走行として置きます', 'Will be added as a separate run')}</div> : null}
@@ -123,6 +144,21 @@ export const ImportSheet: React.FC<{
           {t('元のファイルは 取り込み元/ に、手を加えずに残します。知らない場所の走行は 未分類 に入れます (あとでコースにできます)。',
             'The original file is kept untouched in the 取り込み元/ (originals) folder. Runs at unknown places go to Unsorted (you can make a course later).')}
         </div>
+        {shown && loadStored && (
+          <div className="absolute inset-0 z-10 bg-surface-1 flex flex-col" data-testid="import-view">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-line-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
+              <h3 className="flex-1 min-w-0 text-sm font-bold text-slate-100 truncate">{t(shown.view.label[0], shown.view.label[1])}</h3>
+              <button onClick={() => setShown(null)} className="p-1.5 rounded hover:bg-surface-3 text-slate-400 cursor-pointer" aria-label={t('戻る', 'Back')} data-testid="import-view-close"><X size={18} /></button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <shown.view.Component
+                incoming={{ name: plan.sourceName, kind: plan.sourceKind, points: shown.part.points, ...(shown.part.startDate ? { startDate: shown.part.startDate } : {}), startMs: shown.part.startMs, endMs: shown.part.endMs }}
+                stored={{ base: shown.run.base, startMs: shown.run.startMs, endMs: shown.run.endMs, load: () => loadStored(shown.run.base) }}
+                {...(onOpenBoth ? { onOpenBoth: () => onOpenBoth(shown.run.base) } : {})}
+              />
+            </div>
+          </div>
+        )}
         {/* 狭い幅では折り返す (ボタンの中で文字が割れないよう、ボタンは折り返さない) */}
         <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-t border-line-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           {phase === 'writing' && progress && (
