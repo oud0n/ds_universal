@@ -4,19 +4,14 @@
 
 [Back to the README](../README.en.md)
 
-## v1.3.0 (not released yet)
-
-**Added**
-
-- **About**: Settings › Other now shows the version, with links to the release notes and GitHub.
-- **Updates for the PC version** [PC]: The app checks for a new version when it starts and shows a notice at the bottom right. "Install" downloads it; it is installed when you choose "Restart and install" or when you quit. Nothing is downloaded without asking. You can also check from Settings › About. The Windows zip version and a Mac app opened outside the Applications folder cannot replace themselves, so they open the download page instead. This starts with the version that has it; from an older version, install once by hand.
-
 ## v1.2.0 (not released yet)
 
 The PC version and the iPhone / iPad app get different items ([iPhone] = the app only, [PC] = the PC and browser versions only, no mark = both).
 
 **Added**
 
+- **About** [PC]: Settings › Other now shows the version, with links to the release notes and GitHub. (The iPhone app gets it in the next version.)
+- **Updates for the PC version** [PC]: The app checks for a new version when it starts and shows a notice at the bottom right. "Install" downloads it; it is installed when you choose "Restart and install" or when you quit. Nothing is downloaded without asking. You can also check from Settings › About. The Windows zip version and a Mac app opened outside the Applications folder cannot replace themselves, so they open the download page instead. This starts with this version, so install 1.2.0 by hand once if you have 1.1.0.
 - **Overlapping runs are flagged**: when you open a log (.bnx4, .bon4, .nmea, etc.) that overlaps in time with a run in the storage folder, the import screen says so, even if the two started at different times (e.g. 0–30 min and 15–30 min). Overlapping parts are not imported by default, and "Open the stored run" opens the existing one. Ticking one imports it as a separate run.
 - **Recently deleted runs** [iPhone]: deleted runs stay in "Recently deleted" in the run list for 30 days and can be restored with their name, notes and sync. They are removed automatically after 30 days (the Files app's Recently Deleted could not restore files the app deleted).
 - **Tap the current tab again to go to the top** [iPhone]: with a run open, tapping "Runs" again goes back to the list.
