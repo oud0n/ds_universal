@@ -109,3 +109,44 @@ describe.skipIf(!existsSync(NIKKO) || !existsSync(TC))('取り込み: 書く (�
     expect(n).toBeLessThan(300);
   });
 });
+
+import { overlapsOf, applyOverlaps, freeBase } from './importPlan';
+import type { ImportPlan, ImportPart } from './importPlan';
+
+describe('時間の重なる走行 (PLAN-43)', () => {
+  const MIN = 60_000;
+  const t0 = Date.UTC(2026, 9, 30, 3, 0);
+  const part = { base: 'sodegaura/20261030/20261030120000', startMs: t0, endMs: t0 + 30 * MIN };
+
+  it('測り始めが違っても、重なっていれば見つける (0〜30 分と 15〜30 分)', () => {
+    const r = overlapsOf(part, [{ base: 'sodegaura/20261030/20261030121500', startMs: t0 + 15 * MIN, endMs: t0 + 30 * MIN }]);
+    expect(r.map(x => [x.base, x.overlapSec])).toEqual([['sodegaura/20261030/20261030121500', 900]]);
+  });
+
+  it('重なりが 60 秒より短い・別のサーキット・重ならないものは外す。重なりの長い順', () => {
+    const r = overlapsOf(part, [
+      { base: 'sodegaura/20261030/a', startMs: t0 + 29.5 * MIN, endMs: t0 + 40 * MIN },
+      { base: 'tsukuba/20261030/b', startMs: t0, endMs: t0 + 30 * MIN },
+      { base: 'sodegaura/20261030/c', startMs: t0 + 31 * MIN, endMs: t0 + 40 * MIN },
+      { base: 'sodegaura/20261030/d', startMs: t0 + 20 * MIN, endMs: t0 + 50 * MIN },
+      { base: 'sodegaura/20261030/e', startMs: t0 - 10 * MIN, endMs: t0 + 25 * MIN }
+    ]);
+    expect(r.map(x => x.base)).toEqual(['sodegaura/20261030/e', 'sodegaura/20261030/d']);
+  });
+
+  it('始まりが 10 秒以内なら、短くても同じ走行とみなす', () => {
+    expect(overlapsOf({ ...part, endMs: t0 + 20_000 }, [{ base: 'sodegaura/x/y', startMs: t0 + 5000, endMs: t0 + 9 * MIN }]).length).toBe(1);
+  });
+
+  it('重なる走行のある部分は、既定で取り込まない', () => {
+    const p = (id: string, startMs: number): ImportPart => ({ id, startMs, endMs: startMs + 10 * MIN, points: [], sparkline: [], kind: 'laps', laps: 3, course: null, dest: { kind: 'unsorted' }, base: `sodegaura/20261030/${id}`, checked: true, already: false });
+    const plan: ImportPlan = { sourceName: 'x.bnx4', sourceKind: 'bnx4', parts: [p('a', t0), p('b', t0 + 60 * MIN)] };
+    const out = applyOverlaps(plan, [{ base: 'sodegaura/20261030/old', startMs: t0 + 2 * MIN, endMs: t0 + 9 * MIN }]);
+    expect(out.parts.map(x => [x.checked, x.overlaps?.length ?? 0])).toEqual([[false, 1], [true, 0]]);
+  });
+
+  it('別の走行として置く名前', () => {
+    expect(freeBase('a/b/c', new Set(['a/b/x']))).toBe('a/b/c');
+    expect(freeBase('a/b/c', new Set(['a/b/c', 'a/b/c_2']))).toBe('a/b/c_3');
+  });
+});

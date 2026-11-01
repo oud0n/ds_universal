@@ -45,7 +45,25 @@ export interface ImportPart {
   checked: boolean;
   /** 同じ名前の走行がもうある (取り込み済み) */
   already: boolean;
+  /** 保管場所の、時間の重なる走行 (重なりの長い順。PLAN-43)。applyOverlaps で入れる */
+  overlaps?: SameTimeRun[];
 }
+
+/** 保管場所の走行の始め・終わり (UTC ミリ秒)。base は拡張子なしの道 */
+export interface RunRange {
+  base: string;
+  startMs: number;
+  endMs: number;
+}
+
+/** 開いたログの部分と時間の重なる、保管場所の走行 */
+export interface SameTimeRun extends RunRange {
+  /** 重なっている長さ (秒) */
+  overlapSec: number;
+}
+
+/** これより短い重なりは、同じ走行とみなさない (秒) */
+export const MIN_OVERLAP_SEC = 60;
 
 export interface ImportPlan {
   sourceName: string;
@@ -68,7 +86,7 @@ function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): num
 }
 
 /** 点の UTC 時刻 (ミリ秒)。時刻の文字が無ければ、走行の始まり + 経過 */
-function pointMs(p: TelemetryPoint, startDate?: Date): number {
+export function pointMs(p: TelemetryPoint, startDate?: Date): number {
   const t = p.timestamp ? Date.parse(p.timestamp) : NaN;
   if (Number.isFinite(t)) return t;
   return (startDate?.getTime() ?? 0) + p.time * 1000;
@@ -122,7 +140,7 @@ export function splitByPlace(points: TelemetryPoint[], deps: PlanDeps = {}): Arr
 }
 
 /** 道の最後の名前 (YYYYMMDDhhmmss) を、端末の時刻として読む */
-function stemMs(stem: string): number | null {
+export function stemMs(stem: string): number | null {
   const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/.exec(stem);
   if (!m) return null;
   return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime();
@@ -148,6 +166,41 @@ export function findSameRun(existing: ReadonlySet<string>, base: string, startMs
     if (t !== null && Math.abs(t - startMs) <= 10_000) return e;
   }
   return null;
+}
+
+/** 道の最初のフォルダ (サーキットのフォルダ。未分類なら unsorted) */
+const topFolder = (base: string) => base.slice(0, base.indexOf('/') + 1);
+
+/**
+ * 時間の重なる走行 (PLAN-43)。同じサーキットのフォルダの走行で、MIN_OVERLAP_SEC 以上重なるか、始まりが 10 秒以内のもの。
+ * 測り始めが違ってもよい (片方が 0〜30 分、もう片方が 15〜30 分など)。重なりの長い順
+ */
+export function overlapsOf(part: Pick<ImportPart, 'base' | 'startMs' | 'endMs'>, runs: readonly RunRange[]): SameTimeRun[] {
+  const folder = topFolder(part.base);
+  const out: SameTimeRun[] = [];
+  for (const r of runs) {
+    if (topFolder(r.base) !== folder) continue;
+    const overlapSec = (Math.min(part.endMs, r.endMs) - Math.max(part.startMs, r.startMs)) / 1000;
+    if (overlapSec >= MIN_OVERLAP_SEC || Math.abs(part.startMs - r.startMs) <= 10_000) out.push({ ...r, overlapSec: Math.max(0, overlapSec) });
+  }
+  return out.sort((a, b) => b.overlapSec - a.overlapSec);
+}
+
+/** 案の部分に、時間の重なる走行を入れる。重なる走行がある部分は、既定で取り込まない */
+export function applyOverlaps(plan: ImportPlan, runs: readonly RunRange[]): ImportPlan {
+  return {
+    ...plan,
+    parts: plan.parts.map(p => {
+      const overlaps = overlapsOf(p, runs);
+      return overlaps.length ? { ...p, overlaps, checked: false } : p;
+    })
+  };
+}
+
+/** 保管場所にもうある名前なら、末尾に _2・_3 … を付けた空いている名前 (別の走行として置くとき) */
+export function freeBase(base: string, existing: ReadonlySet<string>): string {
+  if (!existing.has(base)) return base;
+  for (let k = 2; ; k++) if (!existing.has(`${base}_${k}`)) return `${base}_${k}`;
 }
 
 /** 速さの折れ線 (n 点に間引く) */

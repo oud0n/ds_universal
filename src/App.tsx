@@ -65,9 +65,10 @@ import { PlayBar } from './components/PlayBar';
 import { SplitResizer } from './components/SplitResizer';
 import { interpolatePoint } from './utils/telemetrySearch';
 import { ImportSheet } from './components/import/ImportSheet';
-import { findSameRun, planImport, type ImportPlan } from './services/import/importPlan';
+import { applyOverlaps, findSameRun, freeBase, planImport, type ImportPlan } from './services/import/importPlan';
+import { rangeCandidates, readRunRanges, runFilesByBase } from './services/import/runRanges';
 import { loadStorageCourses } from './services/storageCourses';
-import { applyPlan, type PartResult } from './services/import/importApply';
+import { applyPlan, IMPORT_SOURCE_FOLDER, type PartResult } from './services/import/importApply';
 import { electronWriter, nativeWriter } from './services/import/importWriters';
 import { LOG_EXTENSIONS } from './services/logLoader';
 import { getWriteBon4 } from './services/runFormatSettings';
@@ -832,7 +833,8 @@ export const App: React.FC = () => {
 
   /**
    * ログを保管場所に取り込むかを聞く (確認のシートを出し、閉じるまで待つ)。保管場所がない・分けられない・全部取り込み済みなら
-   * 聞かずに false (そのまま開く)。true なら、開くかどうかはシートの中で決まった
+   * 聞かずに false (そのまま開く)。true なら、開くかどうかはシートの中で決まった。
+   * 保管場所の走行と時間が重なるとき (測り始めが違ってもよい) も、シートで聞く (PLAN-43)
    */
   const offerImport = async (name: string, buffer: ArrayBuffer, openExisting = false): Promise<boolean> => {
     const ext = name.split('.').pop()?.toLowerCase() ?? '';
@@ -842,21 +844,30 @@ export const App: React.FC = () => {
     try {
       const store = await getRunStore();
       if (!store) return false;
-      existing = new Set((await store.list()).filter(f => /\.(nmea|bon4)$/i.test(f.path)).map(f => f.path.replace(/\.[^./]+$/, '')));
+      const files = await store.list();
+      const paths = files.map(f => f.path);
+      existing = new Set(paths.filter(p => /\.(nmea|bon4)$/i.test(p)).map(p => p.replace(/\.[^./]+$/, '')));
       plan = planImport(await parseLogBuffer(name, buffer.slice(0), tr), name, existing);
+      // 前に取り込んだファイルそのもの (取り込み元/ に同じ名前・同じ大きさで残っている) なら、重なりは見ない
+      // (取り込んだ走行と重なるのは当たり前なので。今までどおり、全部取り込み済みなら聞かずに開く)
+      const safe = name.replace(/[\\/]/g, '_').replace(/^\.+/, '_');
+      const importedBefore = files.some(f => f.path === `${IMPORT_SOURCE_FOLDER}/${safe}` && f.size === buffer.byteLength);
+      // 時間の重なる走行を探す (同じサーキットの近い時刻の走行だけ読む。読めなければ、今までどおり名前の時刻だけで見る)
+      if (!importedBefore) try {
+        const ranges = await readRunRanges(rangeCandidates(plan.parts, runFilesByBase(paths)), p => store.read(p), (n, b) => parseLogBuffer(n, b, tr));
+        plan = applyOverlaps(plan, ranges);
+      } catch { /* 名前の時刻だけで見る */ }
     } catch {
       return false;
     }
-    // 保管場所にもうある走行 1 つなら、走行の画面から開くのと同じ形で開く (違うコースのログを外す・同じ走行を 2 回読み込まない)
-    // (ファイルを 1 つだけ開いたとき。ロガーから落としたときは今までどおり)
+    // 保管場所の走行そのもの (同じ名前のファイル) を 1 つだけ開いたときは、走行の画面から開くのと同じ形で開く
+    // (違うコースのログを外す・同じ走行を 2 回読み込まない)。ロガーから落としたとき・名前の違うログは、シートで聞く
+    const stem = name.replace(/\.[^./]+$/, '');
     if (openExisting && plan.parts.length === 1 && plan.parts[0].already) {
       const same = findSameRun(existing, plan.parts[0].base, plan.parts[0].startMs);
-      const store = same ? await getRunStore().catch(() => null) : null;
-      const items = store ? await listRuns(store).catch(() => [] as RunItem[]) : [];
-      const item = items.find(r => `${r.folder}/${r.file}`.replace(/\.[^./]+$/, '') === same);
-      if (item) { await openRun(item); return true; }
+      if (same && same.slice(same.lastIndexOf('/') + 1) === stem && (await openStoredRun(same))) return true;
     }
-    if (plan.parts.length === 0 || plan.parts.every(p => p.already)) return false;
+    if (plan.parts.length === 0 || plan.parts.every(p => p.already && !p.overlaps?.length)) return false;
     importCountRef.current.queued++;
     setImportTotal(importCountRef.current.queued);
     const shown = importQueueRef.current.then(() => new Promise<void>(resolve => {
@@ -867,6 +878,22 @@ export const App: React.FC = () => {
     importQueueRef.current = shown;
     await shown;
     return true;
+  };
+
+  /** 保管場所の走行 (拡張子なしの道) を、走行の画面から開くのと同じ形で開く。見つからなければ false */
+  const openStoredRun = async (base: string): Promise<boolean> => {
+    const store = await getRunStore().catch(() => null);
+    const items = store ? await listRuns(store).catch(() => [] as RunItem[]) : [];
+    const item = items.find(r => `${r.folder}/${r.file}`.replace(/\.[^./]+$/, '') === base);
+    if (!item) return false;
+    await openRun(item);
+    return true;
+  };
+
+  /** 取り込みのシートから、時間の重なる保管場所の走行を開く (取り込まない) */
+  const openOverlapRun = async (base: string) => {
+    closeImport();
+    if (!(await openStoredRun(base))) alert(tr('保管場所の走行が見つかりませんでした。', 'Could not find that run in the storage folder.'));
   };
 
   const closeImport = () => {
@@ -913,9 +940,20 @@ export const App: React.FC = () => {
     const native = electron ? null : nativeWriter(have);
     const writer = electron ?? native;
     if (!writer) return;
-    setImporting({ ...cur, phase: 'writing', progress: { done: 0, total: cur.plan.parts.filter(p => p.checked).length } });
+    // 時間の重なる走行がある部分を取り込むときは、別の走行として置く (同じ名前があれば _2・_3 … にする。PLAN-43)
+    const bases = new Set<string>();
     try {
-      const { results } = await applyPlan(cur.plan, { name: cur.name, bytes: cur.bytes }, writer, { writeBon4: getWriteBon4() },
+      for (const f of await (await getRunStore())?.list() ?? []) if (/\.(nmea|bon4)$/i.test(f.path)) bases.add(f.path.replace(/\.[^./]+$/, ''));
+    } catch { /* 読めなければ名前を変えない (書くときに同じ名前は書かない) */ }
+    const plan: ImportPlan = { ...cur.plan, parts: cur.plan.parts.map(p => {
+      if (!p.checked || !(p.overlaps?.length || p.already)) return p;
+      const base = freeBase(p.base, bases);
+      bases.add(base);
+      return { ...p, base };
+    }) };
+    setImporting({ ...cur, plan, phase: 'writing', progress: { done: 0, total: plan.parts.filter(p => p.checked).length } });
+    try {
+      const { results } = await applyPlan(plan, { name: cur.name, bytes: cur.bytes }, writer, { writeBon4: getWriteBon4() },
         (done, total) => setImporting(s => (s ? { ...s, progress: { done, total } } : s)));
       if (native) await native.finish();
       setImporting(s => (s ? { ...s, phase: 'done', results } : s));
@@ -2782,6 +2820,7 @@ export const App: React.FC = () => {
           onToggle={id => setImporting(s => (s && s.phase === 'confirm' ? { ...s, plan: { ...s.plan, parts: s.plan.parts.map(p => (p.id === id ? { ...p, checked: !p.checked } : p)) } } : s))}
           onApply={() => void applyImport()}
           onOpenOnly={() => void openImported()}
+          onOpenStored={base => void openOverlapRun(base)}
           onOpenAfter={() => void openImported()}
           onClose={closeImport}
         />

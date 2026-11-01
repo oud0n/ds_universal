@@ -10,6 +10,7 @@ The PC version and the iPhone / iPad app get different items ([iPhone] = the app
 
 **Added**
 
+- **Overlapping runs are flagged**: when you open a log (.bnx4, .bon4, .nmea, etc.) that overlaps in time with a run in the storage folder, the import screen says so, even if the two started at different times (e.g. 0–30 min and 15–30 min). Overlapping parts are not imported by default, and "Open the stored run" opens the existing one. Ticking one imports it as a separate run.
 - **Recently deleted runs** [iPhone]: deleted runs stay in "Recently deleted" in the run list for 30 days and can be restored with their name, notes and sync. They are removed automatically after 30 days (the Files app's Recently Deleted could not restore files the app deleted).
 - **Tap the current tab again to go to the top** [iPhone]: with a run open, tapping "Runs" again goes back to the list.
 
