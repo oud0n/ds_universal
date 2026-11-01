@@ -8,7 +8,6 @@ import {
   Columns, PictureInPicture, MapPin, Download, X,
   ArrowLeftRight, Volume2, VolumeX, Maximize2, ListChecks, Maximize, Minimize, LayoutDashboard } from 'lucide-react';
 import { Session, TelemetryPoint, SelectedCarSlot, Lap } from '../types/telemetry';
-import { getAddVideoGpsLog, setAddVideoGpsLog } from '../services/videoPrefs';
 import { hasNative } from '../native/bridge';
 import { videoSyncManager, PlacedTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs, overlappingSessions, placeTracks, isClockManual } from '../services/videoSyncManager';
 import { clockOffsetIn, sessionStartUtcMs } from '../services/mediaClock';
@@ -654,7 +653,6 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // 走行の確認 (RunsInspector) を開いているか
   const [showRuns, setShowRuns] = useState(false);
   // GoPro の動画の GPS も走行ログとして加えるか (次に読み込む動画から効く) LATER-12
-  const [addVideoGpsLog, setAddVideoGpsLogState] = useState(getAddVideoGpsLog);
 
   // メインのカメラのチャプター (チャプターに分かれた動画のとき)
   const currentGroup = useMemo(
@@ -1590,17 +1588,6 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 </div>
               );
             })()}
-            <label
-              className="flex items-center gap-1 text-[10px] text-slate-400 cursor-pointer"
-              title={t('切ると、同じ時間に記録の細かいログ (デジスパイスなど) があるとき、GoPro の動画の GPS を走行ログとして加えず、動画の時刻合わせだけに使います。次に読み込む動画から効きます', 'When off, if a log with a higher rate (e.g. DigSpice) covers the same time, the GPS in GoPro videos is not added as a driving log and is only used to time the video. Applies to videos loaded next')}
-            >
-              <input
-                type="checkbox"
-                checked={addVideoGpsLog}
-                onChange={e => { setAddVideoGpsLog(e.target.checked); setAddVideoGpsLogState(e.target.checked); }}
-              />
-              {t('動画の GPS もログとして加える', 'Add video GPS as a log')}
-            </label>
             {/* 動画タイムゾーン選択 */}
             <div className="flex items-center gap-1 bg-surface-3 px-2 py-0.5 rounded border border-line-3">
               <span className="text-slate-400 text-[10px] font-medium">{t('動画TZ:', 'Video TZ:')}</span>

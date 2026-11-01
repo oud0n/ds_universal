@@ -1961,8 +1961,6 @@ export const App: React.FC = () => {
       currentDistance={currentDistanceKm}
       currentTime={currentTimeSec}
       compareAxis={compareAxis}
-      smoothStrong={gFilterLevel === 'strong'}
-      onToggleSmooth={() => handleChangeGFilterLevel(gFilterLevel === 'strong' ? 'standard' : 'strong')}
     />
   );
   const driftEl = (
@@ -2660,12 +2658,9 @@ export const App: React.FC = () => {
             onSelectCircuitPreset={handleSelectCircuitPreset}
             onOpenCircuitEditor={() => setIsCircuitEditorOpen(true)}
             onOpenFile={() => fileInputRef.current?.click()}
-            gFilterLevel={gFilterLevel}
-            onChangeGFilterLevel={handleChangeGFilterLevel}
             hasImu={sessions.some(s => imuSessionIds.includes(s.id))}
             imuWobbly={imuWobbly}
             gSource={gSource}
-            onChangeGSource={handleChangeGSource}
           />
           </Freeze>
           </div>
@@ -2733,6 +2728,7 @@ export const App: React.FC = () => {
               onInstall: () => folderInputRef.current?.click(),
               onClear: importedCourseFiles > 0 ? () => void clearCircuitFolder() : undefined
             }}
+            analysis={{ gFilterLevel, onChangeGFilterLevel: handleChangeGFilterLevel, gSource, onChangeGSource: handleChangeGSource }}
           />}
 
         {/* ラップタイマー。iPhone のアプリではタブの 1 つ (測っていない間はタブバーの上に収める)、ほかでは画面いっぱいに重ねる。

@@ -23,7 +23,6 @@ import {
 import { LapHistoryPanel } from './LapHistoryPanel';
 import { formatMinSec } from '../utils/timeFormat';
 import { useCompactLayout } from '../hooks/useCompactLayout';
-import { GFilterLevel } from '../services/physics';
 import { circuitLabel, useLang, useT } from '../utils/i18n';
 import type { GSource } from '../services/imuG';
 
@@ -59,15 +58,11 @@ interface DataTabProps {
   onOpenCircuitEditor: () => void;
   // 走行データのファイルを選ぶ (データがないときの案内をタップ・クリックしたとき)
   onOpenFile?: () => void;
-  // G のならし方 (解析の設定)
-  gFilterLevel: GFilterLevel;
-  onChangeGFilterLevel: (level: GFilterLevel) => void;
   /** iPhone の G センサーの値がある走行を開いているか */
   hasImu?: boolean;
   /** 端末が揺れていた走行の名前 (G センサーの G が揺れる) */
   imuWobbly?: string[];
   gSource?: GSource;
-  onChangeGSource?: (s: GSource) => void;
 }
 
 /** 時計の補正の見積もり。applied: 確かな見積もりなので入れた。入れていないもの (quality 'suggest') は「入れる」で入れる */
@@ -246,12 +241,9 @@ export const DataTab: React.FC<DataTabProps> = ({
   onSelectCircuitPreset,
   onOpenCircuitEditor,
   onOpenFile,
-  gFilterLevel,
-  onChangeGFilterLevel,
   hasImu,
   imuWobbly,
-  gSource,
-  onChangeGSource
+  gSource
 }) => {
   // スマートフォン向けの配置では、ラップ一覧を表でなく 1 周ずつのカードで出す
   const compact = useCompactLayout();
@@ -435,55 +427,13 @@ export const DataTab: React.FC<DataTabProps> = ({
         </label>
       </div>
 
-      {/* 解析の設定 */}
-      <div className={`bg-surface-2 border border-line-2 rounded-xl shadow-md space-y-2 ${compact ? 'p-3' : 'p-4'}`}>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs font-bold text-slate-300">{t('G のならし方', 'G smoothing')}</span>
-          <div className="flex bg-surface-1 rounded p-0.5 border border-line-3" role="radiogroup" aria-label={t('G のならし方', 'G smoothing')}>
-            {([['weak', t('弱', 'Light')], ['standard', t('標準', 'Standard')], ['strong', t('強（既定）', 'Strong (default)')]] as const).map(([value, label]) => (
-              <button
-                key={value}
-                role="radio"
-                aria-checked={gFilterLevel === value}
-                onClick={() => onChangeGFilterLevel(value)}
-                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                  gFilterLevel === value ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {hasImu && onChangeGSource && (
-          <div className="flex flex-wrap items-center gap-3" data-testid="g-source">
-            <span className="text-xs font-bold text-slate-300">{t('G の出どころ', 'G source')}</span>
-            <div className="flex bg-surface-1 rounded p-0.5 border border-line-3" role="radiogroup" aria-label={t('G の出どころ', 'G source')}>
-              {([['sensor', t('端末の G センサー', 'Phone sensor')], ['calc', t('計算', 'Calculated')]] as const).map(([value, label]) => (
-                <button key={value} role="radio" aria-checked={gSource === value} onClick={() => onChangeGSource(value)}
-                  className={`px-3 py-1 rounded text-xs font-medium transition-colors ${gSource === value ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
-                  {label}
-                </button>
-              ))}
-            </div>
-            <p className="w-full text-[11px] text-slate-400 leading-relaxed">
-              {t('アプリのラップタイマーで測った走行は、端末の G センサーの値も記録しています。「G センサー」にすると、ゆっくりした変化は計算した G、速い変化 (ブレーキの踏み始め・切り返し) は G センサーから取って合わせます。坂や端末の付け方のずれは残りません。',
-                'Runs timed with the app\'s lap timer also record the phone\'s G sensor. With "Phone sensor", slow changes come from the calculated G and fast changes (start of braking, direction changes) from the sensor. Slopes and mounting angle do not leak in.')}
-              {' '}{t('G センサーの細かい振動は、上の「なめらか」に合わせて落とします。', 'Fine vibration in the sensor is filtered out according to the smoothing setting above.')}
-            </p>
-            {gSource === 'sensor' && !!imuWobbly?.length && (
-              <p className="w-full text-[11px] text-amber-500 leading-relaxed" data-testid="imu-wobble-warning">
-                {t(`端末が揺れていたようです (${imuWobbly.join('・')})。ホルダーがやわらかいと、G が揺れて見えます。「なめらか」を強くするか、G の出どころを「計算」にしてください。次からは、端末をしっかり固定してください。`,
-                  `The phone seems to have been shaking (${imuWobbly.join(', ')}). A soft mount makes the G wobble. Set smoothing to Strong or the G source to Calculated, and mount the phone firmly next time.`)}
-              </p>
-            )}
-          </div>
-        )}
-        <p className="text-[11px] text-slate-400 leading-relaxed">
-          {t('G（加減速 G・横 G・合算 G）と旋回半径は、GPS の位置と車速の変化からアプリが計算しています（ロガーが G を測っているわけではありません）。 GPS の位置はわずかに揺れるので、計算した G も細かく揺れます。「ならし方」は、その揺れをどれだけ平らにするかの設定です。 強くするほど速度グラフの G 表示やフリクションサークルが落ち着きますが、急な変化（ブレーキの踏み始めなど）は鈍く、小さく出ます。 「標準」は記録レートに合わせてならし方を変えます。読み込み済みのログにもすぐ反映され、変換画面で書き出す「走行データCSV」・DTB の G もこの値になります。元のログファイルは変わりません。',
-            'G (longitudinal, lateral and combined) and the turning radius are calculated by the app from changes in GPS position and speed (the logger does not measure G). GPS positions jitter slightly, so the calculated G jitters too. "Smoothing" sets how much of that jitter is flattened. Stronger smoothing calms the G display on the speed graph and the friction circle, but sudden changes (such as the start of braking) appear slower and smaller. "Standard" adapts to the logging rate. Changes apply immediately to loaded logs and to the G in the telemetry CSV and DTB exported on the convert page. The original log files are not changed.')}
+      {/* 端末が揺れていた走行の知らせ (G のならし方・G の出どころは設定へ移した。PLAN-42) */}
+      {hasImu && gSource === 'sensor' && !!imuWobbly?.length && (
+        <p className="text-[11px] text-amber-500 leading-relaxed px-1" data-testid="imu-wobble-warning">
+          {t(`端末が揺れていたようです (${imuWobbly.join('・')})。ホルダーがやわらかいと、G が揺れて見えます。設定の「G のならし方」を「強」にするか、「G の出どころ」を「計算」にしてください。次からは、端末をしっかり固定してください。`,
+            `The phone seems to have been shaking (${imuWobbly.join(', ')}). A soft mount makes the G wobble. In Settings, set G smoothing to Strong or the G source to Calculated, and mount the phone firmly next time.`)}
         </p>
-      </div>
+      )}
 
       {/* セッション & ラップ一覧 */}
       {sessions.length === 0 ? (

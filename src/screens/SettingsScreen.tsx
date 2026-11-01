@@ -14,17 +14,28 @@ import { CsvFormatSettings } from '../components/CsvFormatSettings';
 import { CourseDataSettings } from '../components/CourseDataSettings';
 import { getWriteBon4, setWriteBon4 } from '../services/runFormatSettings';
 import { hasNative } from '../native/bridge';
+import { AnalysisSettings, VideoSettings } from '../components/AnalysisSettings';
+
+/** 設定の分類の見出しとまとまり (PLAN-42、2026-11-01) */
+const Group: React.FC<{ title: string; testId: string; children: React.ReactNode }> = ({ title, testId, children }) => (
+  <section className="space-y-3" data-testid={testId}>
+    <h2 className="text-sm font-bold text-slate-200 px-1 pt-1 border-b border-line-2 pb-1.5">{title}</h2>
+    {children}
+  </section>
+);
 
 /**
- * 設定 (⚙)。2026-10-21 (PLAN-24 の 2)。今は、タブに並ばない画面 (データ管理・変換・ロガーなど) への入口と、テーマ・言語・開発支援。
- * 作る順番の 3 で、保管場所・機器の登録・単位などをここに足す
+ * 設定 (⚙)。2026-10-21 (PLAN-24 の 2)。2026-11-01 (PLAN-42) から分類ごとに見出しで分け、画面の中にあった
+ * 一度決めたらあまり変えない設定 (G のならし方・G の出どころ・動画の GPS をログに加えるか) もここに移した
  */
 export const SettingsScreen: React.FC<{
   plan: NavPlan;
   onOpenDonate?: () => void;
   /** コースのデータ (一括設置)。無ければ出さない */
   courseData?: React.ComponentProps<typeof CourseDataSettings>;
-}> = ({ plan, onOpenDonate, courseData }) => {
+  /** 解析の設定 (G のならし方・G の出どころ) */
+  analysis?: React.ComponentProps<typeof AnalysisSettings>;
+}> = ({ plan, onOpenDonate, courseData, analysis }) => {
   const t = useT();
   const theme = useThemeSetting();
   const lang = useLangSetting();
@@ -33,31 +44,24 @@ export const SettingsScreen: React.FC<{
   const rows = plan.chrome === 'sidebar' ? [] : plan.more.filter(s => s !== 'settings' && s !== 'data');
   return (
     <div className="h-full overflow-y-auto" data-testid="settings-screen">
-      <div className="max-w-lg mx-auto p-3 space-y-5">
-        <StorageSettings />
-        {hasNative() && <RunFormatSetting />}
-        {courseData && <CourseDataSettings {...courseData} />}
-        <CsvFormatSettings />
-        {rows.length > 0 && (
-          <section className="rounded-xl bg-surface-1 border border-line-2 overflow-hidden">
-            {rows.map((s, i) => {
-              const { Icon } = SCREEN_META[s];
-              const label = screenLabel(s);
-              return (
-                <button
-                  key={s}
-                  onClick={() => navStore.go(s)}
-                  className={`w-full flex items-center gap-3 px-4 py-3.5 text-left text-sm text-slate-200 hover:bg-surface-3 cursor-pointer ${i > 0 ? 'border-t border-line-2' : ''}`}
-                  data-testid={`settings-go-${s}`}
-                >
-                  <Icon size={18} className="text-slate-400" />
-                  <span className="flex-1">{t(...label)}</span>
-                  <ChevronRight size={16} className="text-slate-500" />
-                </button>
-              );
-            })}
-          </section>
+      <div className="max-w-lg mx-auto p-3 space-y-7">
+        <Group title={t('保管場所とファイル', 'Storage and files')} testId="settings-group-storage">
+          <StorageSettings />
+          {hasNative() && <RunFormatSetting />}
+        </Group>
+        <Group title={t('コースとデータの形式', 'Courses and data formats')} testId="settings-group-data">
+          {courseData && <CourseDataSettings {...courseData} />}
+          <CsvFormatSettings />
+        </Group>
+        {analysis && (
+          <Group title={t('解析', 'Analysis')} testId="settings-group-analysis">
+            <AnalysisSettings {...analysis} />
+          </Group>
         )}
+        <Group title={t('動画', 'Video')} testId="settings-group-video">
+          <VideoSettings />
+        </Group>
+        <Group title={t('表示', 'Display')} testId="settings-group-display">
 
         <section className="space-y-2">
           <h3 className="text-xs text-slate-500 px-1">{t('テーマ', 'Theme')}</h3>
@@ -98,7 +102,29 @@ export const SettingsScreen: React.FC<{
             </div>
           </section>
         )}
+        </Group>
 
+        <Group title={t('その他', 'Other')} testId="settings-group-other">
+        {rows.length > 0 && (
+          <section className="rounded-xl bg-surface-1 border border-line-2 overflow-hidden">
+            {rows.map((s, i) => {
+              const { Icon } = SCREEN_META[s];
+              const label = screenLabel(s);
+              return (
+                <button
+                  key={s}
+                  onClick={() => navStore.go(s)}
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 text-left text-sm text-slate-200 hover:bg-surface-3 cursor-pointer ${i > 0 ? 'border-t border-line-2' : ''}`}
+                  data-testid={`settings-go-${s}`}
+                >
+                  <Icon size={18} className="text-slate-400" />
+                  <span className="flex-1">{t(...label)}</span>
+                  <ChevronRight size={16} className="text-slate-500" />
+                </button>
+              );
+            })}
+          </section>
+        )}
         <section className="flex flex-col gap-2">
           <button onClick={() => openHelp()} className="flex items-center gap-2 px-4 py-3 rounded-xl bg-surface-2 border border-line-2 text-slate-200 text-sm cursor-pointer" data-testid="settings-help">
             <CircleHelp size={16} />{t('使い方 (操作の説明と動画)', 'Guide (how-tos and videos)')}
@@ -114,6 +140,7 @@ export const SettingsScreen: React.FC<{
             </button>
           )}
         </section>
+        </Group>
       </div>
     </div>
   );
