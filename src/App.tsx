@@ -890,6 +890,28 @@ export const App: React.FC = () => {
     return true;
   };
 
+  /** 保管場所の走行 (拡張子なしの道) の点を読む (.nmea を先に) */
+  const loadStoredPoints = async (base: string) => {
+    const store = await getRunStore();
+    if (!store) throw new Error('no storage');
+    const path = runFilesByBase((await store.list()).map(f => f.path)).get(base);
+    if (!path) throw new Error(tr('保管場所の走行が見つかりませんでした。', 'Could not find that run in the storage folder.'));
+    const bytes = await store.read(path);
+    const log = await parseLogBuffer(path.slice(path.lastIndexOf('/') + 1), bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, tr);
+    return log.parts.map(p => ({ points: p.points, ...(p.startDate ? { startDate: p.startDate } : {}) }));
+  };
+
+  /** 取り込みのシートから、保管場所の走行と開いたログを並べて開く (取り込まない) */
+  const openStoredAndFile = async (base: string) => {
+    const cur = importing;
+    closeImport();
+    if (!(await openStoredRun(base))) { alert(tr('保管場所の走行が見つかりませんでした。', 'Could not find that run in the storage folder.')); return; }
+    if (!cur) return;
+    const b = cur.bytes;
+    await loadFileData(cur.name, b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
+    navStore.go('analysis');
+  };
+
   /** 取り込みのシートから、時間の重なる保管場所の走行を開く (取り込まない) */
   const openOverlapRun = async (base: string) => {
     closeImport();
@@ -2821,6 +2843,8 @@ export const App: React.FC = () => {
           onApply={() => void applyImport()}
           onOpenOnly={() => void openImported()}
           onOpenStored={base => void openOverlapRun(base)}
+          loadStored={loadStoredPoints}
+          onOpenBoth={base => void openStoredAndFile(base)}
           onOpenAfter={() => void openImported()}
           onClose={closeImport}
         />
