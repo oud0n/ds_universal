@@ -2542,7 +2542,7 @@ export const App: React.FC = () => {
         <div className={`overflow-hidden ${currentTab === 'data'
           ? 'h-full w-full block'
           : dataDrawerOpen
-            ? `absolute z-[45] bg-surface-0 flex flex-col ${isCompact ? 'inset-0' : 'left-0 top-0 bottom-0 w-[560px] max-w-[92%] border-r border-line-2 shadow-2xl'}`
+            ? `absolute z-[45] bg-surface-0 flex flex-col ${isCompact ? 'inset-0' : 'left-0 top-0 bottom-0 w-[680px] max-w-[92%] border-r border-line-2 shadow-2xl'}`
             : 'hidden'}`} data-testid={dataDrawerOpen ? 'data-drawer' : undefined}>
           {dataDrawerOpen && (
             <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-line-2">
