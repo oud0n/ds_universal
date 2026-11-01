@@ -4,7 +4,7 @@
 
 [Back to the README](../README.en.md)
 
-## v1.1.1 (not released yet)
+## v1.2.0 (not released yet)
 
 The PC version and the iPhone / iPad app get different items ([iPhone] = the app only, [PC] = the PC and browser versions only, no mark = both).
 
