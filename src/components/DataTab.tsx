@@ -161,6 +161,18 @@ const ClockOffsetControl: React.FC<{
  * 走行の名前。ふだんは文字だけで出し、鉛筆のボタンを押したときだけ書き換えられる (触っただけで書き換わらないように。2026-10-22)。
  * Enter か欄の外を押すと決める。Esc でやめる。空にしたら前の名前のまま
  */
+// 周の表で、横に動かしても残す列 (Lap・ラップタイムは左、スロット選択は右)。下が透けないよう、使う所で色を敷く (行はカードの色、見出し・仮想ベストは bg-surface-1)
+const STICKY_LAP = 'sticky left-0 z-10 w-[92px] min-w-[92px]';
+const STICKY_TIME = 'sticky left-[92px] z-10';
+const STICKY_SLOT = 'sticky right-0 z-10';
+// 固定の列の境目の線と、ベストの周の行の色。表の枠線は固定の列と一緒に動かないので、内側の影で描く
+// (ベストの色も、不透明の bg の上に影で重ねる。影は 1 つの class にまとめる)
+const EDGE_R = 'shadow-[inset_-1px_0_0_var(--ds-line-2)]';
+const EDGE_L = 'shadow-[inset_1px_0_0_var(--ds-line-2)]';
+const BEST_TINT = 'shadow-[inset_0_0_0_9999px_rgb(69_26_3/0.2)]';
+const EDGE_R_BEST = 'shadow-[inset_-1px_0_0_var(--ds-line-2),inset_0_0_0_9999px_rgb(69_26_3/0.2)]';
+const EDGE_L_BEST = 'shadow-[inset_1px_0_0_var(--ds-line-2),inset_0_0_0_9999px_rgb(69_26_3/0.2)]';
+
 const SessionNameField: React.FC<{ name: string; compact: boolean; onSave: (name: string) => void }> = ({ name, compact, onSave }) => {
   const t = useT();
   const [editing, setEditing] = useState(false);
@@ -580,8 +592,8 @@ export const DataTab: React.FC<DataTabProps> = ({
                 <table className="w-full text-xs text-left">
                   <thead className="bg-surface-1 text-slate-400 font-mono uppercase text-[11px] border-b border-line-2">
                     <tr>
-                      <th className="py-2 px-3">Lap</th>
-                      <th className="py-2 px-3">{t('ラップタイム', 'Lap time')}</th>
+                      <th className={`py-2 px-3 ${STICKY_LAP} bg-surface-1`}>Lap</th>
+                      <th className={`py-2 px-3 whitespace-nowrap ${STICKY_TIME} ${EDGE_R} bg-surface-1`}>{t('ラップタイム', 'Lap time')}</th>
                       <th className="py-2 px-3">{t('最高速', 'Top speed')}</th>
                       <th className="py-2 px-3">{t('最低速', 'Min speed')}</th>
                       <th className="py-2 px-3">{t('平均速度', 'Avg speed')}</th>
@@ -591,7 +603,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                           {sec.name}
                         </th>
                       ))}
-                      <th className="py-2 px-3 text-center">{t('スロット選択', 'Slot')}</th>
+                      <th className={`py-2 px-3 text-center whitespace-nowrap ${STICKY_SLOT} ${EDGE_L} bg-surface-1`}>{t('スロット選択', 'Slot')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line-1 font-mono">
@@ -608,15 +620,15 @@ export const DataTab: React.FC<DataTabProps> = ({
                           }`}
                         >
                           {/* td 自体を flex にすると、表の行の中で縦の位置がずれる (ほかの欄より上に寄る) ので、中で並べる */}
-                          <td className="py-2.5 px-3 font-bold">
-                            <span className="inline-flex items-center gap-1.5">
+                          <td className={`py-2.5 px-3 font-bold ${STICKY_LAP} bg-surface-2 ${lap.isBestLap ? BEST_TINT : ''}`}>
+                            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
                               {lap.isBestLap && <Trophy size={13} className="text-amber-400" />}
                               Lap {lap.lapNumber}
                             </span>
                           </td>
                           <td
-                            className={`py-2.5 px-3 font-bold ${
-                              lap.isBestLap ? 'text-amber-400 text-sm' : 'text-slate-100'
+                            className={`py-2.5 px-3 font-bold whitespace-nowrap ${STICKY_TIME} bg-surface-2 ${
+                              lap.isBestLap ? `text-amber-400 text-sm ${EDGE_R_BEST}` : `text-slate-100 ${EDGE_R}`
                             }`}
                           >
                             {formatTime(lap.lapTime)}
@@ -644,8 +656,8 @@ export const DataTab: React.FC<DataTabProps> = ({
                             </td>
                           ))}
 
-                          {/* 車両スロット割り当てボタン (Car 1..4) */}
-                          <td className="py-2.5 px-3 text-center">
+                          {/* 車両スロット割り当てボタン (Car 1..4)。右に固定して、セクターが多くてもいつでも押せるようにする */}
+                          <td className={`py-2.5 px-3 text-center ${STICKY_SLOT} bg-surface-2 ${lap.isBestLap ? EDGE_L_BEST : EDGE_L}`}>
                             <div className="flex items-center justify-center gap-1">
                               {slotColors.map(slot => {
                                 const isCurrentSlot = selectedCars.some(
@@ -681,13 +693,13 @@ export const DataTab: React.FC<DataTabProps> = ({
                   {session.theoreticalBestTime > 0 && session.sectors.length > 0 && (
                     <tfoot className="bg-surface-1 text-amber-300 font-mono font-bold text-[11px] border-t-2 border-amber-500/40">
                       <tr>
-                        <td className="py-2 px-3">
-                          <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                            <Trophy size={13} className="text-amber-400" />
+                        <td className={`py-2 px-3 ${STICKY_LAP} bg-surface-1`}>
+                          <span className="inline-flex items-center gap-1">
+                            <Trophy size={13} className="text-amber-400 shrink-0" />
                             {t('仮想ベスト', 'Theoretical best')}
                           </span>
                         </td>
-                        <td className="py-2 px-3 text-amber-400 text-sm">
+                        <td className={`py-2 px-3 text-amber-400 text-sm whitespace-nowrap ${STICKY_TIME} ${EDGE_R} bg-surface-1`}>
                           {formatTime(session.theoreticalBestTime)}
                         </td>
                         <td colSpan={4} className="py-2 px-3 text-slate-400 font-normal">
@@ -702,7 +714,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                             </td>
                           );
                         })}
-                        <td></td>
+                        <td className={`${STICKY_SLOT} ${EDGE_L} bg-surface-1`}></td>
                       </tr>
                     </tfoot>
                   )}
