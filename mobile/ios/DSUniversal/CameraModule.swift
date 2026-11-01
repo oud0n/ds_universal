@@ -83,6 +83,14 @@ final class CameraModule: NSObject {
         super.init()
     }
 
+    /// 始める・止めるのに失敗したら、理由を debug.log に残す (画面には「録画できません」とだけ出るので、あとで原因を追うため。BUG-38 の 18)
+    private static func logFailure(_ what: String, _ done: @escaping (Result<[String: Any], NativeError>) -> Void) -> (Result<[String: Any], NativeError>) -> Void {
+        return { result in
+            if case .failure(let e) = result { DebugLog.write("camera: \(what) failed \(e.code.rawValue) \(e.message)") }
+            done(result)
+        }
+    }
+
     func handle(method: String, params: [String: Any], done: @escaping (Result<[String: Any], NativeError>) -> Void) {
         switch method {
         case "camera.permission":
@@ -90,9 +98,9 @@ final class CameraModule: NSObject {
         case "camera.lenses":
             done(.success(["lenses": Self.lenses().map(\.json), "multiCam": AVCaptureMultiCamSession.isMultiCamSupported]))
         case "camera.start":
-            start(params: params, done: done)
+            start(params: params, done: Self.logFailure("start", done))
         case "camera.stop":
-            stop(path: params["path"] as? String, frontPath: params["frontPath"] as? String, done: done)
+            stop(path: params["path"] as? String, frontPath: params["frontPath"] as? String, done: Self.logFailure("stop", done))
         case "camera.preview":
             livePreview(params: params, done: done)
         case "camera.setEv":

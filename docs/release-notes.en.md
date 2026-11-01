@@ -4,28 +4,40 @@
 
 [Back to the README](../README.en.md)
 
-## v1.1.1 (not released yet)
+## v1.2.0 (not released yet)
 
 The PC version and the iPhone / iPad app get different items ([iPhone] = the app only, [PC] = the PC and browser versions only, no mark = both).
 
 **Added**
 
+- **Overlapping runs are flagged**: when you open a log (.bnx4, .bon4, .nmea, etc.) that overlaps in time with a run in the storage folder, the import screen says so, even if the two started at different times (e.g. 0–30 min and 15–30 min). Overlapping parts are not imported by default, and "Open the stored run" opens the existing one. Ticking one imports it as a separate run.
 - **Recently deleted runs** [iPhone]: deleted runs stay in "Recently deleted" in the run list for 30 days and can be restored with their name, notes and sync. They are removed automatically after 30 days (the Files app's Recently Deleted could not restore files the app deleted).
 - **Tap the current tab again to go to the top** [iPhone]: with a run open, tapping "Runs" again goes back to the list.
 
 **Changed**
 
+- **Lap table in Runs and course** [PC]: Lap and Lap time stay on the left and Slot stays on the right while scrolling sideways (with many sectors, the slot buttons and times went out of view). The Runs and course panel is wider.
+- **Settings grouped by category**: Storage and files, Courses and data formats, Analysis, Video, Display and Other. "G smoothing" (the friction circle's "Smooth" is the same setting), "G source" and "Add the GPS in GoPro videos as a driving log" moved from the screens into Settings.
+- **G smoothing defaults to "Strong"**: the friction circle's "Smooth" is on from the start. G and turning-radius graphs, exports and CSV use it too. If you chose a level before, that choice is kept. Switch back to "Standard" under G smoothing in Settings > Analysis.
+- **The analysis video panel is for watching**: sync controls (offset, pins, time zones), Add video, Export video and the run inspector moved out of the analysis video panel; they are all in the Video tab. A mute button was added instead. With no video, the panel shows "Open the Video tab".
+- **Phone G sensor**: fine vibration (mount, body, engine) is now filtered out, following the G smoothing setting (Weak 4 Hz, Standard 2.5 Hz, Strong 1.5 Hz); before, the G kept wobbling whatever the smoothing. Runs where the phone was shaking are flagged under "G source". The sensor is now recorded 100 times a second.
+- **Easier-to-read lap timer**: crossing a sector shows its time and delta large, on a green (faster) or red (slower) background that flashes once and then stays faint, with the words FASTER / SLOWER. Completing a lap does the same. How long these stay is set separately for laps (2–10 s) and sectors (off, 2–10 s) in the menu. In portrait, the delta and the lower panels are larger and grey text is brighter. When position stops arriving, the delta shows "--".
+- **Laps with a signal gap**: a lap where position stopped for more than 2 s no longer becomes the best lap (the delta reference), even if it looks faster; only the sectors with the gap are left out of the sector reference. Such laps show "SIGNAL GAP" without a color (before, a gap lap with a wrong line time could become the best and throw off later deltas).
+- **Lap timer compares with your past best**: choose the car before timing (the last car is remembered), and the delta compares with your best past lap on this course with that car; once this run is faster, it switches to it. With no record for the car, it compares within this run. The chosen car is written to the run. Crossing a sector now shows the delta to the best lap at that point instead of the sector time. The screen was redesigned: the delta is the largest number, with a delta bar and the elapsed time below.
 - **Course data import moved to Settings**: "Install course folder" and "Remove installed courses" moved from "Runs and course" in Analysis to "Course data" in Settings. Loading a track map (.pth) moved into the course editor. Timing lines (.cln) load from "Load .cln / .sci" in the course editor.
 - **iPad windows** [iPhone]: nothing tappable sits under the window buttons (the three dots, top left). Before timing, the iPad suggests Rotation Lock (iPadOS does not let apps lock the orientation).
 - **Lap timer** [iPhone]: without a position (e.g. no permission) it asks before you start timing and shows the reason in the middle of the screen. If no position arrives for more than 3 seconds, the speed shows "---" instead of the last value. If Bluetooth drops while timing, tap the badge at the top to reconnect.
 
 **Fixed**
 
+- The DigSpice GPS sometimes stamps a single fix one second ahead. NMEA logs then lost about one second after it, and .bon4 / .bnx4 logs showed a brief position jump. That fix's time is now corrected when reading (.bon4 points with 99 hundredths, which were dropped before, are now kept and corrected too).
 - [iPhone] Buttons that open outside pages (such as "Open in browser" in the help) did nothing.
 - [iPhone] Built-in camera: resetting laps or switching the position source while the camera was starting left the new run without video. After a heat stop it waits until the phone cools down. After a heat stop, "Rec stopped (heat)" now stays until recording restarts (it disappeared when the phone cooled down, while nothing was recording). When another app takes the camera, it shows "Rec paused" and continues recording when the camera comes back.
+- [iPhone] iPad: the ISO and shutter values in the camera settings were cut off, and the large waiting text ("Finding the course", etc.) left its last character alone on a new line. Both fixed.
 - [iPhone] In a narrow iPad window, the GPS label in the top bar was cut off (the lap timer now shows accuracy on a second line and the camera badge below the bar; other screens show Open and GPS as icons).
 - [iPhone] Lap timer list: "Recording" could show on two or more runs after quick start/stop. The message after denying location now says to allow it and reopen the app.
 - After removing the main video, the run list kept showing "Synced" for a while.
+- In Compare, Car 2’s video stuttered now and then. Car 2 now closes small gaps by speed instead of jumping, the speed multiplier is computed over a wider window so it no longer swings, at the start Car 2 waits for Car 1 and starts ahead by its own start-up delay, and Car 2 never sits at exactly 1× (the iPhone freezes the picture each time the rate switches between exactly 1× and anything else, which hit the Time alignment hardest). Measured on an iPhone, 3 × 60 s each for Place and Time: stalls went from 2–17 to 0.
 - An unreadable air or track temperature is now reported (the previous value is kept).
 - Device names in English (iPad / iPhone) were wrong in a few places.
 

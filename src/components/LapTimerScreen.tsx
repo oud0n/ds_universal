@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { X, Volume2, VolumeX, Menu, MapPin, Bluetooth, Smartphone, PlayCircle, Save, BarChart3, Trash2, Play, Square } from 'lucide-react';
+import { X, Volume2, VolumeX, Menu, MapPin, Bluetooth, Smartphone, PlayCircle, Save, BarChart3, Trash2, Play, Square, Car } from 'lucide-react';
 import { useLoggerLink, useStatusLabel } from './BleLoggerCard';
 import { formatDelta, formatLapTime } from '../services/liveLapTimer';
 import { CIRCUIT_PRESETS, userCircuitPresets } from '../services/circuitDatabase';
@@ -16,6 +16,7 @@ import { getPositionSource } from '../services/positionSource';
 import { navStore } from '../app/navStore';
 import { distanceKm } from '../services/timer/positionFeeds';
 import { TimerRuntime, loadPhoneFusion, savePhoneFusion } from '../services/timer/timerRuntime';
+import { LAP_HOLD_CHOICES, SECTOR_HOLD_CHOICES, loadTimerDisplay, saveTimerDisplay, verdictOf, type Verdict } from '../services/timer/timerDisplay';
 import { IdleRunConfirm, StopConfirm } from './LapTimerControls';
 import { openHelp } from './HelpOverlay';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
@@ -66,6 +67,31 @@ function deltaClass(d: number | null | undefined): string {
   return 'text-fg';
 }
 
+/** 跨いだときの背景 (はじめの 0.35 秒だけ強く、あとは淡く保つ)。字は白/黒のまま読めるように、色は面にだけ付ける */
+function verdictBg(v: Verdict, strong: boolean): string {
+  if (v === 'better') return strong ? 'bg-emerald-500/50' : 'bg-emerald-500/15';
+  if (v === 'worse') return strong ? 'bg-red-500/50' : 'bg-red-500/15';
+  return strong ? 'bg-slate-400/30' : 'bg-surface-1';
+}
+
+/** 差の棒 (真ん中から、速いと左へ緑、遅いと右へ赤。端で ±2 秒) */
+const DeltaBar: React.FC<{ d: number | null }> = ({ d }) => {
+  const w = d === null || !Number.isFinite(d) ? 0 : Math.min(1, Math.abs(d) / 2) * 50;
+  return (
+    <div className="relative w-[80%] max-w-[560px] h-2 rounded-full bg-surface-3 overflow-hidden" aria-hidden="true" data-testid="lap-timer-delta-bar">
+      {w > 0 && <div className={`absolute inset-y-0 ${d! < 0 ? 'right-1/2 bg-emerald-500' : 'left-1/2 bg-red-500'} transition-[width] duration-200`} style={{ width: `${w}%` }} />}
+      <div className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-fg/60" />
+    </div>
+  );
+};
+
+/** 上の小さな札 (周・セクター) */
+const Pill: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div className="px-3 py-0.5 rounded-full border border-line-3 bg-surface-0/60 text-fg font-bold tracking-[0.08em] text-[length:min(3.8vw,2.4vh)] landscape:text-[length:min(2.2vw,4.4vh)]">{children}</div>
+);
+const verdictWord = (v: Verdict, t: (ja: string, en: string) => string) => v === 'better' ? t('速い', 'FASTER') : v === 'worse' ? t('遅い', 'SLOWER') : '';
+const FLASH_STRONG_MS = 350;
+
 export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog, onOpenFile, embedded = false, onMeasuringChange }) => {
   const t = useT();
   // 画面の文の端末の呼び名 (Android のアプリでは「この端末」)
@@ -98,6 +124,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   }, [rt]);
   const snap = useSyncExternalStore(rt.subscribe, rt.getSnapshot);
   const { source, course, flash, voice, measuring, savedRun, saveError, syncNote, phoneInfo, replayId, replaySpeed, pastBest } = snap;
+  const refLabel = snap.refSources.find(r => r.id === snap.refId)?.label ?? snap.refSources[0]?.label ?? ['この車のベスト', 'Best with this car'] as [string, string];
   const state = snap.lap;
   const setSource = (s: Source) => rt.setSource(s);
   const setVoice = (v: boolean | ((cur: boolean) => boolean)) => rt.setVoice(typeof v === 'function' ? v(snap.voice) : v);
@@ -121,6 +148,12 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const [confirmStop, setConfirmStop] = useState(false);
   const [coursePicker, setCoursePicker] = useState(false);
   const [now, setNow] = useState(() => performance.now());
+  // 周・セクターのタイムを大きく出し続ける秒数 (設定)
+  const [display, setDisplay] = useState(loadTimerDisplay);
+  const changeDisplay = (d: Partial<typeof display>) => setDisplay(prev => { const next = { ...prev, ...d }; saveTimerDisplay(next); return next; });
+  // 跨いだばかりのセクター (大きく出す)
+  const [sectorFlash, setSectorFlash] = useState<{ index: number; deltaSec: number | null; at: number; until: number } | null>(null);
+  const seenSectorsRef = useRef<{ lapStartMs: number | null; count: number }>({ lapStartMs: null, count: 0 });
   const [wakeLockOk, setWakeLockOk] = useState<boolean | null>(null);
   const [runs, setRuns] = useState<RunMeta[]>([]);
   /** ラップタイムの記録 (過去の周の一覧) を開いているか */
@@ -226,11 +259,36 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const flashing = flash && now < flash.until ? flash.event : null;
   const lastLap = state?.laps[state.laps.length - 1] ?? null;
   const prevBestForLast = useMemo(() => {
-    if (!state || state.laps.length < 2) return null;
-    const before = state.laps.slice(0, -1);
-    return Math.min(...before.map(l => l.timeSec));
-  }, [state]);
+    if (!state || state.laps.length < 1 || (state.laps.length < 2 && !pastBest)) return null;
+    // 途切れた周は比べる相手にしない (ベストと同じ決め方)。過去の走行のベストも基準に入れる
+    const before = state.laps.slice(0, -1).filter(l => !l.hadGap).map(l => l.timeSec);
+    if (pastBest) before.push(pastBest.time);
+    return before.length ? Math.min(...before) : null;
+  }, [state, pastBest]);
   const lastDiff = lastLap && prevBestForLast !== null ? lastLap.timeSec - prevBestForLast : null;
+  // セクターを跨いだら、そのタイムを大きく出す (周を終えたときは、周の表示を先に出す)
+  const sectors = state?.currentSectors;
+  const lapStartMs = state?.lapStartMs ?? null;
+  useEffect(() => {
+    const seen = seenSectorsRef.current;
+    const count = sectors?.length ?? 0;
+    if (seen.lapStartMs !== lapStartMs) { seenSectorsRef.current = { lapStartMs, count }; setSectorFlash(null); return; }
+    if (count <= seen.count) return;
+    seen.count = count;
+    const s = sectors![count - 1];
+    if (!Number.isFinite(s.timeSec) || display.sectorHoldSec === 0) return;
+    const at = performance.now();
+    setSectorFlash({ index: count - 1, deltaSec: s.deltaSec, at, until: at + display.sectorHoldSec * 1000 });
+  }, [sectors, lapStartMs, display.sectorHoldSec]);
+  // 測位が古い (届かなくなった) ときは、デルタと色を出さない (古い差を信じて無理をしないように)。端末の GPS は 1 秒に 1 回くらいなので長めに待つ
+  const coarse = source === 'phone';
+  const stale = measuring && source !== 'replay' && sincePerf > (coarse ? 2.5 : 0.6);
+  const sectorShown = !flashing && sectorFlash && now < sectorFlash.until ? sectorFlash : null;
+  // 測位が途切れた周は、タイムがあやしいので色を付けない
+  const lapVerdict: Verdict = !flashing || flashing.lap.hadGap ? 'even' : flashing.isBest && flashing.diffToBestSec !== null ? 'better' : verdictOf(flashing.diffToBestSec, coarse);
+  const sectorVerdict: Verdict = sectorShown ? verdictOf(sectorShown.deltaSec, coarse) : 'even';
+  const flashBg = flashing ? verdictBg(lapVerdict, now - (flash!.until - display.lapHoldSec * 1000) < FLASH_STRONG_MS && !coarse)
+    : sectorShown ? verdictBg(sectorVerdict, now - sectorShown.at < FLASH_STRONG_MS && !coarse) : '';
 
   // 出どころの状態
   // 選んだ出どころの機器を登録していない (測位が来ない)
@@ -322,7 +380,6 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   };
 
   const sectorCount = state?.sectorCount ?? 0;
-  const bestSectors = state?.referenceSectorsSec ?? [];
 
   return (
     <div
@@ -399,11 +456,13 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
         </div>
       )}
       <main className="flex-1 min-h-0 flex flex-col landscape:flex-row items-stretch gap-2 px-3 pb-3">
-        <section className="flex-1 min-w-0 min-h-0 flex flex-col items-center justify-center overflow-hidden" data-testid="lap-timer-main">
+        <section className={`relative flex-1 min-w-0 min-h-0 flex flex-col items-center justify-center overflow-hidden rounded-3xl px-3 [container-type:inline-size] transition-colors duration-300 ${measuring || source === 'replay' ? (flashBg || 'bg-surface-1') : ''}`} data-testid="lap-timer-main" data-verdict={flashing ? lapVerdict : sectorShown ? sectorVerdict : undefined}>
           {!measuring && source !== 'replay' ? (
             <div className="text-center space-y-2 max-w-full min-w-0" data-testid="lap-timer-idle">
               {/* 横向きのスマートフォンは高さが足りないので、コース名は 1 行にして入りきらない分は … にする (長い名前が 2 行になって、上下に重なっていた) */}
-              <div className="font-bold [@media(max-height:500px)]:truncate" style={{ fontSize: needsRegister ? 'min(5.5vw, 7vh)' : 'min(7vw, 9vh)' }}>
+              {/* 字の大きさは、この欄の幅 (cqw) で決める (画面の幅で決めると、iPad の横向きで右に欄があるとき入りきらず、最後の 1 字だけ次の行に落ちていた)。
+                  折り返すときは行の長さをそろえる */}
+              <div className="font-bold [text-wrap:balance] [@media(max-height:500px)]:truncate" style={{ fontSize: needsRegister ? 'min(7cqw, 7vh)' : 'min(9cqw, 9vh)' }}>
                 {needsRegister ? t('位置の機器を登録してください', 'Register a position device') : phoneError ? t('位置を取れていません', 'No position') : course ? circuitLabel(course.name) : t('コースを決めています', 'Finding the course')}
               </div>
               {/* 位置の許可が無いときなど。上の札では切れて読めないので、ここに全文を出す (BUG-38 の 13) */}
@@ -414,10 +473,35 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               <div className="font-mono text-slate-300 tabular-nums" style={{ fontSize: 'min(9vw, 12vh)' }}>
                 {speedText(true)}
               </div>
-              {pastBest && !needsRegister && (
-                <div className="text-slate-300 text-base" data-testid="lap-timer-past-best">
-                  {t('これまでのベスト', 'Best so far')} <span className="font-mono font-bold text-amber-500">{formatLapTime(pastBest.time, 2)}</span>
-                  <span className="text-slate-500 text-sm"> ({new Date(pastBest.startMs).getMonth() + 1}/{new Date(pastBest.startMs).getDate()})</span>
+              {!needsRegister && course && hasNative() && (
+                <div className="flex flex-col items-center gap-1.5" data-testid="lap-timer-car">
+                  <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <Car size={16} className="shrink-0 text-slate-400" />
+                    <span className="sr-only">{t('車', 'Car')}</span>
+                    <input key={snap.car} defaultValue={snap.car} list="lap-timer-cars" placeholder={t('車 (例: ロードスター)', 'Car (e.g. Roadster)')}
+                      onBlur={e => rt.setCar(e.target.value)}
+                      onChange={e => { if (snap.cars.includes(e.target.value)) rt.setCar(e.target.value); }}
+                      onKeyDown={e => { if (e.key === 'Enter') { rt.setCar((e.target as HTMLInputElement).value); (e.target as HTMLInputElement).blur(); } }}
+                      className="w-56 max-w-[60vw] bg-surface-2 border border-line-3 rounded-full px-3 py-1.5 text-center text-fg" data-testid="lap-timer-car-input" />
+                    <datalist id="lap-timer-cars">{snap.cars.map(c => <option key={c} value={c} />)}</datalist>
+                  </label>
+                  {snap.refSources.length > 1 && (
+                    <div className="flex flex-wrap justify-center gap-1.5" role="radiogroup" aria-label={t('比べる相手', 'Compare with')} data-testid="lap-timer-ref">
+                      {snap.refSources.map(r => (
+                        <button key={r.id} role="radio" aria-checked={snap.refId === r.id} onClick={() => rt.setReference(r.id)} data-testid={`lap-timer-ref-${r.id}`}
+                          className={`px-3 py-1 rounded-full text-xs border ${snap.refId === r.id ? 'bg-sky-600 border-sky-500 text-white' : 'border-line-3 text-slate-300'}`}>
+                          {t(...r.label)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="text-slate-300 text-base" data-testid="lap-timer-past-best">
+                    {pastBest ? (
+                      <>{t(...refLabel)} <span className="font-mono font-bold text-amber-500">{formatLapTime(pastBest.time, 2)}</span>
+                        <span className="text-slate-500 text-sm"> ({t(...pastBest.tag)})</span>
+                        <span className="block text-slate-500 text-xs">{t('このタイムとの差を出します', 'The delta compares with this lap')}</span></>
+                    ) : <span className="text-slate-500 text-sm">{t('比べる記録がまだありません (この走行のベストと比べます)', 'No record to compare yet (compares with this run)')}</span>}
+                  </div>
                 </div>
               )}
               <div className="text-slate-400 text-sm [@media(max-height:500px)]:hidden">{t('下の「測定開始」を押すと、周を数えて記録します', 'Tap Start below to time laps and record')}</div>
@@ -444,17 +528,28 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
                 : t('測位が届くと、近くのコースを選びます。違うときは上のコースを押して選んでください。', 'The nearest course is chosen when GPS arrives. Tap the course above to change it.')}</div>
             </div>
           ) : flashing ? (
-            <>
-              <div className="text-slate-300 font-bold tracking-widest" style={{ fontSize: 'min(5vw, 6vh)' }}>
-                {t(`${flashing.lap.number} 周目`, `LAP ${flashing.lap.number}`)}{flashing.isBest && flashing.diffToBestSec !== null ? ` · ${t('ベスト', 'BEST')}` : ''}
-              </div>
-              <div className="font-mono font-bold tabular-nums leading-none" style={{ fontSize: 'min(19vw, 30vh)' }} data-testid="lap-timer-flash">
+            <div className="flex flex-col items-center gap-[min(2.2vh,14px)] w-full">
+              <Pill>{t(`${flashing.lap.number} 周目`, `LAP ${flashing.lap.number}`)}{flashing.lap.hadGap ? ` · ${t('途切れあり', 'SIGNAL GAP')}` : flashing.isBest && flashing.diffToBestSec !== null ? ` · ${t('ベスト', 'BEST')}` : lapVerdict === 'worse' ? ` · ${verdictWord(lapVerdict, t)}` : ''}</Pill>
+              <div className="font-mono font-bold tabular-nums leading-none text-fg text-[length:min(19vw,30vh)] portrait:text-[length:min(19vw,10.5vh)]" data-testid="lap-timer-flash">
                 {formatLapTime(flashing.lap.timeSec, 2)}
               </div>
-              <div className={`font-mono font-bold tabular-nums leading-tight ${deltaClass(flashing.diffToBestSec)}`} style={{ fontSize: 'min(11vw, 16vh)' }}>
-                {flashing.diffToBestSec === null ? '' : formatDelta(flashing.diffToBestSec)}
+              {flashing.diffToBestSec !== null && (
+                <>
+                  <div className={`font-mono font-bold tabular-nums leading-none text-[length:min(10vw,15vh)] portrait:text-[length:min(13vw,7vh)] ${flashing.lap.hadGap ? 'text-slate-400' : lapVerdict !== 'even' ? 'text-fg' : deltaClass(flashing.diffToBestSec)}`}>
+                    {formatDelta(flashing.diffToBestSec)}
+                  </div>
+                  {!flashing.lap.hadGap && <DeltaBar d={flashing.diffToBestSec} />}
+                </>
+              )}
+            </div>
+          ) : sectorShown ? (
+            <div className="flex flex-col items-center gap-[min(2.2vh,14px)] w-full">
+              <Pill>{`S${sectorShown.index + 1}`}{sectorVerdict !== 'even' ? ` · ${verdictWord(sectorVerdict, t)}` : ''}</Pill>
+              <div className={`font-mono font-bold tabular-nums leading-none text-[length:min(20vw,32vh)] portrait:text-[length:min(25vw,13vh)] ${sectorVerdict !== 'even' ? 'text-fg' : deltaClass(sectorShown.deltaSec)}`} data-testid="lap-timer-sector-flash">
+                {sectorShown.deltaSec !== null ? formatDelta(sectorShown.deltaSec) : '--'}
               </div>
-            </>
+              <DeltaBar d={sectorShown.deltaSec} />
+            </div>
           ) : state?.lapNumber == null ? (
             <div className="text-center space-y-2">
               <div className="font-bold" style={{ fontSize: 'min(7vw, 9vh)' }}>{t('計測線を待っています', 'Waiting for the line')}</div>
@@ -463,45 +558,46 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               </div>
             </div>
           ) : (
-            <>
-              <div className="text-slate-400 font-bold tracking-widest" style={{ fontSize: 'min(5vw, 6vh)' }}>
-                {t(`${state.lapNumber} 周目`, `LAP ${state.lapNumber}`)}
+            <div className="flex flex-col items-center gap-[min(2.2vh,14px)] w-full">
+              <Pill>{t(`${state.lapNumber} 周目`, `LAP ${state.lapNumber}`)}</Pill>
+              <div className={`font-mono font-bold tabular-nums leading-none text-[length:min(20vw,32vh)] portrait:text-[length:min(25vw,13vh)] ${deltaClass(stale ? null : state.deltaSec)}`} data-testid="lap-timer-delta">
+                {stale ? '--' : state.deltaSec !== null ? formatDelta(state.deltaSec) : '--'}
               </div>
-              <div className="font-mono font-bold tabular-nums leading-none" style={{ fontSize: 'min(19vw, 30vh)' }} data-testid="lap-timer-elapsed">
+              <DeltaBar d={stale ? null : state.deltaSec} />
+              <div className="font-mono font-bold tabular-nums leading-none text-fg text-[length:min(9vw,14vh)] portrait:text-[length:min(12vw,6.5vh)]" data-testid="lap-timer-elapsed">
                 {elapsed !== null ? formatLapTime(elapsed, 1) : '--:--'}
               </div>
-              <div className={`font-mono font-bold tabular-nums leading-tight ${deltaClass(state.deltaSec)}`} style={{ fontSize: 'min(11vw, 16vh)' }} data-testid="lap-timer-delta">
-                {state.deltaSec !== null ? formatDelta(state.deltaSec) : ' '}
-              </div>
-            </>
+            </div>
           )}
         </section>
 
         {/* 横: 前の周・ベスト・セクター・速度 */}
         {/* 横向きのスマートフォン (高さが足りない) は、前の周とベストを横に並べ、区間はその下 (3 段だと上下にはみ出していた) */}
-        <aside className="shrink-0 min-h-0 landscape:w-[34vw] grid grid-cols-2 landscape:grid-cols-1 [@media(orientation:landscape)_and_(max-height:500px)]:grid-cols-2 gap-2 content-center font-mono tabular-nums">
-          <div className="rounded-xl bg-surface-2 px-3 py-2">
-            <div className="text-[11px] text-slate-400 font-sans">{t('前の周', 'Last')}</div>
-            <div className="text-2xl sm:text-3xl font-bold">{lastLap ? formatLapTime(lastLap.timeSec, 2) : '--:--'}</div>
-            <div className={`text-lg ${deltaClass(lastDiff)}`}>{lastDiff !== null ? formatDelta(lastDiff) : ' '}</div>
-          </div>
-          <div className="rounded-xl bg-surface-2 px-3 py-2">
-            <div className="text-[11px] text-slate-400 font-sans">{t('ベスト', 'Best')}{state?.best ? ` (${t(`${state.best.number} 周目`, `L${state.best.number}`)})` : ''}</div>
-            <div className="text-2xl sm:text-3xl font-bold text-amber-500">{state?.best ? formatLapTime(state.best.timeSec, 2) : '--:--'}</div>
-            <div className="text-lg text-slate-400"><span className="text-[11px] font-sans text-slate-500 mr-1">{t('速度', 'Speed')}</span>{lastFix && (source === 'replay' || sincePerf <= 3) ? `${Math.round(lastFix.speedKmh)} km/h` : '---'}</div>
+        <aside className="shrink-0 min-h-0 landscape:w-[34vw] rounded-3xl bg-surface-1 font-mono tabular-nums divide-y divide-line-2 flex flex-col justify-center" data-testid="lap-timer-panel">
+          <div className="grid grid-cols-2 divide-x divide-line-2">
+            <div className="px-4 py-3 min-w-0">
+              <div className="font-sans text-[11px] portrait:text-[length:3.2vw] tracking-wider text-slate-400">{t('前の周', 'LAST')}{lastLap?.hadGap && <span className="text-amber-500" data-testid="lap-timer-last-gap">{t(' · 途切れあり', ' · GAP')}</span>}</div>
+              <div className="font-bold text-fg text-2xl sm:text-3xl portrait:text-[length:min(8.5vw,4.6vh)] leading-tight">{lastLap ? formatLapTime(lastLap.timeSec, 2) : '--:--'}</div>
+              <div className={`font-bold text-base portrait:text-[length:min(5.6vw,3.2vh)] ${lastLap?.hadGap ? 'text-slate-400' : deltaClass(lastDiff)}`}>{lastDiff !== null ? formatDelta(lastDiff) : ' '}</div>
+            </div>
+            <div className="px-4 py-3 min-w-0">
+              <div className="font-sans text-[11px] portrait:text-[length:3.2vw] tracking-wider text-slate-400 truncate" data-testid="lap-timer-best-label">
+                {t('ベスト', 'BEST')}{state?.reference ? ` · ${state.reference.lapNumber !== null ? t(`${state.reference.lapNumber} 周目`, `L${state.reference.lapNumber}`) : pastBest ? t(...pastBest.tag) : ''}` : pastBest ? ` · ${t(...pastBest.tag)}` : ''}
+              </div>
+              <div className="font-bold text-amber-500 text-2xl sm:text-3xl portrait:text-[length:min(8.5vw,4.6vh)] leading-tight">{state?.reference ? formatLapTime(state.reference.timeSec, 2) : pastBest ? formatLapTime(pastBest.time, 2) : '--:--'}</div>
+              <div className="text-base portrait:text-[length:min(5.6vw,3.2vh)] text-slate-300">{lastFix && (source === 'replay' || sincePerf <= 3) ? `${Math.round(lastFix.speedKmh)}` : '---'}<span className="font-sans text-[11px] text-slate-400 ml-1">km/h</span></div>
+            </div>
           </div>
           {sectorCount > 0 && (
-            <div className="col-span-2 landscape:col-span-1 [@media(orientation:landscape)_and_(max-height:500px)]:col-span-2 rounded-xl bg-surface-2 px-3 py-2 flex gap-2" data-testid="lap-timer-sectors">
+            <div className="flex divide-x divide-line-2" data-testid="lap-timer-sectors">
               {Array.from({ length: sectorCount }, (_, i) => {
-                // 周を終えて大きく出している間は、終えた周のセクターを出しておく
-                const cur = flashing
-                  ? (flashing.lap.sectorsSec[i] !== undefined ? { timeSec: flashing.lap.sectorsSec[i], diffSec: null } : undefined)
-                  : state?.currentSectors[i];
+                // セクターは、跨いだ所でのベストの周との差。周を終えて大きく出している間は、終えた周のもの
+                const d = flashing ? (flashing.lap.splitDeltas?.[i] ?? null) : (state?.currentSectors[i]?.deltaSec ?? null);
+                const done = flashing ? flashing.lap.splitDeltas !== undefined : state?.currentSectors[i] !== undefined;
                 return (
-                  <div key={i} className="flex-1 min-w-0">
-                    <div className="text-[11px] text-slate-400 font-sans">S{i + 1}</div>
-                    <div className="text-base sm:text-lg">{cur ? (Number.isFinite(cur.timeSec) ? cur.timeSec.toFixed(2) : '--') : bestSectors[i] !== undefined ? <span className="text-slate-500">{bestSectors[i].toFixed(2)}</span> : '--'}</div>
-                    <div className={`text-sm ${deltaClass(cur?.diffSec)}`}>{cur && cur.diffSec !== null ? formatDelta(cur.diffSec) : ' '}</div>
+                  <div key={i} className="flex-1 min-w-0 px-3 py-2.5">
+                    <div className="font-sans text-[11px] portrait:text-[length:3.2vw] tracking-wider text-slate-400">S{i + 1}</div>
+                    <div className={`font-bold text-lg portrait:text-[length:min(6.4vw,3.6vh)] ${done ? deltaClass(d) : 'text-slate-500'}`}>{done && d !== null ? formatDelta(d) : '--'}</div>
                   </div>
                 );
               })}
@@ -595,6 +691,22 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
               </div>
             </div>
           )}
+          <div className="space-y-1.5" data-testid="lap-timer-hold-settings">
+            <div className="text-slate-400 text-xs">{t('跨いだときにタイムを大きく出す長さ (次を跨いだら切り替わる)', 'How long to show the time after crossing (until the next crossing)')}</div>
+            {([['lap', t('周', 'Lap'), LAP_HOLD_CHOICES, display.lapHoldSec], ['sector', t('セクター', 'Sector'), SECTOR_HOLD_CHOICES, display.sectorHoldSec]] as const).map(([key, label, choices, value]) => (
+              <div key={key} className="flex items-center gap-2">
+                <span className="w-16 text-xs text-slate-300">{label}</span>
+                <div className="flex flex-1 gap-1">
+                  {choices.map(sec => (
+                    <button key={sec} onClick={() => changeDisplay(key === 'lap' ? { lapHoldSec: sec } : { sectorHoldSec: sec })} aria-pressed={value === sec} data-testid={`lap-timer-hold-${key}-${sec}`}
+                      className={`flex-1 px-1 py-1.5 rounded-lg text-xs ${value === sec ? 'bg-red-600 text-white' : 'bg-surface-2'}`}>
+                      {sec === 0 ? t('出さない', 'Off') : t(`${sec} 秒`, `${sec}s`)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
           <TimerCameraSettings />
           <div data-testid="lap-timer-runs">
             <div className="text-slate-400 text-xs mb-1">{t('走行の記録 (走っている間に 2 秒ごとに保存)', 'Runs (saved every 2 s while driving)')}</div>

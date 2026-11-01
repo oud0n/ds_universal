@@ -8,6 +8,9 @@
  *  4. アプリの保管場所に、8/15 と 9/18 の袖ヶ浦の走行 (動画つき) があること
  *
  * 使い方: node e2e/ios_compare_trace.mjs [秒数=60] [query (例 clock=app)] [ラベル]
+ * 環境変数: OPEN1・OPEN2 (開く走行の一覧の文字。既定 8/15・9/18)、IOS_WEB_PORT (既定 5192)、TRACE_SKIP_MS (再生の始めの数えない長さ。既定 1500)、
+ * CAR2_LAP (Car 2 を、OPEN1 の走行のこの周にする。同じ動画の別の周を比べる。OPEN2 は使わない)、
+ * ALIGN (distance: 地点で合わせる / time: 時間で合わせる。無ければ今の設定のまま)
  * 画面を読み込み直し、8/15 を動画つきで開き、9/18 を Car 2 に入れて「比べる」で再生し、
  * 動画ごとのコマの止まり (0.1 秒超)・速さの変更・位置の移動を出す。記録は e2e/out/ に置く。
  * アプリのコードは変えず、ios_trace_inject.js をページに入れて <video> の操作とコマを記録する
@@ -21,28 +24,43 @@ const OUT = DIR + 'out/';
 mkdirSync(OUT, { recursive: true });
 const dur = Number(process.argv[2] ?? 60), query = process.argv[3] ?? '', label = process.argv[4] ?? 'auto';
 const ip = process.env.IOS_WEB_HOST ?? execSync('ipconfig getifaddr en0').toString().trim();
-const base = `http://${ip}:5192/`;
-let p = await Page.connect(9240, { urlPart: '5192', outDir: OUT, label });
+const port = process.env.IOS_WEB_PORT ?? '5192';
+const base = `http://${ip}:${port}/`;
+let p = await Page.connect(9240, { urlPart: port, outDir: OUT, label });
 await p.ev(`location.href = ${JSON.stringify(`${base}?t=${Date.now()}${query ? '&' + query : ''}`)}`);
 await sleep(4000);
-p = await Page.connect(9240, { urlPart: '5192', outDir: OUT, label });
+p = await Page.connect(9240, { urlPart: port, outDir: OUT, label });
 await p.waitFor(`document.querySelector('[data-testid="nav-library"]')`, 30000, '起動');
 async function openRun(date, how) {
   await p.click('nav-library');
   await p.waitFor(`document.querySelectorAll('[data-testid="run-row"]').length > 0`, 30000, '走行の一覧');
-  const ok = await p.ev(`(()=>{const r=[...document.querySelectorAll('[data-testid="run-row"]')].find(r=>r.innerText.includes(${JSON.stringify(date)})); r?.click(); return !!r})()`);
-  if (!ok) throw new Error('走行がない: ' + date);
-  await p.waitFor(`document.querySelector('[data-testid="${how}"]')`, 10000, how);
+  // 一覧は読み直しで描き直されることがある (押した行が消えて、詳しい画面が開かない)。開くまで押し直す
+  for (let i = 0; ; i++) {
+    const ok = await p.ev(`(()=>{const r=[...document.querySelectorAll('[data-testid="run-row"]')].find(r=>r.innerText.includes(${JSON.stringify(date)})); r?.click(); return !!r})()`);
+    if (!ok) throw new Error('走行がない: ' + date);
+    try { await p.waitFor(`document.querySelector('[data-testid="${how}"]')`, 4000, how); break; } catch (e) { if (i >= 4) throw e; }
+  }
   await p.click(how);
   await p.waitFor(`!document.querySelector('[data-testid="${how}"]')`, 60000, '開き終わる');
   await sleep(how === 'run-open-video' ? 6000 : 4000);
 }
-await openRun('8/15', 'run-open-video');
-await openRun('9/18', 'run-add-car2');
+await openRun(process.env.OPEN1 ?? '8/15', 'run-open-video');
+if (process.env.CAR2_LAP) {
+  await p.ev(`(()=>{const c=window.__laploupe.cars[0]; window.__laploupe.selectCar(1, c.sessionId, ${Number(process.env.CAR2_LAP)}); return true})()`);
+  await sleep(1500);
+} else {
+  await openRun(process.env.OPEN2 ?? '9/18', 'run-add-car2');
+}
 await p.click('nav-video');
 await sleep(1500);
 await p.click('video-mode-compare');
 await sleep(5000);
+if (process.env.ALIGN) {
+  const label = process.env.ALIGN === 'time' ? '時間' : '地点';
+  const ok = await p.ev(`(()=>{const g=document.querySelector('[role=radiogroup][aria-label="走行比較の合わせ方"]'); const b=g&&[...g.querySelectorAll('button')].find(b=>b.innerText.trim()===${JSON.stringify(label)}); b?.click(); return !!b})()`);
+  if (!ok) throw new Error('合わせ方のボタンがない');
+  await sleep(1500);
+}
 await p.ev(readFileSync(DIR + 'ios_trace_inject.js', 'utf8'));
 const setup = await p.ev(`JSON.stringify({ cars: window.__laploupe?.cars, videos: [...document.querySelectorAll('video')].map(v => decodeURIComponent((v.getAttribute('src')||'').split('/').pop()).slice(-30) + (v.muted ? ' (muted)' : ' (sound)')) })`);
 console.log('setup', setup);
@@ -58,7 +76,8 @@ writeFileSync(file, raw);
 // まとめ: 再生していた間の、動画ごとのコマの止まり (0.1 秒超)・速さの変更・位置の移動
 const T = JSON.parse(raw), ev = T.ev;
 const t0 = ev.find(e => e.k === 'play')?.t ?? T.t0, t1 = [...ev].reverse().find(e => e.k === 'pause')?.t ?? Infinity;
-const inPlay = e => e.t >= t0 + 1500 && e.t <= t1; // 再生の始めの 1.5 秒は除く
+const skip = Number(process.env.TRACE_SKIP_MS ?? 1500);
+const inPlay = e => e.t >= t0 + skip && e.t <= t1; // 再生の始め (既定 1.5 秒) は除く
 const out = { label, query, durSec: dur, file, videos: [] };
 for (const id of [...new Set(ev.filter(e => e.k === 'frame').map(e => e.id))]) {
   const fr = ev.filter(e => e.k === 'frame' && e.id === id && inPlay(e));

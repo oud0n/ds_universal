@@ -1,3 +1,4 @@
+import { isLoneSecondJump } from '../utils/timeRepair';
 import { TelemetryPoint, type GgaFields } from '../types/telemetry';
 import { calculatePhysics, calculateGeoDistanceAndHeading } from './physics';
 import { calculateNmeaChecksum } from './nmeaExporter';
@@ -133,6 +134,8 @@ export function parseNmea(nmeaText: string, fileName = ''): { points: TelemetryP
   // 日付をまたぐログで経過時間が負にならないよう、時刻が大きく戻ったら 1 日分を足す
   let dayOffset = 0;
   let prevTotal: number | null = null;
+  // その前の点の時刻 (1 点だけ 1 秒先へ飛んだ点を見分けるため。BUG-41)
+  let prevPrevTotal: number | null = null;
   // 日付付きの行から分かった記録開始日時
   let startDate: Date | undefined;
   // GGA と RMC を時刻で対応付けるための控え
@@ -198,8 +201,16 @@ export function parseNmea(nmeaText: string, fileName = ''): { points: TelemetryP
           total += daySec + dayOffset;
           if (hint) absoluteSec = total;
         }
-        // 時刻が戻っている行は採用しない
-        if (prevTotal !== null && total <= prevTotal) continue;
+        // 時刻が戻っている行は採用しない。ただ、前の 1 点だけが 1 秒先へ飛んでいたなら (GPS の時刻の飛び、BUG-41)、
+        // その点を 1 秒戻して、この行を採る (前は、続く 1 秒の点を捨てていた)
+        if (prevTotal !== null && total <= prevTotal) {
+          const last = points[points.length - 1];
+          if (prevPrevTotal === null || !last || !isLoneSecondJump(prevPrevTotal, prevTotal, total)) continue;
+          last.time = Number((last.time - 1).toFixed(3));
+          if (last.timestamp) last.timestamp = new Date(Date.parse(last.timestamp) - 1000).toISOString();
+          prevTotal -= 1;
+        }
+        prevPrevTotal = prevTotal;
         prevTotal = total;
         if (startTimeSec === null) startTimeSec = total;
         timeSec = total - startTimeSec;

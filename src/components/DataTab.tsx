@@ -23,7 +23,6 @@ import {
 import { LapHistoryPanel } from './LapHistoryPanel';
 import { formatMinSec } from '../utils/timeFormat';
 import { useCompactLayout } from '../hooks/useCompactLayout';
-import { GFilterLevel } from '../services/physics';
 import { circuitLabel, useLang, useT } from '../utils/i18n';
 import type { GSource } from '../services/imuG';
 
@@ -59,13 +58,11 @@ interface DataTabProps {
   onOpenCircuitEditor: () => void;
   // 走行データのファイルを選ぶ (データがないときの案内をタップ・クリックしたとき)
   onOpenFile?: () => void;
-  // G のならし方 (解析の設定)
-  gFilterLevel: GFilterLevel;
-  onChangeGFilterLevel: (level: GFilterLevel) => void;
   /** iPhone の G センサーの値がある走行を開いているか */
   hasImu?: boolean;
+  /** 端末が揺れていた走行の名前 (G センサーの G が揺れる) */
+  imuWobbly?: string[];
   gSource?: GSource;
-  onChangeGSource?: (s: GSource) => void;
 }
 
 /** 時計の補正の見積もり。applied: 確かな見積もりなので入れた。入れていないもの (quality 'suggest') は「入れる」で入れる */
@@ -159,6 +156,18 @@ const ClockOffsetControl: React.FC<{
  * 走行の名前。ふだんは文字だけで出し、鉛筆のボタンを押したときだけ書き換えられる (触っただけで書き換わらないように。2026-10-22)。
  * Enter か欄の外を押すと決める。Esc でやめる。空にしたら前の名前のまま
  */
+// 周の表で、横に動かしても残す列 (Lap・ラップタイムは左、スロット選択は右)。下が透けないよう、使う所で色を敷く (行はカードの色、見出し・仮想ベストは bg-surface-1)
+const STICKY_LAP = 'sticky left-0 z-10 w-[92px] min-w-[92px]';
+const STICKY_TIME = 'sticky left-[92px] z-10';
+const STICKY_SLOT = 'sticky right-0 z-10';
+// 固定の列の境目の線と、ベストの周の行の色。表の枠線は固定の列と一緒に動かないので、内側の影で描く
+// (ベストの色も、不透明の bg の上に影で重ねる。影は 1 つの class にまとめる)
+const EDGE_R = 'shadow-[inset_-1px_0_0_var(--ds-line-2)]';
+const EDGE_L = 'shadow-[inset_1px_0_0_var(--ds-line-2)]';
+const BEST_TINT = 'shadow-[inset_0_0_0_9999px_rgb(69_26_3/0.2)]';
+const EDGE_R_BEST = 'shadow-[inset_-1px_0_0_var(--ds-line-2),inset_0_0_0_9999px_rgb(69_26_3/0.2)]';
+const EDGE_L_BEST = 'shadow-[inset_1px_0_0_var(--ds-line-2),inset_0_0_0_9999px_rgb(69_26_3/0.2)]';
+
 const SessionNameField: React.FC<{ name: string; compact: boolean; onSave: (name: string) => void }> = ({ name, compact, onSave }) => {
   const t = useT();
   const [editing, setEditing] = useState(false);
@@ -232,11 +241,9 @@ export const DataTab: React.FC<DataTabProps> = ({
   onSelectCircuitPreset,
   onOpenCircuitEditor,
   onOpenFile,
-  gFilterLevel,
-  onChangeGFilterLevel,
   hasImu,
-  gSource,
-  onChangeGSource
+  imuWobbly,
+  gSource
 }) => {
   // スマートフォン向けの配置では、ラップ一覧を表でなく 1 周ずつのカードで出す
   const compact = useCompactLayout();
@@ -420,48 +427,13 @@ export const DataTab: React.FC<DataTabProps> = ({
         </label>
       </div>
 
-      {/* 解析の設定 */}
-      <div className={`bg-surface-2 border border-line-2 rounded-xl shadow-md space-y-2 ${compact ? 'p-3' : 'p-4'}`}>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs font-bold text-slate-300">{t('G のならし方', 'G smoothing')}</span>
-          <div className="flex bg-surface-1 rounded p-0.5 border border-line-3" role="radiogroup" aria-label={t('G のならし方', 'G smoothing')}>
-            {([['weak', t('弱', 'Light')], ['standard', t('標準（推奨）', 'Standard (recommended)')], ['strong', t('強', 'Strong')]] as const).map(([value, label]) => (
-              <button
-                key={value}
-                role="radio"
-                aria-checked={gFilterLevel === value}
-                onClick={() => onChangeGFilterLevel(value)}
-                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                  gFilterLevel === value ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {hasImu && onChangeGSource && (
-          <div className="flex flex-wrap items-center gap-3" data-testid="g-source">
-            <span className="text-xs font-bold text-slate-300">{t('G の出どころ', 'G source')}</span>
-            <div className="flex bg-surface-1 rounded p-0.5 border border-line-3" role="radiogroup" aria-label={t('G の出どころ', 'G source')}>
-              {([['sensor', t('端末の G センサー', 'Phone sensor')], ['calc', t('計算', 'Calculated')]] as const).map(([value, label]) => (
-                <button key={value} role="radio" aria-checked={gSource === value} onClick={() => onChangeGSource(value)}
-                  className={`px-3 py-1 rounded text-xs font-medium transition-colors ${gSource === value ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
-                  {label}
-                </button>
-              ))}
-            </div>
-            <p className="w-full text-[11px] text-slate-400 leading-relaxed">
-              {t('アプリのラップタイマーで測った走行は、端末の G センサーの値も記録しています。「G センサー」にすると、ゆっくりした変化は計算した G、速い変化 (ブレーキの踏み始め・切り返し) は G センサーから取って合わせます。坂や端末の付け方のずれは残りません。',
-                'Runs timed with the app\'s lap timer also record the phone\'s G sensor. With "Phone sensor", slow changes come from the calculated G and fast changes (start of braking, direction changes) from the sensor. Slopes and mounting angle do not leak in.')}
-            </p>
-          </div>
-        )}
-        <p className="text-[11px] text-slate-400 leading-relaxed">
-          {t('G（加減速 G・横 G・合算 G）と旋回半径は、GPS の位置と車速の変化からアプリが計算しています（ロガーが G を測っているわけではありません）。 GPS の位置はわずかに揺れるので、計算した G も細かく揺れます。「ならし方」は、その揺れをどれだけ平らにするかの設定です。 強くするほど速度グラフの G 表示やフリクションサークルが落ち着きますが、急な変化（ブレーキの踏み始めなど）は鈍く、小さく出ます。 「標準」は記録レートに合わせてならし方を変えます。読み込み済みのログにもすぐ反映され、変換画面で書き出す「走行データCSV」・DTB の G もこの値になります。元のログファイルは変わりません。',
-            'G (longitudinal, lateral and combined) and the turning radius are calculated by the app from changes in GPS position and speed (the logger does not measure G). GPS positions jitter slightly, so the calculated G jitters too. "Smoothing" sets how much of that jitter is flattened. Stronger smoothing calms the G display on the speed graph and the friction circle, but sudden changes (such as the start of braking) appear slower and smaller. "Standard" adapts to the logging rate. Changes apply immediately to loaded logs and to the G in the telemetry CSV and DTB exported on the convert page. The original log files are not changed.')}
+      {/* 端末が揺れていた走行の知らせ (G のならし方・G の出どころは設定へ移した。PLAN-42) */}
+      {hasImu && gSource === 'sensor' && !!imuWobbly?.length && (
+        <p className="text-[11px] text-amber-500 leading-relaxed px-1" data-testid="imu-wobble-warning">
+          {t(`端末が揺れていたようです (${imuWobbly.join('・')})。ホルダーがやわらかいと、G が揺れて見えます。設定の「G のならし方」を「強」にするか、「G の出どころ」を「計算」にしてください。次からは、端末をしっかり固定してください。`,
+            `The phone seems to have been shaking (${imuWobbly.join(', ')}). A soft mount makes the G wobble. In Settings, set G smoothing to Strong or the G source to Calculated, and mount the phone firmly next time.`)}
         </p>
-      </div>
+      )}
 
       {/* セッション & ラップ一覧 */}
       {sessions.length === 0 ? (
@@ -570,8 +542,8 @@ export const DataTab: React.FC<DataTabProps> = ({
                 <table className="w-full text-xs text-left">
                   <thead className="bg-surface-1 text-slate-400 font-mono uppercase text-[11px] border-b border-line-2">
                     <tr>
-                      <th className="py-2 px-3">Lap</th>
-                      <th className="py-2 px-3">{t('ラップタイム', 'Lap time')}</th>
+                      <th className={`py-2 px-3 ${STICKY_LAP} bg-surface-1`}>Lap</th>
+                      <th className={`py-2 px-3 whitespace-nowrap ${STICKY_TIME} ${EDGE_R} bg-surface-1`}>{t('ラップタイム', 'Lap time')}</th>
                       <th className="py-2 px-3">{t('最高速', 'Top speed')}</th>
                       <th className="py-2 px-3">{t('最低速', 'Min speed')}</th>
                       <th className="py-2 px-3">{t('平均速度', 'Avg speed')}</th>
@@ -581,7 +553,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                           {sec.name}
                         </th>
                       ))}
-                      <th className="py-2 px-3 text-center">{t('スロット選択', 'Slot')}</th>
+                      <th className={`py-2 px-3 text-center whitespace-nowrap ${STICKY_SLOT} ${EDGE_L} bg-surface-1`}>{t('スロット選択', 'Slot')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line-1 font-mono">
@@ -598,15 +570,15 @@ export const DataTab: React.FC<DataTabProps> = ({
                           }`}
                         >
                           {/* td 自体を flex にすると、表の行の中で縦の位置がずれる (ほかの欄より上に寄る) ので、中で並べる */}
-                          <td className="py-2.5 px-3 font-bold">
-                            <span className="inline-flex items-center gap-1.5">
+                          <td className={`py-2.5 px-3 font-bold ${STICKY_LAP} bg-surface-2 ${lap.isBestLap ? BEST_TINT : ''}`}>
+                            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
                               {lap.isBestLap && <Trophy size={13} className="text-amber-400" />}
                               Lap {lap.lapNumber}
                             </span>
                           </td>
                           <td
-                            className={`py-2.5 px-3 font-bold ${
-                              lap.isBestLap ? 'text-amber-400 text-sm' : 'text-slate-100'
+                            className={`py-2.5 px-3 font-bold whitespace-nowrap ${STICKY_TIME} bg-surface-2 ${
+                              lap.isBestLap ? `text-amber-400 text-sm ${EDGE_R_BEST}` : `text-slate-100 ${EDGE_R}`
                             }`}
                           >
                             {formatTime(lap.lapTime)}
@@ -634,8 +606,8 @@ export const DataTab: React.FC<DataTabProps> = ({
                             </td>
                           ))}
 
-                          {/* 車両スロット割り当てボタン (Car 1..4) */}
-                          <td className="py-2.5 px-3 text-center">
+                          {/* 車両スロット割り当てボタン (Car 1..4)。右に固定して、セクターが多くてもいつでも押せるようにする */}
+                          <td className={`py-2.5 px-3 text-center ${STICKY_SLOT} bg-surface-2 ${lap.isBestLap ? EDGE_L_BEST : EDGE_L}`}>
                             <div className="flex items-center justify-center gap-1">
                               {slotColors.map(slot => {
                                 const isCurrentSlot = selectedCars.some(
@@ -671,13 +643,13 @@ export const DataTab: React.FC<DataTabProps> = ({
                   {session.theoreticalBestTime > 0 && session.sectors.length > 0 && (
                     <tfoot className="bg-surface-1 text-amber-300 font-mono font-bold text-[11px] border-t-2 border-amber-500/40">
                       <tr>
-                        <td className="py-2 px-3">
-                          <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                            <Trophy size={13} className="text-amber-400" />
+                        <td className={`py-2 px-3 ${STICKY_LAP} bg-surface-1`}>
+                          <span className="inline-flex items-center gap-1">
+                            <Trophy size={13} className="text-amber-400 shrink-0" />
                             {t('仮想ベスト', 'Theoretical best')}
                           </span>
                         </td>
-                        <td className="py-2 px-3 text-amber-400 text-sm">
+                        <td className={`py-2 px-3 text-amber-400 text-sm whitespace-nowrap ${STICKY_TIME} ${EDGE_R} bg-surface-1`}>
                           {formatTime(session.theoreticalBestTime)}
                         </td>
                         <td colSpan={4} className="py-2 px-3 text-slate-400 font-normal">
@@ -692,7 +664,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                             </td>
                           );
                         })}
-                        <td></td>
+                        <td className={`${STICKY_SLOT} ${EDGE_L} bg-surface-1`}></td>
                       </tr>
                     </tfoot>
                   )}

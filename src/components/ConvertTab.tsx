@@ -396,8 +396,8 @@ export const ConvertTab: React.FC<ConvertTabProps> = ({ sessions, sessionId, def
                   )}
                 </div>
                 <p className="text-[11px] text-slate-500 mt-2" data-testid="convert-gnote">
-                  {t(`G・旋回半径は、いまの「G のならし方」（${G_LEVEL_LABEL[gFilterLevel][0]}）で計算した値です。ならし方はデータ管理で変えられます。 ラップ一覧は、書き出す範囲に収まる周だけを出します（${lapsInRange.length} 周）。`,
-                    `G and turning radius are calculated with the current G smoothing (${G_LEVEL_LABEL[gFilterLevel][1]}); change it on the data tab. The lap list only includes laps that fit within the range (${lapsInRange.length} laps).`)}
+                  {t(`G・旋回半径は、いまの「G のならし方」（${G_LEVEL_LABEL[gFilterLevel][0]}）で計算した値です。ならし方は設定の「解析」で変えられます。 ラップ一覧は、書き出す範囲に収まる周だけを出します（${lapsInRange.length} 周）。`,
+                    `G and turning radius are calculated with the current G smoothing (${G_LEVEL_LABEL[gFilterLevel][1]}); change it under Analysis in Settings. The lap list only includes laps that fit within the range (${lapsInRange.length} laps).`)}
                 </p>
               </div>
             </div>

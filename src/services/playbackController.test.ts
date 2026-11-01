@@ -21,6 +21,8 @@ interface Model {
 const CHROME: Model = { startLagMs: 230, seekedAfterMs: 40, resumeAfterMs: 70, previewFrame: false, rateChangeStallMs: 0 };
 const SAFARI_AUDIBLE: Model = { startLagMs: 460, seekedAfterMs: 200, resumeAfterMs: 600, previewFrame: false, rateChangeStallMs: 300 };
 const SAFARI_MUTED: Model = { startLagMs: 80, seekedAfterMs: 40, resumeAfterMs: 70, previewFrame: false, rateChangeStallMs: 0 };
+// iPhone の GoPro の動画 (音を消した Car 2)。動き出すまで 0.45 秒、飛ぶと 0.4 秒止まる (2026-10-30 の画面の録画で測った)。速さを変えると少し引っかかる (BUG-32)
+const IPHONE_GOPRO_MUTED: Model = { startLagMs: 450, seekedAfterMs: 200, resumeAfterMs: 400, previewFrame: false, rateChangeStallMs: 40 };
 
 const FRAME_MS = 1000 / 60;
 
@@ -356,6 +358,29 @@ describe('PlaybackController', () => {
     const seeksBeforeEnd = sim.video.seeks;
     sim.run(4000);
     expect(sim.video.seeks - seeksBeforeEnd).toBeLessThanOrEqual(2);
+  });
+
+  it('iPhone の走行比較の Car 2: 再生を始めた直後の出遅れと、倍率の小さな揺れでは飛ばず (飛ぶと 0.4 秒止まる)、速さで詰める', () => {
+    const sim = new Sim(IPHONE_GOPRO_MUTED, { adjustAudibleRate: true, muted: true, clockEligible: false });
+    sim.rate = 1.1;
+    const seeksBefore = sim.video.seeks;
+    sim.play();
+    // 距離の対応の傾き (倍率) は、走っている間 ±3% ほど揺れ続ける
+    for (let i = 0; i < 20; i++) { sim.rate = 1.1 * (1 + 0.03 * Math.sin(i * 1.3)); sim.run(1000); }
+    expect(sim.video.seeks - seeksBefore).toBe(0);
+    expect(sim.maxDiffOverLast(5000)).toBeLessThan(0.1);
+  });
+
+  it('時間で合わせる比べるの Car 2 (倍率 1): ちょうど 1 倍と、それ以外を行き来しない (iPhone はそのたびに止まる)', () => {
+    const sim = new Sim(IPHONE_GOPRO_MUTED, { adjustAudibleRate: true, muted: true, clockEligible: false });
+    sim.rate = 1;
+    sim.play();
+    const seen = new Set<number>();
+    // 動き出すまで (始めの 2 秒) は、もとの 1 倍のこともある
+    sim.run(2000);
+    for (let i = 0; i < 600; i++) { sim.run(1000 / 60); seen.add(sim.video.playbackRate); }
+    expect([...seen].includes(1)).toBe(false);
+    expect(sim.maxDiffOverLast(3000)).toBeLessThan(0.1);
   });
 
   it('走行比較の枠 (倍率あり) も揃う', () => {

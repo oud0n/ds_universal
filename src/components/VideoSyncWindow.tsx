@@ -8,7 +8,6 @@ import {
   Columns, PictureInPicture, MapPin, Download, X,
   ArrowLeftRight, Volume2, VolumeX, Maximize2, ListChecks, Maximize, Minimize, LayoutDashboard } from 'lucide-react';
 import { Session, TelemetryPoint, SelectedCarSlot, Lap } from '../types/telemetry';
-import { getAddVideoGpsLog, setAddVideoGpsLog } from '../services/videoPrefs';
 import { hasNative } from '../native/bridge';
 import { videoSyncManager, PlacedTrack, TIMEZONE_OPTIONS, getTimezoneOffsetMs, overlappingSessions, placeTracks, isClockManual } from '../services/videoSyncManager';
 import { clockOffsetIn, sessionStartUtcMs } from '../services/mediaClock';
@@ -150,6 +149,8 @@ interface VideoSyncWindowProps {
   onPickCompareLap?: (sessionId: string, lapNumber: number) => void;
   /** ファイルを読み込む (ヘッダーの「読込」と同じ。GoPro の動画は GPS を走行ログにしてから動画同期に登録する) */
   onLoadFiles?: (files: File[]) => Promise<void>;
+  /** 動画タブを開く (解析の枠から。動画の追加・合わせる・書き出す・走行の確認は動画タブだけにした、2026-11-01) */
+  onOpenVideoTab?: () => void;
   // ウインドウごとの表示の状態 (並べ方など) を覚えるときの名前
   viewKey: string;
   // ログの時計の補正を入れる (同期プロジェクトに保存した補正を戻すとき)
@@ -273,6 +274,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   onChooseLog,
   onPickCompareLap,
   onLoadFiles,
+  onOpenVideoTab,
   viewKey,
   onSetClockOffset,
   compareCars,
@@ -304,6 +306,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // 全部の <video> を、1 か所で App の時刻に合わせる
   // iPhone・iPad では、音のある動画の速さは変えない (映像が重くなるため)
   const playback = useRef(new PlaybackController(!isIOS && !isWebKitBrowser)).current;
+  /** 比べるの、枠 (Car) ごとの前の速さの倍率 (傾きを求められないときに使う) */
+  const compareRateRef = useRef(new Map<number, number>());
   // 上の段は、入りきらないときに横にスクロールする。マウスのホイールでも動かせるようにする
   const toolbarScrollRef = useWheelScrollX<HTMLDivElement>();
   const mainVideo = () => playback.element('tile-0');
@@ -593,11 +597,23 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       const position = !m ? null : ct === null || start === null ? noFootage(m) : positionAtMediaTime(m, ct - start);
       // 速さの倍率: 約 0.5 秒先までの、距離の対応の傾き (遅い車の動画ほど速く回す)
       // 周の終わり 0.5 秒は先の時刻が周の終わりにそろって傾きが 0 になるので、後ろの 0.5 秒で求める
-      let rate: number | undefined;
+      // 前後 1 秒で求める (0.5 秒だと、位置の揺れで傾きが一瞬崩れ、そのたびに速さが大きく変わって iPhone で止まっていた)。
+      // 求められないとき (位置の揺れで時刻が進まない所) は、前の倍率のまま (前は 1 にしていて、速さが跳ねていた。2026-10-30)
+      // 時間で合わせるときも倍率 1 を渡す (倍率のある枠として、速さを小刻みに変えず、小さなずれでは飛ばない。
+      // 渡さないと、iPhone で 0.5 秒ごとに速さが 0.9〜1.1 倍を行き来し、そのたびに止まっていた。2026-10-30)
+      let rate: number | undefined = !isBase && ct !== null && byTime ? 1 : undefined;
       if (!isBase && ct !== null && !byTime) {
-        const nearEnd = pts.length > 0 && baseElapsed + 0.5 > pts[pts.length - 1].time;
-        const ahead = nearEnd ? null : timeAt(sessionTime + 0.5), behind = timeAt(sessionTime - 0.5);
-        rate = ahead !== null && ahead > ct ? (ahead - ct) / 0.5 : behind !== null && ct > behind ? (ct - behind) / 0.5 : 1;
+        const W = 1;
+        // 周の始め・終わりの 1 秒は、周の外の時刻が周の始め・終わりにそろって傾きが小さく出るので、周の中の側だけで求める
+        const nearEnd = pts.length > 0 && baseElapsed + W > pts[pts.length - 1].time;
+        const nearStart = pts.length > 0 && baseElapsed - W < pts[0].time;
+        const ahead = nearEnd ? null : timeAt(sessionTime + W), behind = nearStart ? null : timeAt(sessionTime - W);
+        const prev = compareRateRef.current.get(car.slot.slot);
+        rate = ahead !== null && behind !== null && ahead > behind ? (ahead - behind) / (2 * W)
+          : ahead !== null && ahead > ct ? (ahead - ct) / W
+          : behind !== null && ct > behind ? (ct - behind) / W
+          : prev ?? 1;
+        compareRateRef.current.set(car.slot.slot, rate);
       }
       return {
         media: m, position, rate, slot: car.slot.slot, color: car.slot.colorHex, chosen: !!chosenId,
@@ -632,10 +648,11 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const [showSyncTools, setShowSyncTools] = useState(false);
   // 比べる・合わせるなどへ移ったら、配置の編集を閉じる (編集は「見る」のメインの枠だけ)
   useEffect(() => { if (isCompare || isCompactLayout || showSyncTools || showExportModal) setEditLayout(null); }, [isCompare, isCompactLayout, showSyncTools, showExportModal]);
+  // 走行の確認 (RunsInspector) を開く。解析の枠では狭いので、動画タブを開く (そこの「走行の確認」で見る)
+  const openRuns = () => { if (isGraphEmbedded) onOpenVideoTab?.(); else setShowRuns(true); };
   // 走行の確認 (RunsInspector) を開いているか
   const [showRuns, setShowRuns] = useState(false);
   // GoPro の動画の GPS も走行ログとして加えるか (次に読み込む動画から効く) LATER-12
-  const [addVideoGpsLog, setAddVideoGpsLogState] = useState(getAddVideoGpsLog);
 
   // メインのカメラのチャプター (チャプターに分かれた動画のとき)
   const currentGroup = useMemo(
@@ -1230,21 +1247,6 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             <span className="hidden 2xl:inline">{t('車載動画同期', 'Onboard video sync')}</span>
           </span>
 
-          {/* グラフ解析に埋め込んだときだけ: タイムゾーン・再同期の段とタイムラインを開く / 閉じる。
-              狭い枠で右側が切れても押せるよう、いちばん左に置く */}
-          {isGraphEmbedded && activeTrack && (
-            <button
-              onClick={() => { if (confirmDiscard()) setShowSyncTools(v => !v); }}
-              aria-pressed={showSyncTools}
-              title={t('動画のタイムゾーン・再同期の段とタイムラインを出す / 隠す', 'Show / hide the time zone and resync row and the timeline')}
-              className={`flex items-center gap-1 shrink-0 whitespace-nowrap px-2 py-1 rounded text-xs border transition-colors cursor-pointer ${
-                showSyncTools ? 'bg-slate-700 border-slate-500 text-slate-100' : 'bg-surface-3 hover:bg-surface-5 border-line-3 text-slate-300'
-              }`}
-            >
-              {t('同期の調整', 'Sync settings')}
-            </button>
-          )}
-
           {/* 速度ウィンドウ連携バッジ (フラット) */}
           {baseSession && (
             <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/80 border border-emerald-800 px-2 py-0.5 rounded flex items-center gap-1 shrink-0" title={t('速度ウィンドウ同期中', 'Synced with the speed window')}>
@@ -1395,7 +1397,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   <Plus size={11} />{t('カメラ', 'Camera')}
                 </button>
               )}
-              {mainMedia && (
+              {mainMedia && !isGraphEmbedded && (
                 <button
                   onClick={() => {
                     // 外すと、走行に保存した同期 (ずれ・ピン) も消える (2026-10-27 のレビュー。確認なしに消えていた)
@@ -1434,18 +1436,20 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             </div>
           )}
 
-          {/* 動画追加ボタン */}
+          {/* 動画追加ボタン (動画タブだけ。文字も出す: 「+ カメラ」と並んで、印だけでは分かりにくかった) */}
+          {!isGraphEmbedded && (
           <button
             onClick={() => fileInputRef.current?.click()}
             className={`flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-5 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
             title={t('動画追加', 'Add video')}
           >
             <Plus size={12} />
-            <span className="hidden xl:inline">{t('動画追加', 'Add video')}</span>
+            <span>{t('動画追加', 'Add video')}</span>
           </button>
+          )}
 
-          {/* 走行の確認 (ログと動画の組み合わせ・時刻の出どころ・地図) */}
-          {media.length > 0 && (
+          {/* 走行の確認 (ログと動画の組み合わせ・時刻の出どころ・地図。動画タブだけ) */}
+          {media.length > 0 && !isGraphEmbedded && (
             <button
               onClick={() => setShowRuns(true)}
               className={`flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-5 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
@@ -1476,7 +1480,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           {/* スマートフォンでは、ここで 2 段目にする (上の段: 同期の調整・ログ・モード・メーターの表示) */}
           {phoneToolbar && !landscapePhone && <div className="order-2 basis-full h-0" aria-hidden />}
           {/* 手動キーフレーム同期 (ピン留め) ボタン (動画の画面では「合わせる」のときだけ) */}
-          {activeTrack && (isGraphEmbedded || syncTools) && (
+          {activeTrack && syncTools && (
             <button
               onClick={() => setShowPinModal(true)}
               className={`flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-4 text-xs text-amber-300 border border-amber-500/40 transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
@@ -1487,34 +1491,37 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             </button>
           )}
 
-          {/* テレメトリ動画書き出し (MP4 Burn-in) ボタン。動画がなくても、ログがあればメーターだけを書き出せる。
-              スマートフォンでは出さない (書き出しはパソコン向け。スマートフォンの動画は「見る」と「合わせる」だけ。PLAN-24 の D5) */}
-          {(activeTrack || baseSession) && !phoneToolbar && isGraphEmbedded && (
-            <button
-              onClick={() => { if (confirmDiscard()) setShowExportModal(true); }}
-              className={`flex items-center gap-1 px-2 py-1 rounded bg-red-700 hover:bg-red-600 text-xs font-bold text-white transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
-              title={t('メーターオーバーレイ付きの動画をMP4形式で書き出し', 'Export the video with the gauge overlay as MP4')}
-            >
-              <Download size={12} />
-              <span className="hidden xl:inline">{t('動画書き出し', 'Export video')}</span>
-            </button>
-          )}
+          {/* 動画書き出しは動画タブの「書き出す」だけ (2026-11-01、解析の枠から外した) */}
 
           {/* 同期プロジェクト保存 / 読込 (スマートフォンでは出さない。アプリは走行ごとに runs.json へ自動で保存する) */}
-          {!phoneToolbar && <button
+          {!phoneToolbar && !isGraphEmbedded && <button
             onClick={handleExportProject}
             className={`flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-4 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
             title={t('同期プロジェクト保存 (.dssync.json)', 'Save sync project (.dssync.json)')}
           >
             <Save size={12} />
           </button>}
-          {!phoneToolbar && <button
+          {!phoneToolbar && !isGraphEmbedded && <button
             onClick={() => jsonInputRef.current?.click()}
             className={`flex items-center gap-1 px-2 py-1 rounded bg-surface-3 hover:bg-surface-4 text-xs text-slate-300 border border-line-3 transition-colors cursor-pointer ${phoneToolbar ? 'order-3' : ''}`}
             title={t('プロジェクト読込 (.dssync.json)', 'Load sync project (.dssync.json)')}
           >
             <FolderOpen size={12} />
           </button>}
+
+          {/* 音を消す・出す (解析の画面。再生の段はグラフ解析の下の段に任せていて、そこに音のボタンがないため) */}
+          {isGraphEmbedded && baseLap && !muteAll && media.length > 0 && (
+            <button
+              onClick={toggleUserMuted}
+              className={`p-1 rounded border border-line-2 bg-surface-3 hover:bg-surface-4 transition-colors cursor-pointer ${userMuted ? 'text-slate-500' : 'text-slate-300'}`}
+              title={userMuted ? t('音を出す', 'Unmute') : t('音を消す', 'Mute')}
+              aria-label={userMuted ? t('音を出す', 'Unmute') : t('音を消す', 'Mute')}
+              aria-pressed={userMuted}
+              data-testid="video-mute-embedded"
+            >
+              {userMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+            </button>
+          )}
 
           {/* オーバーレイON/OFF */}
           <button
@@ -1554,7 +1561,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
               'This video belongs to a compared run. To sync it, open that run as Car 1.')}
         </div>
       )}
-      {activeTrack && (syncTools || (isLargeOffset && !fullView)) && (
+      {activeTrack && (syncTools || (isLargeOffset && !fullView && !isGraphEmbedded)) && (
         <div className="bg-surface-1 border-b border-line-1 px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0 select-none">
           <div className="flex flex-wrap items-center gap-2.5">
             {/* 動画に合わせるログ (動画と時間の重なるログが 2 つ以上のとき。記録の細かい順) LATER-12 */}
@@ -1581,17 +1588,6 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 </div>
               );
             })()}
-            <label
-              className="flex items-center gap-1 text-[10px] text-slate-400 cursor-pointer"
-              title={t('切ると、同じ時間に記録の細かいログ (デジスパイスなど) があるとき、GoPro の動画の GPS を走行ログとして加えず、動画の時刻合わせだけに使います。次に読み込む動画から効きます', 'When off, if a log with a higher rate (e.g. DigSpice) covers the same time, the GPS in GoPro videos is not added as a driving log and is only used to time the video. Applies to videos loaded next')}
-            >
-              <input
-                type="checkbox"
-                checked={addVideoGpsLog}
-                onChange={e => { setAddVideoGpsLog(e.target.checked); setAddVideoGpsLogState(e.target.checked); }}
-              />
-              {t('動画の GPS もログとして加える', 'Add video GPS as a log')}
-            </label>
             {/* 動画タイムゾーン選択 */}
             <div className="flex items-center gap-1 bg-surface-3 px-2 py-0.5 rounded border border-line-3">
               <span className="text-slate-400 text-[10px] font-medium">{t('動画TZ:', 'Video TZ:')}</span>
@@ -1662,9 +1658,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
       {/* 3. メイン動画プレイヤーエリア (Single / Split / PinP 対応) */}
       <div 
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
+        onDragOver={isGraphEmbedded ? undefined : handleDragOver}
+        onDragLeave={isGraphEmbedded ? undefined : handleDragLeave}
+        onDrop={isGraphEmbedded ? undefined : handleDrop}
         className={`flex-1 relative flex overflow-hidden ${isGraphEmbedded ? 'min-h-[150px]' : ''} ${
           // 動画を表示しているときは、映像に重ねる表示が読めるよう、ライトモードでも暗い配色にする
           activeTrack && activeTrack.objectUrl ? 'bg-black keep-dark' : 'bg-surface-1'
@@ -1717,9 +1713,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     className="flex-1 w-full h-full"
                     children={isMain && gpsMismatchM !== null ? (
                       <button
-                        onClick={e => { e.stopPropagation(); setShowRuns(true); }}
+                        onClick={e => { e.stopPropagation(); openRuns(); }}
                         className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-red-950/90 border border-red-600 text-red-200 px-2 py-1 rounded text-[11px] cursor-pointer"
-                        title={t('押すと走行の確認を開きます', 'Click to open the run inspector')}
+                        title={isGraphEmbedded ? t('押すと動画タブを開きます', 'Click to open the Video tab') : t('押すと走行の確認を開きます', 'Click to open the run inspector')}
                       >
                         <AlertTriangle size={12} className="text-red-400 shrink-0" />
                         {t(`動画の GPS と ${baseSession?.sessionName ?? ''} の位置が ${gpsMismatchM} m 離れています (別の車のログか、時刻のずれ)`, `The video's GPS is ${gpsMismatchM} m from ${baseSession?.sessionName ?? ''} (another car's log, or a time offset)`)}
@@ -1766,9 +1762,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                           const b = syncBadgeOf(x.position?.track ?? x.media.tracks[0], t);
                           return (
                             <button
-                              onClick={e => { e.stopPropagation(); setShowRuns(true); }}
+                              onClick={e => { e.stopPropagation(); openRuns(); }}
                               className={`px-1 rounded border text-[9px] font-normal cursor-pointer ${BADGE_CLASS[b.level]}`}
-                              title={`${b.title} (${t('押すと走行の確認を開きます', 'click to open the run inspector')})`}
+                              title={`${b.title} (${isGraphEmbedded ? t('押すと動画タブを開きます', 'click to open the Video tab') : t('押すと走行の確認を開きます', 'click to open the run inspector')})`}
                             >
                               {b.label}
                             </button>
@@ -1894,6 +1890,15 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             <span className="text-xs text-slate-400">{downloading.names.join('・')}{downloading.gb ? ` (${downloading.gb} GB)` : ''}</span>
             <span className="text-xs text-slate-500 max-w-sm">{t('終わると、自動でこの走行に動画が付きます。1 GB あたり数分かかることがあります。待っている間も、解析など ほかの画面は使えます。', 'The video is attached to this run automatically when done. It can take a few minutes per GB; you can use Analysis and other screens meanwhile.')}</span>
           </div>
+        ) : isGraphEmbedded && onOpenVideoTab ? (
+          // 解析の枠: 動画の追加は動画タブで行う (2026-11-01)
+          <EmptyLoadPrompt
+            title={t('この走行の車載動画はありません', 'No onboard video for this run')}
+            text={t('動画の追加・合わせる・書き出すは「動画」タブで行います。', 'Add, sync and export videos in the Video tab.')}
+            buttonLabel={t('動画タブを開く', 'Open the Video tab')}
+            onClick={onOpenVideoTab}
+            testId="video-open-tab"
+          />
         ) : (
           // 動画がないときの案内 (グラフ・変換の画面と同じ形)
           <EmptyLoadPrompt
@@ -2120,9 +2125,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         );
       })()}
 
-      {/* 6. 下部同期調整 ＆ 再生コントロールバー (フラットデザイン)。グラフ解析に埋め込んだときは、再生のボタンはグラフ解析の下の段に任せ、
-          同期の調整を出すときだけこの段を出す */}
-      {(!isGraphEmbedded || !baseLap || (activeTrack && (!isCompactLayout || showSyncTools))) && (
+      {/* 6. 下部同期調整 ＆ 再生コントロールバー (フラットデザイン)。グラフ解析に埋め込んだときは、再生のボタンはグラフ解析の下の段に任せる。
+          同期の調整は動画の画面の「合わせる」だけ (2026-10-31、解析の画面からは外した) */}
+      {(!isGraphEmbedded || !baseLap) && (
       <div className="touch-toolbar min-h-12 py-1 bg-surface-1 border-t border-line-1 px-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 shrink-0">
         {/* 再生ボタン群 */}
         {/* グラフ解析で周を選んでいるときは、グラフ解析の下の段に任せる (周がないときは、その段が出ないのでここに出す) */}
@@ -2165,7 +2170,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             ))}
           </select>
 
-          {/* 音を消す・出す (グラフ解析に埋め込んだときは、もともと音を出さない) */}
+          {/* 音を消す・出す (解析の画面で周を選んでいるときは、上の段のボタン) */}
           {!muteAll && (
             <button
               onClick={toggleUserMuted}
@@ -2196,8 +2201,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         )}
 
         {/* 同期オフセット微調整 & ピン選択。スマートフォンでは「同期の調整」を開いたときだけ出す (場所を取るため) */}
-        {/* ずれの数字・コマ送り・ピン (動画の画面では「合わせる」のときだけ。グラフ解析に埋め込んだときは今までどおり) */}
-        {activeTrack && (syncTools || (isGraphEmbedded && !isCompactLayout)) && (
+        {/* ずれの数字・コマ送り・ピン (動画の画面の「合わせる」のときだけ) */}
+        {activeTrack && syncTools && (
           <div className="flex flex-wrap items-center gap-2 text-xs bg-surface-3 px-3 py-1 rounded border border-line-2">
             {/* 登録済みピンのクイックジャンプドロップダウン */}
             {pins.length > 0 && (
