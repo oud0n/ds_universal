@@ -57,6 +57,8 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
     heading?: number;
     altitude?: number;
     satellites?: number;
+    /** .bon4 で 1/100 秒が 99 だった点 (BUG-41) */
+    sub99?: boolean;
   }
 
   const rawPoints: RawPoint[] = [];
@@ -84,12 +86,9 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
         const minute = view.getUint8(offset + 23);
         const second = view.getUint8(offset + 24);
         const subSec = view.getUint8(offset + 25);
-        // .bon4 の 1/100 秒が 99 の点は読まない。実際のログでは、位置は前後の点のあいだ (x.00 秒前後) なのに x.99 秒と書かれていて、
-        // 時刻の順に並べると約 1 秒前の位置が挟まり、距離・速度・G・計測線の通過にとげが出る
-        if (ext === 'bon4' && subSec === 99) {
-          offset += 26;
-          continue;
-        }
+        // .bon4 の 1/100 秒が 99 の点は、秒だけ 1 秒先に繰り上がった点 (BUG-41。位置は 1 秒前のもの)。
+        // 下で 1 秒戻す。戻せない (前後と合わない) ものは捨てる
+        const sub99 = ext === 'bon4' && subSec === 99;
         if (subSec > 0 && subSec * msMultiplier < 1000) hasMilliseconds = true;
         // +12 の int32 は標高 (0.1 m 単位)。.bon4 の実ログで確認。.bon は未確認のため読まない
         const rawAlt = ext === 'bon4' ? view.getInt32(offset + 12, true) / 10 : NaN;
@@ -111,7 +110,8 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
             speedKmh,
             timeSec,
             timestamp: utcDate,
-            altitude
+            altitude,
+            ...(sub99 ? { sub99 } : {})
           });
         }
       } catch {
@@ -337,7 +337,10 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
   for (const i of fixLoneSecondJumps(times)) {
     rawPoints[i].timeSec = times[i];
     if (rawPoints[i].timestamp) rawPoints[i].timestamp = new Date(rawPoints[i].timestamp!.getTime() - 1000);
+    rawPoints[i].sub99 = false;
   }
+  // .bon4 の 99 の点で戻せなかったものは捨てる (並べると約 1 秒前の位置が挟まり、距離・速度・G・計測線の通過にとげが出るため)
+  for (let i = rawPoints.length - 1; i >= 0; i--) if (rawPoints[i].sub99) rawPoints.splice(i, 1);
 
   // 時間順にソートする (同じ時刻のレコードは記録順のまま)
   rawPoints.sort((a, b) => a.timeSec - b.timeSec);
