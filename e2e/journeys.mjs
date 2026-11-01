@@ -1210,6 +1210,27 @@ export const journeys = [
     }
   },
   {
+    name: '時間の重なる走行 (PLAN-43): 本体から吸い出したログ (.bnx4) を開くと、測り始めが違っても保管場所の走行と重なると知らせ、既定で取り込まず、その走行を開ける',
+    target: 'electron',
+    async run(p) {
+      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
+      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
+      // 2026-10-30 の袖ヶ浦: アプリで受けた 2 走行と、翌日に本体から吸い出した .bnx4 (本体はアプリより 1 分ほど早く記録を始めた)
+      const bnx = path.join(root, 'sodegaura/20261030/DS4_202610311011.bnx4');
+      if (!fs.existsSync(bnx)) { p.notes.push(`試料が無いので飛ばした: ${bnx}`); return; }
+      await p.goto(APP);
+      await p.setFiles('input[type=file]', [bnx]);
+      await p.waitFor(`document.querySelector('[data-testid="import-sheet"]')`, 30000, '取り込みの確認');
+      check(await p.exists('import-overlap-note'), '重なる走行がある、の知らせが無い');
+      const rows = await p.ev(`[...document.querySelectorAll('[data-testid="import-row"]')].map(r => ({ checked: r.querySelector('input').checked, overlap: !!r.querySelector('[data-testid="import-overlap"]') }))`);
+      check(rows.length >= 2 && rows.every(r => r.overlap && !r.checked), `重なる走行の行が既定で外れていない: ${JSON.stringify(rows)}`);
+      await p.ev(`document.querySelector('[data-testid="import-open-stored"]').click()`);
+      await p.waitFor(`window.__laploupe?.screen === 'analysis' && window.__laploupe.sessions.some(s => s.fileName === '20261030125425.nmea')`, 30000, '保管場所の走行を開く');
+      check(!(await p.exists('import-sheet')), '開いたあとも確認が出ている');
+      check(!fs.existsSync(path.join(root, '取り込み元', 'DS4_202610311011.bnx4')), '取り込んでいないのに 取り込み元/ に書いた');
+    }
+  },
+  {
     name: 'コーナーの名前: アプリに入っているコーナー (日光) で始まり、コースマップで名前を付け・まとめて保存すると course/Corner/<コース>.json に書き、コーナー別の表にも出る',
     target: 'electron',
     async run(p) {

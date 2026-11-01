@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, CheckCircle2, Loader2, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, FolderOpen, Loader2, X } from 'lucide-react';
 import { circuitLabel, useT } from '../../utils/i18n';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import type { ImportPart, ImportPlan } from '../../services/import/importPlan';
@@ -34,12 +34,14 @@ export const ImportSheet: React.FC<{
   onApply: () => void;
   /** 取り込まずに、今だけ開く */
   onOpenOnly: () => void;
+  /** 時間の重なる保管場所の走行を開く (取り込まない。PLAN-43) */
+  onOpenStored?: (base: string) => void;
   /** 取り込んだあと、解析で開く */
   onOpenAfter?: () => void;
   onClose: () => void;
   /** 複数のファイルを一度に取り込むとき、何番目か */
   position?: { index: number; total: number };
-}> = ({ plan, position, phase, progress, results, onToggle, onApply, onOpenOnly, onOpenAfter, onClose }) => {
+}> = ({ plan, position, phase, progress, results, onToggle, onApply, onOpenOnly, onOpenStored, onOpenAfter, onClose }) => {
   const t = useT();
   useEscapeKey(phase !== 'writing', onClose);
   const checked = plan.parts.filter(p => p.checked).length;
@@ -50,6 +52,7 @@ export const ImportSheet: React.FC<{
     return p.course?.name ? circuitLabel(p.course.name) : t('未分類', 'Unsorted');
   };
   const countText = (p: ImportPart) => (p.kind === 'stage' ? t(`区間 ${p.laps}`, `${p.laps} stage${(p.laps) === 1 ? '' : 's'}`) : p.kind === 'transit' ? '—' : t(`${p.laps} 周`, `${p.laps} lap${(p.laps) === 1 ? '' : 's'}`));
+  const overlapping = plan.parts.some(p => p.overlaps?.length);
   const color = (p: ImportPart) => (p.kind === 'transit' ? '#64748b' : p.kind === 'unknown' ? '#f59e0b' : p.kind === 'stage' ? '#a78bfa' : '#10b981');
   return (
     <div className="fixed inset-0 z-[60] bg-black/70 flex items-stretch sm:items-center justify-center" role="dialog" aria-modal="true" data-testid="import-sheet">
@@ -61,6 +64,12 @@ export const ImportSheet: React.FC<{
               {t(`走行を ${plan.parts.length} つに分けました${circuits > 1 ? ` (${circuits} つのサーキット)` : ''}。取り込むものに印を付けてください。`,
                 `Split into ${plan.parts.length} part${plan.parts.length === 1 ? '' : 's'}${circuits > 1 ? ` (${circuits} circuits)` : ''}. Tick the ones to import.`)}
             </p>
+            {overlapping && (
+              <p className="text-xs text-sky-400 mt-1" data-testid="import-overlap-note">
+                {t('保管場所に、時間の重なる走行があります。そちらを開くか、取り込まずに今だけ開けます。印を付けて取り込むと、別の走行として置きます。',
+                  'Some runs in the storage folder overlap in time. You can open those, or just open this file. Ticking and importing adds it as a separate run.')}
+              </p>
+            )}
           </div>
           {phase !== 'writing' && (
             <button onClick={onClose} className="p-1.5 rounded hover:bg-surface-3 text-slate-400 cursor-pointer" aria-label={t('閉じる', 'Close')}><X size={18} /></button>
@@ -82,7 +91,24 @@ export const ImportSheet: React.FC<{
                     {p.kind === 'unknown' && <AlertTriangle size={13} className="inline mr-1" />}{label(p)}
                   </div>
                   <div className="text-[11px] text-slate-500 truncate font-mono">{p.base}.nmea</div>
-                  {p.already && <div className="text-[11px] text-sky-500">{t('取り込み済み (同じ走行がもうある)', 'Already imported')}</div>}
+                  {p.overlaps?.length ? p.overlaps.map(o => (
+                    <div key={o.base} className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5 text-[11px] text-sky-400" data-testid="import-overlap">
+                      <span className="font-mono">
+                        {t(`重なる走行: ${hm(o.startMs)}–${hm(o.endMs)} (${Math.round(o.overlapSec / 60)} 分重なる)`, `Overlaps: ${hm(o.startMs)}–${hm(o.endMs)} (${Math.round(o.overlapSec / 60)} min)`)}
+                      </span>
+                      {onOpenStored && phase === 'confirm' && (
+                        <button
+                          type="button"
+                          onClick={e => { e.preventDefault(); e.stopPropagation(); onOpenStored(o.base); }}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-sky-700 text-sky-300 hover:bg-sky-950 cursor-pointer whitespace-nowrap"
+                          data-testid="import-open-stored"
+                        >
+                          <FolderOpen size={11} />{t('保管場所の走行を開く', 'Open the stored run')}
+                        </button>
+                      )}
+                    </div>
+                  )) : p.already && <div className="text-[11px] text-sky-500">{t('取り込み済み (同じ走行がもうある)', 'Already imported')}</div>}
+                  {p.checked && (p.overlaps?.length || p.already) ? <div className="text-[11px] text-amber-400">{t('別の走行として置きます', 'Will be added as a separate run')}</div> : null}
                   {r?.error && <div className="text-[11px] text-red-500">{r.error}</div>}
                 </div>
                 <div className="w-14 text-right text-xs font-mono text-slate-300 shrink-0">{countText(p)}</div>
