@@ -35,6 +35,7 @@ import { LapTimerScreen, type ReplayLog } from './components/LapTimerScreen';
 import { HelpOverlay } from './components/HelpOverlay';
 import { CircuitEditorModal } from './components/CircuitEditorModal';
 import { DonateModal } from './components/DonateModal';
+import { UpdateBanner } from './components/UpdateBanner';
 import { TipModal } from './components/TipModal';
 import { tipsAvailable } from './services/tips';
 import { hasNative } from './native/bridge';
@@ -2847,6 +2848,8 @@ export const App: React.FC = () => {
       )}
       {/* 使い方のページ (今の画面の上に重ねる) */}
       <HelpOverlay />
+      {/* デスクトップ版の新しい版の知らせ */}
+      <UpdateBanner />
       {inApp ? (
         <TipModal isOpen={isDonateModalOpen} onClose={() => setIsDonateModalOpen(false)} />
       ) : (

@@ -9,7 +9,7 @@ LapLoupe は、1 つの Web アプリ (React + TypeScript、`src/`) を 4 つの
 | 形 | 中身 | Web の読み込み元 | 端末の機能 |
 |---|---|---|---|
 | ブラウザ版 | `src/` を Vite でビルドし GitHub Pages に置く | https://oud0n.github.io/ds_universal/ | Web Serial (USB)・Web Bluetooth (Chrome)。保管場所なし |
-| デスクトップ版 (Mac・Windows) | Electron (`electron/main.cjs`・`preload.cjs`) が `dist/` を開く | アプリに入れた `dist/` | `window.electronAPI` (保管場所のフォルダ・保存の画面・USB) |
+| デスクトップ版 (Mac・Windows) | Electron (`electron/main.cjs`・`preload.cjs`、更新は `updater.cjs`) が `dist/` を開く | アプリに入れた `dist/` | `window.electronAPI` (保管場所のフォルダ・保存の画面・USB) |
 | iPhone / iPad のアプリ | WKWebView (`mobile/ios/DSUniversal/*.swift`) | アプリに入れた `dist/` を `laploupe://app/` で返す (BundledWeb.swift) | ネイティブの窓口 (下の 3) |
 | Android のアプリ (友人向けの試験版) | WebView (`mobile/android/…/laploupe/*.kt`) | アプリに入れた `dist/` | ネイティブの窓口 (iPhone と同じ約束) |
 

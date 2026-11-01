@@ -33,6 +33,8 @@ const goatCounter = (): Plugin => ({
 const ADDONS_DIR = process.env.LAPLOUPE_ADDONS_DIR ? resolve(process.env.LAPLOUPE_ADDONS_DIR) : null;
 const ADDONS_ID = 'virtual:laploupe-addons';
 const SRC = fileURLToPath(new URL('./src', import.meta.url));
+// 版の番号 (設定の「バージョン情報」に出す)
+const APP_VERSION: string = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 const addons = (): Plugin => ({
   name: 'laploupe-addons',
   enforce: 'pre',
@@ -55,6 +57,7 @@ export default defineConfig({
     alias: { '@app': SRC }
   },
   base: './',
+  define: { __APP_VERSION__: JSON.stringify(APP_VERSION) },
   server: {
     port: 5173,
     host: true,
