@@ -15,6 +15,7 @@ import { CourseDataSettings } from '../components/CourseDataSettings';
 import { getWriteBon4, setWriteBon4 } from '../services/runFormatSettings';
 import { hasNative } from '../native/bridge';
 import { AnalysisSettings, VideoSettings } from '../components/AnalysisSettings';
+import { AboutSettings } from '../components/AboutSettings';
 
 /** 設定の分類の見出しとまとまり (PLAN-42、2026-11-01) */
 const Group: React.FC<{ title: string; testId: string; children: React.ReactNode }> = ({ title, testId, children }) => (
@@ -140,6 +141,7 @@ export const SettingsScreen: React.FC<{
             </button>
           )}
         </section>
+        <AboutSettings />
         </Group>
       </div>
     </div>

@@ -1,7 +1,14 @@
 {
   "appId": "com.oud0n.dsuniversal",
   "productName": "LapLoupe",
-  "publish": null,
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "oud0n",
+      "repo": "ds_universal",
+      "releaseType": "release"
+    }
+  ],
   "directories": {
     "output": "release"
   },
@@ -32,7 +39,8 @@
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
-    "createStartMenuShortcut": true
+    "createStartMenuShortcut": true,
+    "artifactName": "${productName}-Setup-${version}.${ext}"
   },
   "mac": {
     "target": [

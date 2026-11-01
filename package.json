@@ -36,6 +36,7 @@
     "data-logger"
   ],
   "dependencies": {
+    "electron-updater": "^6.8.11",
     "fflate": "^0.8.3",
     "lucide-react": "^1.16.0",
     "mediabunny": "^1.61.6",

@@ -8,6 +8,15 @@ interface ElectronAPI {
   readFileBuffer?: (filePath: string) => Promise<{ success: boolean; name: string; dataArray: number[]; error?: string }>;
   openExternal?: (url: string) => Promise<boolean>;
   isElectron?: boolean;
+  /** 更新 (PLAN-44、2026-11-02。前の版のアプリには無い) */
+  update?: {
+    getState: () => Promise<DesktopUpdateState>;
+    check: () => Promise<DesktopUpdateState>;
+    download: () => Promise<DesktopUpdateState>;
+    install: () => Promise<DesktopUpdateState>;
+    openReleases: () => Promise<void>;
+    onState: (callback: (state: DesktopUpdateState) => void) => () => void;
+  };
   /** ラップタイムの一覧の保管場所 (2026-10-20、PLAN-19)。path は保管場所からの道 */
   laps?: {
     getFolder: () => Promise<string | null>;
@@ -25,6 +34,23 @@ interface ElectronAPI {
     remove?: (paths: string[]) => Promise<{ deleted: string[]; failed: Array<{ path: string; error: string }> }>;
   };
 }
+
+/** デスクトップ版の更新の状態 (electron/updater.cjs) */
+interface DesktopUpdateState {
+  /** 更新を確かめる版か (タグで作った版だけ) */
+  enabled: boolean;
+  /** auto: 落として入れ替える。manual: ダウンロードのページを開くだけ */
+  mode: 'auto' | 'manual';
+  status: 'idle' | 'checking' | 'none' | 'available' | 'downloading' | 'ready' | 'error';
+  current: string;
+  version: string | null;
+  percent: number;
+  error: string | null;
+  checkedAt: number | null;
+}
+
+/** 版の番号 (package.json。vite.config.ts の define) */
+declare const __APP_VERSION__: string;
 
 interface Window {
   electronAPI?: ElectronAPI;
