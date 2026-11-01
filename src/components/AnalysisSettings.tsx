@@ -14,7 +14,7 @@ function Choice<V extends string>({ value, options, onChange, label, testId }: {
           role="radio"
           aria-checked={value === v}
           onClick={() => onChange(v)}
-          className={`py-2.5 px-1 rounded-lg text-xs border cursor-pointer ${value === v ? 'bg-surface-5 text-fg border-line-3' : 'text-slate-400 border-line-2 hover:bg-surface-3'}`}
+          className={`py-2.5 px-1 rounded-lg text-xs border cursor-pointer whitespace-nowrap ${value === v ? 'bg-surface-5 text-fg border-line-3' : 'text-slate-400 border-line-2 hover:bg-surface-3'}`}
         >
           {text}
         </button>
@@ -38,10 +38,10 @@ export const AnalysisSettings: React.FC<{
       <div className="space-y-2">
         <h3 className="text-xs text-slate-500 px-1">{t('G のならし方', 'G smoothing')}</h3>
         <Choice value={gFilterLevel} onChange={onChangeGFilterLevel} label={t('G のならし方', 'G smoothing')} testId="setting-g-filter"
-          options={[['weak', t('弱', 'Light')], ['standard', t('標準', 'Standard')], ['strong', t('強 (なめらか・既定)', 'Strong (smooth, default)')]] as const} />
+          options={[['weak', t('弱', 'Light')], ['standard', t('標準', 'Standard')], ['strong', t('強（既定）', 'Strong (default)')]] as const} />
         <p className="text-[11px] text-slate-500 px-1 leading-relaxed">
-          {t('G (加減速 G・横 G・合算 G) と旋回半径は、GPS の位置と車速の変化からアプリが計算しています。GPS の位置はわずかに揺れるので、計算した G も細かく揺れます。強くするほど速度グラフの G やフリクションサークルが落ち着きますが、急な変化 (ブレーキの踏み始めなど) は鈍く、小さく出ます。「標準」は記録レートに合わせます。読み込み済みのログ・変換で書き出す CSV・DTB にもすぐ効きます。元のログファイルは変わりません。',
-            'G (longitudinal, lateral, combined) and the turning radius are calculated from changes in GPS position and speed. GPS positions jitter slightly, so the calculated G jitters too. Stronger smoothing calms the G on the speed graph and the friction circle, but sudden changes (such as the start of braking) appear slower and smaller. "Standard" adapts to the logging rate. Applies immediately to loaded logs and to CSV / DTB exports. The original log files are not changed.')}
+          {t('「強」は、前のフリクションサークルの「なめらか」と同じです。G (加減速 G・横 G・合算 G) と旋回半径は、GPS の位置と車速の変化からアプリが計算しています。GPS の位置はわずかに揺れるので、計算した G も細かく揺れます。強くするほど速度グラフの G やフリクションサークルが落ち着きますが、急な変化 (ブレーキの踏み始めなど) は鈍く、小さく出ます。「標準」は記録レートに合わせます。読み込み済みのログ・変換で書き出す CSV・DTB にもすぐ効きます。元のログファイルは変わりません。',
+            '"Strong" is the same as the friction circle\'s former "Smooth". G (longitudinal, lateral, combined) and the turning radius are calculated from changes in GPS position and speed. GPS positions jitter slightly, so the calculated G jitters too. Stronger smoothing calms the G on the speed graph and the friction circle, but sudden changes (such as the start of braking) appear slower and smaller. "Standard" adapts to the logging rate. Applies immediately to loaded logs and to CSV / DTB exports. The original log files are not changed.')}
         </p>
       </div>
       <div className="space-y-2">
