@@ -31,9 +31,6 @@ interface FrictionCircleWindowProps {
   currentDistance: number;
   currentTime: number;
   compareAxis: CompareAxis;
-  // G のならし方を「強」にしているか。トグルで「強」と「標準」を切り替える (データ管理タブの設定と同じもの)
-  smoothStrong?: boolean;
-  onToggleSmooth?: () => void;
 }
 
 export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
@@ -41,8 +38,6 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
   currentDistance,
   currentTime,
   compareAxis,
-  smoothStrong,
-  onToggleSmooth
 }) => {
   // テーマを切り替えたら canvas を描き直す
   const theme = useResolvedTheme();
@@ -245,18 +240,6 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
           {t('フリクションサークル', 'Friction circle')}
         </span>
         <div className="flex items-center gap-2">
-          {onToggleSmooth && (
-            <button
-              onClick={onToggleSmooth}
-              aria-pressed={!!smoothStrong}
-              title={t('G のならし方を「強」にして、点の動きを落ち着かせます (データ管理タブの「G のならし方」と同じ設定。急な変化は鈍く出ます)', 'Sets G smoothing to "strong" to calm the dot (same setting as G smoothing on the data tab; sudden changes appear slower)')}
-              className={`px-2 py-0.5 rounded border text-[11px] font-medium transition-colors ${
-                smoothStrong ? 'bg-cyan-600 border-cyan-500 text-white' : 'border-line-3 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {t('なめらか', 'Smooth')}{smoothStrong ? ': ON' : ''}
-            </button>
-          )}
           <span className="text-[10px] text-cyan-400 font-mono">{t('限界円 1.0G', 'Limit 1.0G')}</span>
         </div>
       </div>
