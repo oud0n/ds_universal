@@ -15,6 +15,7 @@ The PC version and the iPhone / iPad app get different items ([iPhone] = the app
 
 **Changed**
 
+- **The analysis video panel is for watching**: sync controls (offset, pins, time zones), Add video, Export video and the run inspector moved out of the analysis video panel; they are all in the Video tab. A mute button was added instead. With no video, the panel shows "Open the Video tab".
 - **Phone G sensor**: fine vibration (mount, body, engine) is now filtered out, following the G smoothing setting (Weak 4 Hz, Standard 2.5 Hz, Strong 1.5 Hz); before, the G kept wobbling whatever the smoothing. Runs where the phone was shaking are flagged under "G source". The sensor is now recorded 100 times a second.
 - **Easier-to-read lap timer**: crossing a sector shows its time and delta large, on a green (faster) or red (slower) background that flashes once and then stays faint, with the words FASTER / SLOWER. Completing a lap does the same. How long these stay is set separately for laps (2–10 s) and sectors (off, 2–10 s) in the menu. In portrait, the delta and the lower panels are larger and grey text is brighter. When position stops arriving, the delta shows "--".
 - **Laps with a signal gap**: a lap where position stopped for more than 2 s no longer becomes the best lap (the delta reference), even if it looks faster; only the sectors with the gap are left out of the sector reference. Such laps show "SIGNAL GAP" without a color (before, a gap lap with a wrong line time could become the best and throw off later deltas).

@@ -544,6 +544,8 @@ export const App: React.FC = () => {
   // データ管理などほかのタブでは直前の基準のままにする (行って戻っても再生位置が変わらないように)
   // 動画同期タブでは、ログがなくても (動画だけでも) 再生できるよう、表示している動画の終わりまで進める
   const isVideoTab = currentTab === 'video';
+  // 解析の動画の枠から動画タブへ (動画の追加・合わせる・書き出すは動画タブだけ)
+  const openVideoTab = plan.available.has('video') ? () => navStore.go('video') : undefined;
   const videoTracks = useVideoTracks();
   // 解析の下の欄 (スマートフォン・中くらいの段。PLAN-30)。中くらいではコースマップをいつも出すので、コースを選んでいたら、下の欄は動画 (動画が無ければ GG)
   const analysisFallback: MobilePanel = videoTracks.length > 0 ? 'video' : 'gg';
@@ -2214,6 +2216,7 @@ export const App: React.FC = () => {
                   onChooseLog={setBaseSession}
                   onLoadFiles={loadFiles}
                   viewKey="phone-analysis"
+                      onOpenVideoTab={openVideoTab}
                   onSetClockOffset={setSessionClockOffset}
                       downloading={shownDownload}
                       loading={runBusy}
@@ -2300,6 +2303,7 @@ export const App: React.FC = () => {
                       onPickCompareLap={(sessionId, lapNumber) => handleSelectCarSlot(1, sessionId, lapNumber)}
                       onLoadFiles={loadFiles}
                       viewKey="graph-a"
+                      onOpenVideoTab={openVideoTab}
                       onSetClockOffset={setSessionClockOffset}
                       downloading={shownDownload}
                       loading={runBusy}
@@ -2485,6 +2489,7 @@ export const App: React.FC = () => {
                       onPickCompareLap={(sessionId, lapNumber) => handleSelectCarSlot(1, sessionId, lapNumber)}
                       onLoadFiles={loadFiles}
                       viewKey="graph-b"
+                      onOpenVideoTab={openVideoTab}
                       // 左下にも車載動画を出しているときは、こちらの音を消す (同じ動画の音が二重になるため)
                       muted={!collapsed.anim}
                       onSetClockOffset={setSessionClockOffset}
