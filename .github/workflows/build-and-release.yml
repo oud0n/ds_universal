@@ -34,14 +34,14 @@ jobs:
             artifact_pattern: |
               release/*.exe
               release/*.zip
-              release/*.blockmap
+              release/*.exe.blockmap
               release/latest.yml
           - os: macos-latest
             target_cmd: npm run dist:mac
             artifact_pattern: |
               release/*.dmg
               release/*.zip
-              release/*.blockmap
+              release/*-mac.zip.blockmap
               release/latest-mac.yml
 
     steps:
@@ -166,6 +166,16 @@ jobs:
           draft: false
           # v1.2.3-rc.1 のようにハイフンを含むタグはプレリリースとして公開する
           prerelease: ${{ contains(github.ref_name, '-') }}
+          # 自動の説明 (コミットの一覧) の前に、どれを落とすかを書く。yml・blockmap・mac.zip は自動の更新が読むもの (electron/updater.cjs)
+          body: |
+            **ダウンロード / Download**
+            - Mac (Apple Silicon): `…-arm64.dmg`
+            - Windows: `LapLoupe-Setup-….exe` (インストーラー / installer)、または `…-win.zip` (入れずに使う形 / portable)
+
+            `latest*.yml`・`*.blockmap`・`…-arm64-mac.zip` は、アプリの自動の更新が使うファイルです。落とす必要はありません。
+            The `latest*.yml`, `*.blockmap` and `…-arm64-mac.zip` files are used by the app's automatic updates; you don't need to download them.
+
+            変わった所 / What's new: [日本語](https://github.com/oud0n/ds_universal/blob/main/docs/release-notes.md) / [English](https://github.com/oud0n/ds_universal/blob/main/docs/release-notes.en.md)
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
