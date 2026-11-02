@@ -78,6 +78,7 @@ See **[Features](docs/features.en.md)** for the details.
 
 - Analysis: <https://oud0n.github.io/ds_universal/>
 - Log conversion: <https://oud0n.github.io/ds_universal/#convert>
+- Sample log: [sodegaura_20260815.nmea](https://oud0n.github.io/ds_universal/demo/sodegaura_20260815.nmea) (12 laps of Sodegaura Forest Raceway in a Mazda MX-5 (ND), position and speed only. No log of your own? Download it and open it with "Choose files" to try the app)
 
 USB communication with the logger **only works in Chrome / Edge on a PC** (it uses the Web Serial API). In Safari, Firefox or on smartphones you can load, analyse and convert logs.
 Logs are processed on your device and never sent to a server (what the app does connect to, such as map tiles, is listed in [Features](docs/features.en.md#-what-the-browser-version-connects-to)).

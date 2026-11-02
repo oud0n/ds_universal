@@ -77,6 +77,7 @@
 
 - 解析画面: <https://oud0n.github.io/ds_universal/>
 - ログ変換ページ: <https://oud0n.github.io/ds_universal/#convert>
+- 見本の走行ログ: [sodegaura_20260815.nmea](https://oud0n.github.io/ds_universal/demo/sodegaura_20260815.nmea)（袖ヶ浦フォレストレースウェイ・ロードスター（ND）で 12 周、位置と速度だけ。手元にログが無いときに、落として「ファイルを選ぶ」から開くと試せます）
 
 ロガーとの USB 通信は **パソコンの Chrome / Edge だけ** で動きます（Web Serial API を使うため）。Safari・Firefox・スマートフォンでは、ログの読み込み・解析・変換が使えます。
 ログは端末の中で処理し、サーバーへ送りません（地図の表示などで外部と通信するものは [機能の一覧](docs/features.md#-ブラウザ版で外部と通信するもの) に書いています）。
