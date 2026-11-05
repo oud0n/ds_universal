@@ -1391,10 +1391,11 @@ export const App: React.FC = () => {
     setRunDownload(null);
     runOpeningRef.current = true;
     setRunBusy(true);
+    const runPath = `${item.folder}/${item.file}`;
+    const reads = getStorageReadRevision();
     try {
       const store = await getRunStore();
       if (!store) return;
-      const runPath = `${item.folder}/${item.file}`;
       const openedIds = runSessionsRef.current.get(runPath) ?? [];
       const already = analysisStore.getSnapshot().sessions.filter(x => openedIds.includes(x.id));
       let added = already.length ? already : await loadStoredFileData(store, item);
@@ -1464,7 +1465,8 @@ export const App: React.FC = () => {
         return [...cur, ...added.filter(a => !cur.some(c => c.id === a.id))];
       };
       const ownerId = currentBaseId();
-      const isCurrent = () => store.storageRevision === undefined || store.storageRevision === getStorageRevision();
+      const isCurrent = () => reads === getStorageReadRevision() && !isStorageSelectionPending()
+        && (store.storageRevision === undefined || store.storageRevision === getStorageRevision());
       const ownsVideos = () => isCurrent() && currentBaseId() === ownerId && attachedRunRef.current === runPath;
       const cand = await videoCandidates(store, item, ownsVideos);
       // 端末にある動画を先に付ける (前の走行の動画を外してから、取り込むかを聞く。聞いている間に前の走行の動画が残らないように)
@@ -1534,6 +1536,11 @@ export const App: React.FC = () => {
       else alert(tr('走行を開けませんでした: ', 'Could not open the run: ') + msg);
     } finally {
       runOpeningRef.current = false;
+      // 準備中に保存先の選択を挟んだ場合、取消後に同じ基準を付け直せるようにする。
+      if (attachedRunRef.current === runPath && !getOpenRunItem(item.folder, item.file)) {
+        attachedRunRef.current = null;
+        setRunAssociationsVersion(n => n + 1);
+      }
       setRunBusy(false);
     }
   };
@@ -2185,6 +2192,7 @@ export const App: React.FC = () => {
       inLap: playbackPosition.inLap,
       currentTimeSec,
       isPlaying,
+      runBusy,
       sessions: sessions.map(x => ({ id: x.id, fileName: x.fileName, sessionName: x.sessionName, circuitName: x.circuitName, laps: x.laps.length })),
       // G の試験のため: ログの点の時刻と G (と、先頭の時刻)
       pointsOf: (i: number) => { const x = sessions[i]; return x ? { timestamp: x.points[0]?.timestamp, clockOffsetSec: x.clockOffsetSec ?? 0, pts: x.points.map(q => [q.time, q.accelG, q.corneringG]) } : null; },

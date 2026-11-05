@@ -250,21 +250,21 @@ async function saveRun(run: OpenRun, strict = false): Promise<void> {
   // 今の中身を取っておく (書くのを待つ間に、Car 1 を替えた・比べる相手から外したなどで動画が外されても、外す前の中身で書く)
   const snap = snapshotOf(run);
   const content = rowContent(run, run.item.entry, snap);
-  if (!content) return;
-  const key = contentKey(content);
   const metadataKey = metadataKeyOf(run.store, run.item);
   const metadata = new Map(pendingMetadata.get(metadataKey) ?? []);
-  if (key === run.baseline && metadata.size === 0) return;
+  if (!content && metadata.size === 0) return;
+  const key = content ? contentKey(content) : null;
+  if (content && key === run.baseline && metadata.size === 0) return;
   try {
     let writtenMetadata = new Map<keyof RunMetaPatch, { version: number; value: unknown }>();
     const row = await updateRun(run.store, run.item.folder, run.item.file, prev => {
       // 書く直前の行で作り直す (ほかの端末が足した項目を残す)。動画・ピンは取っておいたもの
-      const fresh = rowContent(run, prev ?? null, snap) ?? content;
+      const fresh = content ? rowContent(run, prev ?? null, snap) ?? content : null;
       // 先に別の保存が完了した項目や、その後に編集した項目へ古い値を書かない。
       writtenMetadata = new Map([...metadata].filter(([k, v]) => pendingMetadata.get(metadataKey)?.get(k)?.version === v.version));
-      return patchMetadata({ ...prev, ...fresh }, Object.fromEntries([...writtenMetadata].map(([k, v]) => [k, v.value])) as RunMetaPatch);
+      return patchMetadata({ ...prev, ...(fresh ?? {}) }, Object.fromEntries([...writtenMetadata].map(([k, v]) => [k, v.value])) as RunMetaPatch);
     });
-    run.baseline = key;
+    if (content) run.baseline = key;
     const pending = pendingMetadata.get(metadataKey);
     if (pending) {
       for (const [k, v] of writtenMetadata) if (pending.get(k)?.version === v.version) pending.delete(k);

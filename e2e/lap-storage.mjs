@@ -23,7 +23,7 @@ try {
  window.storeFiles = new Map(); window.storeWrites=[]; window.storeReads=[]; window.failWrites=false;
  window.electronAPI={laps:{getFolder:async()=>{if(window.holdFolder)await new Promise(resolve=>(window.folderWaiters??=[]).push(resolve));return '/synthetic/A'},pickFolder:async()=>null,
  list:async()=>({success:true,files:[...storeFiles].map(([path,b])=>({path,size:b.byteLength,mtimeMs:123,local:true}))}),
- read:async path=>{storeReads.push(path);if(window.holdSavedRead===path && window.__laploupe?.screen==='analysis')await new Promise(resolve=>window.resumeSavedRead=resolve);const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
+ read:async path=>{storeReads.push(path);if(window.readDelayMs)await new Promise(r=>setTimeout(r,window.readDelayMs));if(window.holdSavedRead===path && window.__laploupe?.screen==='analysis')await new Promise(resolve=>window.resumeSavedRead=resolve);const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
  readText:async path=>({success:true,text:storeFiles.has(path)?new TextDecoder().decode(storeFiles.get(path)):null}),
  writeText:async(path,text)=>{if(window.failWrites)return {success:false,error:'synthetic write failure'};storeWrites.push(path);storeFiles.set(path,new TextEncoder().encode(text));return {success:true}}
  }};
@@ -146,6 +146,26 @@ try {
  await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click();window.holdSavedRead=null;window.resumeSavedRead()");
  await p.waitFor('window.__laploupe.cars.length===3',15000,'finished saved comparison');
  const completed=await p.state();assert.ok(completed.cars.every(c=>completed.sessions.some(s=>s.id===c.sessionId)),'all restored Cars have a live source');
+ const earlier=await p.ev("window.testRunOpener.getOpenRunItem('sodegaura','demo.nmea').laps.find(l=>!l.hidden).n");
+ const later=await p.ev("window.testRunOpener.getOpenRunItem('sodegaura','demo.nmea').laps.filter(l=>!l.hidden).at(-1).n");
+ assert.ok(later>earlier);
+ const pickLap=`(n)=>{let run='';for(const row of document.querySelectorAll('[data-testid=lap-picker-row]')){const h=row.parentElement.querySelector('p');if(h)run=h.title;if(run.includes('demo.nmea')&&row.firstElementChild.textContent.trim()==='L'+n){row.querySelector('[data-slot="0"]').click();return;}}throw Error('missing lap '+n);}`;
+ await p.ev('window.readDelayMs=10');
+ await p.click('open-lap-picker');await p.clickText('Stored runs');
+ await p.waitFor("document.querySelector('[data-testid=lap-picker-row]')");
+ await p.ev(`(${pickLap})(${later})`);await assigned(0);
+ const latePosition=await p.state();
+ assert.equal(latePosition.cars.find(c=>c.slot===0).sessionId,aid,'same source before earlier pick');
+ await p.ev(`(()=>{let snapshot=window.__laploupe;window.earlierRenders=[];Object.defineProperty(window,'__laploupe',{configurable:true,get:()=>snapshot,set:value=>{snapshot=value;if(value.baseLap?.lapNumber===${earlier})window.earlierRenders.push({time:value.sessionTimeSec,start:value.baseLap.startTime,id:value.cars.find(c=>c.slot===0)?.sessionId});}});})()`);
+ await p.ev(`(${pickLap})(${earlier})`);
+ await p.waitFor(`window.__laploupe.baseLap.lapNumber===${earlier}`);
+ await assigned(0);await new Promise(r=>setTimeout(r,100));
+ const earlyPosition=await p.state();
+ assert.equal(earlyPosition.cars.find(c=>c.slot===0).sessionId,aid,'same source after earlier pick');
+ const firstRenders=await p.ev('window.earlierRenders');
+ assert.ok(firstRenders.length>0);assert.ok(firstRenders.every(r=>r.id===aid&&Math.abs(r.time-r.start)<0.001),'all earlier-lap renders start at their own lap start');
+ assert.ok(Math.abs(earlyPosition.sessionTimeSec-earlyPosition.baseLap.startTime)<0.001,'same-session async earlier lap starts at its start');
+ await p.ev("window.readDelayMs=0;document.querySelector('[role=dialog] button[aria-label=Close]').click()");
  const beforeReject=(await p.state()).cars;
  await p.ev("(()=>{const item=window.testRunOpener.getOpenRunItem('sodegaura','demo.nmea');window.ownerLapsBefore=item.laps;window.ownerVideosBefore=item.folderVideos;const old=storeFiles.get('sodegaura/demo.nmea');const changed=new Uint8Array(old.length+1);changed.set(old);changed[old.length]=10;storeFiles.set('sodegaura/demo.nmea',changed);})()");
  await p.click('open-lap-picker');await p.clickText('Stored runs');
@@ -156,5 +176,5 @@ try {
  assert.ok(await p.ev("(()=>{const item=window.testRunOpener.getOpenRunItem('sodegaura','demo.nmea');return item.laps===window.ownerLapsBefore && item.folderVideos===window.ownerVideosBefore;})()"),'rejected assignment does not mutate live run metadata');
  await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");
  assert.deepEqual(p.errors,[]);
- await p.shot('preserved');console.log(JSON.stringify({result:'PASS repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion; pending metadata and overlapping saved restore',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
+ await p.shot('preserved');console.log(JSON.stringify({result:'PASS repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion; pending metadata, overlapping saved restore, same-source delayed earlier-lap first renders',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
 }finally{await p.close();fs.rmSync(fixtureDir,{recursive:true,force:true});}

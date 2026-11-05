@@ -153,6 +153,28 @@ it('別の一覧が持つ古い行から、保存済みの古い編集を再び�
   expect(opts.item.entry).toMatchObject({ name: 'Second', note: 'Later note' });
 });
 
+it.each([1, 0])('分割ログが %s 本だけ残っていても、未保存の名前を保存し、分割番号と動画は書き換えない', async remaining => {
+  const sessions = ['first', 'second'].map(id => ({ id, points: [], laps: [], clockOffsetSec: 0 } as unknown as Session));
+  let live = sessions;
+  const opts = { ...attachment('split-meta'), runSessions: sessions, sessions: () => live };
+  let disk: runsFile.RunRow = { ...opts.item.entry!, name: 'Old', parts: { '1': { clockOffsetSec: 0 }, '2': { clockOffsetSec: 8 } } };
+  const videosBefore = disk.videos;
+  opts.item.entry = disk;
+  let fail = true;
+  vi.spyOn(runsFile, 'updateRun').mockImplementation(async (_s, _folder, _file, update) => {
+    if (fail) throw new Error('write failed');
+    disk = { updatedAt: '', ...update(disk) }; return disk;
+  });
+  await attachRunVideos(opts);
+  await expect(setRunMeta(opts.store, opts.item, { name: 'New' })).rejects.toThrow();
+  live = sessions.slice(0, remaining);
+  await expect(flushOpenRunsStrict()).rejects.toThrow('write failed');
+  fail = false; await flushOpenRunsStrict();
+  expect(disk.name).toBe('New');
+  expect(disk.parts).toEqual({ '1': { clockOffsetSec: 0 }, '2': { clockOffsetSec: 8 } });
+  expect(disk.videos).toEqual(videosBefore);
+});
+
 it.each([true, false])('比較側の通知が先=%s でも、基準から外れた走行の動画と保存担当を引き継ぐ', async companionFirst => {
   const meta = vi.spyOn(metadata, 'parseVideoMetadata').mockImplementation(async file => ({
     fileName: file.name, fileSize: file.size, creationTime: null, durationSec: 10, timescale: 1000
