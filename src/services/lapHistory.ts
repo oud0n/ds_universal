@@ -74,7 +74,7 @@ export async function loadLapHistory(store: LapFileStore, onProgress?: (folder: 
     let written: LapIndex | null = null;
     const writeIndex = (ix: LapIndex, final = false) => queueLapIndexWrite(async () => {
       check();
-      const cur = parseLapIndex(await store.readText(indexPath));
+      const cur = parseLapIndex(await (store.readTextStrict ? store.readTextStrict(indexPath) : store.readText(indexPath)));
       check();
       const hidden = cur?.hidden ?? ix.hidden;
       const skipped = files.filter(f => f.local === false).map(f => f.path.slice(folder.length + 1));

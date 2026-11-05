@@ -14,7 +14,7 @@
 - Playback now keeps a single session time across analysis and video views. Video-only playback also works without a GPS log.
 - Pending video synchronization edits are saved before assigning laps from the new picker or choosing storage. Cancelling storage selection preserves the open video's run association.
 
-The next working candidate (not distributed) includes fixes for storage reselection, unconvertible synchronization, stale automatic matching, partial-run saves, and concurrent hidden-lap writes. Independent re-review is not complete.
+The next working candidate (not distributed) includes fixes for storage reselection, unconvertible synchronization, stale automatic matching, partial-run saves, and concurrent hidden-lap writes. Independent re-review is not complete. Further candidate fixes wait for in-flight saves, require successful saving at the legacy Library entry, retain original part numbers in saved comparisons, protect failed or superseded restores, and rebind restored pins.
 
 Known unresolved cases in the distributed build 18 are [BUG-50 and BUG-51](../BUGS.md). Avoid reselecting the current on-device storage and making new video-sync adjustments against a separate log without timestamps. This is not a public release.
 

@@ -395,3 +395,44 @@ it('日時の換算不能を strict 保存の成功にせず、元の時計・�
   videoSyncManager.setOffsetIn(t.id, own, 5);await flushOpenRunsStrict();
   expect(disk.videos![0].clock?.offsetSec).toBe(5);
 });
+
+it('通常保存が待機中に補正を baseline へ戻しても、strict 保存は先行書込みを待って戻した値を保存する', async () => {
+  vi.useFakeTimers();
+  const session = { id: 'last-edit', points: [], clockOffsetSec: 0 } as unknown as Session;
+  const opts = { ...attachment('last-edit'), runSessions: [session], sessions: () => [session] };
+  opts.item.entry!.parts = { '1': { clockOffsetSec: 0 } };
+  let disk = structuredClone(opts.item.entry!);
+  const entered = latch(), release = latch();
+  const write = vi.spyOn(runsFile, 'updateRun').mockImplementation(async (_s, _f, _n, update) => {
+    const next = { updatedAt: '', ...update(disk) };
+    if (write.mock.calls.length === 1) { entered.release(); await release.promise; }
+    disk = next; return disk;
+  });
+  try {
+    await attachRunVideos(opts);session.clockOffsetSec = 1;scheduleRunSave();
+    await vi.advanceTimersByTimeAsync(2000);await entered.promise;
+    session.clockOffsetSec = 0;scheduleRunSave();
+    let completed = false;const strict = flushOpenRunsStrict().then(() => { completed = true; });
+    await Promise.resolve();expect(completed).toBe(false);
+    release.release();await strict;
+    expect(write).toHaveBeenCalledTimes(2);expect(disk.parts?.['1']?.clockOffsetSec).toBe(0);
+  } finally { vi.useRealTimers(); }
+});
+
+it('再添付で同じ動画のピンを、新しい part ID へ付け直して保存する', async () => {
+  vi.spyOn(metadata, 'parseVideoMetadata').mockImplementation(async file => ({ fileName: file.name, fileSize: file.size, creationTime: null, durationSec: 10, timescale: 1000 }));
+  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new Error('no GPS'));
+  const a = { id: 'first', points: [] } as unknown as Session;
+  const b = { id: 'second', points: [] } as unknown as Session;
+  let live = [a, b];
+  const opts = { ...attachment('rebound-pins', true), runSessions: live, sessions: () => live };
+  opts.item.entry!.videos![0].pins = [{ name: 'p', logPart: 2, logTimeSec: 3, videoTimeSec: 2 }];
+  let disk = structuredClone(opts.item.entry!);
+  vi.spyOn(runsFile, 'updateRun').mockImplementation(async (_s, _f, _n, update) => disk = { updatedAt: '', ...update(disk) });
+  await attachRunVideos(opts);await flushOpenRunsStrict();
+  live = [a];await flushOpenRunsStrict();
+  const fresh = { ...b, id: 'new-second' };live = [a, fresh];
+  await attachRunVideos({ ...opts, runSessions: live });
+  expect(videoViewStore.getPins('C').find(p => p.name === 'p')?.sessionId).toBe(fresh.id);
+  await flushOpenRunsStrict();expect(disk.videos?.[0].pins?.[0].logPart).toBe(2);
+});

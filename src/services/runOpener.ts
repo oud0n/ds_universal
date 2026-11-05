@@ -171,6 +171,8 @@ interface OpenRun {
   sessionIds: string[];
   /** 元の part 番号と時計だけを保持。閉じた点列は持たない。 */
   partClocks: Map<number, ClockSession>;
+  /** 先行する通常保存も含めて、同じ担当の保存を順番に完了させる。 */
+  saving: Promise<void>;
   circuitName: () => string;
   sessions: () => Session[];
   /** その走行の動画 (保管場所の道) */
@@ -270,13 +272,18 @@ function rowContent(run: OpenRun, prev: RunRow | null, snap: RunSnapshot = snaps
 const contentKey = (c: Pick<RunRow, 'parts' | 'videos'>) => JSON.stringify(c);
 
 /** 走行の動画と同期を runs.json に書く (中身が変わったときだけ) */
-async function saveRun(run: OpenRun, strict = false): Promise<void> {
+function saveRun(run: OpenRun, strict = false): Promise<void> {
+  // トラックやログを外す前の状態を確保する。同値判定は先行保存の完了後に行う。
+  const snap = snapshotOf(run);
+  const metadata = new Map(pendingMetadata.get(metadataKeyOf(run.store, run.item)) ?? []);
+  const next = run.saving.then(() => saveRunSnapshot(run, snap, metadata, strict));
+  run.saving = next.catch(() => undefined);
+  return next;
+}
+async function saveRunSnapshot(run: OpenRun, snap: RunSnapshot, metadata: Map<keyof RunMetaPatch, { version: number; value: unknown }>, strict: boolean): Promise<void> {
   try {
-    // 今の中身を取っておく (書くのを待つ間に、Car 1 を替えた・比べる相手から外したなどで動画が外されても、外す前の中身で書く)
-    const snap = snapshotOf(run);
     const content = rowContent(run, run.item.entry, snap);
     const metadataKey = metadataKeyOf(run.store, run.item);
-    const metadata = new Map(pendingMetadata.get(metadataKey) ?? []);
     if (!content && metadata.size === 0) return;
     const key = content ? contentKey(content) : null;
     if (content && key === run.baseline && metadata.size === 0) return;
@@ -405,7 +412,13 @@ function restoreRowVideos(run: OpenRun, row: RunRow | null, setClockOffset?: (id
       // 前に開いたときのピン (動画の ID は開くたびに変わる) は、今の動画に付け直す (重ねて足さない)
       const same = (c: SyncPin) => c.name === p.name && Math.abs(c.sessionTimeSec - p.sessionTimeSec) < 0.001 && Math.abs(c.videoTimeSec - p.videoTimeSec) < 0.001;
       const mine = pins.find(c => same(c) && c.trackId === t.id);
-      if (mine) continue;
+      if (mine) {
+        if (mine.sessionId !== p.sessionId) {
+          pins = pins.map(c => c === mine ? { ...c, sessionId: p.sessionId } : c);
+          pinsChanged = true;
+        }
+        continue;
+      }
       const stale = pins.find(c => same(c) && !trackIds.has(c.trackId));
       if (stale) {
         pins = pins.map(c => (c === stale ? { ...c, trackId: t.id, ...(p.sessionId ? { sessionId: p.sessionId } : {}) } : c));
@@ -509,7 +522,7 @@ async function attachRunVideosNow(opts: AttachOptions, isCurrent: () => boolean)
   const openedNames = new Set(videoSyncManager.getTracks().filter(t => t.remote && mine.has(t.remote.path)).map(t => t.fileName));
   const row = retained?.item.entry ?? item.entry;
   const run: OpenRun = retained ?? {
-    store, item, sessionIds: opts.runSessions.map(s => s.id), partClocks: partClocksOf(opts.runSessions, owned ?? undefined), circuitName: opts.circuitName, sessions: opts.sessions, paths: mine,
+    store, item, sessionIds: opts.runSessions.map(s => s.id), partClocks: partClocksOf(opts.runSessions, owned ?? undefined), saving: Promise.resolve(), circuitName: opts.circuitName, sessions: opts.sessions, paths: mine,
     // runs.json にあって今回は開かなかった動画 (iCloud にだけある・見つからない) は、消さずに残す
     kept: opts.fromRuns ? (row?.videos ?? []).filter(v => !openedNames.has(v.name)) : [],
     known: new Set([...(row?.videos ?? []).map(v => v.name), ...openedNames]),
@@ -617,7 +630,7 @@ async function attachCompanionVideosNow(opts: AttachOptions, isCurrent: () => bo
   const openedNames = new Set(videoSyncManager.getTracks().filter(t => t.remote && mine.has(t.remote.path)).map(t => t.fileName));
   const row = item.entry;
   const run: OpenRun = {
-    store: opts.store, item, sessionIds: opts.runSessions.map(s => s.id), partClocks: partClocksOf(opts.runSessions), circuitName: opts.circuitName, sessions: opts.sessions, paths: mine,
+    store: opts.store, item, sessionIds: opts.runSessions.map(s => s.id), partClocks: partClocksOf(opts.runSessions), saving: Promise.resolve(), circuitName: opts.circuitName, sessions: opts.sessions, paths: mine,
     kept: opts.fromRuns ? (row?.videos ?? []).filter(v => !openedNames.has(v.name)) : [],
     known: new Set([...(row?.videos ?? []).map(v => v.name), ...openedNames]),
     baseline: null,

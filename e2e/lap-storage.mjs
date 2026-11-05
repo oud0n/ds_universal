@@ -22,8 +22,8 @@ try {
  await p.send('Page.addScriptToEvaluateOnNewDocument',{source:`
  window.storeFiles = new Map(); window.storeWrites=[]; window.storeReads=[]; window.failWrites=false;
  window.electronAPI={laps:{getFolder:async()=>{if(window.holdFolder)await new Promise(resolve=>(window.folderWaiters??=[]).push(resolve));return window.folderRoot??'/synthetic/A'},pickFolder:async()=>null,
- list:async()=>({success:true,files:[...storeFiles].map(([path,b])=>({path,size:b.byteLength,mtimeMs:123,local:true}))}),
- read:async path=>{storeReads.push(path);if(window.holdIndexRead===path)await new Promise(resolve=>window.resumeIndexRead=resolve);if(window.readDelayMs)await new Promise(r=>setTimeout(r,window.readDelayMs));if(window.holdSavedRead===path && window.__laploupe?.screen==='analysis')await new Promise(resolve=>window.resumeSavedRead=resolve);const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
+ list:async()=>window.failSavedList&&window.__laploupe?.openingSaved?.()?{success:false,error:'synthetic list failure'}:({success:true,files:[...storeFiles].map(([path,b])=>({path,size:b.byteLength,mtimeMs:123,local:true}))}),
+ read:async path=>{storeReads.push(path);if(window.holdIndexRead===path)await new Promise(resolve=>window.resumeIndexRead=resolve);if(window.readDelayMs)await new Promise(r=>setTimeout(r,window.readDelayMs));if(window.holdSavedRead===path && window.__laploupe?.openingSaved?.())await new Promise(resolve=>window.resumeSavedRead=resolve);const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
  readText:async path=>{if(window.holdTextRead===path)await new Promise(resolve=>(window.textWaiters??=[]).push(resolve));return {success:true,text:storeFiles.has(path)?new TextDecoder().decode(storeFiles.get(path)):null}},
  writeText:async(path,text)=>{if(path.endsWith('/laptimes.json'))(window.indexWrites??=[]).push(JSON.parse(text));if(window.failWrites)return {success:false,error:'synthetic write failure'};storeWrites.push(path);storeFiles.set(path,new TextEncoder().encode(text));return {success:true}}
  }};
@@ -131,14 +131,26 @@ try {
  assert.equal(await p.ev("import('/src/services/storageRevision.ts').then(m=>m.getStorageRevision())"),before.revision);
  assert.equal(await p.ev('window.__laploupe.pointsOf(0).clockOffsetSec'),2.5);
  assert.deepEqual(await p.ev("import('/src/services/videoSyncManager.ts').then(m=>m.videoSyncManager.getTracks().map(x=>x.id))"),before.tracks);
- await p.ev("window.failWrites=false; window.testRunOpener.flushOpenRunsStrict()");
+ await p.ev("(()=>{storeFiles.set('sodegaura/B.nmea',storeFiles.get('sodegaura/demo.nmea'));const rows=JSON.parse(new TextDecoder().decode(storeFiles.get('sodegaura/runs.json')));rows.runs.B={updatedAt:'2026-01-01T00:00:00Z',name:'B target'};storeFiles.set('sodegaura/runs.json',new TextEncoder().encode(JSON.stringify(rows)));window.__laploupe.go('library')})()");
+ await p.waitFor("[...document.querySelectorAll('[data-testid=run-row]')].some(r=>r.innerText.includes('B target'))");
+ await p.ev("[...document.querySelectorAll('[data-testid=run-row]')].find(r=>r.innerText.includes('B target')).click()");
+ await p.click('run-open-analysis');await p.waitFor('!window.__laploupe.runBusy');
+ assert.deepEqual((await p.state()).cars,before.cars,'legacy open does not change Cars after save failure');
+ assert.equal(await p.ev('testRunOpener.getOpenRun()?.item.file'),before.owner);
+ await p.ev("window.__laploupe.go('analysis');window.failWrites=false;window.testRunOpener.flushOpenRunsStrict()");
  // 保存した比較の基準周を、走行の最速周で上書きしない。
  const chosenLap=await p.ev("(()=>{const laps=window.testRunOpener.getOpenRun().item.laps;const best=laps.reduce((a,b)=>a.time<b.time?a:b).n;const target=laps.find(l=>l.n!==best).n;const data={version:1,name:'non-best lap',createdAt:'2025-01-01T00:00:00Z',cars:[{slot:0,run:'sodegaura/demo.nmea',lap:target}]};storeFiles.set('sessions/non-best.lapsession.json',new TextEncoder().encode(JSON.stringify(data)));return target;})()");
  await p.ev("window.__laploupe.go('library')");
  await p.waitFor("document.querySelector('[data-testid=library-sessions]')",10000,'saved comparison');
  if(!await p.ev("!!document.querySelector('[data-testid=library-session-row]')"))await p.ev("document.querySelector('[data-testid=library-sessions] > button').click()");
  await p.waitFor("document.querySelector('[data-testid=library-session-row]')");
- await p.ev("document.querySelector('[data-testid=library-session-row] button').click()");
+ const carsBeforeIO=(await p.state()).cars, notesBeforeIO=p.notes.length;
+ await p.ev("window.failSavedList=true;document.querySelector('[data-testid=library-session-row] button').click()");
+ await p.waitFor('!window.__laploupe.openingSaved()');
+ assert.deepEqual((await p.state()).cars,carsBeforeIO,'failed list does not partially restore comparison');
+ assert.ok(p.notes.slice(notesBeforeIO).some(s=>s.includes('Could not load the comparison')));
+ assert.ok(!p.notes.slice(notesBeforeIO).some(s=>s.includes('runs of this session were not found')));
+ await p.ev("window.failSavedList=false;document.querySelector('[data-testid=library-session-row] button').click()");
  await p.waitFor(`window.__laploupe.screen==='analysis' && window.__laploupe.cars.length===1 && window.__laploupe.cars[0].lapNumber===${chosenLap}`);
  assert.ok(Math.abs((await p.state()).sessionTimeSec-(await p.state()).baseLap.startTime)<0.001,'saved base starts at its own lap');
  await p.ev("storeFiles.set('sodegaura/B.nmea',storeFiles.get('sodegaura/demo.nmea'))");
@@ -185,6 +197,7 @@ try {
  await p.ev("[...document.querySelectorAll('[data-testid=library-session-row] button')].find(b=>b.innerText.includes('Interleaved saved')).click()");
  await p.waitFor("typeof window.resumeSavedRead==='function'",15000,'saved-open companion barrier');
  const duringSaved=(await p.state()).cars;
+ await p.ev("window.__laploupe.go('analysis')");
  await p.click('open-lap-picker');
  await p.waitFor("document.querySelector('[data-testid=lap-picker-row]')");
  await p.ev(`(${pickStored})('demo.nmea',1)`);
@@ -227,6 +240,16 @@ try {
  await p.waitFor("[...document.querySelectorAll('[data-testid=library-session-row]')].some(x=>x.innerText.includes('Interrupted restore'))",10000,'saved comparison to interrupt');
  await p.ev("[...document.querySelectorAll('[data-testid=library-session-row]')].find(x=>x.innerText.includes('Interrupted restore')).querySelector('button').click()");
  await p.waitFor('window.resumeSavedRead',15000,'restore held on later run');
+ const carsBeforeManual=(await p.state()).cars;
+ await p.ev("(()=>{window.__laploupe.go('analysis');const s=window.__laploupe.analysisSnapshot().sessions.find(s=>s.id===window.__laploupe.cars[0].sessionId);const lap=s.laps.find(l=>l.lapNumber!==window.__laploupe.cars[0].lapNumber);window.__laploupe.selectCar(0,s.id,lap.lapNumber);})()");
+ const manualCars=(await p.state()).cars;assert.notDeepEqual(manualCars,carsBeforeManual);
+ await p.ev('window.holdSavedRead=null;window.resumeSavedRead()');
+ await p.waitFor('!window.__laploupe.openingSaved()');
+ assert.deepEqual((await p.state()).cars,manualCars,'late saved comparison does not replace newer manual choice');
+ await p.ev("window.holdSavedRead='sodegaura/F.nmea';window.resumeSavedRead=null;window.__laploupe.go('library')");
+ await p.waitFor("[...document.querySelectorAll('[data-testid=library-session-row]')].some(x=>x.innerText.includes('Interrupted restore'))");
+ await p.ev("[...document.querySelectorAll('[data-testid=library-session-row]')].find(x=>x.innerText.includes('Interrupted restore')).querySelector('button').click()");
+ await p.waitFor('window.resumeSavedRead',15000,'second restore held on later run');
  const carsAtRootChange=(await p.state()).cars, notesAtRootChange=p.notes.length;
  await p.ev("(async()=>{window.__laploupe.go('settings');await(await import('/src/services/storageRevision.ts')).trackStorageSelection(()=>{window.folderRoot='/synthetic/restore-new';return '/synthetic/restore-new'});window.resumeSavedRead();})()");
  await p.waitFor('!window.__laploupe.openingSaved()',10000,'obsolete restore ends');

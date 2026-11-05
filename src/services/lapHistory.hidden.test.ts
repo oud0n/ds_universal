@@ -57,3 +57,23 @@ it('再計算中に旧番号の周を隠しても、開始時刻で新番号へ�
     expect(disk.hidden).toEqual([{ file: 'a.nmea', ...(measured.laps[0].part ? { part: measured.laps[0].part } : {}), n: measured.laps[0].n, startMs: measured.laps[0].startMs }]);
   } finally { spy.mockRestore(); }
 });
+
+it('再計算の書込み直前に strict 読込みが失敗しても、直前に保存した印を古い値で戻さない', async () => {
+  const preset = CIRCUIT_PRESETS.find(c => c.id === 'sodegaura')!;
+  const course = { name: preset.name, controlLine: preset.controlLine!, sectors: preset.sectors };
+  const bytes = new Uint8Array(readFileSync(new URL('../../public/demo/sodegaura_20260815.nmea', import.meta.url)));
+  const measured = lapsFromNmea('a.nmea', bytes, course);
+  let disk: LapIndex = { version: 1, courseHash: courseHash(course), courseName: course.name, hidden: [], files: { 'a.nmea': { size: bytes.length, mtimeMs: 1, ...measured, split: SPLIT_RULE } } };
+  let release!: () => void, start!: () => void, fail = false;
+  const started = new Promise<void>(r => { start = r; });
+  const held = new Promise<Uint8Array>(r => { release = () => r(bytes); });
+  const write = vi.fn(async (_p: string, text: string) => { disk = JSON.parse(text); });
+  const store = { list: async () => [{ path: 'sodegaura/a.nmea', size: bytes.length, mtimeMs: 2 }], read: async () => { start();return held; }, readText: async (p: string) => p.endsWith('laptimes.json') ? JSON.stringify(disk) : null, readTextStrict: async () => { if (fail) throw Error('temporary IO');return JSON.stringify(disk); }, writeText: write };
+  const spy = vi.spyOn(courses, 'loadStorageCourses').mockResolvedValue(0);
+  try {
+    const scan = loadLapHistory(store);await started;
+    await updateLapHidden(store, 'sodegaura', 'a.nmea', measured.laps[0], true);
+    const saved = structuredClone(disk.hidden);fail = true;release();await scan;
+    expect(disk.hidden).toEqual(saved);expect(write).toHaveBeenCalledTimes(1);
+  } finally { spy.mockRestore(); }
+});
