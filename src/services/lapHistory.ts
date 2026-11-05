@@ -9,6 +9,7 @@ import { userCircuitStorage } from './userCircuitStorage';
 import { courseFolder } from '../utils/courseNames';
 import { findRunRow, readRunsFile } from './runsFile';
 import { getStorageReadRevision, StorageChangedError } from './storageRevision';
+import { loadStorageCourses } from './storageCourses';
 import {
   LAP_INDEX_FILE, groupBon4ByFolder, lapRows, parseLapIndex, queueLapIndexWrite, reconcileFolder, setHidden,
   type LapCourse, type LapFileStore, type LapIndex, type LapRow
@@ -51,6 +52,9 @@ export interface LapFolder {
 export async function loadLapHistory(store: LapFileStore, onProgress?: (folder: string) => void): Promise<LapFolder[]> {
   const reads = getStorageReadRevision();
   const check = () => { if (reads !== getStorageReadRevision()) throw new StorageChangedError(); };
+  // 同じ名前のフォルダでも、前の保存先の計測線で控えを作らない。
+  await loadStorageCourses();
+  check();
   const groups = groupBon4ByFolder(await store.list());
   check();
   const out: LapFolder[] = [];

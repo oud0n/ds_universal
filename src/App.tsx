@@ -73,6 +73,7 @@ import { ImportSheet } from './components/import/ImportSheet';
 import { applyOverlaps, findSameRun, freeBase, planImport, type ImportPlan } from './services/import/importPlan';
 import { rangeCandidates, readRunRanges, runFilesByBase } from './services/import/runRanges';
 import { loadStorageCourses, subscribeStorageCourses, getStorageRevision, getStorageReadRevision, isStorageSelectionPending, subscribeBeforeStorageSelection, subscribeStorageRevision } from './services/storageCourses';
+import { StorageChangedError } from './services/storageRevision';
 import { applyPlan, IMPORT_SOURCE_FOLDER, type PartResult } from './services/import/importApply';
 import { electronWriter, nativeWriter } from './services/import/importWriters';
 import { LOG_EXTENSIONS } from './services/logLoader';
@@ -477,6 +478,12 @@ export const App: React.FC = () => {
     return w !== null && w > WOBBLE_LIMIT_G;
   }).map(s => s.sessionName || s.fileName), [sessions, imuSessionIds]);
   const imuPendingRef = useRef(new Set<string>());
+  const sidecarRequestsRef = useRef(new Map<string, object>());
+  useEffect(() => {
+    const live = new Set(sessions.map(s => s.id));
+    for (const id of sidecarRequestsRef.current.keys()) if (!live.has(id)) sidecarRequestsRef.current.delete(id);
+  }, [sessions]);
+  useEffect(() => () => sidecarRequestsRef.current.clear(), []);
   useEffect(() => {
     const ready = sessions.filter(s => imuPendingRef.current.has(s.id)).map(s => s.id);
     if (!ready.length) return;
@@ -1160,55 +1167,73 @@ export const App: React.FC = () => {
   /** 保管場所の走行のログを読み込む (もう開いていればそれ)。読み込んだログ (分かれた走行は読み込んだ順) */
   const loadRunSidecars = (store: NonNullable<Awaited<ReturnType<typeof getRunStore>>>, item: RunItem, added: Session[]) => {
     const revision = store.storageRevision ?? getStorageRevision();
-    const live = () => added.filter(s => analysisStore.getSnapshot().sessions.some(now => now.id === s.id));
+    const ticket = {};
+    for (const session of added) sidecarRequestsRef.current.set(session.id, ticket);
+    const live = () => added.filter(s => sidecarRequestsRef.current.get(s.id) === ticket && analysisStore.getSnapshot().sessions.some(now => now.id === s.id));
     const current = () => revision === getStorageRevision() && live().length > 0;
-      // iPhone のラップタイマーで測った走行なら、G センサーの値 (<走行>.iphone_imu.csv) を読んで G に合わせる
-      // 読み終わるのを待たずに開く (30 分の走行で数 MB あり、開くのが遅くなっていた)。読めたら G を計算し直す
-      if (added.length) {
-        void (async () => {
-          // テキストの読み方は、パソコン版では決まったファイルしか読めないので、ファイルとして読む (無ければ失敗 → null)
-          const imuPath = `${item.folder}/${item.file.replace(/\.[^./]+$/, '')}.iphone_imu.csv`;
-          const imuText = await store.read(imuPath).then(b => new TextDecoder().decode(b), () => null);
-          const track = parseImuCsv(imuText);
-          if (!track || !current()) return;
-          live().forEach(x => imuTracksRef.current.set(x.id, track));
-          // 読み込んだばかりのログは、まだ一覧に入っていないことがあるので、入ってから計算し直す (上の useEffect)
-          if (getGSource() === 'sensor') live().forEach(x => imuPendingRef.current.add(x.id));
-          setImuSessionIds(ids => [...new Set([...ids, ...live().map(x => x.id)])]);
-        })().catch(() => undefined);
-      }
-      // 走行の横の値だけの CSV (<走行>.<xxx>.csv) で、CSV の形式の定義に xxx が合うものを読んで合わせる (PLAN-36)。待たずに開く
-      if (added.length) {
-        void (async () => {
-          const stem = item.file.replace(/\.[^./]+$/, '');
-          const sensorFormats = currentCsvFormats().filter(f => f.kind === 'sensor' && f.sensorKey);
-          if (!sensorFormats.length) return;
-          // 置き場にあるファイル (iCloud にだけあるものも)。無いファイルは読みにいかない
-          const listed = new Map((await store.listAll().catch(() => [])).map(f => [f.path, f]));
-          for (const fmt of sensorFormats) {
-            if (!current()) return;
-            const path = `${item.folder}/${stem}.${fmt.sensorKey}.csv`;
-            if (sensorKeyOf(path) !== fmt.sensorKey || !listed.has(path)) continue;
-            let text = await store.read(path).then(b => new TextDecoder().decode(b), () => null);
-            // iCloud にだけあって、まだ端末に無いときは、取り込みを頼んで少し待ってから読み直す
-            if (text === null) {
-              if (listed.get(path)?.local === false) {
-                await store.startDownload(path).catch(() => undefined);
-                for (let i = 0; i < 5 && text === null && current(); i++) {
-                  await new Promise(r => setTimeout(r, 2000));
-                  text = await store.read(path).then(b => new TextDecoder().decode(b), () => null);
-                }
-              }
-            }
-            if (!current()) return;
-            if (!text || matchCsvFormat(path, text, [fmt]) !== fmt) continue;
-            const rows = readRows(text, fmt);
-            if (!rows.rows.length) continue;
-            live().forEach(x => sensorPendingRef.current.set(x.id, [...(sensorPendingRef.current.get(x.id) ?? []), { rows, offsetSec: fmt.offsetSec }]));
-            setSensorTick(n => n + 1);
+    // 取消で無効になった最新の読込みは、同じ保存先・走行の間だけやり直す。
+    const run = (load: (check: () => void) => Promise<void>) => {
+      void (async () => {
+        while (current()) {
+          if (isStorageSelectionPending()) await new Promise<void>(resolve => {
+            const stop = subscribeStorageRevision(() => { if (!isStorageSelectionPending() || !current()) { stop(); resolve(); } });
+          });
+          if (!current()) return;
+          const reads = getStorageReadRevision();
+          const check = () => { if (!current() || reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError(); };
+          try { await load(check); return; } catch (error) {
+            if (!(error instanceof StorageChangedError)) return;
           }
-        })().catch(() => undefined);
+        }
+      })().catch(() => undefined);
+    };
+    const text = async (path: string, check: () => void) => {
+      check();
+      try { const bytes = await store.read(path); check(); return new TextDecoder().decode(bytes); } catch (error) {
+        if (error instanceof StorageChangedError) throw error;
+        return null;
       }
+    };
+    if (!added.length) return;
+    run(async check => {
+      const imuPath = `${item.folder}/${item.file.replace(/\.[^./]+$/, '')}.iphone_imu.csv`;
+      const track = parseImuCsv(await text(imuPath, check));
+      check();
+      if (!track) return;
+      live().forEach(x => imuTracksRef.current.set(x.id, track));
+      if (getGSource() === 'sensor') live().forEach(x => imuPendingRef.current.add(x.id));
+      setImuSessionIds(ids => [...new Set([...ids, ...live().map(x => x.id)])]);
+    });
+    run(async check => {
+      await loadCsvFormats(); check();
+      const stem = item.file.replace(/\.[^./]+$/, '');
+      const sensorFormats = currentCsvFormats().filter(f => f.kind === 'sensor' && f.sensorKey);
+      if (!sensorFormats.length) return;
+      const listed = new Map((await store.listAll()).map(f => [f.path, f]));
+      check();
+      const pending: Array<{ rows: ReturnType<typeof readRows>; offsetSec?: number }> = [];
+      for (const fmt of sensorFormats) {
+        check();
+        const path = `${item.folder}/${stem}.${fmt.sensorKey}.csv`;
+        if (sensorKeyOf(path) !== fmt.sensorKey || !listed.has(path)) continue;
+        let content = await text(path, check);
+        if (content === null && listed.get(path)?.local === false) {
+          await store.startDownload(path); check();
+          for (let i = 0; i < 5 && content === null; i++) {
+            await new Promise(r => setTimeout(r, 2000)); check();
+            content = await text(path, check);
+          }
+        }
+        check();
+        if (!content || matchCsvFormat(path, content, [fmt]) !== fmt) continue;
+        const rows = readRows(content, fmt);
+        if (rows.rows.length) pending.push({ rows, offsetSec: fmt.offsetSec });
+      }
+      check();
+      if (!pending.length) return;
+      live().forEach(x => sensorPendingRef.current.set(x.id, pending));
+      setSensorTick(n => n + 1);
+    });
   };
 
   const loadStoredFileData = async (store: NonNullable<Awaited<ReturnType<typeof getRunStore>>>, item: RunItem) => {
@@ -1298,9 +1323,12 @@ export const App: React.FC = () => {
     }
   };
   const openSavedSessionInner = async (saved: LapSession) => {
+    const revision = getStorageRevision(), reads = getStorageReadRevision();
+    const current = () => revision === getStorageRevision() && reads === getStorageReadRevision() && !isStorageSelectionPending();
     const store = await getRunStore().catch(() => null);
-    if (!store) return;
+    if (!store || !current()) return;
     const items = await listRuns(store).catch(() => [] as RunItem[]);
+    if (!current()) return;
     const find = (c: LapSessionCar) => items.find(r => `${r.folder}/${r.file}` === c.run) ?? (c.id ? items.find(r => r.entry?.id === c.id) : undefined);
     const cars = [...saved.cars].sort((a, b) => a.slot - b.slot);
     // Car 1 の走行が消えていても、残っている走行で開く (いちばん前に残っているものを Car 1 にする。2026-10-27 のレビュー)
@@ -1312,7 +1340,7 @@ export const App: React.FC = () => {
     // Car 1 の走行を開く (動画・同期もそろう)。開けなかったら、Car 2〜4 も並べない
     openedRunRef.current = null;
     await openRun(firstItem, 'analysis');
-    if (openedRunRef.current !== `${firstItem.folder}/${firstItem.file}`) return;
+    if (!current() || openedRunRef.current !== `${firstItem.folder}/${firstItem.file}`) return;
     const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b'];
     const picks: SelectedCarSlot[] = [];
     const missing: string[] = [];
@@ -1321,6 +1349,7 @@ export const App: React.FC = () => {
       const item = find(c);
       if (!item) { missing.push(c.run); continue; }
       const runSessions = await loadRunSessions(store, item).catch(() => [] as Session[]);
+      if (!current()) return;
       const s = runSessions[(c.part ?? 1) - 1] ?? runSessions[0];
       if (!s) { missing.push(c.run); continue; }
       // 計測線を直して周の番号が変わっていても、保存した周の始まりの時刻で選び直す
@@ -2197,9 +2226,10 @@ export const App: React.FC = () => {
       currentTimeSec,
       isPlaying,
       runBusy,
+      openingSaved: () => savedOpeningRef.current,
       sessions: sessions.map(x => ({ id: x.id, fileName: x.fileName, sessionName: x.sessionName, circuitName: x.circuitName, laps: x.laps.length })),
       // G の試験のため: ログの点の時刻と G (と、先頭の時刻)
-      pointsOf: (i: number) => { const x = sessions[i]; return x ? { timestamp: x.points[0]?.timestamp, clockOffsetSec: x.clockOffsetSec ?? 0, pts: x.points.map(q => [q.time, q.accelG, q.corneringG]) } : null; },
+      pointsOf: (i: number) => { const x = sessions[i]; return x ? { timestamp: x.points[0]?.timestamp, clockOffsetSec: x.clockOffsetSec ?? 0, throttle: x.points.map(q => q.throttle ?? null), pts: x.points.map(q => [q.time, q.accelG, q.corneringG]) } : null; },
       cars: selectedCars.map(c => ({ slot: c.slot, sessionId: c.sessionId, lapNumber: c.lapNumber })),
       baseLap: baseLap ? { lapNumber: baseLap.lapNumber, startTime: baseLap.startTime, lapTime: baseLap.lapTime, isWholeSession: !!baseLap.isWholeSession } : null,
       videos: placedVideos.map(v => ({ fileName: v.fileName, syncOffsetSec: v.syncOffsetSec, isPlaced: v.isPlaced, matchedSessionId: v.matchedSessionId }))

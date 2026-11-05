@@ -189,6 +189,16 @@ try {
  assert.deepEqual((await p.state()).cars,beforeReject,'rejected assignment does not change Cars');
  assert.ok(await p.ev("(()=>{const item=window.testRunOpener.getOpenRunItem('sodegaura','demo.nmea');return item.laps===window.ownerLapsBefore && item.folderVideos===window.ownerVideosBefore;})()"),'rejected assignment does not mutate live run metadata');
  await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");
+ // 保存した比較の途中で保存先を変えたら、旧結果で Car や画面を戻さない。
+ await p.ev("(()=>{for(const f of ['E','F'])storeFiles.set('sodegaura/'+f+'.nmea',storeFiles.get('sodegaura/demo.nmea'));const data={version:1,name:'Interrupted restore',createdAt:'2025-01-01T00:00:00Z',cars:['E','F'].map((f,slot)=>({slot,run:'sodegaura/'+f+'.nmea',lap:1}))};storeFiles.set('sessions/interrupted.lapsession.json',new TextEncoder().encode(JSON.stringify(data)));window.holdSavedRead='sodegaura/F.nmea';window.resumeSavedRead=null;window.__laploupe.go('library');})()");
+ await p.waitFor("[...document.querySelectorAll('[data-testid=library-session-row]')].some(x=>x.innerText.includes('Interrupted restore'))",10000,'saved comparison to interrupt');
+ await p.ev("[...document.querySelectorAll('[data-testid=library-session-row]')].find(x=>x.innerText.includes('Interrupted restore')).querySelector('button').click()");
+ await p.waitFor('window.resumeSavedRead',15000,'restore held on later run');
+ const carsAtRootChange=(await p.state()).cars, notesAtRootChange=p.notes.length;
+ await p.ev("(async()=>{window.__laploupe.go('settings');await(await import('/src/services/storageRevision.ts')).trackStorageSelection(()=>{window.folderRoot='/synthetic/restore-new';return '/synthetic/restore-new'});window.resumeSavedRead();})()");
+ await p.waitFor('!window.__laploupe.openingSaved()',10000,'obsolete restore ends');
+ assert.equal((await p.state()).screen,'settings');assert.deepEqual((await p.state()).cars,carsAtRootChange);
+ assert.deepEqual(p.notes.slice(notesAtRootChange),[],'root change is not reported as missing runs');
  // 定義・計算式も保存先に属する。旧編集は閉じ、新保存先の確認前には保存しない。
  await p.ev(`(async()=>{
   window.csvStore=await import('/src/services/csvFormatStore.ts');

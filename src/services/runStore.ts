@@ -199,4 +199,4 @@ export async function getRunStore(): Promise<RunStore | null> {
 }
 
 /** この環境で走行の置き場を使えるか (iPhone のアプリかデスクトップ版) */
-export const canUseRunStore = (): boolean => hasNative() || !!window.electronAPI?.laps;
+export const canUseRunStore = (): boolean => hasNative() || (typeof window !== 'undefined' && !!window.electronAPI?.laps);
