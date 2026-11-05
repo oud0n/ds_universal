@@ -257,8 +257,9 @@ describe('買い切り商品の状態', () => {
     await tick();
     await init;
     expect(service.getEntitlementState()).toEqual({ status: 'unsupported', productIds: [] });
-    await expect(service.purchase('a')).rejects.toThrow();
-    await expect(service.restore()).rejects.toThrow();
+    await expect(service.purchase('a')).rejects.toMatchObject({ code: 'not-supported' });
+    await expect(service.restore()).rejects.toMatchObject({ code: 'not-supported' });
+    await expect(service.refreshEntitlements()).resolves.toBeUndefined();
     expect(mock.requests.map(r => r.method)).toEqual(['caps.get']);
   });
 
@@ -267,7 +268,7 @@ describe('買い切り商品の状態', () => {
     const service = await import('./entitlements');
     await service.initializeEntitlements();
     expect(service.getEntitlementState()).toEqual({ status: 'unsupported', productIds: [] });
-    await expect(service.restore()).rejects.toThrow();
+    await expect(service.restore()).rejects.toMatchObject({ code: 'not-supported' });
   });
 
   it('初回読出しが期限超過、あとから始めた読出しは応答待ちのまま', async () => {
@@ -350,7 +351,34 @@ describe('買い切り商品の状態', () => {
     await init;
     expect(service.getEntitlementState().status).toBe('unsupported');
     await service.refreshEntitlements();
+    await expect(service.purchase('a')).rejects.toMatchObject({ code: 'not-supported' });
+    await expect(service.restore()).rejects.toMatchObject({ code: 'not-supported' });
     expect(mock.requests.map(r => r.method)).toEqual(['caps.get']);
+  });
+
+  it('購入・復元・再取得が待った機能確認の失敗は通信エラーを返し、次の復元で回復する', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { mock, service } = await host();
+    mock.setOwned(['a'], false);
+    const sink = window.webkit!.messageHandlers!.dsNative!;
+    const post = sink.postMessage.bind(sink);
+    sink.postMessage = vi.fn().mockImplementationOnce(() => {}).mockImplementation(post);
+
+    const failed = Promise.all([
+      expect(service.purchase('a')).rejects.toMatchObject({ code: 'io' }),
+      expect(service.restore()).rejects.toMatchObject({ code: 'io' }),
+      expect(service.refreshEntitlements()).rejects.toMatchObject({ code: 'io' })
+    ]);
+    await Promise.all([failed, vi.advanceTimersByTimeAsync(5000)]);
+    expect(service.getEntitlementState().status).toBe('error');
+    expect(sink.postMessage).toHaveBeenCalledTimes(1);
+    expect(mock.requests).toEqual([]);
+
+    const retried = service.restore();
+    await tick();
+    await retried;
+    expect(mock.requests.map(req => req.method)).toEqual(['caps.get', 'iap.restore']);
+    expect(service.getEntitlementState()).toEqual({ status: 'ready', productIds: ['a'] });
   });
 
   it('機能確認の一時的な失敗から前面復帰で回復する', async () => {

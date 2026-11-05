@@ -15,7 +15,8 @@ const pendingStates: EntitlementState[] = [];
 let notifying = false;
 let revision = -1;
 let attempt = 0;
-let setup: Promise<boolean> | undefined;
+type StoreConnection = 'ready' | 'unsupported';
+let setup: Promise<StoreConnection> | undefined;
 let initialRead: Promise<void> | undefined;
 
 export const getEntitlementState = (): EntitlementState => state;
@@ -62,22 +63,22 @@ function accept(snapshot: EntitlementSnapshot): void {
   publish('ready', ids);
 }
 
-function connect(): Promise<boolean> {
-  return setup ??= nativeCapabilityResult().then(result => {
+function connect(): Promise<StoreConnection> {
+  return setup ??= nativeCapabilityResult().then((result): StoreConnection => {
     if (result.status === 'error') {
       setup = undefined;
       publish('error', emptyIds);
-      return false;
+      throw new NativeError('io', 'Could not check native capabilities');
     }
     const caps = result.status === 'ready' ? result.caps : null;
     if (!caps?.features.iap || !caps.features.entitlements) {
       publish('unsupported', emptyIds);
-      return false;
+      return 'unsupported';
     }
     onNative('iap.entitlementsChanged', snapshot => {
       try { accept(snapshot); } catch { /* 不完全な知らせでは一覧を変えない */ }
     });
-    return true;
+    return 'ready';
   });
 }
 
@@ -111,12 +112,13 @@ export function initializeEntitlements(): Promise<void> {
   return initialRead;
 }
 
+/** 非対応の端末では何もしない。機能確認・一覧の読み取りに失敗した場合は呼び元に返す。 */
 export async function refreshEntitlements(): Promise<void> {
-  if (await connect()) await read('iap.entitlements');
+  if (await connect() === 'ready') await read('iap.entitlements');
 }
 
 async function requireStore(): Promise<void> {
-  if (!await connect()) throw new NativeError('not-supported', 'Entitlements are unavailable');
+  if (await connect() === 'unsupported') throw new NativeError('not-supported', 'Entitlements are unavailable');
 }
 
 export async function restore(): Promise<void> {
