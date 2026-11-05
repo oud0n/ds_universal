@@ -10,6 +10,8 @@ macOS で `swift scripts/generate-icons.swift` を実行すると、PC の SVG�
 
 Web の favicon と Mac の起動中の Dock は OS の外観に従う。Finder・Windows・Apple touch icon は通常版を使う。Android は通常・night のリソースを持つが、ランチャーによって外観変更の反映が異なる。
 
+当面の自動切替は Mac の Dock と iOS / iPadOS でよい (持ち主、2026-11-06)。Windows・Android の追加対応は後回し。必要な作業と確認条件は [TODO.md の PLAN-57・58](../TODO.md#plan-5758-アイコンの自動切替)。
+
 ## 1. ブランチとタグ
 
 | 名前 | 役割 |
