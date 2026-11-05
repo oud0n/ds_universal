@@ -11,7 +11,9 @@ const { TimerRuntime } = await import('./timerRuntime');
 const { parseNmea } = await import('../nmeaParser');
 const { CIRCUIT_PRESETS } = await import('../circuitDatabase');
 
-const PAIR = `${process.env.HOME}/Library/Mobile Documents/com~apple~CloudDocs/LapLoupe/sodegaura/20260913/20260913092357.nmea`;
+const testStore = process.env.LAPLOUPE_TEST_STORE;
+const PAIR = `${testStore}/sodegaura/20260913/20260913092357.nmea`;
+const hasPair = !!testStore && existsSync(PAIR);
 
 function fixesFrom(path: string) {
   const { points } = parseNmea(readFileSync(path, 'utf8'), 'x.nmea');
@@ -22,8 +24,8 @@ function fixesFrom(path: string) {
 const make = (source: 'replay' | 'digspice') =>
   new TimerRuntime({ replayLogs: () => [], phoneMessages: () => ({ unavailable: '', denied: '' }) }, source);
 
-describe.skipIf(!existsSync(PAIR))('ラップタイマーの中身 (実際の袖ヶ浦の走行で)', () => {
-  const fixes = existsSync(PAIR) ? fixesFrom(PAIR) : [];
+describe.skipIf(!hasPair)('ラップタイマーの中身 (実際の袖ヶ浦の走行で)', () => {
+  const fixes = hasPair ? fixesFrom(PAIR) : [];
   const sode = CIRCUIT_PRESETS.find(c => c.id === 'sodegaura')!;
 
   it('測っていない間は、コースを選んでも周を数えない', () => {

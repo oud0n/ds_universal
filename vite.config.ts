@@ -41,7 +41,7 @@ const addons = (): Plugin => ({
   name: 'laploupe-addons',
   enforce: 'pre',
   resolveId: id => id === ADDONS_ID
-    ? (ADDONS_DIR ? join(ADDONS_DIR, 'src/index.ts') : join(SRC, 'addons/none.ts'))
+    ? normalizePath(ADDONS_DIR ? join(ADDONS_DIR, 'src/index.ts') : join(SRC, 'addons/none.ts'))
     : null,
   transform: (code, id) => ADDONS_SRC && normalizePath(id.split('?')[0]) === INDEX_CSS
     ? `${code}\n@source ${JSON.stringify(ADDONS_SRC)};\n`

@@ -35,13 +35,18 @@ export interface LapReferenceChoice {
   tag: [string, string];
 }
 
-export interface LapReferenceSource {
+export type LapReferenceSource = {
   id: string;
   label: [string, string];
-  available?(): boolean;
-  subscribeAvailability?(listener: () => void): () => void;
   load(ctx: LapReferenceContext): Promise<LapReferenceChoice | null>;
-}
+} & (
+  | { available?: never; subscribeAvailability?: never }
+  | {
+      available(): boolean;
+      /** available() の答えが変わったときに知らせる。 */
+      subscribeAvailability(listener: () => void): () => void;
+    }
+);
 
 /** 周の点から、周の始めからの距離 (m) と経過 (秒) の組を作る */
 export function traceOf(points: TelemetryPoint[]): number[] {

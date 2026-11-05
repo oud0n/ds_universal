@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { callNative, hasNative, NativeError, nativeCapabilities, onNative } from '../native/bridge';
+import { callNative, hasNative, NativeError, nativeCapabilityResult, onNative } from '../native/bridge';
 import type { EntitlementSnapshot, NativeMethods } from '../native/contract';
 
 export interface EntitlementState {
@@ -62,13 +62,9 @@ function cachedIds(): readonly string[] {
 
 function accept(snapshot: EntitlementSnapshot): void {
   if (!snapshot || !Number.isSafeInteger(snapshot.revision) || snapshot.revision < 0) throw new Error('Invalid entitlement revision');
-  if (snapshot.revision < revision) return;
+  if (snapshot.revision <= revision) return;
   const ids = normalizeIds(snapshot.productIds);
   if (!ids) throw new Error('Invalid entitlement list');
-  if (snapshot.revision === revision) {
-    if (ids.length === state.productIds.length && ids.every((id, i) => id === state.productIds[i])) publish('ready', state.productIds);
-    return;
-  }
   revision = snapshot.revision;
   // revision は次の起動のものと比べられないので、確認した一覧だけを保存する。
   try { localStorage.setItem(cacheKey, JSON.stringify(ids)); } catch {
@@ -78,12 +74,13 @@ function accept(snapshot: EntitlementSnapshot): void {
 }
 
 function connect(): Promise<boolean> {
-  return setup ??= nativeCapabilities().then(caps => {
-    if (!caps && hasNative()) {
+  return setup ??= nativeCapabilityResult().then(result => {
+    if (result.status === 'error') {
       setup = undefined;
       publish('error', emptyIds);
       return false;
     }
+    const caps = result.status === 'ready' ? result.caps : null;
     if (!caps?.features.iap || !caps.features.entitlements) {
       publish('unsupported', emptyIds);
       return false;
@@ -103,7 +100,9 @@ async function read(method: 'iap.entitlements' | 'iap.restore'): Promise<void> {
     accept(await callNative(method, {}, method === 'iap.entitlements' ? 10000 : undefined));
   } catch (error) {
     // 新しい一覧や試みがあるときは、古い失敗でその状態を戻さない。
-    if (request === attempt && revision === startedAt) publish('error', revision < 0 ? cachedIds() : state.productIds);
+    if (revision === startedAt && (revision < 0 || request === attempt)) {
+      publish('error', revision < 0 ? cachedIds() : state.productIds);
+    }
     throw error;
   }
 }
@@ -134,7 +133,9 @@ export async function restore(): Promise<void> {
 
 export async function purchase(productId: string): Promise<NativeMethods['iap.purchase']['result']['status']> {
   await requireStore();
+  const before = revision;
   const { status } = await callNative('iap.purchase', { id: productId });
-  if (status === 'purchased') await refreshEntitlements().catch(() => {});
+  const confirmed = revision > before && state.status === 'ready' && isOwned(productId);
+  if (status === 'purchased' && !confirmed) await refreshEntitlements().catch(() => {});
   return status;
 }

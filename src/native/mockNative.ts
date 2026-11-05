@@ -17,6 +17,7 @@ export interface MockNativeOptions {
   latencyMs?: number;
   iap?: boolean;
   entitlements?: boolean;
+  contractVersion?: number;
 }
 
 export interface MockNativeController {
@@ -27,7 +28,7 @@ export interface MockNativeController {
   /** 電波が切れたふり。autoReconnect なら 2 秒後につなぎ直す */
   dropConnection(): void;
   setOwned(ids: string[], notify?: boolean): void;
-  holdNextEntitlements(): { captured: Promise<void>; release(): void };
+  holdNextEntitlements(method?: 'iap.entitlements' | 'iap.restore'): { captured: Promise<void>; release(): void };
   failNextEntitlements(): void;
   setPurchaseResult(result: MockPurchaseResult): void;
   uninstall(): void;
@@ -190,7 +191,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   let revision = 0;
   let purchaseResult: MockPurchaseResult = 'purchased';
   let failRead = false;
-  let hold: ((reply: () => void) => void) | undefined;
+  let hold: { method: 'iap.entitlements' | 'iap.restore'; capture(reply: () => void): void } | undefined;
   const snapshot = (): EntitlementSnapshot => ({ revision: ++revision, productIds: [...owned].sort() });
   const setOwned = (ids: string[], notify = true) => {
     owned = new Set(ids);
@@ -207,7 +208,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   const handle = (req: NativeRequest): unknown => {
     switch (req.method) {
       case 'caps.get':
-        return { contractVersion: CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, iap: options.iap ?? true, entitlements: options.entitlements ?? true, camera: true, spp: true, deleteFiles: true, trashFiles: true } };
+        return { contractVersion: options.contractVersion ?? CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, iap: options.iap ?? true, entitlements: options.entitlements ?? true, camera: true, spp: true, deleteFiles: true, trashFiles: true } };
       // アプリ内課金の模擬 (値段は日本円の例。買うとすぐ買えたことにする)
       case 'iap.products': {
         const { ids } = req.params as { ids: string[] };
@@ -518,9 +519,14 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
       }
       try {
         const result = handle(req);
-        const reply = () => send({ id: req.id, ok: true, result });
-        if (hold && req.method === 'iap.entitlements') {
-          const capture = hold;
+        const reply = () => {
+          if (req.method === 'iap.entitlements' || req.method === 'iap.restore') {
+            emit('iap.entitlementsChanged', result as EntitlementSnapshot);
+          }
+          send({ id: req.id, ok: true, result });
+        };
+        if (hold && req.method === hold.method) {
+          const { capture } = hold;
           hold = undefined;
           capture(reply);
         } else reply();
@@ -537,12 +543,12 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
     requests,
     shared,
     setOwned,
-    holdNextEntitlements() {
+    holdNextEntitlements(method = 'iap.entitlements') {
       let release!: () => void;
       let captured!: () => void;
       const gate = new Promise<void>(resolve => { release = resolve; });
       const ready = new Promise<void>(resolve => { captured = resolve; });
-      hold = reply => { captured(); void gate.then(reply); };
+      hold = { method, capture(reply) { captured(); void gate.then(reply); } };
       return { captured: ready, release };
     },
     failNextEntitlements() { failRead = true; },

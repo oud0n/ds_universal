@@ -107,26 +107,34 @@ export function onNative<E extends keyof NativeEvents>(event: E, fn: (data: Nati
   return () => { set.delete(f); };
 }
 
-let capsPromise: Promise<Capabilities | null> | null = null;
+type CapabilityResult =
+  | { status: 'ready'; caps: Capabilities }
+  | { status: 'unsupported' | 'error' };
+let capsPromise: Promise<CapabilityResult> | null = null;
 
-/** ネイティブのできること。ネイティブがない・版が合わないときは null */
-export function nativeCapabilities(): Promise<Capabilities | null> {
-  if (!hasNative()) return Promise.resolve(null);
+export function nativeCapabilityResult(): Promise<CapabilityResult> {
+  if (!hasNative()) return Promise.resolve({ status: 'unsupported' });
   capsPromise ??= callNative('caps.get', {}, 5000).then(
-    caps => {
+    (caps): CapabilityResult => {
       if (caps.contractVersion !== CONTRACT_VERSION) {
         console.warn(`[native] 約束の版が違う (アプリ ${caps.contractVersion}・画面 ${CONTRACT_VERSION})`);
-        return null;
+        return { status: 'unsupported' };
       }
-      return caps;
+      return { status: 'ready', caps };
     },
-    err => {
+    (err): CapabilityResult => {
       capsPromise = null;
       console.warn('[native] できることを読めない:', err);
-      return null;
+      return { status: 'error' };
     }
   );
   return capsPromise;
+}
+
+/** ネイティブのできること。ネイティブがない・版が合わないときは null */
+export async function nativeCapabilities(): Promise<Capabilities | null> {
+  const result = await nativeCapabilityResult();
+  return result.status === 'ready' ? result.caps : null;
 }
 
 /** base64 → バイト列 */

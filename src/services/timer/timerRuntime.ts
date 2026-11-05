@@ -347,10 +347,6 @@ export class TimerRuntime {
     const sources = availableReferences();
     const refId = sources.some(r => r.id === this.preferredRef) ? this.preferredRef : carBestSource.id;
     const changed = refId !== this.snap.refId;
-    if (changed && refId === carBestSource.id) {
-      this.preferredRef = refId;
-      saveTimerRef(refId);
-    }
     if (!changed && !force && sources.length === this.snap.refSources.length && sources.every((r, i) => r.id === this.snap.refSources[i].id)) return;
     const patch = { refId, refSources: sources.map(({ id, label }) => ({ id, label })) };
     if (changed || force) this.loadPastBest(this.snap.course, patch);
@@ -359,10 +355,12 @@ export class TimerRuntime {
 
   /** 比べる相手を選ぶ */
   setReference(id: string): void {
-    if (id === this.snap.refId || !availableReferences().some(r => r.id === id)) return;
-    this.preferredRef = id;
-    saveTimerRef(id);
-    this.loadPastBest(this.snap.course, { refId: id });
+    if (!availableReferences().some(r => r.id === id)) return;
+    if (this.preferredRef !== id) {
+      this.preferredRef = id;
+      saveTimerRef(id);
+    }
+    if (id !== this.snap.refId) this.loadPastBest(this.snap.course, { refId: id });
   }
 
   /** 測る車を選ぶ (過去のベストを、その車のものに替える) */
@@ -382,7 +380,7 @@ export class TimerRuntime {
     const token = ++this.pastBestToken;
     this.pastRef = null;
     this.timer?.setPastReference(null);
-    this.set({ ...patch, pastBest: null, lap: this.timer?.getState() ?? null });
+    this.set({ ...patch, pastBest: null, flash: null, lap: this.timer?.getState() ?? null });
     if (!course || !hasNative()) return;
     const car = this.snap.car;
     void (async () => {
@@ -397,10 +395,12 @@ export class TimerRuntime {
       if (!index || token !== this.pastBestToken) return;
       if (!course.controlLine) return;
       const ctx = makeReferenceContext(store, folder, { name: course.name, controlLine: course.controlLine, sectors: course.sectors ?? [] }, car, index, runs);
-      const sources = availableReferences();
-      const source = sources.find(r => r.id === this.snap.refId) ?? carBestSource;
+      const source = availableReferences().find(r => r.id === this.snap.refId);
+      if (!source) { this.updateReferences(); return; }
       const choice = await source.load(ctx).catch(() => null);
-      if (!choice || token !== this.pastBestToken || source.available?.() === false) return;
+      if (token !== this.pastBestToken || source.id !== this.snap.refId) return;
+      if (source.available?.() === false) { this.updateReferences(); return; }
+      if (!choice) return;
       this.pastRef = { courseId: course.id, ref: choice.ref };
       this.timer?.setPastReference(choice.ref);
       this.set({ pastBest: { time: choice.ref.timeSec, startMs: choice.ref.startMs, tag: choice.tag }, lap: this.timer?.getState() ?? null });

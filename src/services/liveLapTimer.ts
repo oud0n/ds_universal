@@ -315,10 +315,17 @@ export class LiveLapTimer {
    * セクターの基準も、過去の周のセクターと合わせて速い方にする
    */
   setPastReference(ref: PastReference | null): void {
+    const previousTrace = this.bestTrace;
     this.past = ref && ref.trace.length >= 4 && ref.timeSec > 0 ? ref : null;
     const own = this.best;
     this.bestTrace = own && (!this.past || own.timeSec <= this.past.timeSec) ? this.ownBestTrace : this.past?.trace ?? null;
     this.refSectors = this.laps.reduce(bestSectors, this.past?.sectorsSec ?? []);
+    // 進行中の周のセクター差だけを更新する。通過時の距離を保存していないので、跡が替わったらその差は外す。
+    this.currentSectors = this.currentSectors.map((sector, i) => ({
+      timeSec: sector.timeSec,
+      diffSec: Number.isFinite(sector.timeSec) && this.refSectors[i] !== undefined ? sector.timeSec - this.refSectors[i] : null,
+      deltaSec: previousTrace === this.bestTrace ? sector.deltaSec : null
+    }));
     this.deltaSec = this.lapStartMs === null ? null : this.deltaAt(this.lapDistanceM, this.trace[this.trace.length - 1] ?? 0);
   }
 

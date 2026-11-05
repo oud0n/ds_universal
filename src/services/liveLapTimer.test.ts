@@ -158,6 +158,20 @@ describe('LiveLapTimer (円のコース)', () => {
     expect(timer.getState().referenceSectorsSec).toEqual(sectorsBefore);
   });
 
+  it('基準を失った進行中の周に旧セクター差を残さない', () => {
+    const timer = new LiveLapTimer({ controlLine, sectors });
+    timer.setPastReference({ timeSec: 3, trace: [0, 0, 1000, 3], sectorsSec: [1, 1, 1], startMs: 1 });
+    const points = circleFixes([20, 20, 20]);
+    let i = 0;
+    while (!timer.getState().currentSectors.length && i < points.length) timer.push(points[i++]);
+    expect(timer.getState().currentSectors[0].deltaSec).not.toBeNull();
+    timer.setPastReference(null);
+    expect.soft(timer.getState().currentSectors[0].deltaSec).toBeNull();
+    expect.soft(timer.getState().currentSectors[0].diffSec).toBeNull();
+    run(timer, points.slice(i));
+    expect(timer.getState().laps[0].splitDeltas?.[0]).toBeNull();
+  });
+
   it('途切れた周は速くてもベストにせず、途切れたセクターだけセクターの基準から外す', () => {
     const timer = new LiveLapTimer({ controlLine, sectors });
     // 2 周目だけ速い (25 m/s)。その周の 2 つ目のセクターの中で 3 秒途切れる

@@ -139,9 +139,39 @@ describe('買い切り商品の状態', () => {
     await tick();
     expect(await tip).toBe('purchased');
     expect(service.isOwned(TIP_PRODUCT_IDS[0])).toBe(false);
+    const readsBeforePurchase = mock.requests.filter(r => r.method === 'iap.entitlements').length;
     const bought = service.purchase('a');
     await tick();
     expect(await bought).toBe('purchased');
+    expect(service.isOwned('a')).toBe(true);
+    expect(mock.requests.filter(r => r.method === 'iap.entitlements')).toHaveLength(readsBeforePurchase);
+  });
+
+  it('支払いの直後に別商品の知らせが届いても読み直し、読み取り失敗を決済失敗にしない', async () => {
+    const { mock, service } = await host();
+    const init = service.initializeEntitlements();
+    await tick();
+    await init;
+    const sink = window.webkit!.messageHandlers!.dsNative!;
+    const post = sink.postMessage.bind(sink);
+    sink.postMessage = message => {
+      const req = JSON.parse(message);
+      if (req.method !== 'iap.purchase') { post(message); return; }
+      // 支払いは通ったが、ストアの新しい一覧はまだ取得できない。
+      sendSnapshot({ revision: 5, productIds: ['b'] });
+      window.dsNative!.receive(JSON.stringify({ id: req.id, ok: true, result: { status: 'purchased' } }));
+    };
+    const hold = mock.holdNextEntitlements();
+    const bought = service.purchase('a');
+    await tick();
+    await hold.captured;
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(await bought).toBe('purchased');
+    expect(service.getEntitlementState()).toEqual({ status: 'error', productIds: ['b'] });
+    hold.release();
+    await tick();
+    expect(service.isOwned('a')).toBe(false);
+    sendSnapshot({ revision: 6, productIds: ['a', 'b'] });
     expect(service.isOwned('a')).toBe(true);
   });
 
@@ -163,6 +193,105 @@ describe('買い切り商品の状態', () => {
     await service.initializeEntitlements();
     expect(service.getEntitlementState()).toEqual({ status: 'unsupported', productIds: [] });
     await expect(service.restore()).rejects.toThrow();
+  });
+
+  it('初回読出しが期限超過、あとから始めた読出しは応答待ちのまま', async () => {
+    localStorage.setItem(cacheKey, JSON.stringify(['a']));
+    const { mock, service } = await host();
+    const holdFirst = mock.holdNextEntitlements();
+    const init = service.initializeEntitlements();
+    await tick();
+    await holdFirst.captured;
+    await vi.advanceTimersByTimeAsync(5000);
+    const holdSecond = mock.holdNextEntitlements();
+    const refresh = service.refreshEntitlements();
+    await tick();
+    await holdSecond.captured;
+    await vi.advanceTimersByTimeAsync(5000);
+    await init;
+    expect(service.getEntitlementState()).toEqual({ status: 'error', productIds: ['a'] });
+    holdFirst.release();
+    holdSecond.release();
+    await tick();
+    await refresh;
+  });
+
+  it('期限の後に読み取りが終わったら、新しい状態がまだなければ知らせで回復する', async () => {
+    const { mock, service } = await host();
+    mock.setOwned(['a'], false);
+    const hold = mock.holdNextEntitlements();
+    const init = service.initializeEntitlements();
+    await vi.advanceTimersByTimeAsync(10050);
+    await init;
+    expect(service.getEntitlementState().status).toBe('error');
+    hold.release();
+    await tick();
+    expect(service.getEntitlementState()).toEqual({ status: 'ready', productIds: ['a'] });
+  });
+
+  it('取得失敗の後に以前と同じ版の知らせが重ねて届いても、再確認済みにはしない', async () => {
+    const { mock, service } = await host();
+    const init = service.initializeEntitlements();
+    await tick();
+    await init;
+    sendSnapshot({ revision: 7, productIds: ['a'] });
+    mock.failNextEntitlements();
+    const failed = expect(service.refreshEntitlements()).rejects.toThrow();
+    await tick();
+    await failed;
+    sendSnapshot({ revision: 7, productIds: ['a'] });
+    expect(service.getEntitlementState()).toEqual({ status: 'error', productIds: ['a'] });
+    sendSnapshot({ revision: 8, productIds: ['a'] });
+    expect(service.getEntitlementState()).toEqual({ status: 'ready', productIds: ['a'] });
+  });
+
+  it('復元と読み取りの完了順が逆でも、新しい結果を採用する', async () => {
+    const { mock, service } = await host();
+    mock.setOwned(['a'], false);
+    const hold = mock.holdNextEntitlements('iap.restore');
+    const restore = service.restore();
+    await tick();
+    await hold.captured;
+    mock.setOwned([], false);
+    const refresh = service.refreshEntitlements();
+    await tick();
+    await refresh;
+    hold.release();
+    await tick();
+    await restore;
+    expect(service.getEntitlementState()).toEqual({ status: 'ready', productIds: [] });
+    mock.failNextEntitlements();
+    const failure = expect(service.restore()).rejects.toThrow('Store unavailable');
+    await tick();
+    await failure;
+    expect(service.getEntitlementState()).toEqual({ status: 'error', productIds: [] });
+  });
+
+  it('窓口の版違いは非対応として扱い、課金を呼ばない', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { mock, service } = await host({ contractVersion: 99 });
+    const init = service.initializeEntitlements();
+    await tick();
+    await init;
+    expect(service.getEntitlementState().status).toBe('unsupported');
+    await service.refreshEntitlements();
+    expect(mock.requests.map(r => r.method)).toEqual(['caps.get']);
+  });
+
+  it('機能確認の一時的な失敗から前面復帰で回復する', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { mock, service } = await host();
+    const sink = window.webkit!.messageHandlers!.dsNative!;
+    const realPost = sink.postMessage.bind(sink);
+    sink.postMessage = vi.fn().mockImplementationOnce(() => {}).mockImplementation(realPost);
+    const init = service.initializeEntitlements();
+    await vi.advanceTimersByTimeAsync(5100);
+    await init;
+    expect(service.getEntitlementState().status).toBe('error');
+    window.dsNative!.receive(JSON.stringify({ event: 'system.appState', data: { state: 'active' } }));
+    await tick();
+    expect(service.getEntitlementState().status).toBe('ready');
+    expect(mock.requests.map(r => r.method)).toEqual(['caps.get', 'iap.entitlements']);
   });
 
   it('別の購読者が例外を投げたり知らせを重ねても、取り消しと再購入を順に受け取れる', async () => {

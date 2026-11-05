@@ -36,11 +36,11 @@ describe('取り込みの案: 場所で分ける', () => {
   });
 });
 
-const LL = `${process.env.HOME}/Library/Mobile Documents/com~apple~CloudDocs/LapLoupe`;
-const NIKKO = `${LL}/nikko/20260830/20260830095701.nmea`;
-const TC = `${LL}/tsukuba2000/20261012/20261012133132.nmea`;
+const testStore = process.env.LAPLOUPE_TEST_STORE;
+const NIKKO = `${testStore}/nikko/20260830/20260830095701.nmea`;
+const TC = `${testStore}/tsukuba2000/20261012/20261012133132.nmea`;
 
-describe.skipIf(!existsSync(NIKKO) || !existsSync(TC))('取り込みの案: 実際のログ (日光と筑波を 1 つのファイルにしたもの)', () => {
+describe.skipIf(!testStore || !existsSync(NIKKO) || !existsSync(TC))('取り込みの案: 実際のログ (日光と筑波を 1 つのファイルにしたもの)', () => {
   it('2 つのサーキットに分け、それぞれのフォルダ・日付・周の数を出す。取り込み済みは外す', async () => {
     const text = readFileSync(NIKKO, 'utf8') + readFileSync(TC, 'utf8');
     const parsed = await parseLogBuffer('both.nmea', new TextEncoder().encode(text).buffer, tr);
@@ -60,7 +60,7 @@ describe.skipIf(!existsSync(NIKKO) || !existsSync(TC))('取り込みの案: 実�
 
 import { applyPlan, memoryWriter, nmeaSlice } from './importApply';
 
-describe.skipIf(!existsSync(NIKKO) || !existsSync(TC))('取り込み: 書く (実際のログ)', () => {
+describe.skipIf(!testStore || !existsSync(NIKKO) || !existsSync(TC))('取り込み: 書く (実際のログ)', () => {
   it('印を付けた走行だけ書き、NMEA は元の文をそのまま写す。元のファイルは 取り込み元/ に 1 回だけ', async () => {
     const nikko = readFileSync(NIKKO, 'utf8');
     const text = nikko + readFileSync(TC, 'utf8');

@@ -152,7 +152,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const [display, setDisplay] = useState(loadTimerDisplay);
   const changeDisplay = (d: Partial<typeof display>) => setDisplay(prev => { const next = { ...prev, ...d }; saveTimerDisplay(next); return next; });
   // 跨いだばかりのセクター (大きく出す)
-  const [sectorFlash, setSectorFlash] = useState<{ index: number; deltaSec: number | null; at: number; until: number } | null>(null);
+  const [sectorFlash, setSectorFlash] = useState<{ index: number; lapStartMs: number | null; at: number; until: number } | null>(null);
   const seenSectorsRef = useRef<{ lapStartMs: number | null; count: number }>({ lapStartMs: null, count: 0 });
   const [wakeLockOk, setWakeLockOk] = useState<boolean | null>(null);
   const [runs, setRuns] = useState<RunMeta[]>([]);
@@ -278,12 +278,13 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     const s = sectors![count - 1];
     if (!Number.isFinite(s.timeSec) || display.sectorHoldSec === 0) return;
     const at = performance.now();
-    setSectorFlash({ index: count - 1, deltaSec: s.deltaSec, at, until: at + display.sectorHoldSec * 1000 });
+    setSectorFlash({ index: count - 1, lapStartMs, at, until: at + display.sectorHoldSec * 1000 });
   }, [sectors, lapStartMs, display.sectorHoldSec]);
   // 測位が古い (届かなくなった) ときは、デルタと色を出さない (古い差を信じて無理をしないように)。端末の GPS は 1 秒に 1 回くらいなので長めに待つ
   const coarse = source === 'phone';
   const stale = measuring && source !== 'replay' && sincePerf > (coarse ? 2.5 : 0.6);
-  const sectorShown = !flashing && sectorFlash && now < sectorFlash.until ? sectorFlash : null;
+  const sectorShown = !flashing && sectorFlash && sectorFlash.lapStartMs === lapStartMs && now < sectorFlash.until && sectors?.[sectorFlash.index]
+    ? { ...sectorFlash, deltaSec: sectors[sectorFlash.index].deltaSec } : null;
   // 測位が途切れた周は、タイムがあやしいので色を付けない
   const lapVerdict: Verdict = !flashing || flashing.lap.hadGap ? 'even' : flashing.isBest && flashing.diffToBestSec !== null ? 'better' : verdictOf(flashing.diffToBestSec, coarse);
   const sectorVerdict: Verdict = sectorShown ? verdictOf(sectorShown.deltaSec, coarse) : 'even';

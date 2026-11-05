@@ -107,7 +107,7 @@ export const SettingsScreen: React.FC<{
         </Group>
 
         {addons.settingsSections?.map(({ id, label, Component }) => (
-          <Group key={id} title={t(...label)} testId={`settings-group-${id}`}>
+          <Group key={id} title={t(...label)} testId={`settings-addon-${id}`}>
             <Component />
           </Group>
         ))}

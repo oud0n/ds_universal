@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, expectTypeOf, it, vi } from 'vitest';
 import type { LapReferenceChoice, LapReferenceSource } from './lapReferences';
 
 const source: LapReferenceSource = {
@@ -57,18 +57,38 @@ it('読み取り途中・適用後とも、選択が使えなくなったら基�
     await new Promise(done => setTimeout(done, 0));
     expect(rt.getSnapshot().pastBest).toBeNull();
     expect(rt.getSnapshot().lap?.reference).toBeNull();
-    setAvailable(true);
     load.mockResolvedValue(choice);
-    rt.setReference(source.id);
+    setAvailable(true);
     await vi.waitFor(() => expect(rt.getSnapshot().lap?.reference?.pastStartMs).toBe(100));
+    expect(rt.getSnapshot().refId).toBe(source.id);
+    expect(storage.get('ds_timer_ref')).toBe(source.id);
     setAvailable(false);
     expect(rt.getSnapshot().refId).toBe('car-best');
     expect(rt.getSnapshot().pastBest).toBeNull();
     expect(rt.getSnapshot().lap?.referenceSectorsSec).toEqual([]);
     rt.setReference(source.id);
     expect(rt.getSnapshot().refId).toBe('car-best');
+    rt.setReference('car-best');
+    setAvailable(true);
+    expect(rt.getSnapshot().refId).toBe('car-best');
+    expect(storage.get('ds_timer_ref')).toBe('car-best');
+    load.mockReturnValueOnce(new Promise(done => { resolve = done; }));
+    rt.setReference(source.id);
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(3));
+    // 読み取り中に選択が消え、先に答えが届いた場合にも一致を確かめる。
+    available = false;
+    resolve(choice);
+    await vi.waitFor(() => expect(rt.getSnapshot().refId).toBe('car-best'));
+    expect(rt.getSnapshot().pastBest).toBeNull();
   } finally {
     rt.dispose();
   }
   expect(listeners.size).toBe(0);
+});
+
+it('利用可否の判定と変更の通知は組で指定する', () => {
+  type Fixed = Pick<LapReferenceSource, 'id' | 'label' | 'load'>;
+  expectTypeOf<Fixed>().toExtend<LapReferenceSource>();
+  expectTypeOf<Fixed & { available(): boolean }>().not.toExtend<LapReferenceSource>();
+  expectTypeOf<Fixed & { subscribeAvailability(listener: () => void): () => void }>().not.toExtend<LapReferenceSource>();
 });
