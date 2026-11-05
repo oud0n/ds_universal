@@ -749,6 +749,13 @@ async function serveLapFile(request) {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === 'darwin') {
+    // Dock のアイコンは OS の外観に合わせる (Finder のアイコンは通常版)。
+    const updateDockIcon = () => app.dock.setIcon(path.join(__dirname, 'icons',
+      nativeTheme.shouldUseDarkColors ? 'icon-dark.png' : 'icon.png'));
+    updateDockIcon();
+    nativeTheme.on('updated', updateDockIcon);
+  }
   protocol.handle('lapfile', serveLapFile);
   createWindow();
   setupUpdater(() => mainWindow);

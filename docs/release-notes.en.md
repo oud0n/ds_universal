@@ -4,6 +4,10 @@
 
 [Back to the README](../README.en.md)
 
+## Next build
+
+- The app icon is now a magnifying glass with a tire as its lens. Its light and dark versions are adjusted to appear the same size.
+
 ## v1.3.0 (2026-11-06, personal iPhone / iPad TestFlight, build 18)
 
 - Use “Add laps” to assign loaded or stored laps to Car 1–4. Stored laps are checked against the actual log and course before loading.
