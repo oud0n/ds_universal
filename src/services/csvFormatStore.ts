@@ -51,6 +51,7 @@ function publish(): void {
 }
 
 export const currentCsvFormats = (): CsvFormat[] => dataRoot === getStorageRevision() && formatsReadable ? formats : [];
+export const csvFormatsReady = (): boolean => snapshot.storageRevision === getStorageRevision() && snapshot.ready;
 export function useCsvFormats(): typeof snapshot {
   return useSyncExternalStore(cb => { listeners.add(cb); return () => { listeners.delete(cb); }; }, () => snapshot);
 }

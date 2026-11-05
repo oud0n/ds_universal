@@ -5,7 +5,7 @@ import * as runsFile from './runsFile';
 import type { Session } from '../types/telemetry';
 import { videoSyncManager } from './videoSyncManager';
 import { videoViewStore } from './videoViewStore';
-import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, companionRunMatches, companionRuns, getOpenRun, getOpenRunItem, flushOpenRunsStrict, scheduleRunSave, setRunMeta, type RunItem } from './runOpener';
+import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, companionRunMatches, companionRuns, releaseClosedRunVideos, getOpenRun, getOpenRunItem, flushOpenRunsStrict, scheduleRunSave, setRunMeta, type RunItem } from './runOpener';
 import type { RunStore } from './runStore';
 import type { RemoteVideo } from './remoteVideo';
 
@@ -321,4 +321,27 @@ it('厳格な保存を待つ間の追加編集も保存し、最初の控えだ�
   session.clockOffsetSec = 2; scheduleRunSave();
   resume.release(); await flush;
   expect(saved.map(row => row.parts?.['1']?.clockOffsetSec)).toEqual([1, 2]);
+});
+
+
+it('次の動画の準備中、ログを全部手放した担当の古い動画を編集させない', async () => {
+  vi.spyOn(metadata, 'parseVideoMetadata').mockImplementation(async file => ({ fileName: file.name, fileSize: file.size, creationTime: null, durationSec: 10, timescale: 1000 }));
+  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new Error('no GPS'));
+  const session = { id: 'A', points: [], laps: [] } as unknown as Session;
+  let live = [session];
+  const a = { ...attachment('A', true), runSessions: [session], sessions: () => live };
+  await attachRunVideos(a);
+  expect(videoSyncManager.getTracks()).toHaveLength(1);
+  // 採用前に保存済み。次の動画の非同期準備を始める前に、古い編集対象を外す。
+  await flushOpenRunsStrict();
+  live = [];
+  releaseClosedRunVideos(new Set());
+  const { started, resume } = delayMetadata();
+  const next = attachRunVideos(attachment('B', true));
+  await started.promise;
+  expect(getOpenRun()).toBeNull();
+  expect(videoSyncManager.getTracks()).toHaveLength(0);
+  resume.release(); await next;
+  expect(getOpenRun()?.item.file).toBe('B');
+  expect(videoSyncManager.getTracks().map(t => t.fileName)).toEqual(['B.mp4']);
 });

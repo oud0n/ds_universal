@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect, useSyncExternalStore } from 'react';
-import { currentCsvFormats, loadCsvFormats } from './services/csvFormatStore';
+import { currentCsvFormats, csvFormatsReady, loadCsvFormats, useCsvFormats } from './services/csvFormatStore';
 import { matchCsvFormat, mergeSensorRows, readRows, sensorKeyOf } from './services/csvFormats';
 import { ChevronDown, ChevronRight, FolderOpen, X } from 'lucide-react';
 import { CompareAxis, Lap, Session, TelemetryPoint, SelectedCarSlot, ControlLine, Sector, CircuitPreset, PolylineSource } from './types/telemetry';
@@ -48,7 +48,7 @@ import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
 import { RecentRunsList, RunsSheet, notifyRunsChanged } from './components/RecentRuns';
 import { canUseRunStore, getRunStore } from './services/runStore';
-import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, closeOpenRun, companionRunMatches, companionRuns, dropCompanion, flushOpenRuns, flushOpenRunsStrict, getOpenRun, getOpenRunItem, getRunItemEntry, listRuns, scheduleRunSave, setRunMeta, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
+import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, closeOpenRun, companionRunMatches, companionRuns, currentRunMatches, dropCompanion, flushOpenRuns, flushOpenRunsStrict, getOpenRun, getOpenRunItem, getRunItemEntry, listRuns, releaseClosedRunVideos, scheduleRunSave, setRunMeta, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
 import { runStem, courseHash } from './services/lapIndex';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLapTimer, canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
@@ -479,11 +479,19 @@ export const App: React.FC = () => {
   }).map(s => s.sessionName || s.fileName), [sessions, imuSessionIds]);
   const imuPendingRef = useRef(new Set<string>());
   const sidecarRequestsRef = useRef(new Map<string, object>());
+  const csvSidecarRetriesRef = useRef(new Map<string, () => void>());
+  const csvDefinitions = useCsvFormats();
+  useEffect(() => {
+    if (!csvDefinitions.ready) return;
+    const retries = new Set(csvSidecarRetriesRef.current.values());
+    csvSidecarRetriesRef.current.clear();
+    for (const retry of retries) retry();
+  }, [csvDefinitions]);
   useEffect(() => {
     const live = new Set(sessions.map(s => s.id));
-    for (const id of sidecarRequestsRef.current.keys()) if (!live.has(id)) sidecarRequestsRef.current.delete(id);
+    for (const id of sidecarRequestsRef.current.keys()) if (!live.has(id)) { sidecarRequestsRef.current.delete(id); csvSidecarRetriesRef.current.delete(id); }
   }, [sessions]);
-  useEffect(() => () => sidecarRequestsRef.current.clear(), []);
+  useEffect(() => () => { sidecarRequestsRef.current.clear(); csvSidecarRetriesRef.current.clear(); }, []);
   useEffect(() => {
     const ready = sessions.filter(s => imuPendingRef.current.has(s.id)).map(s => s.id);
     if (!ready.length) return;
@@ -1213,6 +1221,12 @@ export const App: React.FC = () => {
     });
     run(async check => {
       await loadCsvFormats(); check();
+      if (!csvFormatsReady()) {
+        // 通常の読込み失敗後に定義が回復したら、開いている同じ走行だけやり直す。
+        const retry = () => { if (current()) loadRunSidecars(store, item, live()); };
+        for (const session of live()) csvSidecarRetriesRef.current.set(session.id, retry);
+        return;
+      }
       const stem = item.file.replace(/\.[^./]+$/, '');
       const sensorFormats = currentCsvFormats().filter(f => f.kind === 'sensor' && f.sensorKey);
       if (!sensorFormats.length) return;
@@ -1493,6 +1507,7 @@ export const App: React.FC = () => {
           for (const id of ids) { polylineRequestRef.current.delete(id); imuTracksRef.current.delete(id); imuPendingRef.current.delete(id); sensorPendingRef.current.delete(id); }
           setConvertSessionId(prev => (ids.has(prev) ? '' : prev));
           analysisStore.update(prev => ({ sessions: prev.sessions.filter(x => !ids.has(x.id)), selectedCars: prev.selectedCars.filter(c => !ids.has(c.sessionId)) }));
+          releaseClosedRunVideos(new Set(analysisStore.getSnapshot().sessions.map(s => s.id)));
           for (const [path, list] of [...runSessionsRef.current.entries()]) {
             const rest = list.filter(id => !ids.has(id));
             if (rest.length) runSessionsRef.current.set(path, rest);
@@ -1591,7 +1606,7 @@ export const App: React.FC = () => {
     if (!id || runOpeningRef.current || isStorageSelectionPending()) return;
     const entry = [...runSessionsRef.current.entries()].find(([, ids]) => ids.includes(id));
     if (!entry) { attachedRunRef.current = null; return; }
-    if (entry[0] === attachedRunRef.current) return;
+    if (entry[0] === attachedRunRef.current && currentRunMatches(entry[0], entry[1])) return;
     const item = runItemsRef.current.get(entry[0]);
     if (!item) return;
     let active = true;
@@ -2115,6 +2130,7 @@ export const App: React.FC = () => {
       // 別の GPS ログを基準にしても、動画の同期を保存する元走行を手放さない。
       return assignLap(prev, incoming, sessionId, lapNumber, slot, true, base && !base.sourceFile ? ownerIds : []);
     });
+    releaseClosedRunVideos(new Set(analysisStore.getSnapshot().sessions.map(s => s.id)));
     if (selectedRun) {
       if (choice.kind === 'stored') selectedRun = shareRunItem(selectedRun, choice.store);
       const runPath = `${selectedRun.folder}/${selectedRun.file}`;

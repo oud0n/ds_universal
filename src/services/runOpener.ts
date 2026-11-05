@@ -529,6 +529,25 @@ export function companionRunMatches(path: string, sessionIds: readonly string[])
   return !!run && run.sessionIds.length === sessionIds.length && run.sessionIds.every((id, i) => id === sessionIds[i]);
 }
 
+/** 道だけでなく、保存する分割ログの組も今の走行と一致するか。 */
+export function currentRunMatches(path: string, sessionIds: readonly string[]): boolean {
+  return !!current && runPath(current.item) === path && current.sessionIds.length === sessionIds.length
+    && current.sessionIds.every((id, i) => id === sessionIds[i]);
+}
+
+/** ログを全部手放した保存担当の動画を、次の動画の準備待ち中に編集させない。 */
+export function releaseClosedRunVideos(liveIds: ReadonlySet<string>): void {
+  if (current && !current.sessionIds.some(id => liveIds.has(id))) {
+    const paths = current.paths;
+    closeOpenRun();
+    const keep = companionPaths();
+    for (const track of videoSyncManager.getTracks()) {
+      if (track.remote && paths.has(track.remote.path) && !keep.has(track.remote.path)) videoSyncManager.removeTrack(track.id);
+    }
+  }
+  for (const [path, run] of companions) if (!run.sessionIds.some(id => liveIds.has(id))) dropCompanion(path);
+}
+
 /**
  * 比べる相手の走行の動画を足す (Car 2〜4 に、開いている走行のほかの走行の周を入れたとき)。端末にある動画だけ。
  * 同期はその走行の runs.json の行から戻し、変えたらその行に書く
