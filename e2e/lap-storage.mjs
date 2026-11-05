@@ -1,0 +1,118 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {execFileSync} from 'node:child_process';
+import {Page} from './cdp.mjs';
+// 新しく起動した開発サーバーと専用 Chrome を使う (HMR 前後の別 URL の module を混ぜない)。
+// E2E_CDP_PORT=9222 E2E_URL=http://127.0.0.1:5173/ node e2e/lap-storage.mjs
+// ffmpeg で短い合成動画を作る。保管場所はメモリ内で、実際の電子版・iCloud には接続しない。
+const url=new URL(process.env.E2E_URL ?? 'http://127.0.0.1:5173/');
+assert.ok(['localhost','127.0.0.1'].includes(url.hostname));
+const port=Number(process.env.E2E_CDP_PORT);assert.ok(port>0,'専用 Chrome のポートを指定してください');
+const fixtureDir=fs.mkdtempSync(path.join(os.tmpdir(),'laploupe-storage-'));
+const videoPath=path.join(fixtureDir,'synthetic.mp4');
+execFileSync('ffmpeg',['-v','error','-f','lavfi','-i','testsrc2=size=160x90:rate=10','-t','4','-c:v','libx264','-pix_fmt','yuv420p',videoPath]);
+const outDir=fileURLToPath(new URL('./out/lap-storage/',import.meta.url));fs.mkdirSync(outDir,{recursive:true});
+const p=await Page.connect(port,{newTab:true,label:'storage',outDir});
+try {
+ await p.viewport(1280,800,false);
+ await p.send('Page.addScriptToEvaluateOnNewDocument',{source:`
+ window.storeFiles = new Map(); window.storeWrites=[]; window.storeReads=[]; window.failWrites=false;
+ window.electronAPI={laps:{getFolder:async()=>{if(window.holdFolder)await new Promise(resolve=>(window.folderWaiters??=[]).push(resolve));return '/synthetic/A'},pickFolder:async()=>null,
+ list:async()=>({success:true,files:[...storeFiles].map(([path,b])=>({path,size:b.byteLength,mtimeMs:123,local:true}))}),
+ read:async path=>{storeReads.push(path);const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
+ readText:async path=>({success:true,text:storeFiles.has(path)?new TextDecoder().decode(storeFiles.get(path)):null}),
+ writeText:async(path,text)=>{if(window.failWrites)return {success:false,error:'synthetic write failure'};storeWrites.push(path);storeFiles.set(path,new TextEncoder().encode(text));return {success:true}}
+ }};
+ `});
+ await p.goto(url.href);await p.waitFor('window.__laploupe');
+ await p.ev("import('/src/utils/i18n.ts').then(m=>m.setLang('en'))");
+ await p.ev(`(async()=>{
+ const b=new Uint8Array(await(await fetch('/demo/sodegaura_20260815.nmea')).arrayBuffer());storeFiles.set('sodegaura/demo.nmea',b);
+ const {parseNmea}=await import('/src/services/nmeaParser.ts');
+ const log=parseNmea(new TextDecoder().decode(b));const first=Date.parse(log.points[0].timestamp);
+ const imu=['time_utc_ms,g_long,g_lat'];for(let t=0;t<2000;t++)imu.push((first+t*1000)+',0.123,0.234');
+ storeFiles.set('sodegaura/demo.iphone_imu.csv',new TextEncoder().encode(imu.join(String.fromCharCode(10))));
+ })()`);
+ await p.ev("window.__laploupe.go('analysis')");await p.click('open-lap-picker');
+ const hasStored=await p.ev("[...document.querySelectorAll('button')].some(x=>x.textContent==='Stored runs')");if(hasStored)await p.clickText('Stored runs');
+ await p.waitFor("document.querySelector('[data-testid=lap-picker-row]')",20000,'stored laps');
+ await p.ev("window.holdFolder=true;document.querySelector('[data-testid=lap-picker-row] [data-slot=\"0\"]').click()");
+ await p.waitFor('window.__laploupe.cars.length===1',15000,'stored assignment');
+ // 動画の所有者を作る直前で止め、同じ元を別の Car へ追加する。
+ await p.waitFor('window.folderWaiters?.length>0',5000,'attachment barrier');
+ await p.ev("document.querySelector('[data-testid=lap-picker-row] [data-slot=\"1\"]').click()");
+ await p.waitFor('window.__laploupe.cars.length===2',10000,'second pick during attachment');
+ await p.ev('window.holdFolder=false;window.folderWaiters.forEach(f=>f())');
+ await p.waitFor("window.storeReads.includes('sodegaura/demo.iphone_imu.csv')",10000,'IMU sidecar');
+ assert.equal(await p.ev("import('/src/services/imuG.ts').then(m=>m.parseImuCsv(new TextDecoder().decode(storeFiles.get('sodegaura/demo.iphone_imu.csv')))?.t.length)"),2000);
+ await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");
+ await p.ev("import('/src/services/runOpener.ts').then(m=>window.testRunOpener=m)");
+
+ await p.waitFor("!!window.testRunOpener.getOpenRun()",10000,"video owner");
+ const video=fs.readFileSync(videoPath).toString('base64');
+ await p.ev(`(async()=>{const {videoSyncManager:m}=await import('/src/services/videoSyncManager.ts');const b=Uint8Array.from(atob(${JSON.stringify(video)}),x=>x.charCodeAt(0));await m.addVideoFiles([new File([b],'synthetic.mp4',{type:'video/mp4'})],[],false);m.getTracks()[0].remote={path:'sodegaura/synthetic.mp4',url:m.getTracks()[0].url,name:'synthetic.mp4',size:b.length,lastModified:0};})()`);
+ await p.click('toggle-data-drawer');
+ await p.ev(`(()=>{const e=document.querySelector('[data-testid=data-drawer] input[type=number][step="0.01"]');if(!e)throw Error('clock input missing');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'1.25');e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+ assert.equal(await p.ev('window.__laploupe.pointsOf(0).clockOffsetSec'),1.25);
+ await p.click('data-drawer-close');
+ await p.click('open-lap-picker');
+ if(await p.ev("[...document.querySelectorAll('button')].some(x=>x.textContent==='Stored runs')"))await p.clickText('Stored runs');
+ await p.waitFor("document.querySelector('[data-testid=lap-picker-row]')",10000,'stored reload');
+ await p.ev("document.querySelector('[data-testid=lap-picker-row] [data-slot=\"1\"]').click()");
+ await p.waitFor('window.__laploupe.cars.length===2',10000,'second stored assignment');
+ assert.equal(await p.ev('window.__laploupe.sessions.length'),1,'same source reuses its session');
+ assert.equal(await p.ev('window.__laploupe.pointsOf(0).clockOffsetSec'),1.25,'second stored pick retains clock');
+ await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");
+ const before=await p.ev("(async()=>{const a=await import('/src/services/storageRevision.ts'),v=await import('/src/services/videoSyncManager.ts'),r=await import('/src/services/runOpener.ts');return {revision:a.getStorageRevision(),read:a.getStorageReadRevision(),tracks:v.videoSyncManager.getTracks().map(x=>x.id),owner:r.getOpenRun()?.item.file,cars:window.__laploupe.cars};})()");
+ await p.ev("import('/src/services/storageRevision.ts').then(m=>m.trackStorageSelection(()=>null))");
+ await new Promise(r=>setTimeout(r,200));
+ const after=await p.ev("(async()=>{const a=await import('/src/services/storageRevision.ts'),v=await import('/src/services/videoSyncManager.ts'),r=await import('/src/services/runOpener.ts');const row=storeFiles.get('sodegaura/runs.json');return {revision:a.getStorageRevision(),read:a.getStorageReadRevision(),tracks:v.videoSyncManager.getTracks().map(x=>x.id),owner:r.getOpenRun()?.item.file,cars:window.__laploupe.cars,saved:row?JSON.parse(new TextDecoder().decode(row)):null};})()");
+ assert.equal(after.revision,before.revision);assert.equal(after.read,before.read+2);assert.deepEqual(after.tracks,before.tracks);assert.equal(after.owner,before.owner);assert.deepEqual(after.cars,before.cars);
+
+ const serialized=JSON.stringify(after.saved);assert.ok(serialized.includes('1.25'),'unsaved clock flushed before cancel');
+ // 保存が失敗したときは、保存先の選択自体を始めず、割当てや動画を変えない。
+ await p.click('toggle-data-drawer');
+ await p.ev(`(()=>{const e=document.querySelector('[data-testid=data-drawer] input[type=number][step="0.01"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'2.5');e.dispatchEvent(new Event('input',{bubbles:true}));window.failWrites=true;})()`);
+ await p.click('data-drawer-close');
+ const failed=await p.ev("(async()=>{let called=false;try{await (await import('/src/services/storageRevision.ts')).trackStorageSelection(()=>{called=true;return '/synthetic/B'});return {called,rejected:false};}catch{return {called,rejected:true};}})()");
+ assert.deepEqual(failed,{called:false,rejected:true});
+ assert.equal(await p.ev("import('/src/services/storageRevision.ts').then(m=>m.getStorageRevision())"),before.revision);
+ assert.equal(await p.ev('window.__laploupe.pointsOf(0).clockOffsetSec'),2.5);
+ assert.deepEqual(await p.ev("import('/src/services/videoSyncManager.ts').then(m=>m.videoSyncManager.getTracks().map(x=>x.id))"),before.tracks);
+ await p.ev("window.failWrites=false; window.testRunOpener.flushOpenRunsStrict()");
+ // 保存した比較の基準周を、走行の最速周で上書きしない。
+ const chosenLap=await p.ev("(()=>{const laps=window.testRunOpener.getOpenRun().item.laps;const best=laps.reduce((a,b)=>a.time<b.time?a:b).n;const target=laps.find(l=>l.n!==best).n;const data={version:1,name:'non-best lap',createdAt:'2025-01-01T00:00:00Z',cars:[{slot:0,run:'sodegaura/demo.nmea',lap:target}]};storeFiles.set('sessions/non-best.lapsession.json',new TextEncoder().encode(JSON.stringify(data)));return target;})()");
+ await p.ev("window.__laploupe.go('library')");
+ await p.waitFor("document.querySelector('[data-testid=library-sessions]')",10000,'saved comparison');
+ if(!await p.ev("!!document.querySelector('[data-testid=library-session-row]')"))await p.ev("document.querySelector('[data-testid=library-sessions] > button').click()");
+ await p.waitFor("document.querySelector('[data-testid=library-session-row]')");
+ await p.ev("document.querySelector('[data-testid=library-session-row] button').click()");
+ await p.waitFor(`window.__laploupe.screen==='analysis' && window.__laploupe.cars.length===1 && window.__laploupe.cars[0].lapNumber===${chosenLap}`);
+ assert.ok(Math.abs((await p.state()).sessionTimeSec-(await p.state()).baseLap.startTime)<0.001,'saved base starts at its own lap');
+ await p.ev("storeFiles.set('sodegaura/B.nmea',storeFiles.get('sodegaura/demo.nmea'))");
+ await p.click('open-lap-picker');
+ if(await p.ev("[...document.querySelectorAll('button')].some(x=>x.textContent==='Stored runs')"))await p.clickText('Stored runs');
+ await p.waitFor("[...document.querySelectorAll('[data-testid=lap-picker-row]')].some(r=>r.parentElement.querySelector('p')?.title.includes('B.nmea'))",15000,'second stored run');
+ const pickStored = `(file,slot)=>{const row=[...document.querySelectorAll('[data-testid=lap-picker-row]')].find(r=>r.parentElement.querySelector('p')?.title.includes(file));if(!row)throw Error('missing '+file);row.querySelector('[data-slot="'+slot+'"]').click();}`;
+ await p.ev(`(${pickStored})('demo.nmea',1)`);
+ await p.waitFor('window.__laploupe.cars.length===2');
+ await p.ev(`(${pickStored})('B.nmea',0)`);
+ await p.waitFor("window.testRunOpener.getOpenRun()?.item.file==='B.nmea' && window.testRunOpener.companionRuns().includes('sodegaura/demo.nmea')",15000,'demoted owner');
+ await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");
+ await p.click('toggle-data-drawer');
+ const aid=await p.ev("window.__laploupe.sessions.find(s=>s.fileName==='demo.nmea').id");
+ await p.ev(`(()=>{const i=window.__laploupe.sessions.findIndex(s=>s.id===${JSON.stringify(aid)});const card=document.querySelectorAll('[data-testid=session-card]')[i];const e=card.querySelector('input[type=number][step="0.01"]');window.failWrites=true;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'5.75');e.dispatchEvent(new Event('input',{bubbles:true}));window.holdFolder=true;const b=[...card.querySelectorAll('tbody tr button')].find(x=>x.textContent.trim()==='1');if(!b)throw Error('legacy Car 1 missing');b.click();})()`);
+ await p.waitFor(`window.__laploupe.cars.find(c=>c.slot===0)?.sessionId===${JSON.stringify(aid)}`);
+ await p.waitFor('window.folderWaiters.length>2',5000,'promotion barrier');
+ assert.ok(await p.ev("window.testRunOpener.companionRuns().includes('sodegaura/demo.nmea')"),'pending promotion keeps its companion owner');
+ await p.ev('window.holdFolder=false;window.folderWaiters.forEach(f=>f())');
+ await p.waitFor("window.testRunOpener.getOpenRun()?.item.file==='demo.nmea'",10000,'promoted owner');
+ assert.equal(await p.ev(`window.__laploupe.pointsOf(window.__laploupe.sessions.findIndex(s=>s.id===${JSON.stringify(aid)})).clockOffsetSec`),5.75,'promotion preserves failed-save edit');
+ await p.ev('window.failWrites=false;window.testRunOpener.flushOpenRunsStrict()');
+ await p.click('data-drawer-close');
+ assert.deepEqual(p.errors,[]);
+ await p.shot('preserved');console.log(JSON.stringify({result:'PASS repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
+}finally{await p.close();fs.rmSync(fixtureDir,{recursive:true,force:true});}

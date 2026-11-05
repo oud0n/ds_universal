@@ -20,6 +20,7 @@ import {
 } from '../services/videoSyncPinManager';
 import { videoViewStore, useVideoView, useVideoTracks, useSyncPins, useWindowView, PipPosition, MAX_CAMERAS, videoEndSessionSec } from '../services/videoViewStore';
 import { PlaybackController, PlaybackTarget } from '../services/playbackController';
+import { asLapSec, asSessionSec, getPlaybackPosition, lapToSessionSec, type PlaybackPosition, type SessionSec } from '../services/playbackPosition';
 import { buildMedia, positionInMedia, positionAtMediaTime, lapOverlapSec, mediaForLap, mediaStartIn, PlayableMedia, MediaPosition } from '../services/playableMedia';
 import { VideoTile, TileOverlay } from './video/VideoTile';
 import { VideoStage } from './video/VideoStage';
@@ -122,14 +123,12 @@ export type { PipPosition };
 interface VideoSyncWindowProps {
   sessions: Session[];
   selectedCars: SelectedCarSlot[];
-  currentTimeSec: number;
-  currentDistanceKm: number;
+  position: PlaybackPosition;
   isPlaying: boolean;
-  onSeekTime: (timeSec: number) => void;
+  onSeekTime: (timeSec: SessionSec) => void;
   onTogglePlay: () => void;
   circuitName: string;
   targetSessionId?: string;  // 速度ウィンドウで選択中のセッションID
-  targetLap?: any;           // 速度ウィンドウで選択中のラップ
   isGraphEmbedded?: boolean; // グラフ解析画面に埋め込まれているかどうか
   /** 動画を 1 つ見るだけ (スマートフォンの解析の下の欄)。上の道具の段・比べる・マルチカメラは出さない */
   simple?: boolean;
@@ -159,16 +158,6 @@ interface VideoSyncWindowProps {
   compareCars?: { slot: SelectedCarSlot; lap: Lap }[];
   /** 走行を開いている途中 (動画の情報を読んでいる)。動画がまだ無ければ、案内の代わりに「読み込んでいます」を出す */
   loading?: boolean;
-}
-
-/** 周の点 (周の始めからの時刻) で、時刻 t の距離 (km) を補間で求める */
-function lapDistanceAtTime(points: TelemetryPoint[], t: number): number | null {
-  if (points.length === 0 || t < points[0].time || t > points[points.length - 1].time) return null;
-  let lo = 0, hi = points.length - 1;
-  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (points[mid].time <= t) lo = mid; else hi = mid; }
-  const a = points[lo], b = points[hi];
-  const f = b.time === a.time ? 0 : (t - a.time) / (b.time - a.time);
-  return a.distance + (b.distance - a.distance) * f;
 }
 
 /** 枠の並びの書き出しの、枠ごとの四角 (VideoStage と同じ並べ方) */
@@ -255,14 +244,12 @@ export function drawTelemetryOverlayOnCanvas(
 export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   sessions,
   selectedCars,
-  currentTimeSec,
-  currentDistanceKm,
+  position: playbackPosition,
   isPlaying,
   onSeekTime,
   onTogglePlay,
   circuitName,
   targetSessionId,
-  targetLap,
   isGraphEmbedded = false,
   simple = false,
   sidePanel,
@@ -516,10 +503,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     setEditSel(null);
   };
   const layoutStore = () => (canUseRunStore() ? getRunStore().catch(() => null) : Promise.resolve(null));
-  const baseLap = targetLap || baseSession?.laps.find(l => l.lapNumber === baseSelected?.lapNumber) || baseSession?.laps[0];
-  // グラフ画面の動画では、App の時刻は選んだ周の時刻 (0〜周のタイム)。周の外へは動かさない
-  // (周の外の時刻にすると、次のコマで周の始めに戻ってしまう)
-  const seekTo = (t: number) => onSeekTime(isGraphEmbedded && baseLap ? Math.min(Math.max(0, t), baseLap.lapTime) : t);
+  const { baseLap, sessionSec } = playbackPosition;
+  // 解析の範囲 (遅い比較車の終点を含む) は App の共通窓口で制限する。
+  const seekTo = (time: number) => onSeekTime(asSessionSec(time));
 
   // 動画は、基準のログ (Car 1) の時刻に置いて扱う (mediaClock.ts)。どのログに時刻を付けた動画も、撮影の本当の時刻で換算するので、
   // 別のログに付いた動画・撮影時刻の違うサブの動画も、基準のログの時刻のまま正しく出る (BUG-21)。
@@ -532,7 +518,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const media = useMemo(() => buildMedia(tracks), [tracks]);
   const cameras = cameraIds.map(id => media.find(m => m.id === id)).filter((m): m is PlayableMedia => !!m);
   const mainMedia = cameras[0];
-  const renderSessionTime = isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec;
+  const videoStartTime = Math.min(0, ...cameras.map(m => m.startSec));
   // 走行比較は周がないと何も映せないので、周がないとき (GPS のない動画だけを読み込んだときなど) はマルチカメラで出す。
   // 選んだ表示 (win.mode) は変えないので、周のあるログを読み込めば走行比較に戻る
   const isCompare = !simple && win.mode === 'compare' && !!baseLap;
@@ -567,30 +553,30 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     chosen?: boolean;
   }
   const noFootage = (m: PlayableMedia): MediaPosition => ({ track: m.tracks[0], localTime: -1, durationSec: m.tracks[0].durationSec, outOfRange: true });
-  const compareTiles = (sessionTime: number): Tile[] => {
-    const cars = [...(compareCars ?? [])].sort((a, b) => a.slot.slot - b.slot.slot);
+  const cars = useMemo(() => [...(compareCars ?? [])].sort((a, b) => a.slot.slot - b.slot.slot), [compareCars]);
+  const baseSlot = cars[0]?.slot.slot;
+  const compareTiles = (): Tile[] => {
     if (!baseLap) return [];
-    const baseElapsed = sessionTime - baseLap.startTime;
+    const baseElapsed = sessionSec - baseLap.startTime;
     // 周の外の時刻は周の始め・終わりにそろえる (周の終わりでは、比べる車も周の終わりのコマで止める)
     const pts = baseLap.points;
-    const clampLap = (t: number) => pts.length ? Math.max(pts[0].time, Math.min(pts[pts.length - 1].time, t)) : t;
-    const d = lapDistanceAtTime(pts, clampLap(baseElapsed));
+    const d = pts.length ? playbackPosition.lapDistanceKm : null;
     const byTime = win.compareAlign === 'time';
     return cars.map(car => {
       const session = sessions.find(s => s.id === car.slot.sessionId);
       const lap = session?.laps.find(l => l.lapNumber === car.slot.lapNumber);
       const chosenId = view.compareCameras[car.slot.slot];
       const m = (chosenId ? media.find(x => x.id === chosenId) : undefined) ?? (session && lap ? mediaForLap(media, session, lap, sessions) : undefined);
-      const isBase = car.slot.slot === 0;
+      const isBase = car.slot.slot === baseSlot;
       // その車の、その距離での時刻 (ログの時刻)。Car 1 は今の時刻そのもの
       const timeAt = (t: number): number | null => {
         if (isBase) return t;
-        if (!lap) return null;
-        const dd = lapDistanceAtTime(pts, clampLap(t - baseLap.startTime));
-        return dd === null ? null : compareSessionTimeAtDistance(car.lap, lap, dd);
+        if (!lap || !pts.length) return null;
+        const d = getPlaybackPosition(asSessionSec(t), baseLap).lapDistanceKm;
+        return compareSessionTimeAtDistance(car.lap, lap, d);
       };
       // Car 1 と同じ地点にいたときの、その車の時刻 (タイム差はいつもこれで出す)
-      const atDistance = isBase ? sessionTime : d === null || !lap ? null : compareSessionTimeAtDistance(car.lap, lap, d);
+      const atDistance = isBase ? sessionSec : d === null || !lap ? null : compareSessionTimeAtDistance(car.lap, lap, d);
       // 映す時刻: 地点で合わせるときは同じ地点の時刻、時間で合わせるときは周の始めから同じ経過時間 (その車の周の長さまで)
       const ct = isBase || !byTime ? atDistance : !lap ? null : lap.startTime + Math.max(0, Math.min(lap.endTime - lap.startTime, baseElapsed));
       const start = m && session ? mediaStartIn(m, session, sessions) : null;
@@ -607,7 +593,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         // 周の始め・終わりの 1 秒は、周の外の時刻が周の始め・終わりにそろって傾きが小さく出るので、周の中の側だけで求める
         const nearEnd = pts.length > 0 && baseElapsed + W > pts[pts.length - 1].time;
         const nearStart = pts.length > 0 && baseElapsed - W < pts[0].time;
-        const ahead = nearEnd ? null : timeAt(sessionTime + W), behind = nearStart ? null : timeAt(sessionTime - W);
+        const ahead = nearEnd ? null : timeAt(sessionSec + W), behind = nearStart ? null : timeAt(sessionSec - W);
         const prev = compareRateRef.current.get(car.slot.slot);
         rate = ahead !== null && behind !== null && ahead > behind ? (ahead - behind) / (2 * W)
           : ahead !== null && ahead > ct ? (ahead - ct) / W
@@ -617,14 +603,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       }
       return {
         media: m, position, rate, slot: car.slot.slot, color: car.slot.colorHex, chosen: !!chosenId,
-        gauge: { session, lap, time: ct ?? sessionTime },
+        gauge: { session, lap, time: ct ?? sessionSec },
         delta: isBase || atDistance === null || !lap ? null : (atDistance - lap.startTime) - baseElapsed
       };
     });
   };
   const tiles: Tile[] = isCompare
-    ? compareTiles(renderSessionTime)
-    : (simple ? cameras.slice(0, 1) : cameras).map((m, i) => ({ media: m, position: positionInMedia(m, renderSessionTime), gauge: i === 0 ? { session: baseSession, lap: baseLap, time: renderSessionTime } : undefined }));
+    ? compareTiles()
+    : (simple ? cameras.slice(0, 1) : cameras).map((m, i) => ({ media: m, position: positionInMedia(m, sessionSec), gauge: i === 0 ? { session: baseSession, lap: baseLap, time: sessionSec } : undefined }));
   const tileCount = tiles.length;
   const positions = tiles.map(x => x.position);
   // 同期の調整・書き出しの対象は、メインのカメラの今のチャプター
@@ -726,9 +712,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   useEffect(() => {
     // 合わせる (同期の調整) では戻さない (周の外へ動かす・ピンへ飛ぶ・動画の始まりへ飛ぶ、が効かなくなるため)
     if (!(isCompare || seekbarScope === 'lap') || showSyncTools || isGraphEmbedded || !baseLap || !isVisible || isAnyExporting) return;
-    if (isPlaying && renderSessionTime > baseLap.endTime) seekTo(baseLap.startTime);
-    else if (renderSessionTime < baseLap.startTime - 0.5 || renderSessionTime > baseLap.endTime + 0.5) seekTo(baseLap.startTime);
-  }, [isCompare, seekbarScope, showSyncTools, renderSessionTime, baseLap?.startTime, baseLap?.endTime, isPlaying, isVisible]);
+    if (isPlaying && sessionSec > baseLap.endTime) seekTo(baseLap.startTime);
+    else if (sessionSec < baseLap.startTime - 0.5 || sessionSec > baseLap.endTime + 0.5) seekTo(baseLap.startTime);
+  }, [isCompare, seekbarScope, showSyncTools, sessionSec, baseLap?.startTime, baseLap?.endTime, isPlaying, isVisible]);
 
   // 動画を App の時刻に合わせる (PlaybackController)。見えていないウインドウ・書き出し中は合わせない (書き出しは動画を自分で動かす)
   useEffect(() => {
@@ -737,12 +723,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     if (isExporting && !recordingStage) return;
     if (!isVisible || (isAnyExporting && !recordingStage)) { playback.pauseAll(); return; }
     const targets = new Map<string, PlaybackTarget>();
-    // 走行比較では、時計の元にするのは Car 1 だけ (比べる車の動画は周の終わりで止まるので、時計の元にすると App の時計を止めてしまう)。
+    // 走行比較では、時計の元にするのは基準車だけ (比べる車の動画は周の終わりで止まるので、時計の元にすると App の時計を止めてしまう)。
     // 以前は走行比較では時計の元を使わず、iPhone では音を出している Car 1 が、0.2 秒遅れるたびに飛んで 0.4〜0.6 秒止まっていた (BUG-32)
     tiles.slice(0, shownCount).forEach((x, i) => {
-      if (x.position) targets.set(`tile-${i}`, { ...x.position, rate: x.rate, ...(isCompare && x.slot !== 0 ? { clockEligible: false } : {}) });
+      if (x.position) targets.set(`tile-${i}`, { ...x.position, rate: x.rate, ...(isCompare && x.slot !== baseSlot ? { clockEligible: false } : {}) });
     });
-    playback.sync(targets, isPlaying, playbackSpeed, currentTimeSec);
+    playback.sync(targets, isPlaying, playbackSpeed, sessionSec);
   });
 
   // 見えている間は、音を出している動画を App の時計の元にする (clockMaster.ts)
@@ -761,10 +747,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     const el = mainVideo();
     if (!el || !activeTrack) return;
     const currentVideoTime = el.currentTime;
-    const effectiveSessionTime = isGraphEmbedded && baseLap
-      ? (baseLap.startTime + currentTimeSec)
-      : currentTimeSec;
-    setOffset(activeTrack.id, effectiveSessionTime - currentVideoTime);
+    setOffset(activeTrack.id, sessionSec - currentVideoTime);
   };
 
   // 微調整 (+/- 0.05秒: 1フレーム単位)
@@ -778,14 +761,11 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const handleAddPin = () => {
     const el = mainVideo();
     if (!el || !activeTrack) return;
-    const effectiveSessionTime = isGraphEmbedded && baseLap
-      ? (baseLap.startTime + currentTimeSec)
-      : currentTimeSec;
     const currentVideoTime = el.currentTime;
     
     const pin = createSyncPin(
       newPinName || `${tr('ピン', 'Pin')} ${pins.length + 1}`,
-      effectiveSessionTime,
+      sessionSec,
       currentVideoTime,
       activeTrack.id
     );
@@ -801,11 +781,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   // ピン位置へジャンプ (シーク)
   const handleJumpToPin = (pin: SyncPin) => {
-    if (isGraphEmbedded && baseLap) {
-      seekTo(Math.max(0, pin.sessionTimeSec - baseLap.startTime));
-    } else {
-      seekTo(pin.sessionTimeSec);
-    }
+    seekTo(pin.sessionTimeSec);
   };
 
   // ピン削除
@@ -877,7 +853,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     // 枠の並びの書き出しは、ふだんの再生をそのまま録るので、等倍にしてから録る (2 倍などのままだと早送りの動画になっていた。BUG-39)。終わったら戻す
     const speedBefore = playbackSpeed;
     if (speedBefore !== 1) onChangePlaybackSpeed(1);
-    seekTo(isGraphEmbedded && baseLap ? start - baseLap.startTime : start);
+    seekTo(start);
     const stopPlayback = () => { if (stageRef.current.isPlaying) togglePlayRef.current(); };
     const finish = () => {
       if (speedBefore !== 1) onChangePlaybackSpeed(speedBefore);
@@ -1187,7 +1163,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     if (!gpsLog || b0 === null || g0 === null) return null;
     let min = Infinity;
     for (const dt of [0, 1, 2]) {
-      const t = renderSessionTime - dt;
+      const t = sessionSec - dt;
       const a = positionAtTime(baseSession.points, t), g = positionAtTime(gpsLog.points, t + (b0 - g0) / 1000);
       if (!a || !g) return null;
       const dx = (a[1] - g[1]) * 111320 * Math.cos(a[0] * Math.PI / 180), dy = (a[0] - g[0]) * 111320;
@@ -1196,7 +1172,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     return min > 10 ? Math.round(min) : null;
   })();
 
-  stageRef.current = { time: renderSessionTime, tiles, count: shownCount, isPlaying };
+  stageRef.current = { time: sessionSec, tiles, count: shownCount, isPlaying };
   // 書き出しの終わりで再生を止めるときは、その時の再生の状態で切り替える (書き出しを始めたときの関数は古い状態を持つため)
   togglePlayRef.current = onTogglePlay;
 
@@ -1388,7 +1364,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   onClick={() => {
                     // 足すカメラは、今の時刻を映している動画を先に選ぶ (別の日の動画を選ぶと、何も映らない枠になっていた)
                     const rest = media.filter(x => !cameraIds.includes(x.id));
-                    const pick = rest.find(x => !positionInMedia(x, renderSessionTime).outOfRange) ?? rest[0];
+                    const pick = rest.find(x => !positionInMedia(x, sessionSec).outOfRange) ?? rest[0];
                     videoViewStore.setCamera(cameras.length, pick?.id ?? null);
                   }}
                   className="flex items-center gap-0.5 px-1.5 py-1 rounded bg-surface-3 hover:bg-surface-5 text-[10px] text-slate-300 border border-line-3 cursor-pointer"
@@ -1863,12 +1839,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             )}
 
             {/* 録画開始前インジケーター */}
-            {!isCompare && activeTrack && renderSessionTime < activeTrack.syncOffsetSec && (
+            {!isCompare && activeTrack && sessionSec < activeTrack.syncOffsetSec && (
               <div className="absolute top-3 bg-amber-950/90 border border-amber-600 text-amber-200 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-medium z-20">
                 <Clock size={14} className="text-amber-400 animate-pulse shrink-0" />
-                <span>{t('動画開始まであと', 'Video starts in')} <strong className="font-mono text-amber-300">{(activeTrack.syncOffsetSec - (isGraphEmbedded && baseLap ? baseLap.startTime + currentTimeSec : currentTimeSec)).toFixed(1)}s</strong></span>
+                <span>{t('動画開始まであと', 'Video starts in')} <strong className="font-mono text-amber-300">{(activeTrack.syncOffsetSec - sessionSec).toFixed(1)}s</strong></span>
                 <button
-                  onClick={() => seekTo(isGraphEmbedded && baseLap ? Math.max(0, activeTrack.syncOffsetSec - baseLap.startTime) : activeTrack.syncOffsetSec)}
+                  onClick={() => seekTo(activeTrack.syncOffsetSec)}
                   className="px-1.5 py-0.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-[10px] cursor-pointer ml-1"
                 >
                   {t('開始点へジャンプ', 'Jump to start')}
@@ -1934,14 +1910,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             <button
               onClick={() => {
                 const prev = getPreviousChapter(currentGroup, activeTrack?.id || '');
-                if (prev) {
-                  const newSessionTime = prev.track.syncOffsetSec;
-                  if (isGraphEmbedded && baseLap) {
-                    seekTo(Math.max(0, newSessionTime - baseLap.startTime));
-                  } else {
-                    seekTo(newSessionTime);
-                  }
-                }
+                if (prev) seekTo(prev.track.syncOffsetSec);
               }}
               disabled={!getPreviousChapter(currentGroup, activeTrack?.id || '')}
               className="p-1 rounded bg-surface-3 hover:bg-surface-4 disabled:opacity-30 text-slate-300 transition-colors cursor-pointer"
@@ -1956,14 +1925,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 return (
                   <button
                     key={ct.track.id}
-                    onClick={() => {
-                      const targetSessionTime = ct.track.syncOffsetSec;
-                      if (isGraphEmbedded && baseLap) {
-                        seekTo(Math.max(0, targetSessionTime - baseLap.startTime));
-                      } else {
-                        seekTo(targetSessionTime);
-                      }
-                    }}
+                    onClick={() => seekTo(ct.track.syncOffsetSec)}
                     className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors cursor-pointer ${
                       isCurrent
                         ? 'bg-red-600 text-white font-bold'
@@ -1979,14 +1941,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             <button
               onClick={() => {
                 const next = getNextChapter(currentGroup, activeTrack?.id || '');
-                if (next) {
-                  const targetSessionTime = next.track.syncOffsetSec;
-                  if (isGraphEmbedded && baseLap) {
-                    seekTo(Math.max(0, targetSessionTime - baseLap.startTime));
-                  } else {
-                    seekTo(targetSessionTime);
-                  }
-                }
+                if (next) seekTo(next.track.syncOffsetSec);
               }}
               disabled={!getNextChapter(currentGroup, activeTrack?.id || '')}
               className="p-1 rounded bg-surface-3 hover:bg-surface-4 disabled:opacity-30 text-slate-300 transition-colors cursor-pointer"
@@ -2003,28 +1958,19 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       )}
 
       {/* 5. マスタータイムライン マルチトラックインスペクター (NLE風) */}
-      {syncTools && (() => {
-        const effectiveSessionTime = isGraphEmbedded && baseLap ? (baseLap.startTime + currentTimeSec) : currentTimeSec;
-        return (
-          <MasterTimelineTrackBar
-            session={baseSession}
-            baseLap={baseLap}
-            activeTrack={activeTrack}
-            subTrack={!isCompare && shownCount > 1 ? positions[1]?.track : undefined}
-            chapterGroup={currentGroup}
-            pins={pins}
-            currentSessionTimeSec={effectiveSessionTime}
-            onSeekSessionTime={(targetSessionTime) => {
-              if (isGraphEmbedded && baseLap) {
-                seekTo(Math.max(0, targetSessionTime - baseLap.startTime));
-              } else {
-                seekTo(targetSessionTime);
-              }
-            }}
-            formatDuration={formatDuration}
-          />
-        );
-      })()}
+      {syncTools && (
+        <MasterTimelineTrackBar
+          session={baseSession}
+          baseLap={baseLap}
+          activeTrack={activeTrack}
+          subTrack={!isCompare && shownCount > 1 ? positions[1]?.track : undefined}
+          chapterGroup={currentGroup}
+          pins={pins}
+          currentSessionTimeSec={sessionSec}
+          onSeekSessionTime={seekTo}
+          formatDuration={formatDuration}
+        />
+      )}
 
       {/* スマートフォンを横にしたときは、シークの段と再生の段を 1 段に並べる (動画を大きく出すため) */}
       <div className={landscapePhone ? 'flex items-center shrink-0 bg-surface-1 border-t border-line-1 [&>*]:border-t-0 [&>*:first-child]:flex-1 [&>*:first-child]:min-w-0 [&>*:last-child]:min-h-0' : 'contents'}>
@@ -2032,9 +1978,6 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       {(() => {
         // グラフ解析に埋め込んだときは、グラフ解析の下の段 (PlayBar) でシーク・再生するので出さない (二重にしない)
         if (isGraphEmbedded && baseLap) return null;
-        const effectiveSessionTime = isGraphEmbedded && baseLap ? (baseLap.startTime + currentTimeSec) : currentTimeSec;
-        // グラフ画面の動画は選んだ周の中だけで再生する (App の時刻が周の時刻なので、周の外へは動かせない)。
-        // ログ全体を見るのは動画同期タブ
         // 走行比較は周の中で比べるので、いつも周の時刻にする
         const isLapMode = (seekbarScope === 'lap' || isGraphEmbedded || isCompare) && baseLap;
         
@@ -2046,9 +1989,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         const subEnd = Math.max(0, ...subEnds);
         const sessionMax = Math.max(logEnd, videoEndSessionSec(activeTrack), subEnd) || 60;
 
-        // 周の時刻は、周の始めからの時刻 (動画同期タブでは App の時刻がセッション全体の時刻なので、周の始めを引く)
+        const minVal = isLapMode ? 0 : videoStartTime;
         const maxVal = isLapMode ? (baseLap.lapTime || 60) : sessionMax;
-        const curVal = isLapMode ? effectiveSessionTime - baseLap.startTime : effectiveSessionTime;
+        const curVal = isLapMode ? playbackPosition.lapSec : sessionSec;
 
         return (
           <div className="touch-toolbar bg-surface-1 border-t border-line-1 px-3 py-1 flex items-center justify-between gap-2.5 shrink-0 select-none">
@@ -2059,7 +2002,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   onClick={() => {
                     setSeekbarScope('lap');
                     // 今の位置がその周の外 (全体で別の所へ動かしたあと) なら、周の始めへ動かす (表示は周の時刻なのに、動画が周の外のままにならないように)
-                    if (effectiveSessionTime < baseLap.startTime || effectiveSessionTime > baseLap.startTime + baseLap.lapTime) seekTo(baseLap.startTime);
+                    if (sessionSec < baseLap.startTime || sessionSec > baseLap.startTime + baseLap.lapTime) seekTo(baseLap.startTime);
                   }}
                   className={`px-2 py-0.5 font-bold transition-colors cursor-pointer ${
                     isLapMode ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'
@@ -2097,21 +2040,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             {/* スライダー本体 (速度ウィンドウと完全同期) */}
             <input
               type="range"
-              min={0}
+              min={minVal}
               max={maxVal}
               step={0.05}
-              value={Math.max(0, Math.min(maxVal, curVal))}
+              value={Math.max(minVal, Math.min(maxVal, curVal))}
               onChange={e => {
                 const val = parseFloat(e.target.value);
-                if (isLapMode) {
-                  seekTo(isGraphEmbedded ? val : baseLap.startTime + val);
-                } else {
-                  if (isGraphEmbedded && baseLap) {
-                    seekTo(Math.max(0, val - baseLap.startTime));
-                  } else {
-                    seekTo(val);
-                  }
-                }
+                seekTo(isLapMode ? lapToSessionSec(asLapSec(val), baseLap) : val);
               }}
               // つまみを掴みやすいよう、押せる高さを取る (h-1 だと 4 px で、指でもマウスでも掴みにくかった。解析の再生の段と同じ)
               className={`flex-1 min-w-0 cursor-pointer accent-red-500 ${isCompactLayout ? 'h-6' : 'h-4'}`}
@@ -2134,7 +2069,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         {!(isGraphEmbedded && baseLap) && (
         <div className="flex items-center gap-1.5">
           <button
-            onClick={() => seekTo(Math.max(0, currentTimeSec - SKIP_SEC))}
+            onClick={() => seekTo(Math.max(videoStartTime, sessionSec - SKIP_SEC))}
             className="p-1 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
             title={t('5 秒戻す', 'Back 5 s')}
             aria-label={t('5 秒戻す', 'Back 5 seconds')}
@@ -2150,7 +2085,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             {isPlaying ? <Pause size={15} /> : <Play size={15} />}
           </button>
           <button
-            onClick={() => seekTo(currentTimeSec + SKIP_SEC)}
+            onClick={() => seekTo(sessionSec + SKIP_SEC)}
             className="p-1 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
             title={t('5 秒進める', 'Forward 5 s')}
             aria-label={t('5 秒進める', 'Forward 5 seconds')}
@@ -2398,7 +2333,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   onClick={() => {
                     setExportRange('custom');
                     // はじめは今の位置から 30 秒 (前に決めた範囲があればそれ)
-                    setCustomRange(r => r ?? [renderSessionTime, renderSessionTime + 30]);
+                    setCustomRange(r => r ?? [sessionSec, sessionSec + 30]);
                   }}
                   className={`col-span-2 px-2 py-1.5 rounded border text-xs font-bold transition-colors cursor-pointer ${
                     exportRange === 'custom'
@@ -2434,7 +2369,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     <button
                       onClick={() => setCustomRange(r => {
                         if (!r) return r;
-                        const now = renderSessionTime;
+                        const now = sessionSec;
                         return which === 'start' ? [now, Math.max(now + 1, r[1])] : [Math.min(r[0], now - 1), now];
                       })}
                       className="px-2 py-0.5 rounded border border-line-3 text-slate-300 hover:text-slate-100 cursor-pointer"

@@ -8,6 +8,7 @@
 |---|---|
 | [../AGENTS.md](../AGENTS.md) | エージェント向けの入口 (守ること・作業の流れ) |
 | [architecture.md](architecture.md) | 構成 (Web・Electron・iOS・Android、ネイティブの窓口、保管場所の形、主なファイル) |
+| [analysis_data_flow.md](analysis_data_flow.md) | 元ログ・周・Car 割当て・再生位置・動画の保持場所、呼出し元、非同期結果の採用条件 |
 | [maintenance.md](maintenance.md) | 開発・試験・レビュー・リリース (PC・ブラウザ・App Store・TestFlight) の手順 |
 | [../TODO.md](../TODO.md)・[../BUGS.md](../BUGS.md) | 今の状態と残件 |
 
@@ -37,7 +38,7 @@
 | 文書 | 計画 | 状態 |
 |---|---|---|
 | [iphone_app_design.md](iphone_app_design.md) | PLAN-01 iPhone のアプリ | 実装済み (1.0〜1.1.0)。一部の構想は未 |
-| [ios_native_study.md](ios_native_study.md) | PLAN-20 ネイティブ化の検討 | 結論: 画面はネイティブにしない。動画の WebCodecs は未着手 |
+| [ios_native_study.md](ios_native_study.md) | PLAN-20 ネイティブ化の検討 | 当時は Web 共有を継続。端末別 UI 差分・OS 追従・端末活用の制約が大きければネイティブ化も再検討 (2026-11-05)。動画の WebCodecs は未着手 |
 | [video_sets_design.md](video_sets_design.md) | PLAN-17 動画の走行とセット | 実装済み |
 | [overlay_parts_design.md](overlay_parts_design.md) | メーターの部品 | 実装済み |
 | [meter_layout_design.md](meter_layout_design.md) | PLAN-08・38 メーターの配置・画像・書き出しの範囲 | 実装済み |

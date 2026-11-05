@@ -96,6 +96,8 @@ export interface Lap {
 
 export interface Session {
   id: string;
+  /** 保管場所から開いた元ファイル。別の保管場所の同じ道を取り違えない。part は 1 始まり。 */
+  sourceFile?: { storageRevision: number; folder: string; file: string; part: number; size: number; mtimeMs: number; courseHash: string };
   fileName: string;
   sessionName: string;
   /** 走行の条件のメモ (保管場所の runs.json の行の note。PLAN-33) */

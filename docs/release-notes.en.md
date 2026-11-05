@@ -4,6 +4,12 @@
 
 [Back to the README](../README.en.md)
 
+## v1.3.0 (In development, not distributed)
+
+- Use “Add laps” to assign loaded or stored laps to Car 1–4. Stored laps are checked against the actual log and course before loading.
+- Playback now keeps a single session time across analysis and video views. Video-only playback also works without a GPS log.
+- Pending video synchronization edits are saved before replacing laps or choosing storage. Cancelling storage selection preserves the open video's run association.
+
 ## v1.2.0 (2026-11-02)
 
 The PC version and the iPhone / iPad app get different items ([iPhone] = the app only, [PC] = the PC and browser versions only, no mark = both).

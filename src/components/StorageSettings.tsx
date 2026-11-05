@@ -3,7 +3,7 @@ import { FolderOpen, Smartphone } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { callNative, hasNative } from '../native/bridge';
 import type { StorageInfo } from '../native/contract';
-import { storageFolderChanged } from '../services/storageCourses';
+import { storageFolderChanged, trackStorageSelection, pickDesktopStorage } from '../services/storageCourses';
 import { myDeviceWord } from '../utils/device';
 
 /** Android のアプリか (保管場所の言い方と、フォルダを選べるか) */
@@ -33,7 +33,7 @@ export const StorageSettings: React.FC = () => {
     setBusy(true);
     setNote(null);
     try {
-      const next = kind === 'folder' ? await callNative('system.pickStorageFolder', {}) : await callNative('system.setStorageLocal', {});
+      const next = await trackStorageSelection(() => kind === 'folder' ? callNative('system.pickStorageFolder', {}) : callNative('system.setStorageLocal', {}));
       setInfo(next);
       if (next.kind === 'folder') {
         const r = await callNative('system.syncLapFiles', {});
@@ -54,7 +54,7 @@ export const StorageSettings: React.FC = () => {
 
   const pickDesktop = async () => {
     try {
-      const p = await window.electronAPI?.laps?.pickFolder();
+      const p = await pickDesktopStorage(window.electronAPI?.laps);
       if (p) { setFolderPath(p); void storageFolderChanged(); }
     } catch (e) {
       setNote({ ok: false, text: t(`フォルダを選べませんでした: ${e instanceof Error ? e.message : String(e)}`, `Could not choose the folder: ${e instanceof Error ? e.message : String(e)}`) });

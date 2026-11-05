@@ -13,13 +13,13 @@ LapLoupe は、1 つの Web アプリ (React + TypeScript、`src/`) を 4 つの
 | iPhone / iPad のアプリ | WKWebView (`mobile/ios/DSUniversal/*.swift`) | アプリに入れた `dist/` を `laploupe://app/` で返す (BundledWeb.swift) | ネイティブの窓口 (下の 3) |
 | Android のアプリ (友人向けの試験版) | WebView (`mobile/android/…/laploupe/*.kt`) | アプリに入れた `dist/` | ネイティブの窓口 (iPhone と同じ約束) |
 
-画面・解析・書き出しは全部 Web の側にあり、ネイティブの側は「Web ではできないこと」だけを受け持つ (Bluetooth・カメラ・G センサー・保管場所のファイル・画面の向き・アプリ内課金)。画面のネイティブ化はしない方針 (docs/ios_native_study.md の結論)。
+画面・解析・書き出しは全部 Web の側にあり、ネイティブの側は「Web ではできないこと」だけを受け持つ (Bluetooth・カメラ・G センサー・保管場所のファイル・画面の向き・アプリ内課金)。現在は画面を Web で共有する。端末別の UI 差分が大きい場合は、OS の UI への追従・端末固有の機能や操作感・保守負担を比較し、ネイティブ化も再検討する (2026-11-05 の方針)。
 
 ## 2. Web アプリ (`src/`)
 
 ### 2.1 入口と画面の組み方
 
-- `main.tsx` → `App.tsx`。App.tsx が状態 (読み込んだログ = Session、Car 1〜4 の割り当て、再生の時刻、コース) を持ち、画面へ配る。大きいので、触るときは関数名で検索して部分だけ読む。
+- `main.tsx` → `App.tsx`。App ごとの AnalysisStore が解析中の Session と Car 1〜4 の割当てを持つ。App の再生位置は走行全体の秒で保持し、周内の秒・距離は計算して画面へ渡す。元ログ・周の控え・動画の所有と呼出しは [analysis_data_flow.md](analysis_data_flow.md) に整理。大きいので、触るときは関数名で検索して部分だけ読む。
 - 画面の種類と並べ方: `src/app/`
   - `appProfile.ts`: 今の形 (`app-phone` / `app-tablet` / `desktop` / `browser-phone` / `browser-desktop`)。
   - `navPlan.ts`: 形ごとに、どの画面 (`timer`・`library`・`analysis`・`video`・`data`・`convert`・`logger`・`settings`) をどこに出すか (下のタブ・サイドバー・⚙)。

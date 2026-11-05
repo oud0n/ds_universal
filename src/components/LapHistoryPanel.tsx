@@ -15,7 +15,7 @@ import { lapKey, type LapFileStore, type LapRow } from '../services/lapIndex';
 import { formatLapTime } from '../services/liveLapTimer';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
-import { storageFolderChanged } from '../services/storageCourses';
+import { storageFolderChanged, trackStorageSelection, pickDesktopStorage } from '../services/storageCourses';
 
 interface Props {
   onClose: () => void;
@@ -89,7 +89,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
   }, [desktop, load]);
 
   const pickFolder = async () => {
-    const p = await window.electronAPI?.laps?.pickFolder();
+    const p = await pickDesktopStorage(window.electronAPI?.laps);
     setFolderPath(p ?? null);
     if (p) void storageFolderChanged();
     const s = await electronLapStore();

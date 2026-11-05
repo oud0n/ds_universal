@@ -273,27 +273,47 @@ class VideoSyncManager {
 
   // 複数動画ファイルの読み込み & 自動解析。GoPro の低画質のファイル (.LRV) は、元の動画に組にする (動画としては加えない)
   // readGps: false なら動画の GPS を読まない (呼ぶ側で読んで時刻を入れるとき。同じ動画を 2 回読まないため)
-  public async addVideoFiles(files: FileList | Array<File | RemoteVideo>, sessions: Session[], readGps = true): Promise<VideoTrack[]> {
+  public async addVideoFiles(files: FileList | Array<File | RemoteVideo>, sessions: Session[], readGps = true, isCurrent = () => true, beforePublish?: () => void): Promise<VideoTrack[]> {
+    if (!isCurrent()) return this.videos;
+    const inputs = Array.from(files);
+    const prepared: Array<{ file: File; remote?: RemoteVideo; meta: VideoMetadata; gpsUtcMs?: number }> = [];
+    const placeholderFor = (file: File) => this.videos.find(v => !v.objectUrl && v.fileName === file.name && (!v.fileSize || v.fileSize === file.size));
+    // 全ファイルを読み終えてから、トラックと Blob URL を作る。途中で走行が替わったら何も残さない。
+    for (const item of inputs.filter(f => !isProxyFileName(f.name))) {
+      if (!isCurrent()) return this.videos;
+      const remote = isRemoteVideo(item) ? item : undefined;
+      const file = remote ? remoteFileLike(remote) : item as File;
+      const meta = await parseVideoMetadata(file);
+      if (!isCurrent()) return this.videos;
+      let gpsUtcMs: number | undefined;
+      if (readGps && !placeholderFor(file)) {
+        try {
+          const source = remote ? remoteByteSource(remote) : blobByteSource(file);
+          const gps = await parseGoproGps([source]);
+          gpsUtcMs = gps.videoStartUtcMs[0];
+        } catch {
+          // GoPro 以外の動画・測位できていない動画
+        }
+        if (!isCurrent()) return this.videos;
+      }
+      prepared.push({ file, remote, meta, gpsUtcMs });
+    }
+    if (!isCurrent()) return this.videos;
+    beforePublish?.();
+    if (!isCurrent()) return this.videos;
     const newTracks: VideoTrack[] = [];
+    const gpsClocks = new Map<VideoTrack, number>();
     let relinked = false;
 
-    for (const file of Array.from(files).filter((f): f is File => !isRemoteVideo(f) && isProxyFileName(f.name))) {
+    for (const file of inputs.filter((f): f is File => !isRemoteVideo(f) && isProxyFileName(f.name))) {
       const key = proxyKey(file.name);
       if (!key) continue;
       const track = this.videos.find(v => proxyKey(v.fileName) === key);
       if (track) this.attachProxy(track, file); else this.pendingProxies.set(key, file);
     }
-    const videoFiles = Array.from(files).filter(f => !isProxyFileName(f.name));
-
-    for (let i = 0; i < videoFiles.length; i++) {
-      const item = videoFiles[i];
-      const remote = isRemoteVideo(item) ? item : undefined;
-      const file = remote ? remoteFileLike(remote) : (item as File);
-      const meta: VideoMetadata = await parseVideoMetadata(file);
-
+    for (const { file, remote, meta, gpsUtcMs } of prepared) {
       // 同期プロジェクトから戻した、ファイルのまだない動画と同じファイルなら、そこにつなぐ (保存した同期を引き継ぐ)
-      const placeholder = this.videos.find(v =>
-        !v.objectUrl && v.fileName === file.name && (!v.fileSize || v.fileSize === file.size));
+      const placeholder = placeholderFor(file);
       if (placeholder) {
         placeholder.file = remote ? undefined : file;
         placeholder.remote = remote;
@@ -336,6 +356,7 @@ class VideoSyncManager {
       if (key && proxy) { this.attachProxy(track, proxy); this.pendingProxies.delete(key); }
 
       newTracks.push(track);
+      if (gpsUtcMs !== undefined && Number.isFinite(gpsUtcMs)) gpsClocks.set(track, gpsUtcMs);
     }
 
     this.videos = [...this.videos, ...newTracks];
@@ -343,18 +364,8 @@ class VideoSyncManager {
     // GPSセッションとの自動照合。追加した動画だけを照合し、手で合わせた既存の動画の同期は変えない
     this.autoMatchTracks(sessions, newTracks);
     // GoPro の動画は、動画自身の GPS の時刻で合わせる (撮影日時は ±1 秒ずれる)。GPS の記録がない動画は撮影日時のまま
-    for (const track of readGps ? newTracks : []) {
-      const source = track.file ? blobByteSource(track.file) : track.remote ? remoteByteSource(track.remote) : null;
-      if (!source) continue;
-      try {
-        const gps = await parseGoproGps([source]);
-        const utcMs = gps.videoStartUtcMs[0];
-        if (Number.isFinite(utcMs)) track.clock = clockAtUtc('gps', utcMs);
-      } catch {
-        // GoPro 以外の動画・測位できていない動画
-      }
-    }
-    if (newTracks.some(t => t.clock.source === 'gps')) this.updateChapterGroupOffsets();
+    for (const [track, utcMs] of gpsClocks) track.clock = clockAtUtc('gps', utcMs);
+    if (gpsClocks.size) this.updateChapterGroupOffsets();
     if (relinked && newTracks.length === 0) this.updateChapterGroupOffsets();
 
     this.notify();

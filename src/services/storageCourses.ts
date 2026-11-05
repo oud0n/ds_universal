@@ -7,18 +7,23 @@
 import { loadCsvFormats } from './csvFormatStore';
 import { canUseRunStore, getRunStore } from './runStore';
 import { clearCourseCornersCache } from './courseCorners';
+import { invalidateStorageReads } from './storageRevision';
 import { userCircuitStorage, type CourseFile, type UserCircuitItem } from './userCircuitStorage';
 import { COURSE_INDEX, courseFileKey, itemFromCourseFiles, markEditedCourseDeleted, mergeEditedCourses, parseCourseIndex, writeEditedCourse } from './courseFolderSync';
 
 // digspice/ (デジスパイスのフォルダをそのまま置いたもの) と course/ (LapLoupe のコースフォルダ。同じ形)
 const COURSE_FILE = /^(digspice|course)\/.+\.(cln|pth|sci)$/i;
 
+export { getStorageRevision, getStorageReadRevision, isStorageSelectionPending, subscribeStorageRevision, subscribeBeforeStorageSelection, invalidateStorageRevision, trackStorageSelection, pickDesktopStorage } from './storageRevision';
+
 /** 保管場所を選んだ・変えたとき: その保管場所のコースデータ・コーナーの名前を読み直す */
 export async function storageFolderChanged(): Promise<void> {
+  invalidateStorageReads();
   clearCourseCornersCache();
   await loadStorageCourses().catch(() => 0);
   // CSV の形式の定義・計算式も、新しい保管場所のものにする (PLAN-36)
   await loadCsvFormats().catch(() => undefined);
+  invalidateStorageReads();
 }
 
 /** 保管場所の digspice/ のコースデータを読み直す。読んだファイルの数 (保管場所が無ければ 0) */

@@ -49,6 +49,7 @@ interface Props {
   /** 解析で開いている走行 (folder/file)。開いている走行は消せない */
   openRuns?: string[];
   onPickFiles: () => void;
+  onPickLaps?: () => void;
   /** ラップタイムの記録から、走行のファイルを解析で開く */
   onOpenFile: (file: File) => void;
   busy: boolean;
@@ -77,7 +78,7 @@ const sameRunFile = (a: string, b: string) => {
   return dir(a) === dir(b) && runStem(a) === runStem(b);
 };
 
-export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSession, onOpenVideo, onAddAsCar2, car1Course = null, car1Run = null, openRuns = [], onPickFiles, onOpenFile, busy, canTime = false }) => {
+export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSession, onOpenVideo, onAddAsCar2, car1Course = null, car1Run = null, openRuns = [], onPickFiles, onPickLaps, onOpenFile, busy, canTime = false }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const { store, runs, error, noFolder, reload } = useRuns(active);
@@ -403,7 +404,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
           <FolderOpen size={16} />{t('ファイルを選ぶ', 'Choose files')}
         </button>
         <button
-          onClick={() => setHistoryOpen(true)}
+          onClick={() => onPickLaps ? onPickLaps() : setHistoryOpen(true)}
           className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg bg-surface-2 border border-line-2 text-sm text-slate-200 font-bold cursor-pointer whitespace-nowrap"
           data-testid="library-lap-history"
         >

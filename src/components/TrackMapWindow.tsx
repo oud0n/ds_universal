@@ -5,6 +5,7 @@ import { useCompactLayout } from '../hooks/useCompactLayout';
 import { usePinchPointers } from '../hooks/usePinchPointers';
 import { CompareAxis, Lap, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { findCarPoint } from '../utils/telemetrySearch';
+import type { LapSec } from '../services/playbackPosition';
 import { prepareCanvas, useDevicePixelRatio } from '../utils/canvasLayer';
 import { passesNearPoint } from '../services/lapCalculator';
 import { ZoomIn, ZoomOut, RotateCcw, Eye, Palette, Move, LocateFixed } from 'lucide-react';
@@ -60,7 +61,7 @@ interface TrackMapWindowProps {
   sectors: Sector[];
   pathPolylines?: Array<Array<[number, number]>>;
   currentDistance: number;
-  currentTime: number;
+  currentTime: LapSec;
   compareAxis: CompareAxis;
   onSeekDistance: (distKm: number) => void;
   /** Car 1 のコースの名前 (コーナーの名前を出すため) */

@@ -12,6 +12,7 @@ import { useCompactLayout } from '../hooks/useCompactLayout';
 import { usePinchPointers } from '../hooks/usePinchPointers';
 import { CompareAxis, Lap, SelectedCarSlot, Sector } from '../types/telemetry';
 import { calculateDeltaTimes } from '../services/lapCalculator';
+import { asLapSec, type LapSec } from '../services/playbackPosition';
 import { findClosestPointByDistance, findClosestPointByTime } from '../utils/telemetrySearch';
 import { prepareCanvas, useDevicePixelRatio } from '../utils/canvasLayer';
 import { tr, useLang, useT } from '../utils/i18n';
@@ -23,9 +24,9 @@ interface SpeedGraphWindowProps {
     lap: Lap;
   }[];
   sectors: Sector[];
-  currentTime: number;          // 基準車の現在経過時間 (秒)
+  currentTime: LapSec;
   currentDistance: number;      // 基準車の現在距離 (km)
-  onSeekTime: (timeSec: number) => void;
+  onSeekTime: (timeSec: LapSec) => void;
   onSeekDistance: (distKm: number) => void;
   // 横軸 (距離 / 時間)。全コースウインドウなど他のウインドウの車両位置もこの基準に合わせるため、App 側で持つ
   xAxisMode: CompareAxis;
@@ -658,7 +659,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
     if (xAxisMode === 'distance') {
       onSeekDistance(val);
     } else {
-      onSeekTime(val);
+      onSeekTime(asLapSec(val));
     }
   };
 

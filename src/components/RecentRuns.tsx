@@ -12,7 +12,7 @@ import { useEscapeKey } from '../hooks/useEscapeKey';
 import { formatLapTime } from '../services/liveLapTimer';
 import { getRunStore, type RunStore } from '../services/runStore';
 import { listRuns, type RunItem } from '../services/runOpener';
-import { storageFolderChanged } from '../services/storageCourses';
+import { storageFolderChanged, trackStorageSelection, pickDesktopStorage } from '../services/storageCourses';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 export function fmtDate(ms: number | null, ja: boolean): string {
@@ -148,7 +148,7 @@ export const RunsBrowser: React.FC<{ onOpen: (r: RunItem) => void; onPickFiles: 
   }, [runs]);
   const shown = (runs ?? []).filter(r => !folder || r.folder === folder);
   const pickFolder = async () => {
-    if (await window.electronAPI?.laps?.pickFolder()) void storageFolderChanged();
+    if (await pickDesktopStorage(window.electronAPI?.laps)) void storageFolderChanged();
     reload();
   };
   return (

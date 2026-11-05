@@ -4,6 +4,7 @@ import { useCompactLayout } from '../hooks/useCompactLayout';
 import { CompareAxis, Lap, SelectedCarSlot } from '../types/telemetry';
 import { CircleDot, Disc } from 'lucide-react';
 import { findCarPoint } from '../utils/telemetrySearch';
+import type { LapSec } from '../services/playbackPosition';
 import { prepareCanvas, useDevicePixelRatio } from '../utils/canvasLayer';
 import { tr, useLang, useT } from '../utils/i18n';
 
@@ -29,7 +30,7 @@ interface FrictionCircleWindowProps {
     lap: Lap;
   }[];
   currentDistance: number;
-  currentTime: number;
+  currentTime: LapSec;
   compareAxis: CompareAxis;
 }
 
