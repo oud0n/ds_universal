@@ -59,7 +59,7 @@ export interface Capabilities {
   /** camera: 内蔵カメラで録画できる (2026-10-25 に足した。前の版のアプリには無い) */
   /** spp: Bluetooth Classic のシリアル (Android だけ。Drogger DG-PRO1S など。2026-10-25) */
   /** deleteFiles: 走行のファイルを消せる (system.deleteRunFiles。2026-10-25)。trashFiles: アプリのゴミ箱へ移せる (system.trashRunFiles など。2026-10-28) */
-  features: { ble: boolean; iap?: boolean; camera?: boolean; spp?: boolean; deleteFiles?: boolean; trashFiles?: boolean };
+  features: { ble: boolean; iap?: boolean; entitlements?: boolean; camera?: boolean; spp?: boolean; deleteFiles?: boolean; trashFiles?: boolean };
   /** アプリの版の番号 (1.2.0 (16) など。2026-11-02 に足した。前の版のアプリには無い) */
   appVersion?: string;
 }
@@ -102,6 +102,12 @@ export interface IapProduct {
   displayName: string;
   description: string;
   displayPrice: string;
+}
+
+/** 確認済みの買い切り商品の全件。revision は同じアプリの起動中だけ比較できる */
+export interface EntitlementSnapshot {
+  revision: number;
+  productIds: string[];
 }
 
 /** BLE の特性の指定。UUID は 16 ビットの短い形 ('2a67') か、128 ビットの形 */
@@ -169,6 +175,8 @@ export interface NativeMethods {
   'iap.products': { params: { ids: string[] }; result: { products: IapProduct[] } };
   /** 買う。pending は保護者の承認待ちなど (決まったら知らせ iap.purchased が来る) */
   'iap.purchase': { params: { id: string }; result: { status: 'purchased' | 'cancelled' | 'pending' } };
+  'iap.entitlements': { params: Record<string, never>; result: EntitlementSnapshot };
+  'iap.restore': { params: Record<string, never>; result: EntitlementSnapshot };
   'ble.permission': { params: { request: boolean }; result: { state: PermissionState } };
   'ble.scan': { params: BleScanParams; result: Record<string, never> };
   'ble.stopScan': { params: Record<string, never>; result: Record<string, never> };
@@ -347,6 +355,7 @@ export interface NativeEvents {
   'system.motion': MotionBatch;
   /** 保留だった購入などが、あとで終わった */
   'iap.purchased': { productId: string };
+  'iap.entitlementsChanged': EntitlementSnapshot;
   /** 録画の様子。error: interrupted (裏に回った・電話など。戻ると続きを撮る)・thermal (熱すぎて止めた) */
   'camera.state': { recording: boolean; error?: 'interrupted' | 'thermal'; thermal?: 'nominal' | 'fair' | 'serious' | 'critical' };
   /** 今の ISO とシャッターの速さ (秒)。確かめの映像を出している間、0.3 秒ごと */

@@ -83,13 +83,18 @@ function toError(body: NativeErrorBody): NativeError {
 if (typeof window !== 'undefined') window.dsNative = { receive };
 
 /** ネイティブを呼ぶ。答えが失敗なら NativeError */
-export function callNative<M extends keyof NativeMethods>(method: M, params: NativeMethods[M]['params']): Promise<NativeMethods[M]['result']> {
+export function callNative<M extends keyof NativeMethods>(method: M, params: NativeMethods[M]['params'], timeoutMs?: number): Promise<NativeMethods[M]['result']> {
   const target = sink();
   if (!target) return Promise.reject(new NativeError('not-supported', 'native bridge is not available'));
   const id = nextId++;
-  return new Promise((resolve, reject) => {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  return new Promise<NativeMethods[M]['result']>((resolve, reject) => {
     pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+    if (timeoutMs !== undefined) timeout = setTimeout(() => reject(new NativeError('io', `${method} timed out`)), timeoutMs);
     target.postMessage(JSON.stringify({ v: CONTRACT_VERSION, id, method, params }));
+  }).finally(() => {
+    clearTimeout(timeout);
+    pending.delete(id);
   });
 }
 
@@ -107,7 +112,7 @@ let capsPromise: Promise<Capabilities | null> | null = null;
 /** ネイティブのできること。ネイティブがない・版が合わないときは null */
 export function nativeCapabilities(): Promise<Capabilities | null> {
   if (!hasNative()) return Promise.resolve(null);
-  capsPromise ??= callNative('caps.get', {}).then(
+  capsPromise ??= callNative('caps.get', {}, 5000).then(
     caps => {
       if (caps.contractVersion !== CONTRACT_VERSION) {
         console.warn(`[native] 約束の版が違う (アプリ ${caps.contractVersion}・画面 ${CONTRACT_VERSION})`);
@@ -116,6 +121,7 @@ export function nativeCapabilities(): Promise<Capabilities | null> {
       return caps;
     },
     err => {
+      capsPromise = null;
       console.warn('[native] できることを読めない:', err);
       return null;
     }

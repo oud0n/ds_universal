@@ -38,6 +38,8 @@ export interface LapReferenceChoice {
 export interface LapReferenceSource {
   id: string;
   label: [string, string];
+  available?(): boolean;
+  subscribeAvailability?(listener: () => void): () => void;
   load(ctx: LapReferenceContext): Promise<LapReferenceChoice | null>;
 }
 

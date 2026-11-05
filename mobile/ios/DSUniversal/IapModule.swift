@@ -1,16 +1,72 @@
 import Foundation
 import StoreKit
 
-/// アプリ内課金 (投げ銭。消耗型の「ガソリン 1L・5L・10L」)。StoreKit 2。
-/// 何も解放しないので、買った記録は持たない (購入の復元も要らない)。商品の ID は Web が渡す (src/services/tips.ts)
+/// StoreKit 2。商品の ID は画面から受け取り、購入状態は StoreKit から読み直す。
 @MainActor
 final class IapModule {
     private unowned let core: NativeCore
     private var products: [String: Product] = [:]
     private var updates: Task<Void, Never>?
 
+    private var revision = 0
+    private var reading: Task<[String], Never>?
+
     init(core: NativeCore) {
         self.core = core
+    }
+
+    /// 読み取り中に取引や復元があったら、その読み取りでは返さず、新しい一覧を待つ。
+    private func invalidateEntitlements() {
+        revision += 1
+        reading = nil
+    }
+
+    private func entitlements() async -> [String: Any] {
+        while true {
+            if reading == nil {
+                revision += 1
+                reading = Task {
+                    var ids = Set<String>()
+                    for await result in Transaction.currentEntitlements {
+                        if case .verified(let tx) = result, tx.productType == .nonConsumable, tx.revocationDate == nil {
+                            ids.insert(tx.productID)
+                        }
+                    }
+                    return ids.sorted()
+                }
+            }
+            let version = revision
+            let ids = await reading!.value
+            guard version == revision else { continue }
+            reading = nil
+            return ["revision": version, "productIds": ids]
+        }
+    }
+
+    private func deliver(_ tx: Transaction, fromUpdates: Bool) async {
+        switch tx.productType {
+        case .nonConsumable:
+            invalidateEntitlements()
+            let snapshot = await entitlements()
+            core.emit("iap.entitlementsChanged", snapshot)
+        case .consumable:
+            if fromUpdates {
+                core.emit("iap.purchased", ["productId": tx.productID])
+            }
+        default:
+            return
+        }
+        await tx.finish()
+    }
+
+    private func unverified(_ tx: Transaction, _ error: Error) async {
+        DebugLog.write("iap: unverified transaction \(tx.productID): \(error.localizedDescription)")
+        if tx.productType == .nonConsumable {
+            invalidateEntitlements()
+            core.emit("iap.entitlementsChanged", await entitlements())
+        } else if tx.productType == .consumable {
+            await tx.finish()
+        }
     }
 
     /// 起動時: 終わっていない購入 (保留だった購入・購入の途中でアプリが閉じたもの) を受け取って終える。
@@ -21,12 +77,9 @@ final class IapModule {
             for await result in Transaction.updates {
                 switch result {
                 case .verified(let tx):
-                    await tx.finish()
-                    self?.core.emit("iap.purchased", ["productId": tx.productID])
+                    await self?.deliver(tx, fromUpdates: true)
                 case .unverified(let tx, let error):
-                    // 確かめられなかった購入も終える (何も解放しない投げ銭なので、終えないと起動のたびに届き続けるだけ)
-                    DebugLog.write("iap: unverified transaction \(tx.productID): \(error.localizedDescription)")
-                    await tx.finish()
+                    await self?.unverified(tx, error)
                 }
             }
         }
@@ -34,6 +87,18 @@ final class IapModule {
 
     func handle(method: String, params: [String: Any], done: @escaping (Result<[String: Any], NativeError>) -> Void) {
         switch method {
+        case "iap.entitlements":
+            Task { done(.success(await entitlements())) }
+        case "iap.restore":
+            Task {
+                do {
+                    try await AppStore.sync()
+                    invalidateEntitlements()
+                    done(.success(await entitlements()))
+                } catch {
+                    done(.failure(NativeError(.io, error.localizedDescription)))
+                }
+            }
         case "iap.products":
             // 商品の名前と、その国の通貨での値段 (App Store Connect で決めたもの)
             let ids = params["ids"] as? [String] ?? []
@@ -65,13 +130,16 @@ final class IapModule {
                         done(.failure(NativeError(.notFound, "product \(id)")))
                         return
                     }
+                    guard product.type == .consumable || product.type == .nonConsumable else {
+                        done(.failure(NativeError(.notSupported, "unsupported product type")))
+                        return
+                    }
                     switch try await product.purchase() {
                     case .success(.verified(let tx)):
-                        await tx.finish()
+                        await deliver(tx, fromUpdates: false)
                         done(.success(["status": "purchased"]))
                     case .success(.unverified(let tx, let error)):
-                        DebugLog.write("iap: unverified purchase \(tx.productID): \(error.localizedDescription)")
-                        await tx.finish()
+                        await unverified(tx, error)
                         done(.failure(NativeError(.io, "unverified purchase: \(error.localizedDescription)")))
                     case .pending:
                         // 保護者の承認待ちなど。決まったら Transaction.updates に届く (start)

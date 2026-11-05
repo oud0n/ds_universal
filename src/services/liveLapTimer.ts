@@ -306,13 +306,7 @@ export class LiveLapTimer {
     if (isBest) this.bestTrace = this.trace;
     // セクターの差の基準は、セクターごとのベスト (どの周のものでもよい)。ベストの周でセクター線を取りこぼしても基準が残る
     // 途切れたセクターは基準にしない (ほかのセクターは使う)
-    if (lap.sectorsSec.length > 0) {
-      this.refSectors = lap.sectorsSec.map((t, i) => {
-        const old = this.refSectors[i];
-        if (sectorGaps?.[i]) return old;
-        return old !== undefined && old < t ? old : t;
-      });
-    }
+    this.refSectors = bestSectors(this.refSectors, lap);
     return { kind: 'lap', lap, diffToBestSec: prevRef ? timeSec - prevRef.timeSec : null, isBest };
   }
 
@@ -324,15 +318,8 @@ export class LiveLapTimer {
     this.past = ref && ref.trace.length >= 4 && ref.timeSec > 0 ? ref : null;
     const own = this.best;
     this.bestTrace = own && (!this.past || own.timeSec <= this.past.timeSec) ? this.ownBestTrace : this.past?.trace ?? null;
-    if (this.past) {
-      const ps = this.past.sectorsSec;
-      const n = Math.max(ps.length, this.refSectors.length);
-      this.refSectors = Array.from({ length: n }, (_, i) => {
-        const a = this.refSectors[i], b = ps[i];
-        return a === undefined ? b : b === undefined ? a : Math.min(a, b);
-      });
-    }
-    if (this.lapStartMs !== null && this.deltaSec === null && this.bestTrace) this.deltaSec = 0;
+    this.refSectors = this.laps.reduce(bestSectors, this.past?.sectorsSec ?? []);
+    this.deltaSec = this.lapStartMs === null ? null : this.deltaAt(this.lapDistanceM, this.trace[this.trace.length - 1] ?? 0);
   }
 
   /** 差の基準 (過去の走行のベストか、この走行のベストの速い方) */
@@ -398,6 +385,15 @@ export class LiveLapTimer {
     const bestElapsed = d1 > d0 ? e0 + ((distM - d0) / (d1 - d0)) * (e1 - e0) : e0;
     return elapsed - bestElapsed;
   }
+}
+
+function bestSectors(previous: number[], lap: LiveLap): number[] {
+  if (!lap.sectorsSec.length) return previous;
+  return lap.sectorsSec.map((time, i) => {
+    const old = previous[i];
+    if (lap.sectorGaps?.[i]) return old;
+    return old === undefined ? time : Math.min(old, time);
+  });
 }
 
 /** 周のタイムを m:ss.SSS (digits は小数の桁) */
