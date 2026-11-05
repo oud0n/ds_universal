@@ -5,6 +5,7 @@ import android.os.Looper
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicLong
 
 /** 約束のエラーの符号 (src/native/contract.ts の NativeErrorCode と同じ) */
 class NativeError(val code: String, message: String = "") : Exception(message) {
@@ -27,6 +28,11 @@ typealias Done = (Result<JSONObject>) -> Unit
 class NativeBridge(private val activity: MainActivity, private val webView: WebView) {
     companion object {
         const val CONTRACT_VERSION = 1
+        private val lastSession = AtomicLong()
+        private fun newSession(): String? {
+            val previous = lastSession.getAndUpdate { if (it == Long.MAX_VALUE) it else it + 1 }
+            return if (previous == Long.MAX_VALUE) null else (previous + 1).toString()
+        }
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -50,21 +56,32 @@ class NativeBridge(private val activity: MainActivity, private val webView: WebV
             if (!MainActivity.isAppPage(webView.url)) return@post
             val req = try { JSONObject(text) } catch (e: Exception) { return@post }
             val id = req.optInt("id", -1)
-            val method = req.optString("method")
-            if (id < 0 || method.isEmpty()) return@post
-            if (req.optInt("v") != CONTRACT_VERSION) {
-                reply(id, Result.failure(NativeError.notSupported("contract version ${req.opt("v")}")))
+            if (id < 0) return@post
+            val requestedSession = req.opt("session") as? String
+            val method = req.opt("method") as? String
+            if (method.isNullOrEmpty()) {
+                reply(id, requestedSession, Result.failure(NativeError.io("Invalid native request")))
                 return@post
             }
+            if (req.optInt("v") != CONTRACT_VERSION) {
+                reply(id, requestedSession, Result.failure(NativeError.notSupported("contract version ${req.opt("v")}")))
+                return@post
+            }
+            val session = if (id == 0 && method == "caps.get" && req.opt("requestSession") == true) {
+                newSession() ?: run {
+                    reply(id, null, Result.failure(NativeError.io("Native sessions exhausted")))
+                    return@post
+                }
+            } else requestedSession
             val params = req.optJSONObject("params") ?: JSONObject()
-            val done: Done = { r -> main.post { reply(id, r) } }
+            val done: Done = { r -> main.post { reply(id, session, r) } }
             try {
                 when {
                     method == "caps.get" -> done(Result.success(JSONObject()
                         .put("contractVersion", CONTRACT_VERSION)
                         .put("platform", "android")
                         .put("deviceKind", "phone")
-                        .put("features", JSONObject().put("ble", true).put("iap", false).put("camera", true).put("spp", true).put("deleteFiles", true))
+                        .put("features", JSONObject().put("ble", true).put("bridgeSessions", true).put("iap", false).put("camera", true).put("spp", true).put("deleteFiles", true))
                         .put("appVersion", appVersion())))
                     method == "system.motionStart" || method == "system.motionStop" -> motion.handle(method, params, done)
                     method.startsWith("system.") -> system.handle(method, params, done)
@@ -91,8 +108,8 @@ class NativeBridge(private val activity: MainActivity, private val webView: WebV
         send(JSONObject().put("event", event).put("data", data))
     }
 
-    private fun reply(id: Int, r: Result<JSONObject>) {
-        val msg = JSONObject().put("id", id)
+    private fun reply(id: Int, session: String?, r: Result<JSONObject>) {
+        val msg = JSONObject().put("id", id).put("session", session)
         r.fold(
             onSuccess = { msg.put("ok", true).put("result", it) },
             onFailure = { e ->
@@ -100,12 +117,20 @@ class NativeBridge(private val activity: MainActivity, private val webView: WebV
                 msg.put("ok", false).put("error", JSONObject().put("code", ne.code).put("message", ne.message ?: ""))
             }
         )
-        send(msg)
+        val json = try {
+            msg.toString(0)
+        } catch (_: org.json.JSONException) {
+            msg.remove("result")
+            msg.put("ok", false).put("error", JSONObject().put("code", "io").put("message", "reply could not be encoded")).toString()
+        }
+        sendJson(json)
     }
 
-    private fun send(message: JSONObject) {
+    private fun send(message: JSONObject) = sendJson(message.toString())
+
+    private fun sendJson(json: String) {
         // JSON の文字列を、JavaScript の文字列の値として渡す (中身をそのまま実行しない)
-        val literal = JSONObject.quote(message.toString())
+        val literal = JSONObject.quote(json)
         main.post { webView.evaluateJavascript("window.dsNative && window.dsNative.receive($literal)", null) }
     }
 }

@@ -32,6 +32,10 @@ npm run build             # dist (iOS・Android のアプリにも入る)
 
 購入処理を変更したときは Swift 6 のある環境で `scripts/test-iap.sh` も実行する。実装に模擬の取引を渡し、購入・取り消し・復元と、一覧が止まったあとに確かめ直せるかを試す (約 20 秒)。
 
+ネイティブ応答の変更 (BUG-45) は `scripts/test-native-bridge.sh ios` と `scripts/test-native-bridge.sh android` で確かめる。両方を続けて試す場合は引数を省略する。iOS 側は macOS・Swift 6、Android 側は JDK と展開済みの Gradle (Kotlin コンパイラ・Gson を含むもの) を使う。必要なら `JAVA_HOME` に JDK、`GRADLE_HOME` に Gradle のフォルダを指定する。通常は Android プロジェクトの既存の wrapper キャッシュを使う。ネットワークから追加のものは取得しない。
+
+この試験は本体の Swift / Kotlin の窓口をコンパイルし、模擬 WebView に届く応答を検査する。プラットフォーム SDK との組み合わせは通常の iOS ビルド・Android の `:app:compileDebugKotlin` で別に確認する。
+
 ## 3. 画面の通しの試験 (e2e)
 
 本物の保管場所は使わない (周を隠すなどで書き換えるため)。写しで回す。

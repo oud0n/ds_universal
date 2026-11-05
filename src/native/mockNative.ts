@@ -18,6 +18,7 @@ export interface MockNativeOptions {
   iap?: boolean;
   entitlements?: boolean;
   contractVersion?: number;
+  bridgeSessions?: boolean;
 }
 
 export interface MockNativeController {
@@ -80,6 +81,14 @@ export function mockFixPackets(runSec: number, utcMs: number, valid: boolean): [
   const lon = CENTER_LON + (RADIUS_M * Math.cos(angle)) / mPerDegLon;
   const t = new Date(Math.round(utcMs));
   return [packetA(valid, valid ? SPEED_MS : 0, lat, lon, 50), packetB(valid, t)];
+}
+
+// 開発サーバーの読み直しでモジュールだけが入れ替わっても、同じ番号を使わない。
+const MOCK_SESSIONS = Symbol.for('laploupe.mock.sessions');
+function newSession(): string {
+  const host = globalThis as { [MOCK_SESSIONS]?: bigint };
+  host[MOCK_SESSIONS] = (host[MOCK_SESSIONS] ?? 0n) + 1n;
+  return String(host[MOCK_SESSIONS]);
 }
 
 export function installMockNative(options: MockNativeOptions = {}): MockNativeController {
@@ -208,7 +217,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   const handle = (req: NativeRequest): unknown => {
     switch (req.method) {
       case 'caps.get':
-        return { contractVersion: options.contractVersion ?? CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, iap: options.iap ?? true, entitlements: options.entitlements ?? true, camera: true, spp: true, deleteFiles: true, trashFiles: true } };
+        return { contractVersion: options.contractVersion ?? CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, bridgeSessions: options.bridgeSessions ?? true, iap: options.iap ?? true, entitlements: options.entitlements ?? true, camera: true, spp: true, deleteFiles: true, trashFiles: true } };
       // アプリ内課金の模擬 (値段は日本円の例。買うとすぐ買えたことにする)
       case 'iap.products': {
         const { ids } = req.params as { ids: string[] };
@@ -513,17 +522,19 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
     postMessage(message: string) {
       const req = JSON.parse(message) as NativeRequest;
       requests.push(req);
+      let session = options.bridgeSessions === false ? undefined : req.session;
       if (req.v !== CONTRACT_VERSION) {
-        send({ id: req.id, ok: false, error: { code: 'not-supported', message: `contract ${req.v}` } });
+        send({ id: req.id, session, ok: false, error: { code: 'not-supported', message: `contract ${req.v}` } });
         return;
       }
       try {
+        if (req.id === 0 && req.method === 'caps.get' && req.requestSession && options.bridgeSessions !== false) session = newSession();
         const result = handle(req);
         const reply = () => {
           if (req.method === 'iap.entitlements' || req.method === 'iap.restore') {
             emit('iap.entitlementsChanged', result as EntitlementSnapshot);
           }
-          send({ id: req.id, ok: true, result });
+          send({ id: req.id, session, ok: true, result });
         };
         if (hold && req.method === hold.method) {
           const { capture } = hold;
@@ -532,7 +543,7 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
         } else reply();
       } catch (e) {
         const err = e as { code?: string; message?: string };
-        send({ id: req.id, ok: false, error: { code: (err.code ?? 'io') as 'io', message: err.message ?? String(e) } });
+        send({ id: req.id, session, ok: false, error: { code: (err.code ?? 'io') as 'io', message: err.message ?? String(e) } });
       }
     }
   };

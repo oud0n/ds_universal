@@ -23,13 +23,16 @@ export const CONTRACT_VERSION = 1;
 export interface NativeRequest {
   v: number;
   id: number;
+  /** id=0 の caps.get で、そのページの返事を区別する番号を受け取る */
+  requestSession?: true;
+  session?: string;
   method: keyof NativeMethods;
   params: unknown;
 }
 
 export type NativeResponse =
-  | { id: number; ok: true; result: unknown }
-  | { id: number; ok: false; error: NativeErrorBody };
+  | { id: number; session?: string; ok: true; result: unknown }
+  | { id: number; session?: string; ok: false; error: NativeErrorBody };
 
 export interface NativeEvent {
   event: keyof NativeEvents;
@@ -59,7 +62,7 @@ export interface Capabilities {
   /** camera: 内蔵カメラで録画できる (2026-10-25 に足した。前の版のアプリには無い) */
   /** spp: Bluetooth Classic のシリアル (Android だけ。Drogger DG-PRO1S など。2026-10-25) */
   /** deleteFiles: 走行のファイルを消せる (system.deleteRunFiles。2026-10-25)。trashFiles: アプリのゴミ箱へ移せる (system.trashRunFiles など。2026-10-28) */
-  features: { ble: boolean; iap?: boolean; entitlements?: boolean; camera?: boolean; spp?: boolean; deleteFiles?: boolean; trashFiles?: boolean };
+  features: { ble: boolean; bridgeSessions?: boolean; iap?: boolean; entitlements?: boolean; camera?: boolean; spp?: boolean; deleteFiles?: boolean; trashFiles?: boolean };
   /** アプリの版の番号 (1.2.0 (16) など。2026-11-02 に足した。前の版のアプリには無い) */
   appVersion?: string;
 }

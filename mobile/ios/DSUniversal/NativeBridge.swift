@@ -14,6 +14,7 @@ import WebKit
 @MainActor
 final class NativeBridge: NSObject, WKScriptMessageHandler {
     static let contractVersion = 1
+    private static var lastSession: UInt64 = 0
     /// 版の番号 (1.2.0 (16))。設定の「バージョン情報」に出す
     static let appVersion: String = {
         let info = Bundle.main.infoDictionary
@@ -55,21 +56,33 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
         guard let text = message.body as? String,
               let data = text.data(using: .utf8),
               let req = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let id = req["id"] as? Int,
-              let method = req["method"] as? String else {
+              let id = req["id"] as? Int, id >= 0 else {
             NSLog("[native] 読めない呼び出し: \(message.body)")
             return
         }
-        guard (req["v"] as? Int) == Self.contractVersion else {
-            reply(id: id, error: NativeError(.notSupported, "contract version \(req["v"] ?? "?")"))
+        let requestedSession = req["session"] as? String
+        guard let method = req["method"] as? String, !method.isEmpty else {
+            reply(id, requestedSession, .failure(NativeError(.io, "Invalid native request")))
             return
+        }
+        guard (req["v"] as? Int) == Self.contractVersion else {
+            reply(id, requestedSession, .failure(NativeError(.notSupported, "contract version \(req["v"] ?? "?")")))
+            return
+        }
+        let session: String?
+        if id == 0, method == "caps.get", req["requestSession"] as? Bool == true {
+            guard Self.lastSession < UInt64.max else {
+                reply(id, nil, .failure(NativeError(.io, "Native sessions exhausted")))
+                return
+            }
+            Self.lastSession += 1
+            session = String(Self.lastSession)
+        } else {
+            session = requestedSession
         }
         let params = req["params"] as? [String: Any] ?? [:]
         let done: (Result<[String: Any], NativeError>) -> Void = { [weak self] result in
-            switch result {
-            case .success(let value): self?.reply(id: id, result: value)
-            case .failure(let error): self?.reply(id: id, error: error)
-            }
+            self?.reply(id, session, result)
         }
         switch method {
         case "caps.get":
@@ -77,7 +90,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
                 "contractVersion": Self.contractVersion,
                 "platform": "ios",
                 "deviceKind": DeviceKind.current,
-                "features": ["ble": true, "iap": true, "entitlements": true, "camera": true, "deleteFiles": true, "trashFiles": true],
+                "features": ["ble": true, "bridgeSessions": true, "iap": true, "entitlements": true, "camera": true, "deleteFiles": true, "trashFiles": true],
                 "appVersion": Self.appVersion
             ]))
         case let m where m.hasPrefix("ble.") || m.hasPrefix("recorder."):
@@ -99,12 +112,18 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
         send(["event": event, "data": data])
     }
 
-    private func reply(id: Int, result: [String: Any]) {
-        send(["id": id, "ok": true, "result": result])
-    }
-
-    private func reply(id: Int, error: NativeError) {
-        send(["id": id, "ok": false, "error": ["code": error.code.rawValue, "message": error.message]])
+    private func reply(_ id: Int, _ session: String?, _ result: Result<[String: Any], NativeError>) {
+        var message: [String: Any] = ["id": id]
+        message["session"] = session
+        switch result {
+        case .success(let value):
+            message["ok"] = true
+            message["result"] = value
+        case .failure(let error):
+            message["ok"] = false
+            message["error"] = ["code": error.code.rawValue, "message": error.message]
+        }
+        send(message)
     }
 
     private func send(_ message: [String: Any]) {
@@ -112,7 +131,9 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
         guard JSONSerialization.isValidJSONObject(message) else {
             DebugLog.write("bridge: dropped a message that is not valid JSON: \(message["event"] ?? message["id"] ?? "?")")
             // 答え (id のあるもの) は、捨てずにエラーの答えにする (捨てると、Web が答えを待ち続ける)
-            if let id = message["id"] { send(["id": id, "ok": false, "error": ["code": "io", "message": "reply could not be encoded"]]) }
+            if let id = message["id"] as? Int {
+                reply(id, message["session"] as? String, .failure(NativeError(.io, "reply could not be encoded")))
+            }
             return
         }
         guard let data = try? JSONSerialization.data(withJSONObject: message),

@@ -159,7 +159,7 @@ describe('買い切り商品の状態', () => {
       if (req.method !== 'iap.purchase') { post(message); return; }
       // 支払いは通ったが、ストアの新しい一覧はまだ取得できない。
       sendSnapshot({ revision: 5, productIds: ['b'] });
-      window.dsNative!.receive(JSON.stringify({ id: req.id, ok: true, result: { status: 'purchased' } }));
+      window.dsNative!.receive(JSON.stringify({ id: req.id, session: req.session, ok: true, result: { status: 'purchased' } }));
     };
     const hold = mock.holdNextEntitlements();
     const bought = service.purchase('a');

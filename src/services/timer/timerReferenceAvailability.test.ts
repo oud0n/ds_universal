@@ -86,6 +86,38 @@ it('読み取り途中・適用後とも、選択が使えなくなったら基�
   expect(listeners.size).toBe(0);
 });
 
+it('新しい比較基準を待っている間に完走した周の表示を、基準の適用時に閉じる', async () => {
+  vi.stubGlobal('window', new EventTarget());
+  vi.stubGlobal('document', new EventTarget());
+  vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} });
+  available = true;
+  load.mockReset();
+  let finish!: (value: LapReferenceChoice) => void;
+  load.mockReturnValueOnce(new Promise(done => { finish = done; }));
+  const rt = new TimerRuntime({ replayLogs: () => [], phoneMessages: () => ({ unavailable: '', denied: '' }) }, 'replay');
+  rt.start();
+  try {
+    rt.chooseCourse({
+      ...CIRCUIT_PRESETS[0], id: 'test-loop', name: 'test-loop', centerLat: 35, centerLon: 140, sectors: [],
+      controlLine: { name: 'start', latA: 35, lonA: 140.0003, latB: 35, lonB: 140.002 }
+    }, { manual: true });
+    rt.setReference(source.id);
+    await vi.waitFor(() => expect(load).toHaveBeenCalledOnce());
+    // 40 秒で一周。計測線を同じ向きに二度横切る。
+    for (let i = 0; i <= 50; i++) {
+      const angle = (i - 2.5) * 2 * Math.PI / 40;
+      rt.handleFix({ valid: true, tMs: 100_000 + i * 1000, latitude: 35 + 0.001 * Math.sin(angle),
+        longitude: 140 + 0.001 * Math.cos(angle), speedKmh: 60 });
+    }
+    const lap = rt.getSnapshot().flash?.event.lap;
+    expect(lap?.timeSec).toBeCloseTo(40);
+    finish({ ref: { timeSec: 30, trace: [0, 0, 100, 30], sectorsSec: [], startMs: 1 }, tag: ['選択', 'Choice'] });
+    await vi.waitFor(() => expect(rt.getSnapshot().pastBest?.time).toBe(30));
+    expect(rt.getSnapshot().flash).toBeNull();
+    expect(rt.getSnapshot().lap?.laps[0]).toBe(lap);
+  } finally { rt.dispose(); }
+});
+
 it('利用可否の判定と変更の通知は組で指定する', () => {
   type Fixed = Pick<LapReferenceSource, 'id' | 'label' | 'load'>;
   expectTypeOf<Fixed>().toExtend<LapReferenceSource>();

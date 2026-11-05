@@ -110,9 +110,14 @@ async function read(method: 'iap.entitlements' | 'iap.restore'): Promise<void> {
 /** 起動時に一度だけ。失敗しても次に前面に戻ったときに読み直す。 */
 export function initializeEntitlements(): Promise<void> {
   if (!initialRead) {
-    if (hasNative()) onNative('system.appState', ({ state }) => {
-      if (state === 'active') void refreshEntitlements().catch(() => {});
-    });
+    if (hasNative()) {
+      onNative('system.appState', ({ state }) => {
+        if (state === 'active') void refreshEntitlements().catch(() => {});
+      });
+      window.addEventListener?.('pageshow', e => {
+        if (e.persisted) void refreshEntitlements().catch(() => {});
+      });
+    }
     initialRead = refreshEntitlements().catch(() => {});
   }
   return initialRead;

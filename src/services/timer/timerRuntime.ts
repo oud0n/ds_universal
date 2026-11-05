@@ -403,7 +403,7 @@ export class TimerRuntime {
       if (!choice) return;
       this.pastRef = { courseId: course.id, ref: choice.ref };
       this.timer?.setPastReference(choice.ref);
-      this.set({ pastBest: { time: choice.ref.timeSec, startMs: choice.ref.startMs, tag: choice.tag }, lap: this.timer?.getState() ?? null });
+      this.set({ flash: null, pastBest: { time: choice.ref.timeSec, startMs: choice.ref.startMs, tag: choice.tag }, lap: this.timer?.getState() ?? null });
     })();
   }
 
