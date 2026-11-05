@@ -221,7 +221,7 @@ export function LapPicker({ sessions, selectedCars, onAssign, onClose, sourceRev
       </div>}
       {stored ? <StoredLaps key={`${sourceRevision}:${reload}`} selectedCars={selectedCars} onAssign={onAssign} /> :
         <LoadedLaps key={sourceRevision} sessions={sessions} selectedCars={selectedCars} onAssign={onAssign} />}
-      <p className="mt-auto border-t border-line-2 px-3 pt-2 text-xs text-slate-400">{t('割り当てると、どの Car にも使っていない走行を閉じます。', 'Assigning a lap closes runs unused by any Car.')}</p>
+      <p className="mt-auto border-t border-line-2 px-3 pt-2 text-xs text-slate-400">{t('Car に割り当てた走行と、保持する動画の保存元を残します。', 'Keeps assigned runs and the source needed to save retained video sync.')}</p>
       <div className="grid grid-cols-2 gap-x-3 gap-y-1 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-xs sm:grid-cols-4 sm:pb-2">
         {slots.map(slot => {
           const car = selectedCars.find(c => c.slot === slot);

@@ -36,13 +36,21 @@ function sourceKey(session: Session): string {
   return file ? JSON.stringify(['file', file.storageRevision, file.folder, file.file, file.size, file.mtimeMs]) : JSON.stringify(['open', session.id]);
 }
 
-/** 選び終わった時点の一覧へ反映し、Car 1〜4 に残った走行だけを開いておく。 */
-export function assignLap(state: AnalysisState, incoming: Session[], sessionId: string, lapNumber: number, slot: number, releaseUnused = true): AnalysisState {
+/** 選び終わった一覧へ反映し、Car と保存のために指定された元走行を開いておく。 */
+export function assignLap(state: AnalysisState, incoming: Session[], sessionId: string, lapNumber: number, slot: number, releaseUnused = true, retainedSessionIds: readonly string[] = []): AnalysisState {
   if (!Number.isInteger(slot) || slot < 0 || slot >= colors.length) {
     throw new RangeError(tr('Car 1〜4 を選んでください。', 'Choose Car 1 through Car 4.'));
   }
   const merged = new Map(state.sessions.map(session => [session.id, session]));
   for (const session of incoming) merged.set(session.id, session);
+  const conflicts = (owner: Session) => {
+    const origin = owner.sourceFile;
+    return !!origin && incoming.some(s => {
+      const next = s.sourceFile;
+      return next && next.storageRevision === origin.storageRevision && next.folder === origin.folder && next.file === origin.file
+        && (next.size !== origin.size || next.mtimeMs !== origin.mtimeMs);
+    });
+  };
   const session = merged.get(sessionId);
   if (!session?.laps.some(lap => lap.lapNumber === lapNumber)) {
     throw new Error(tr('この走行またはラップは閉じたか変更されました。', 'This run or lap was closed or changed.'));
@@ -62,12 +70,7 @@ export function assignLap(state: AnalysisState, incoming: Session[], sessionId: 
       }
       continue;
     }
-    const origin = owner.sourceFile;
-    if (origin && incoming.some(s => {
-      const next = s.sourceFile;
-      return next && next.storageRevision === origin.storageRevision && next.folder === origin.folder && next.file === origin.file
-        && (next.size !== origin.size || next.mtimeMs !== origin.mtimeMs);
-    })) {
+    if (conflicts(owner)) {
       throw new Error(tr(`Car ${index + 1} の元ファイルが変わりました。先に古い走行を外してください。`, `The source used by Car ${index + 1} changed. Remove the old run first.`));
     }
     const former = state.sessions.find(item => item.id === car.sessionId);
@@ -81,6 +84,12 @@ export function assignLap(state: AnalysisState, incoming: Session[], sessionId: 
     keep.add(sourceKey(owner));
     const label = `${owner.sessionName} (L${car.lapNumber})`;
     selectedCars.push(label === car.label ? car : { ...car, label });
+  }
+  for (const id of retainedSessionIds) {
+    const owner = state.sessions.find(s => s.id === id);
+    if (!owner) continue;
+    if (conflicts(owner)) throw new Error(tr('動画に使っている走行の元ファイルが変わりました。開いている走行を閉じてから選び直してください。', 'The source used by the video changed. Close that run before selecting it again.'));
+    keep.add(sourceKey(owner));
   }
   return { sessions: [...merged.values()].filter(item => !releaseUnused || keep.has(sourceKey(item))), selectedCars };
 }

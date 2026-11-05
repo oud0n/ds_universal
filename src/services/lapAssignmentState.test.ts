@@ -27,6 +27,26 @@ describe('ラップを Car へ割り当てる', () => {
     expect(result.selectedCars[0].sessionId).toBe('b');
   });
 
+  it('動画の保存担当として残す走行は全パートを保ち、別の不要な走行だけ閉じる', () => {
+    const a = run('a1', { name: 'A.nmea', revision: 1, part: 1 });
+    const a2 = run('a2', { name: 'A.nmea', revision: 1, part: 2 });
+    const loose = run('loose'), unused = run('unused');
+    const state = assignLap(empty(), [a, a2, loose, unused], a.id, 1, 0, false);
+    const selected = assignLap(state, [], loose.id, 1, 0, true, [a.id]);
+    expect(selected.sessions).toEqual([a, a2, loose]);
+    expect(selected.selectedCars.map(c => c.sessionId)).toEqual([loose.id]);
+    const next = assignLap(selected, [run('next')], 'next', 1, 0);
+    expect(next.sessions.map(s => s.id)).toEqual(['next']);
+  });
+
+  it('動画に必要な旧版と、同じ道の新しい内容を同時に保持しない', () => {
+    const a = run('a', { name: 'A.nmea', revision: 1, part: 1 }), loose = run('loose');
+    const newer = run('new-a', { name: 'A.nmea', revision: 1, part: 1 }); newer.sourceFile!.mtimeMs++;
+    const state = assignLap(empty(), [a, loose], loose.id, 1, 0, false);
+    expect(() => assignLap(state, [newer], newer.id, 1, 1, true, [a.id])).toThrow();
+    expect(state.sessions).toEqual([a, loose]);
+  });
+
   it('同じ周を複数の枠に置ける。選び直した枠だけ距離補正を外す', () => {
     const a = run('a'), b = run('b');
     const initial = assignLap(empty(), [a], 'a', 1, 0);

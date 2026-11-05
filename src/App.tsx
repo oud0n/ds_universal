@@ -48,7 +48,7 @@ import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
 import { RecentRunsList, RunsSheet, notifyRunsChanged } from './components/RecentRuns';
 import { canUseRunStore, getRunStore } from './services/runStore';
-import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, closeOpenRun, companionRunMatches, companionRuns, dropCompanion, flushOpenRuns, flushOpenRunsStrict, getOpenRunItem, getRunItemEntry, listRuns, scheduleRunSave, setRunMeta, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
+import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, closeOpenRun, companionRunMatches, companionRuns, dropCompanion, flushOpenRuns, flushOpenRunsStrict, getOpenRun, getOpenRunItem, getRunItemEntry, listRuns, scheduleRunSave, setRunMeta, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
 import { runStem, courseHash } from './services/lapIndex';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLapTimer, canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
@@ -663,6 +663,13 @@ export const App: React.FC = () => {
       setIsPlaying(false);
       setPlayhead({ source: session.id, sessionSec: asSessionSec(lap.startTime) });
     }
+  };
+  const clearCarSlot = (slot: number) => {
+    invalidateAssignments();
+    const cars = [...analysisStore.getSnapshot().selectedCars].sort((a, b) => a.slot - b.slot);
+    const next = cars.filter(car => car.slot !== slot);
+    if (cars[0]?.slot === slot) selectCarsAtLapStart(next);
+    else setSelectedCars(next);
   };
 
   // 再生の段が無い画面に移ったとき・Car 1 を外したときは止める (前は見えないところで再生が進み続け、止めるボタンも無かった。2026-10-27 のレビュー)
@@ -2099,7 +2106,15 @@ export const App: React.FC = () => {
       incoming = applyRunMetadata(incoming, choice.kind === 'stored' ? getRunItemEntry(choice.store, owned ?? selectedRun) : owned?.entry ?? selectedRun.entry);
     }
     const sessionId = selected.id, lapNumber = lap.lapNumber;
-    analysisStore.update(prev => assignLap(prev, incoming, sessionId, lapNumber, slot));
+    const videoOwner = getOpenRun();
+    const ownerIds = videoOwner && (videoOwner.store.storageRevision === undefined || videoOwner.store.storageRevision === revision)
+      ? runSessionsRef.current.get(`${videoOwner.item.folder}/${videoOwner.item.file}`) ?? [] : [];
+    analysisStore.update(prev => {
+      const proposed = assignLap(prev, incoming, sessionId, lapNumber, slot, false);
+      const base = proposed.sessions.find(s => s.id === proposed.selectedCars[0]?.sessionId);
+      // 別の GPS ログを基準にしても、動画の同期を保存する元走行を手放さない。
+      return assignLap(prev, incoming, sessionId, lapNumber, slot, true, base && !base.sourceFile ? ownerIds : []);
+    });
     if (selectedRun) {
       if (choice.kind === 'stored') selectedRun = shareRunItem(selectedRun, choice.store);
       const runPath = `${selectedRun.folder}/${selectedRun.file}`;
@@ -2216,6 +2231,7 @@ export const App: React.FC = () => {
       go: (s: Parameters<typeof navStore.go>[0]) => navStore.go(s),
       // 走行とコースの引き出しの Car の割り当てと同じ (比べるを開いたまま Car を替える試験のため)
       selectCar: (slot: number, sessionId: string, lapNumber: number) => handleSelectCarSlot(slot, sessionId, lapNumber),
+      analysisSnapshot: () => analysisStore.getSnapshot(),
       // CSV の形式の定義を読み直す (試験・マニュアルの写真で、あとから保管場所に入れたとき)
       reloadCsvFormats: () => loadCsvFormats(),
       clockBase,
@@ -2848,7 +2864,7 @@ export const App: React.FC = () => {
             onOpenLapRun={(file, run) => { setDataDrawer(false); void openRunByPath(run, file); }}
             selectedCars={selectedCars}
             onSelectCarSlot={handleSelectCarSlot}
-            onClearCarSlot={slotIndex => setSelectedCars(prev => prev.filter(c => c.slot !== slotIndex))}
+            onClearCarSlot={clearCarSlot}
             onSetDistanceOffset={handleSetDistanceOffset}
             alignLapLength={alignLapLength}
             onSetAlignLapLength={setAlignLapLength}

@@ -95,6 +95,21 @@ async function exercise(width, height, files) {
     await p.waitFor("window.__laploupe.screen === 'analysis'");
     assert.ok(Math.abs((await p.state()).lapTimeSec - 7.2) < 0.001);
 
+    // 同じ Session の後の周を外して前の周が基準になっても、周の終わりへ飛ばない。
+    const pair=await p.ev(`(()=>{const s=window.__laploupe.analysisSnapshot().sessions[0],laps=s.laps.filter(l=>!l.isWholeSession&&!l.isPartialLap);return {id:s.id,early:laps[0].lapNumber,late:laps.at(-1).lapNumber};})()`);
+    await p.ev(`window.__laploupe.selectCar(0,${JSON.stringify(pair.id)},${pair.late});window.__laploupe.selectCar(1,${JSON.stringify(pair.id)},${pair.early})`);
+    await p.click('toggle-data-drawer');
+    await p.ev("document.querySelector('button[title^=\"Unassign Car 1 \"]').click()");
+    await p.waitFor(`window.__laploupe.cars[0].slot===1 && window.__laploupe.baseLap.lapNumber===${pair.early}`);
+    assert.ok(Math.abs((await p.state()).lapTimeSec)<0.001,'cleared base starts new lap at zero');
+    await p.ev(`window.__laploupe.selectCar(0,${JSON.stringify(pair.id)},${pair.late})`);
+    const beforeClear=(await p.state()).sessionTimeSec;
+    await p.ev("document.querySelector('button[title^=\"Unassign Car 2 \"]').click()");
+    assert.equal((await p.state()).sessionTimeSec,beforeClear,'clearing non-base retains playhead');
+    await p.ev("[...document.querySelectorAll('button[title^=\"Unassign Car \"]')].forEach(b=>b.click())");
+    for(const car of first.cars)await p.ev(`window.__laploupe.selectCar(${car.slot},${JSON.stringify(car.sessionId)},${car.lapNumber})`);
+    await p.click('data-drawer-close');
+
     await installDelayedStore(p);
     await p.click('open-lap-picker');
     await p.waitFor("document.querySelector('[data-testid=lap-picker-row]')");
