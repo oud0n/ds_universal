@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, normalizePath } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import type { Plugin } from 'vite';
@@ -33,6 +33,8 @@ const goatCounter = (): Plugin => ({
 const ADDONS_DIR = process.env.LAPLOUPE_ADDONS_DIR ? resolve(process.env.LAPLOUPE_ADDONS_DIR) : null;
 const ADDONS_ID = 'virtual:laploupe-addons';
 const SRC = fileURLToPath(new URL('./src', import.meta.url));
+const INDEX_CSS = normalizePath(join(SRC, 'index.css'));
+const ADDONS_SRC = ADDONS_DIR && normalizePath(join(ADDONS_DIR, 'src'));
 // 版の番号 (設定の「バージョン情報」に出す)
 const APP_VERSION: string = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 const addons = (): Plugin => ({
@@ -41,8 +43,8 @@ const addons = (): Plugin => ({
   resolveId: id => id === ADDONS_ID
     ? (ADDONS_DIR ? join(ADDONS_DIR, 'src/index.ts') : join(SRC, 'addons/none.ts'))
     : null,
-  transform: (code, id) => ADDONS_DIR && id.split('?')[0] === join(SRC, 'index.css')
-    ? `${code}\n@source ${JSON.stringify(join(ADDONS_DIR, 'src'))};\n`
+  transform: (code, id) => ADDONS_SRC && normalizePath(id.split('?')[0]) === INDEX_CSS
+    ? `${code}\n@source ${JSON.stringify(ADDONS_SRC)};\n`
     : null
 });
 
