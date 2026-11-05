@@ -4,11 +4,13 @@
 
 [Back to the README](../README.en.md)
 
-## v1.3.0 (In development, not distributed)
+## v1.3.0 (2026-11-06, personal iPhone / iPad TestFlight, build 18)
 
 - Use “Add laps” to assign loaded or stored laps to Car 1–4. Stored laps are checked against the actual log and course before loading.
 - Playback now keeps a single session time across analysis and video views. Video-only playback also works without a GPS log.
 - Pending video synchronization edits are saved before assigning laps from the new picker or choosing storage. Cancelling storage selection preserves the open video's run association.
+
+Known unresolved cases are [BUG-50 and BUG-51](../BUGS.md). Avoid reselecting the current on-device storage and making new video-sync adjustments against a separate log without timestamps. This is not a public release.
 
 ## v1.2.0 (2026-11-02)
 
