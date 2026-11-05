@@ -79,10 +79,30 @@ ID の付け方: 不具合 `BUG-NN` (細かくは [BUGS.md](BUGS.md))、直す�
 | PLAN-54 | 解析の画面: 比べるラップのチップを上に、配置のプリセット「標準 (3 欄)」「動画も (4 欄)」(動画があれば自動で「動画も」、切り替えても再生を止めない)。コース図の色分け・セクターは並べたまま (2026-11-05。docs/ux_flow_design.md の 3.5) | 版 3 (e2e の書き直しが要る) |
 | PLAN-55 | 再生の位置の整理: 再生の時刻は今、画面によって「周の中」にも「走行全体」にもなる 1 つの数で、15 か所ほどへ素のまま渡している (読み替え忘れで BUG-43 など)。再生の位置を 1 つの形 (走行全体の時刻・周の中の時刻・距離・基準の周) にして 1 か所で計算し、「走行全体の秒」「周の中の秒」を型で分ける。時計の基準の切り替えは計算で出す。動きは変えない。e2e に「画面 × 時計の基準ごとに、再生するとどの窓も進む」を足す (持ち主、2026-11-05) | 1.3.0 作業中: 共通の走行時刻と型を実装。合成ログの画面往復・連続操作を確認。実機の動画・音声の確認は残り。保持と呼出しは docs/analysis_data_flow.md |
 | PLAN-56 | iPhone / iPad のアプリ内課金で買い切り商品の状態を読み、購入を復元する | 基盤を実装。実機の確認待ち |
-| PLAN-57 | アイコンを、中央のタイヤと赤茶のルーペの持ち手に変更。トレッドなし、ダークのタイヤだけ 2% 縮小 (持ち主、2026-11-06) | 反映済み。次のビルドから。iOS・Web・Mac の Dock にライト／ダーク、PC・Android の画像も更新 |
+| PLAN-57 | アイコンを、中央のタイヤと赤茶のルーペの持ち手に変更。トレッドなし、ダークのタイヤだけ 2% 縮小 (持ち主、2026-11-06) | 実装済み。次のビルドから。当面の自動切替は Mac の起動中の Dock と iOS / iPadOS で OK (持ち主、2026-11-06)。確認状況と残りは下記 |
+| PLAN-58 | Windows・Android のアイコンの自動切替 (必要な対応は下記) | 後回し。今回は実装しない (持ち主、2026-11-06) |
 | WISH-01 | AiM Solo 2 DL から Wi-Fi で吸い出す (デスクトップ版・スマホのアプリ) | 機器待ち |
 | CLEAN-01 | 通信の解析の道具 (`digspice_cli.ps1`・`extract_pcap.py`) を消すか移すか (古い `main.js`・`preload.js`・`renderer.js`・`styles.css` は 2026-10-28 に消した) | 持ち主の判断待ち |
 | CLEAN-02 | `mobile/README.md` の「状態」の表 (BLE まで、など) が古い | 未着手 |
+
+### PLAN-57・58: アイコンの自動切替
+
+2026-11-06 の決定: 当面は **Mac の起動中の Dock と iOS / iPadOS の対応で OK**。Windows・Android の追加実装は後回し。画像の生成手順は [maintenance.md](docs/maintenance.md#アイコンの更新)。
+
+- Mac: `electron/main.cjs` の `updateDockIcon` が起動時と OS の外観変更時に切り替える。ライト → ダーク → ライトを確認済み。Finder のアイコンは通常版のまま。
+- iOS / iPadOS: `AppIcon.appiconset/Contents.json` に通常・ダークを登録済み。Xcode のコンパイルと両方の取り込みを確認済み。次のビルドでホーム画面の「自動・ライト・ダーク」を実機確認する。アプリ内テーマとは別に、[ホーム画面の外観設定](https://support.apple.com/en-gb/guide/iphone/iph385473442/26/ios/26)に従う。
+
+**Windows で着手するとき**
+
+1. `electron/main.cjs` に、ウィンドウ作成時と `nativeTheme` の `updated` 時に `BrowserWindow.setIcon()` を呼ぶ処理を追加する。画像は同梱済みの `electron/icons/icon.png`・`icon-dark.png` を使える。Windows は OS とアプリのライト／ダークを別々に選べるため、タスクバーに合わせるなら `shouldUseDarkColorsForSystemIntegratedUI` を基準にする (現行 Electron 41 の型定義にも存在)。[外観の API](https://www.electronjs.org/docs/latest/api/native-theme)・[アイコンの API](https://www.electronjs.org/docs/latest/api/browser-window#winseticonicon-windows-linux)。
+2. Windows 実機で、起動時・実行中の変更・再起動、OS とアプリの外観が逆の場合を確認する。ウィンドウ・実行中のタスクバー・ピン留め済み・終了後を分けて判定する。`setIcon()` だけでピン留めやショートカットまで切り替わるとは扱わない。
+3. 終了後のスタート・ピン留めまで対象にするなら、現行 NSIS / ZIP 配布とは分けて MSIX 等のパッケージ対応を検討する。採用時は `electron-builder.json` の配布設定、マニフェスト、テーマ別・サイズ別の画像生成、署名・更新経路を用意する。[Microsoft の画像仕様](https://learn.microsoft.com/en-us/windows/apps/design/iconography/app-icon-construction)の `altform-unplated` / `altform-lightunplated` に対応し、デスクトップのショートカットは別に確認する。配布形式の変更は未決定。
+
+**Android で着手するとき**
+
+1. 今は `android:icon="@mipmap/ic_launcher"` と通常・night の完成済み PNG だけで、ホーム画面の自動切替は未確認。`res/mipmap-anydpi-v26/ic_launcher.xml` に adaptive icon を作り、タイヤ・持ち手の前景と背景を分離する。`scripts/generate-icons.swift` に透過の前景出力を追加するか、VectorDrawable を用意し、night 用の前景・背景も定義する。
+2. Android 13 以降のテーマアイコン用に、背景のない単色の `monochrome` レイヤーを追加する。全レイヤーを 108dp 四方、主要な形を中央の 66dp の範囲に収め、持ち手がマスクで切れないよう調整する。テーマアイコンの色は OS が決めるため、採用した生成り・赤茶の 2 配色をそのまま切り替える要件とは分ける。[Android の公式仕様](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive)。
+3. Gradle のリソース処理・APK 作成後、実機の Pixel Launcher と利用者のランチャーで、テーマアイコンのオン／オフ、昼／夜、アプリ終了中、再起動、既存版からの更新を確認する。通常色の night 切替は、対応を確認できたランチャーだけを対象とする。全端末共通で自動切替できるとは扱わない。
 
 ### 見送り (やらないと決めたもの)
 
