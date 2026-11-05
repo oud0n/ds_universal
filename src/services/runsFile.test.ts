@@ -175,3 +175,14 @@ describe('天候・気温・路面温度 (2026-10-26)', () => {
     expect(conditionsText({}, true)).toBe('');
   });
 });
+
+it('厳格な一覧復元ではメタデータと競合の写しの読込み失敗を返す', async () => {
+  const folder = 'strict-metadata';noteRunsConflictCopies(folder, [folder + '/runs 2.json']);
+  const store = { readText: async () => null, readTextStrict: async (path: string) => {
+    if (path.endsWith('runs 2.json')) throw new Error('cloud IO');
+    return null;
+  } } as unknown as RunStore;
+  await expect(readRunsFile(store, folder, true)).rejects.toThrow('cloud IO');
+  await expect(readRunsFile(store, folder)).resolves.toMatchObject({ runs: {} });
+  noteRunsConflictCopies(folder, []);
+});

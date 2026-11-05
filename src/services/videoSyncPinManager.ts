@@ -4,6 +4,7 @@
  */
 
 import { formatMinSec } from '../utils/timeFormat';
+import { sessionStartUtcMs, type ClockSession } from './mediaClock';
 
 export interface SyncPin {
   id: string;
@@ -13,8 +14,21 @@ export interface SyncPin {
   trackId: string;             // 対象動画トラックID
   calculatedOffsetSec: number; // sessionTimeSec - videoTimeSec
   sessionId?: string;          // ピンを打ったときの基準のログ (sessionTimeSec はこのログの時刻)。古いピンにはない
+  utcMs?: number;              // 元ログを閉じた後の時刻換算に使う控え
   createdAt: string;           // ISOタイムスタンプ
   notes?: string;
+}
+
+export function pinUtcMs(pin: SyncPin, sessions: readonly ClockSession[]): number | null {
+  const start = sessionStartUtcMs(sessions.find(s => s.id === pin.sessionId));
+  return start !== null ? start + pin.sessionTimeSec * 1000 : Number.isFinite(pin.utcMs) ? pin.utcMs! : null;
+}
+
+export function pinTimeInSession(pin: SyncPin, session: ClockSession | undefined, sessions: readonly ClockSession[]): number | null {
+  if (!session) return null;
+  if (!pin.sessionId || pin.sessionId === session.id) return pin.sessionTimeSec;
+  const utc = pinUtcMs(pin, sessions), start = sessionStartUtcMs(session);
+  return utc === null || start === null ? null : (utc - start) / 1000;
 }
 
 export function createSyncPin(

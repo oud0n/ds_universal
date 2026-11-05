@@ -14,7 +14,7 @@ import { notifyRunsChanged } from './runsChanged';
 import type { Session } from '../types/telemetry';
 import { loadLapHistory, updateLapHidden } from './lapHistory';
 import { LAP_INDEX_FILE, groupRunsByFolder, isRunVideoName, lapKey, parseLapIndex, runStem, type LapRecord } from './lapIndex';
-import { findRunRow, isRunsConflictCopy, noteRunsConflictCopies, readRunsFile, updateRun, type RunRow, type RunVideo } from './runsFile';
+import { findRunRow, isRunsConflictCopy, noteRunsConflictCopies, readRunsFile, runKey, updateRun, type RunRow, type RunVideo } from './runsFile';
 import { UnpersistableSyncError, rowParts, rowVideoFromTrack, syncPinsFromRow, syncVideoFromRow } from './runSync';
 import type { RunFileInfo, RunStore } from './runStore';
 import { parseVideoMetadata } from './videoMetadataParser';
@@ -62,7 +62,7 @@ export function startFromName(file: string): number | null {
 }
 
 /** 保管場所の全部の走行 (新しい順)。走行は <サーキットのフォルダ>/<日付>/ か <サーキットのフォルダ>/ に置く。動画は走行と同じフォルダのものだけ */
-export async function listRuns(store: RunStore, onProgress?: (folder: string) => void): Promise<RunItem[]> {
+export async function listRuns(store: RunStore, onProgress?: (folder: string) => void, strict = false): Promise<RunItem[]> {
   const all = await store.listAll();
   // 周の控えを作るときも、今引いたファイルの一覧を使う (iCloud の置き場所では、一覧を引くのに時間がかかるので 2 回引かない)
   const listed: RunStore = { ...store, list: async () => all };
@@ -83,7 +83,7 @@ export async function listRuns(store: RunStore, onProgress?: (folder: string) =>
   for (const f of folders) {
     // iCloud がぶつかったときに作った写し (runs 2.json など) も読む
     noteRunsConflictCopies(f.folder, all.filter(x => dirName(x.path) === f.folder && isRunsConflictCopy(baseName(x.path))).map(x => x.path));
-    const runs = await readRunsFile(store, f.folder);
+    const runs = await readRunsFile(store, f.folder, strict);
     const hidden = new Set((f.index?.hidden ?? []).map(h => lapKey(h.file, h.part, h.n)));
     // 控えにある走行と、フォルダにある走行 (同じ走行は 1 つに。控えの古い .bon4 の名前より、今の基準のファイルを使う)
     const byStem = new Map<string, string>();
@@ -173,6 +173,7 @@ interface OpenRun {
   partClocks: Map<number, ClockSession>;
   /** 先行する通常保存も含めて、同じ担当の保存を順番に完了させる。 */
   saving: Promise<void>;
+  mediaAttached: boolean;
   circuitName: () => string;
   sessions: () => Session[];
   /** その走行の動画 (保管場所の道) */
@@ -202,6 +203,43 @@ let subscribed = false;
 let editSequence = 0;
 
 const runPath = (item: RunItem) => `${item.folder}/${item.file}`;
+const durableKey = (item: RunItem) => `${item.folder}/${runKey(item.file)}`;
+
+function rejectAlias(store: RunStore, item: RunItem): void {
+  for (const run of [...(current ? [current] : []), ...companions.values()]) {
+    if (run.store.storageRevision === store.storageRevision && durableKey(run.item) === durableKey(item) && run.item.file !== item.file) {
+      throw new Error('Another format of this run is open. Close it first.');
+    }
+  }
+}
+
+/** 動画を待つ前に、ログの補正を復元し保存担当を用意する。採用直前、待機なしで呼ぶ。 */
+export function registerRunSessions(store: RunStore, item: RunItem, incoming: Session[], sessions: () => Session[]): Session[] {
+  rejectAlias(store, item);
+  const prior = current && runPath(current.item) === runPath(item) ? current : companions.get(runPath(item));
+  const liveIds = new Set(sessions().map(s => s.id));
+  const restored = incoming.map((s, i) => {
+    const sec = item.entry?.parts?.[String(s.sourceFile?.part ?? i + 1)]?.clockOffsetSec;
+    return liveIds.has(s.id) || typeof sec !== 'number' || !Number.isFinite(sec) || Math.abs(sec) > 3600 ? s : { ...s, clockOffsetSec: sec };
+  });
+  if (prior) {
+    const next = partClocksOf(restored, prior), remap = new Map<string, string>();
+    for (const [part, s] of next) {
+      const old = prior.partClocks.get(part);
+      if (old && old.id !== s.id) remap.set(old.id, s.id);
+    }
+    videoViewStore.remapPinSessions(remap);
+    prior.partClocks = next;prior.sessionIds = restored.map(s => s.id);prior.sessions = sessions;
+    return restored;
+  }
+  const key = restored[0]?.circuitName ?? '';
+  const run: OpenRun = { store, item, sessionIds: restored.map(s => s.id), partClocks: partClocksOf(restored), saving: Promise.resolve(), mediaAttached: false,
+    circuitName: () => key, sessions, paths: new Set(), kept: item.entry?.videos ?? [], known: new Set(item.entry?.videos?.map(v => v.name) ?? []), baseline: null, pendingOffsets: new Map() };
+  const content = rowContent(run, item.entry, { all: restored, parts: run.partClocks, tracks: [], pins: [] });
+  run.baseline = content ? contentKey(content) : null;
+  companions.set(runPath(item), run);ensureSubscribed();
+  return restored;
+}
 /** その走行が見るログ (戻した時計の補正がまだ入っていなければ、入れたもの) */
 const sessionsOf = (run: OpenRun): Session[] => {
   const all = run.sessions();
@@ -224,7 +262,7 @@ function partClocksOf(sessions: Session[], prior?: OpenRun): Map<number, ClockSe
 const runSessionsOf = (run: OpenRun, all: Session[] = sessionsOf(run)): Array<Session | undefined> =>
   Array.from({ length: Math.max(0, ...run.partClocks.keys()) }, (_, i) => all.find(s => s.id === run.partClocks.get(i + 1)?.id));
 
-function clockPartsOf(parts: Map<number, ClockSession>, all: Session[], saved?: RunRow['parts']): Array<ClockSession | undefined> {
+function clockPartsOf(parts: Map<number, ClockSession>, all: readonly ClockSession[], saved?: RunRow['parts']): Array<ClockSession | undefined> {
   return Array.from({ length: Math.max(0, ...parts.keys()) }, (_, i) => {
     const prior = parts.get(i + 1);
     return prior ? all.find(s => s.id === prior.id) ?? { ...prior, clockOffsetSec: saved?.[String(i + 1)]?.clockOffsetSec ?? prior.clockOffsetSec } : undefined;
@@ -233,21 +271,23 @@ function clockPartsOf(parts: Map<number, ClockSession>, all: Session[], saved?: 
 
 /** その走行の今の動画・ピン・ログ (書く前に取っておく。書くのを待つ間に動画が外されても、外す前の中身で書くため) */
 interface RunSnapshot {
-  all: Session[];
+  all: ClockSession[];
   parts: Map<number, ClockSession>;
   tracks: ReturnType<typeof videoSyncManager.getTracks>;
   pins: SyncPin[];
 }
 function snapshotOf(run: OpenRun): RunSnapshot {
   const all = sessionsOf(run);
+  videoViewStore.getPins(run.circuitName() || 'default');
+  videoViewStore.anchorPins(all);
   for (const [part, prior] of run.partClocks) {
     const live = all.find(s => s.id === prior.id);
     if (live) run.partClocks.set(part, clockCopy(live));
   }
   return {
-    all, parts: new Map(run.partClocks),
+    all: all.map(clockCopy), parts: new Map(run.partClocks),
     tracks: videoSyncManager.getTracks().filter(t => t.remote && run.paths.has(t.remote.path)).map(t => ({ ...t, clock: { ...t.clock } })),
-    pins: videoViewStore.getPins(run.circuitName() || 'default').slice()
+    pins: videoViewStore.getAllPins().slice()
   };
 }
 
@@ -378,6 +418,12 @@ export function closeOpenRun(): void {
   if (timer) { clearTimeout(timer); timer = null; }
   // 中身が変わっていなければ書かない (saveRun が開いたときの中身と比べる)
   void saveAll();
+  if (current && current.sessionIds.some(id => current!.sessions().some(s => s.id === id))) {
+    const run = current;
+    run.kept = rowContent(run, run.item.entry)?.videos ?? run.item.entry?.videos ?? [];
+    run.paths = new Set();run.mediaAttached = false;
+    companions.set(runPath(run.item), run);
+  }
   current = null;
 }
 
@@ -466,7 +512,7 @@ interface AttachOptions {
   videos: RemoteVideo[];
   fromRuns: boolean;
   sessions: () => Session[];
-  circuitName: () => string;
+  circuitName: string | (() => string);
   setClockOffset?: (id: string, sec: number) => void;
   isCurrent?: () => boolean;
   /** 別の基準走行を開く際、まだ比較に使う旧走行の保存担当を引き継ぐ。 */
@@ -485,10 +531,13 @@ export function attachRunVideos(opts: AttachOptions): Promise<number> {
 
 async function attachRunVideosNow(opts: AttachOptions, isCurrent: () => boolean): Promise<number> {
   const { store, item, videos } = opts;
+  rejectAlias(store, item);
+  const circuitName = typeof opts.circuitName === 'function' ? opts.circuitName() : opts.circuitName;
   const ids = new Set(opts.runSessions.map(s => s.id));
   const owned = current && runPath(current.item) === runPath(item) ? current : companions.get(runPath(item));
   const retained = owned && owned.store.storageRevision === store.storageRevision && owned.sessionIds.length === opts.runSessions.length
     && owned.sessionIds.every((id, i) => id === opts.runSessions[i].id) ? owned : undefined;
+  if (retained && !retained.mediaAttached) { await saveRun(retained, true); if (!isCurrent()) return 0; }
   const paths = new Set([...videos.map(v => v.path), ...(retained?.paths ?? [])]);
   const openPaths = new Set(videoSyncManager.getTracks().filter(t => t.remote).map(t => t.remote!.path));
   const oldTrackIds = new Set(videoSyncManager.getTracks().map(t => t.id));
@@ -522,7 +571,7 @@ async function attachRunVideosNow(opts: AttachOptions, isCurrent: () => boolean)
   const openedNames = new Set(videoSyncManager.getTracks().filter(t => t.remote && mine.has(t.remote.path)).map(t => t.fileName));
   const row = retained?.item.entry ?? item.entry;
   const run: OpenRun = retained ?? {
-    store, item, sessionIds: opts.runSessions.map(s => s.id), partClocks: partClocksOf(opts.runSessions, owned ?? undefined), saving: Promise.resolve(), circuitName: opts.circuitName, sessions: opts.sessions, paths: mine,
+    store, item, sessionIds: opts.runSessions.map(s => s.id), partClocks: partClocksOf(opts.runSessions, owned ?? undefined), saving: Promise.resolve(), mediaAttached: true, circuitName: () => circuitName, sessions: opts.sessions, paths: mine,
     // runs.json にあって今回は開かなかった動画 (iCloud にだけある・見つからない) は、消さずに残す
     kept: opts.fromRuns ? (row?.videos ?? []).filter(v => !openedNames.has(v.name)) : [],
     known: new Set([...(row?.videos ?? []).map(v => v.name), ...openedNames]),
@@ -532,12 +581,13 @@ async function attachRunVideosNow(opts: AttachOptions, isCurrent: () => boolean)
   if (retained) {
     const saved = { entry: run.item.entry, videos: run.item.videos, synced: run.item.synced };
     Object.assign(run.item, item, saved);
-    run.store = store; run.sessions = opts.sessions; run.circuitName = opts.circuitName; run.paths = mine;
+    run.store = store; run.sessions = opts.sessions; run.circuitName = () => circuitName; run.paths = mine;
     run.kept = [...run.kept, ...(row?.videos ?? []).filter(v => !run.known.has(v.name) && !run.kept.some(k => k.name === v.name))].filter(v => !openedNames.has(v.name));
     for (const name of openedNames) run.known.add(name);
     // 既存トラックとログの未保存調整は戻さず、今回初めて開けた動画だけ復元する。
     if (opts.fromRuns) restoreRowVideos(run, row, undefined, new Set(videoSyncManager.getTracks().filter(t => !oldTrackIds.has(t.id)).map(t => t.id)));
-  } else if (opts.fromRuns) restoreRowVideos(run, row, opts.setClockOffset);
+  } else restoreRowVideos(run, row, opts.setClockOffset);
+  run.mediaAttached = true;
   companions.delete(runPath(item));
   current = run;
   for (const f of openRunListeners) f();
@@ -558,17 +608,17 @@ export function companionPaths(): Set<string> {
 
 /** 動画を読んである、比べる相手の走行 */
 export function companionRuns(): string[] {
-  return [...companions.keys()];
+  return [...companions].filter(([, run]) => run.mediaAttached).map(([path]) => path);
 }
 
 export function companionRunMatches(path: string, sessionIds: readonly string[]): boolean {
   const run = companions.get(path);
-  return !!run && run.sessionIds.length === sessionIds.length && run.sessionIds.every((id, i) => id === sessionIds[i]);
+  return !!run && run.mediaAttached && run.sessionIds.length === sessionIds.length && run.sessionIds.every((id, i) => id === sessionIds[i]);
 }
 
 /** 道だけでなく、保存する分割ログの組も今の走行と一致するか。 */
 export function currentRunMatches(path: string, sessionIds: readonly string[]): boolean {
-  return !!current && runPath(current.item) === path && current.sessionIds.length === sessionIds.length
+  return !!current && current.mediaAttached && runPath(current.item) === path && current.sessionIds.length === sessionIds.length
     && current.sessionIds.every((id, i) => id === sessionIds[i]);
 }
 
@@ -594,6 +644,8 @@ export function attachCompanionVideos(opts: AttachOptions): Promise<number> {
 }
 
 async function attachCompanionVideosNow(opts: AttachOptions, isCurrent: () => boolean): Promise<number> {
+  rejectAlias(opts.store, opts.item);
+  const circuitName = typeof opts.circuitName === 'function' ? opts.circuitName() : opts.circuitName;
   // 基準のないログへ切り替わった場合も、同じ走行の保存者を二重に作らない。
   const path = runPath(opts.item);
   const idsNow = opts.runSessions.map(s => s.id);
@@ -602,7 +654,15 @@ async function attachCompanionVideosNow(opts: AttachOptions, isCurrent: () => bo
     closeOpenRun();
   }
   if (companionRunMatches(path, idsNow)) return companions.get(path)!.paths.size;
-  if (companions.has(path)) dropCompanion(path);
+  let retained = companions.get(path);
+  if (retained && !retained.mediaAttached) { await saveRun(retained, true); if (!isCurrent()) return 0; }
+  if (retained && (retained.sessionIds.length !== idsNow.length || !retained.sessionIds.every((id, i) => id === idsNow[i]))) {
+    await saveRun(retained, true);
+    if (!isCurrent()) return 0;
+    companions.delete(path);
+    for (const t of videoSyncManager.getTracks()) if (t.remote && retained.paths.has(t.remote.path) && !current?.paths.has(t.remote.path)) videoSyncManager.removeTrack(t.id);
+    retained = undefined;
+  }
   ensureSubscribed();
   const { item, videos } = opts;
   const ids = new Set(opts.runSessions.map(s => s.id));
@@ -629,17 +689,21 @@ async function attachCompanionVideosNow(opts: AttachOptions, isCurrent: () => bo
   }
   const openedNames = new Set(videoSyncManager.getTracks().filter(t => t.remote && mine.has(t.remote.path)).map(t => t.fileName));
   const row = item.entry;
-  const run: OpenRun = {
-    store: opts.store, item, sessionIds: opts.runSessions.map(s => s.id), partClocks: partClocksOf(opts.runSessions), saving: Promise.resolve(), circuitName: opts.circuitName, sessions: opts.sessions, paths: mine,
+  const run: OpenRun = retained ?? {
+    store: opts.store, item, sessionIds: opts.runSessions.map(s => s.id), partClocks: partClocksOf(opts.runSessions), saving: Promise.resolve(), mediaAttached: true, circuitName: () => circuitName, sessions: opts.sessions, paths: mine,
     kept: opts.fromRuns ? (row?.videos ?? []).filter(v => !openedNames.has(v.name)) : [],
     known: new Set([...(row?.videos ?? []).map(v => v.name), ...openedNames]),
     baseline: null,
     pendingOffsets: new Map()
   };
-  if (opts.fromRuns) restoreRowVideos(run, row, opts.setClockOffset);
+  if (retained) {
+    run.paths = mine;run.kept = run.kept.filter(v => !openedNames.has(v.name));
+    restoreRowVideos(run, row, undefined, new Set(videoSyncManager.getTracks().filter(t => t.remote && mine.has(t.remote.path)).map(t => t.id)));
+  } else restoreRowVideos(run, row, opts.setClockOffset);
+  run.mediaAttached = true;
   const content = rowContent(run, row);
   // 比べる相手の走行は、runs.json に無い動画を付けても書かない (Car 1 として開いたときに書く)。変えたら書く
-  run.baseline = content ? contentKey(content) : null;
+  if (!retained) run.baseline = content ? contentKey(content) : null;
   companions.set(runPath(item), run);
   return mine.size;
 }
@@ -649,10 +713,14 @@ export function dropCompanion(path: string): void {
   const run = companions.get(path);
   if (!run) return;
   void saveRun(run);
-  companions.delete(path);
+  const paths = run.paths;
+  if (run.sessionIds.some(id => run.sessions().some(s => s.id === id))) {
+    run.kept = rowContent(run, run.item.entry)?.videos ?? run.item.entry?.videos ?? [];
+    run.paths = new Set();run.mediaAttached = false;
+  } else companions.delete(path);
   const keep = companionPaths();
   for (const t of videoSyncManager.getTracks()) {
-    if (t.remote && run.paths.has(t.remote.path) && !keep.has(t.remote.path) && !current?.paths.has(t.remote.path)) videoSyncManager.removeTrack(t.id);
+    if (t.remote && paths.has(t.remote.path) && !keep.has(t.remote.path) && !current?.paths.has(t.remote.path)) videoSyncManager.removeTrack(t.id);
   }
 }
 

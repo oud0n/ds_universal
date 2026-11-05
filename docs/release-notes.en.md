@@ -18,6 +18,8 @@ The next working candidate (not distributed) includes fixes for storage reselect
 
 Known unresolved cases in the distributed build 18 are [BUG-50 and BUG-51](../BUGS.md). Avoid reselecting the current on-device storage and making new video-sync adjustments against a separate log without timestamps. This is not a public release.
 
+Further candidate fixes cover clock saving before video preparation and after unassignment, pins after their source log is closed, duplicate format ownership, vanished saved laps, metadata I/O failure, and the endpoint of time-aligned video comparison.
+
 ## v1.2.0 (2026-11-02)
 
 The PC version and the iPhone / iPad app get different items ([iPhone] = the app only, [PC] = the PC and browser versions only, no mark = both).

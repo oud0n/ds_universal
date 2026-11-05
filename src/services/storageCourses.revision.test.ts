@@ -174,3 +174,12 @@ describe('保管場所の切り替え', () => {
   });
 
 });
+
+it('取消後にホストの失敗が届いても読込み中断として再試行できる', async () => {
+  let reject!: (error: Error) => void;
+  const raw = { list: async () => [], listAll: () => new Promise<never>((_resolve, r) => { reject = r; }), read: async () => new Uint8Array(), readText: async () => null, readTextStrict: async () => null, writeText: async () => {}, startDownload: async () => {}, fileStatus: async () => ({local:true,downloading:false}), supportsVideos: async () => false, videoUrl: (p: string) => p } as RunStore;
+  const pending = revisionBoundStore(raw).listAll();
+  const assertion = expect(pending).rejects.toBeInstanceOf(StorageChangedError);
+  await trackStorageSelection(() => null);
+  reject(new Error('host IO'));await assertion;
+});

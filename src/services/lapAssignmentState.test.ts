@@ -197,3 +197,9 @@ describe('解析状態の同期更新', () => {
     expect(count).toBe(1);
   });
 });
+
+it('同じ保存行へ向く別形式を同時に再利用しない', () => {
+  const a = run('old-format', { name: 'run.bon4', revision: 1, part: 1 });
+  const b = run('new-format', { name: 'run.nmea', revision: 1, part: 1 });
+  expect(() => reuseStoredSessions([a], [b])).toThrow();
+});

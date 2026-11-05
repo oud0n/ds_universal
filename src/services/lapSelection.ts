@@ -115,5 +115,5 @@ export async function prepareStoredLap(choice: StoredChoice, parse: (fileName: s
     folderVideos: [...(dir === row.folder ? [] : videosIn(row.folder)), ...videosIn(dir)],
     synced: !!entry?.videos?.some(v => !!v.clock), entry, pending: false,
   };
-  return { sessions, session, lap, moved, item };
+  return { sessions, session, lap, moved, item, revalidate: async () => { await course(); await list(); check(); } };
 }

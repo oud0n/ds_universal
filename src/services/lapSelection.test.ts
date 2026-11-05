@@ -124,3 +124,13 @@ describe('保管場所で選んだ周の準備', () => {
     expect(store.readTextStrict.mock.calls.map(([name]) => name)).toEqual(['track/runs.json']);
   });
 });
+
+it('準備後に保存待ちでファイルやコースが変われば再検査で拒む', async () => {
+  const { choice, files, parse, lookup } = fixture();
+  const got = await prepareStoredLap(choice, parse, () => true);
+  files[0].mtimeMs++;
+  await expect(got.revalidate()).rejects.toThrow();
+  files[0].mtimeMs--;
+  lookup.mockResolvedValue({ ...course, controlLine: { ...course.controlLine, latA: 35.001 } });
+  await expect(got.revalidate()).rejects.toThrow();
+});

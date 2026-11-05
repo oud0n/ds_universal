@@ -157,6 +157,18 @@ async function exercise(width, height, files) {
     await p.waitFor('window.__laploupe.cars.length === 2');
     assert.deepEqual((await p.state()).cars.map(c=>c.slot), [1,2]);
     assert.equal((await p.state()).cars[0].lapNumber,1);
+    // 時間比較は遅い車の終点まで選べる。ピン等と同じ App の秒でシークする。
+    const durations=await p.ev(`window.__laploupe.analysisSnapshot().sessions.map(s=>({id:s.id,lap:s.laps.find(l=>!l.isWholeSession&&!l.isPartialLap)})).filter(x=>x.lap).map(x=>({id:x.id,n:x.lap.lapNumber,d:x.lap.endTime-x.lap.startTime})).sort((a,b)=>a.d-b.d)`);
+    const fast=durations[0], slow=durations.at(-1);assert.ok(slow.d>fast.d+0.5);
+    await p.ev(`window.__laploupe.selectCar(0,${JSON.stringify(fast.id)},${fast.n})`);
+    await p.ev(`window.__laploupe.selectCar(1,${JSON.stringify(slow.id)},${slow.n})`);
+    await p.ev(`(()=>{const w=document.querySelector('[data-testid=video-mode-compare]').closest('[data-testid=video-window]');[...w.querySelectorAll('[role=radio]')].find(b=>b.textContent.trim()==='Time').click();})()`);
+    await p.waitFor(`(()=>{const w=document.querySelector('[data-testid=video-mode-compare]').closest('[data-testid=video-window]');return Number(w.querySelector('input[type=range]').max)>=${slow.d}-0.01;})()`);
+    const tail=fast.d+0.7*(slow.d-fast.d);
+    await p.ev(`(()=>{const w=document.querySelector('[data-testid=video-mode-compare]').closest('[data-testid=video-window]'),r=w.querySelector('input[type=range]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(r,${tail});r.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await p.waitFor(`Math.abs(window.__laploupe.sessionTimeSec-window.__laploupe.baseLap.startTime-${tail})<0.1`);
+    await new Promise(r=>setTimeout(r,200));
+    assert.ok((await p.state()).sessionTimeSec>(await p.state()).baseLap.startTime+fast.d,'slow-car tail is not reset at the base endpoint');
     assert.deepEqual(p.errors, []);
     console.log(`PASS ${width}×${height} 選択・切り替え・シーク・閉じた後の読み取り`);
   } finally {

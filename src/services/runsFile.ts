@@ -293,9 +293,10 @@ export function noteRunsConflictCopies(folder: string, paths: string[]): void {
   else conflictCopies.delete(folder);
 }
 
-export async function readRunsFile(store: LapFileStore, folder: string): Promise<RunsFile> {
-  let file = parseRunsFile(await store.readText(`${folder}/${RUNS_FILE}`));
-  for (const p of conflictCopies.get(folder) ?? []) file = mergeRunsFiles(file, parseRunsFile(await store.readText(p).catch(() => null)));
+export async function readRunsFile(store: LapFileStore, folder: string, strict = false): Promise<RunsFile> {
+  const read = (path: string) => strict && store.readTextStrict ? store.readTextStrict(path) : store.readText(path);
+  let file = parseRunsFile(await read(`${folder}/${RUNS_FILE}`));
+  for (const p of conflictCopies.get(folder) ?? []) file = mergeRunsFiles(file, parseRunsFile(await (strict ? read(p) : read(p).catch(() => null))));
   return file;
 }
 

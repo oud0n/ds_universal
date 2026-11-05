@@ -48,7 +48,7 @@ import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
 import { RecentRunsList, RunsSheet, notifyRunsChanged } from './components/RecentRuns';
 import { canUseRunStore, getRunStore } from './services/runStore';
-import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, closeOpenRun, companionRunMatches, companionRuns, currentRunMatches, dropCompanion, flushOpenRuns, flushOpenRunsStrict, getOpenRun, getOpenRunItem, getRunItemEntry, listRuns, releaseClosedRunVideos, scheduleRunSave, setRunMeta, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
+import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, closeOpenRun, companionRunMatches, companionRuns, currentRunMatches, dropCompanion, flushOpenRuns, flushOpenRunsStrict, getOpenRun, getOpenRunItem, getRunItemEntry, listRuns, registerRunSessions, releaseClosedRunVideos, scheduleRunSave, setRunMeta, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
 import { runStem, courseHash } from './services/lapIndex';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLapTimer, canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
@@ -163,6 +163,7 @@ export const App: React.FC = () => {
   const pickerActiveRef = useRef(false);
   const slotRequestsRef = useRef([0, 0, 0, 0]);
   const selectionEpochRef = useRef(0);
+  const manualSelectionRef = useRef(0);
   const storageReadRevision = useSyncExternalStore(subscribeStorageRevision, getStorageReadRevision, getStorageReadRevision);
   const storageRevision = getStorageRevision();
   useEffect(() => subscribeBeforeStorageSelection(flushOpenRunsStrict), []);
@@ -633,6 +634,7 @@ export const App: React.FC = () => {
       ? { gridTemplateAreas: '"g t" "g b"', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gridTemplateRows: 'auto minmax(0, 1fr)' }
       : { gridTemplateAreas: '"g" "t" "b"', gridTemplateColumns: 'minmax(0, 1fr)', gridTemplateRows: 'minmax(180px, 42%) auto minmax(0, 1fr)' });
   const videoView = useVideoView();
+  const [videoCompareEnd, setVideoCompareEnd] = useState<{ source: string; end: number } | null>(null);
   const logEndTime = baseSession?.points.length ? baseSession.points[baseSession.points.length - 1].time : 0;
   // 出しているカメラを基準車のログの時刻に置いて、その終わりまで進める。メイン以外は、ログの間に始まるときだけ数える
   // (撮影日の違う動画で、再生の終わりが何日も先にならないように)
@@ -642,7 +644,7 @@ export const App: React.FC = () => {
     .filter((t): t is NonNullable<typeof t> => !!t)
     .filter((t, i) => i === 0 || !baseSession || t.syncOffsetSec < logEndTime)
     .map(videoEndSessionSec);
-  const sessionEndTime = Math.max(logEndTime, ...shownVideoEnds);
+  const sessionEndTime = Math.max(logEndTime, ...shownVideoEnds, isVideoTab && videoCompareEnd?.source === baseSession?.id ? videoCompareEnd?.end ?? 0 : 0);
   const sessionStartTime = Math.min(0, ...placedVideos.filter(t => videoView.cameraIds.includes(t.id)).map(t => t.syncOffsetSec));
   const clockBase = isVideoTab ? 'session' : 'lap';
   const isSessionClock = isVideoTab;
@@ -672,13 +674,29 @@ export const App: React.FC = () => {
       setPlayhead({ source: session.id, sessionSec: asSessionSec(lap.startTime) });
     }
   };
-  const clearCarSlot = (slot: number) => {
-    invalidateAssignments();
+  const releaseUnselectedRunVideos = () => {
+    const state = analysisStore.getSnapshot(), base = state.sessions.find(s => s.id === state.selectedCars[0]?.sessionId);
+    const keep = new Set(state.selectedCars.map(c => c.sessionId)), owner = getOpenRun();
+    if (base && !base.sourceFile && owner) for (const id of runSessionsRef.current.get(`${owner.item.folder}/${owner.item.file}`) ?? []) keep.add(id);
+    releaseClosedRunVideos(keep);
+  };
+  const changeCarsAfterSave = async (slot: number, change: () => void) => {
+    if (!Number.isInteger(slot) || slot < 0 || slot > 3) return;
+    invalidateAssignments();manualSelectionRef.current++;
+    const ticket = ++slotRequestsRef.current[slot], reads = getStorageReadRevision();
+    try {
+      await flushOpenRunsStrict();
+      if (ticket !== slotRequestsRef.current[slot] || reads !== getStorageReadRevision() || isStorageSelectionPending()) return false;
+      change();
+      releaseUnselectedRunVideos();return true;
+    } catch (error) { alert(tr('保存できないため選択を変えませんでした: ', 'The selection was kept because saving failed: ') + (error instanceof Error ? error.message : String(error)));return false; }
+  };
+  const clearCarSlot = (slot: number) => changeCarsAfterSave(slot, () => {
     const cars = [...analysisStore.getSnapshot().selectedCars].sort((a, b) => a.slot - b.slot);
     const next = cars.filter(car => car.slot !== slot);
     if (cars[0]?.slot === slot) selectCarsAtLapStart(next);
     else setSelectedCars(next);
-  };
+  });
 
   // 再生の段が無い画面に移ったとき・Car 1 を外したときは止める (前は見えないところで再生が進み続け、止めるボタンも無かった。2026-10-27 のレビュー)
   useEffect(() => {
@@ -1271,6 +1289,16 @@ export const App: React.FC = () => {
       { storageRevision: store.storageRevision ?? getStorageRevision(), folder: item.folder, file: item.file, size: file.size, mtimeMs: file.mtimeMs });
   };
 
+  const validateStoredFiles = async (store: NonNullable<Awaited<ReturnType<typeof getRunStore>>>, prepared: Session[]) => {
+    const files = await store.listAll();
+    for (const session of prepared) {
+      const source = session.sourceFile;
+      if (!source) continue;
+      const file = files.find(f => f.path === `${source.folder}/${source.file}`);
+      if (!file || file.size !== source.size || file.mtimeMs !== source.mtimeMs) throw new Error(tr('元ファイルが変わりました。開き直してください', 'The source file changed. Reopen the run.'));
+    }
+  };
+
   /** 今の Car の割り当てを、解析用のセッションとして保存する (PLAN-18)。保管場所の走行だけ。エラーなら文 */
   const saveCurrentSession = async (name: string): Promise<string | null> => {
     const store = await getRunStore().catch(() => null);
@@ -1309,7 +1337,9 @@ export const App: React.FC = () => {
 
   /** ブラウザ版: 書き出した比べ方を読み込み、開いているログにファイルの名前で当てる */
   const importSessionFile = async (file: File): Promise<string | null> => {
+    const epoch = ++selectionEpochRef.current, cars = analysisStore.getSnapshot().selectedCars;
     const data = parseLapSession(await file.text());
+    if (epoch !== selectionEpochRef.current || cars !== analysisStore.getSnapshot().selectedCars) return null;
     if (!data) return tr('比べ方のファイルではありません', 'Not a saved comparison file');
     const { picks, missing, moved } = matchFileSession(data, analysisStore.getSnapshot().sessions);
     if (!picks.length) return tr(`このログが開かれていません: ${missing.join(', ')} (先にログを開いてください)`, `Open these logs first: ${missing.join(', ')}`);
@@ -1339,12 +1369,12 @@ export const App: React.FC = () => {
   };
   const openSavedSessionInner = async (saved: LapSession) => {
     const revision = getStorageRevision(), reads = getStorageReadRevision();
-    const carsAtStart = analysisStore.getSnapshot().selectedCars;
+    const carsAtStart = analysisStore.getSnapshot().selectedCars, manual = manualSelectionRef.current;
     const current = () => revision === getStorageRevision() && reads === getStorageReadRevision() && !isStorageSelectionPending()
-      && analysisStore.getSnapshot().selectedCars === carsAtStart;
+      && analysisStore.getSnapshot().selectedCars === carsAtStart && manual === manualSelectionRef.current;
     const store = await getRunStore();
     if (!store || !current()) return;
-    const items = await listRuns(store);
+    const items = await listRuns(store, undefined, true);
     if (!current()) return;
     const find = (c: LapSessionCar) => items.find(r => `${r.folder}/${r.file}` === c.run) ?? (c.id ? items.find(r => r.entry?.id === c.id) : undefined);
     const prepared = new Map<string, { item: RunItem; sessions: Session[] }>();
@@ -1377,6 +1407,7 @@ export const App: React.FC = () => {
       const session = entry.sessions.find(s => s.sourceFile?.part === (car.part ?? 1));
       if (!session) { missing.push(car.run); continue; }
       const resolved = resolveSessionLap(session, car);
+      if (!session.laps.some(l => l.lapNumber === resolved.lap)) { missing.push(car.run); continue; }
       if (resolved.moved) moved++;
       const slot = picks.length;
       picks.push({ slot, sessionId: session.id, lapNumber: resolved.lap, colorHex: colors[slot], label: `${session.sessionName} (L${resolved.lap})` });
@@ -1387,6 +1418,12 @@ export const App: React.FC = () => {
     }
     const used = new Set(picks.map(c => c.sessionId));
     const entries = [...prepared.values()].filter(e => e.sessions.some(s => used.has(s.id)));
+    await validateStoredFiles(store, entries.flatMap(e => e.sessions));
+    if (!current()) return;
+    for (const entry of entries) {
+      entry.item = shareRunItem(entry.item, store);
+      entry.sessions = registerRunSessions(store, entry.item, entry.sessions, analysisStore.getSessions);
+    }
     const incoming = entries.flatMap(e => e.sessions);
     analysisStore.update(() => selectAvailableCars({ sessions: incoming, selectedCars: [] }, picks));
     releaseClosedRunVideos(new Set(incoming.map(s => s.id)));
@@ -1412,14 +1449,16 @@ export const App: React.FC = () => {
     try {
       const store = await getRunStore(); check();
       if (!store) return;
-      const path = `${item.folder}/${item.file}`, ids = runSessionsRef.current.get(path) ?? [];
-      let added = analysisStore.getSnapshot().sessions.filter(s => ids.includes(s.id));
-      const fresh = !added.length;
-      if (fresh) { added = await loadStoredFileData(store, item); check(); }
+      const path = `${item.folder}/${item.file}`;
+      let added = await loadStoredFileData(store, item); check();
       await flushOpenRunsStrict(); check();
-      if (fresh) added = reuseStoredSessions(analysisStore.getSnapshot().sessions, added);
+      await validateStoredFiles(store, added); check();
+      added = reuseStoredSessions(analysisStore.getSnapshot().sessions, added);
+      item = shareRunItem(item, store);
+      added = registerRunSessions(store, item, added, analysisStore.getSessions);
       const { session, lapNumber } = pickRunBestLap(added, item);
-      analysisStore.update(prev => assignLap(prev, fresh ? added : [], session.id, lapNumber, 1, false));
+      analysisStore.update(prev => assignLap(prev, added, session.id, lapNumber, 1, false));
+      releaseUnselectedRunVideos();
       item = shareRunItem(item, store);
       runSessionsRef.current.set(path, added.map(s => s.id)); runItemsRef.current.set(path, item);
       loadRunSidecars(store, item, added);requestSessionPolylines(added); setRunAssociationsVersion(n => n + 1);
@@ -1469,13 +1508,16 @@ export const App: React.FC = () => {
     try {
       const store = await getRunStore();
       if (!store) return;
-      const openedIds = runSessionsRef.current.get(runPath) ?? [];
-      const already = analysisStore.getSnapshot().sessions.filter(x => openedIds.includes(x.id));
-      let added = already.length ? already : await loadStoredFileData(store, item);
+      let added = await loadStoredFileData(store, item);
       if (reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError();
       await flushOpenRunsStrict();
       if (reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError();
-      if (!already.length) analysisStore.update(prev => ({ ...prev, sessions: [...prev.sessions, ...added] }));
+      await validateStoredFiles(store, added);
+      if (reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError();
+      added = reuseStoredSessions(analysisStore.getSnapshot().sessions, added);
+      item = shareRunItem(item, store);
+      added = registerRunSessions(store, item, added, analysisStore.getSessions);
+      analysisStore.update(prev => ({ ...prev, sessions: [...prev.sessions.filter(s => !added.some(a => a.id === s.id)), ...added] }));
       runSessionsRef.current.set(runPath, added.map(x => x.id));
       item = shareRunItem(item, store);
       runItemsRef.current.set(runPath, item);
@@ -1495,7 +1537,7 @@ export const App: React.FC = () => {
         added = named;
         setSessions(prev => prev.map(x => { const a = named.find(y => y.id === x.id); return a ? { ...x, sessionName: a.sessionName, runNote: a.runNote, vehicleName: a.vehicleName } : x; }));
       }
-      if (!already.length) { loadRunSidecars(store, item, added);requestSessionPolylines(added); }
+      loadRunSidecars(store, item, added);requestSessionPolylines(added);
       attachedRunRef.current = runPath;
       openedRunRef.current = runPath;
       setRunsSheetOpen(false);
@@ -1537,10 +1579,8 @@ export const App: React.FC = () => {
           }
         }
       }
-      const sessionsNow = () => {
-        const cur = analysisStore.getSnapshot().sessions.filter(x => !removedIds.has(x.id));
-        return cur;
-      };
+      releaseUnselectedRunVideos();
+      const sessionsNow = analysisStore.getSessions;
       const ownerId = currentBaseId();
       const isCurrent = () => reads === getStorageReadRevision() && !isStorageSelectionPending()
         && (store.storageRevision === undefined || store.storageRevision === getStorageRevision());
@@ -1551,7 +1591,7 @@ export const App: React.FC = () => {
         store, item, runSessions: added, videos: cand.local, fromRuns: cand.fromRuns, isCurrent: ownsVideos,
         keepPrevious: ids => analysisStore.getSnapshot().selectedCars.some(c => ids.includes(c.sessionId)),
         sessions: sessionsNow,
-        circuitName: () => added[0]?.circuitName ?? '',
+        circuitName: added[0]?.circuitName ?? '',
         setClockOffset: setSessionClockOffset
       });
       // 走行に付けた動画のうち、読めなかったもの (壊れた・0 バイト・対応していない形式) を知らせる (前は何も言わずに外れていた。BUG-39)
@@ -1600,7 +1640,7 @@ export const App: React.FC = () => {
             await attachRunVideos({
               store, item: refreshed, runSessions: added, videos: again.local, fromRuns: again.fromRuns, isCurrent: ownsVideos,
               keepPrevious: ids => analysisStore.getSnapshot().selectedCars.some(c => ids.includes(c.sessionId)),
-              sessions: sessionsNow, circuitName: () => added[0]?.circuitName ?? '', setClockOffset: setSessionClockOffset
+              sessions: sessionsNow, circuitName: added[0]?.circuitName ?? '', setClockOffset: setSessionClockOffset
             }).catch(() => undefined);
             setRunDownload(null);
           })();
@@ -1615,7 +1655,7 @@ export const App: React.FC = () => {
     } finally {
       runOpeningRef.current = false;
       // 準備中に保存先の選択を挟んだ場合、取消後に同じ基準を付け直せるようにする。
-      if (attachedRunRef.current === runPath && !getOpenRunItem(item.folder, item.file)) {
+      if (attachedRunRef.current === runPath && !currentRunMatches(runPath, runSessionsRef.current.get(runPath) ?? [])) {
         attachedRunRef.current = null;
         setRunAssociationsVersion(n => n + 1);
       }
@@ -1648,8 +1688,8 @@ export const App: React.FC = () => {
       await attachRunVideos({
         store, item, runSessions: added, videos: cand.local, fromRuns: cand.fromRuns, isCurrent,
         keepPrevious: ids => analysisStore.getSnapshot().selectedCars.some(c => ids.includes(c.sessionId)),
-        sessions: () => analysisStore.getSnapshot().sessions,
-        circuitName: () => added[0]?.circuitName ?? '', setClockOffset: setSessionClockOffset
+        sessions: analysisStore.getSessions,
+        circuitName: added[0]?.circuitName ?? '', setClockOffset: setSessionClockOffset
       });
       attached = isCurrent();
     })().catch(e => { if (isCurrent()) console.warn('[run] 動画を付け直せない:', e); });
@@ -1697,7 +1737,7 @@ export const App: React.FC = () => {
         const runSessions = ids.map(id => analysisStore.getSnapshot().sessions.find(x => x.id === id)).filter((x): x is Session => !!x);
         await attachCompanionVideos({
           store, item, runSessions, videos: cand.local, fromRuns: cand.fromRuns, isCurrent,
-          sessions: () => analysisStore.getSnapshot().sessions, circuitName: () => runSessions[0]?.circuitName ?? '', setClockOffset: setSessionClockOffset
+          sessions: analysisStore.getSessions, circuitName: runSessions[0]?.circuitName ?? '', setClockOffset: setSessionClockOffset
         });
       }
     }).catch(e => { if (isCurrent()) console.warn('[run] 比べる走行の動画を読めない:', e); });
@@ -1995,7 +2035,7 @@ export const App: React.FC = () => {
     let active = true;
     const root = getStorageRevision(), reads = getStorageReadRevision();
     if (!isStorageSelectionPending()) void videoSyncManager.preferHighestRateSessions(sessions, isSameRun, {
-      getSessions: () => analysisStore.getSnapshot().sessions,
+      getSessions: analysisStore.getSessions,
       isCurrent: () => active && root === getStorageRevision() && reads === getStorageReadRevision() && !isStorageSelectionPending(),
       onChanged: (from, to) => setBaseSession(to, { fromId: from })
     }).catch(error => console.warn('[video] log matching failed:', error));
@@ -2109,6 +2149,7 @@ export const App: React.FC = () => {
     let lap: Lap;
     let selectedRun: RunItem | undefined;
     let moved = false;
+    let revalidate: (() => Promise<void>) | undefined;
     if (choice.kind === 'loaded') {
       const live = analysisStore.getSnapshot().sessions.find(s => s.id === choice.session.id);
       if (live?.sourceFile && live.sourceFile.storageRevision !== revision) throw new Error(tr('保管場所が変わりました。新しい一覧から開き直してください', 'Storage changed. Reopen the run from the new list.'));
@@ -2131,6 +2172,7 @@ export const App: React.FC = () => {
         incoming = prepared.sessions; selected = prepared.session; lap = prepared.lap;
         selectedRun = prepared.item;
         moved = prepared.moved;
+        revalidate = prepared.revalidate;
       } finally {
         if (--shared.readers === 0) pendingParsesRef.current.delete(key);
       }
@@ -2138,6 +2180,7 @@ export const App: React.FC = () => {
     check();
     await flushOpenRunsStrict();
     check();
+    if (revalidate) { await revalidate(); check(); }
     if (incoming.length) {
       const targetIndex = incoming.findIndex(s => s.id === selected.id), targetLap = lap.lapNumber;
       incoming = reuseStoredSessions(analysisStore.getSnapshot().sessions, incoming);
@@ -2152,6 +2195,11 @@ export const App: React.FC = () => {
     const videoOwner = getOpenRun();
     const ownerIds = videoOwner && (videoOwner.store.storageRevision === undefined || videoOwner.store.storageRevision === revision)
       ? runSessionsRef.current.get(`${videoOwner.item.folder}/${videoOwner.item.file}`) ?? [] : [];
+    assignLap(analysisStore.getSnapshot(), incoming, sessionId, lapNumber, slot, false);
+    if (selectedRun && choice.kind === 'stored') {
+      selectedRun = shareRunItem(selectedRun, choice.store);
+      incoming = registerRunSessions(choice.store, selectedRun, incoming, analysisStore.getSessions);
+    }
     analysisStore.update(prev => {
       const proposed = assignLap(prev, incoming, sessionId, lapNumber, slot, false);
       const base = proposed.sessions.find(s => s.id === proposed.selectedCars[0]?.sessionId);
@@ -2189,15 +2237,18 @@ export const App: React.FC = () => {
 
   // スロット選択
   const handleSelectCarSlot = (slotIndex: number, sessionId: string, lapNumber: number) => {
+    const chosen = analysisStore.getSnapshot().sessions.find(s => s.id === sessionId);
+    const chosenLap = chosen?.laps.find(l => l.lapNumber === lapNumber);
+    return changeCarsAfterSave(slotIndex, () => {
     const session = analysisStore.getSnapshot().sessions.find(s => s.id === sessionId);
     const lap = session?.laps.find(l => l.lapNumber === lapNumber);
-    if (!session || !lap || slotIndex < 0 || slotIndex > 3) return;
-    slotRequestsRef.current[slotIndex]++;
+    if (!session || !lap || !chosen || session.points !== chosen.points || lap !== chosenLap) return;
     analysisStore.update(prev => assignLap(prev, [], sessionId, lapNumber, slotIndex, false));
     if ([...analysisStore.getSnapshot().selectedCars].sort((a, b) => a.slot - b.slot)[0]?.slot === slotIndex) {
       setIsPlaying(false);
       setPlayhead({ source: session.id, sessionSec: asSessionSec(lap.startTime) });
     }
+    });
   };
 
   // グラフ解析タブのウインドウ (パソコン向けの分割表示とスマートフォン向けの切り替え表示の両方で使う)
@@ -2567,7 +2618,7 @@ export const App: React.FC = () => {
                   isVisible={currentTab === 'analysis'}
                   playbackSpeed={playbackSpeed}
                   onChangePlaybackSpeed={setPlaybackSpeed}
-                  onChooseLog={setBaseSession}
+                  onChooseLog={id => changeCarsAfterSave(0, () => setBaseSession(id))}
                   onLoadFiles={loadFiles}
                   viewKey="phone-analysis"
                       onOpenVideoTab={openVideoTab}
@@ -2651,7 +2702,7 @@ export const App: React.FC = () => {
                       isVisible={currentTab === 'analysis'}
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
-                      onChooseLog={setBaseSession}
+                      onChooseLog={id => changeCarsAfterSave(0, () => setBaseSession(id))}
                       onPickCompareLap={compareSlot === null ? undefined : pickCompareLap}
                       onLoadFiles={loadFiles}
                       viewKey="graph-a"
@@ -2835,7 +2886,7 @@ export const App: React.FC = () => {
                       isVisible={currentTab === 'analysis'}
                       playbackSpeed={playbackSpeed}
                       onChangePlaybackSpeed={setPlaybackSpeed}
-                      onChooseLog={setBaseSession}
+                      onChooseLog={id => changeCarsAfterSave(0, () => setBaseSession(id))}
                       onPickCompareLap={compareSlot === null ? undefined : pickCompareLap}
                       onLoadFiles={loadFiles}
                       viewKey="graph-b"
@@ -2865,6 +2916,7 @@ export const App: React.FC = () => {
             position={playbackPosition}
             isPlaying={isPlaying}
             onSeekTime={handleSeekSessionTime}
+            onPlaybackRange={setVideoCompareEnd}
             onTogglePlay={() => setIsPlaying(!isPlaying)}
             circuitName={currentCircuitName}
             targetSessionId={baseSession?.id}
@@ -2872,7 +2924,7 @@ export const App: React.FC = () => {
             isVisible={currentTab === 'video'}
             playbackSpeed={playbackSpeed}
             onChangePlaybackSpeed={setPlaybackSpeed}
-            onChooseLog={setBaseSession}
+            onChooseLog={id => changeCarsAfterSave(0, () => setBaseSession(id))}
             onPickCompareLap={compareSlot === null ? undefined : pickCompareLap}
             onLoadFiles={loadFiles}
             viewKey="video-tab"

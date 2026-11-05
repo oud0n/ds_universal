@@ -1,6 +1,6 @@
 import type { SelectedCarSlot, Session } from '../types/telemetry';
 import { tr } from '../utils/i18n';
-import type { RunRow } from './runsFile';
+import { runKey, type RunRow } from './runsFile';
 
 export interface AnalysisState {
   sessions: Session[];
@@ -13,6 +13,7 @@ export function createAnalysisStore(initial: AnalysisState = { sessions: [], sel
   const listeners = new Set<() => void>();
   return {
     getSnapshot: () => snapshot,
+    getSessions: () => snapshot.sessions,
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => { listeners.delete(listener); };
@@ -99,6 +100,10 @@ export function reuseStoredSessions(prior: Session[], incoming: Session[]): Sess
   return incoming.map(session => {
     const f = session.sourceFile;
     if (!f) return session;
+    if (prior.some(s => {
+      const p = s.sourceFile;
+      return p && p.storageRevision === f.storageRevision && p.folder === f.folder && runKey(p.file) === runKey(f.file) && p.file !== f.file;
+    })) throw new Error(tr('同じ走行の別形式が開いています。先に閉じてください。', 'Another format of this run is open. Close it first.'));
     const old = prior.find(s => {
       const p = s.sourceFile;
       return p && p.storageRevision === f.storageRevision && p.folder === f.folder && p.file === f.file

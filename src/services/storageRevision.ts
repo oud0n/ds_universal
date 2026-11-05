@@ -71,10 +71,11 @@ export function revisionBoundStore(store: RunStore, bound = getStorageRevision()
     return async (...args: A) => {
       check();
       const started = readRevision;
-      const value = await operation(...args);
-      check();
-      if (started !== readRevision) throw changed();
-      return value;
+      try { return await operation(...args); }
+      finally {
+        check();
+        if (started !== readRevision) throw changed();
+      }
     };
   }
   return {

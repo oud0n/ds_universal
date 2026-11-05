@@ -95,13 +95,13 @@ export function rowVideoFromTrack(track: VideoTrack, pins: SyncPin[], runSession
     const base = allSessions.find(s => s.id === p.sessionId);
     const baseStart = sessionStartUtcMs(base);
     const ownStart = sessionStartUtcMs(own);
-    if (baseStart === null || ownStart === null) {
+    const at = baseStart === null ? (Number.isFinite(p.utcMs) ? p.utcMs! : null) : baseStart + p.sessionTimeSec * 1000;
+    if (at === null || ownStart === null) {
       // 基準のログが分からない古いピンは、その走行のログで打ったものとみなす
       if (p.sessionId) throw new UnpersistableSyncError();
       if (!p.sessionId && own) rowPins.push({ name: p.name, logPart: ownPart, logTimeSec: round3(p.sessionTimeSec), videoTimeSec: round3(p.videoTimeSec), ...(p.createdAt ? { createdAt: p.createdAt } : {}) });
       continue;
     }
-    const at = baseStart + p.sessionTimeSec * 1000;
     rowPins.push({ name: p.name, logPart: ownPart, logTimeSec: round3((at - ownStart) / 1000), videoTimeSec: round3(p.videoTimeSec), utcMs: Math.round(at), ...(p.createdAt ? { createdAt: p.createdAt } : {}) });
   }
   // まだ開いたことのない part のピンは表示へ復元せず、保存行にそのまま残す。

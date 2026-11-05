@@ -15,10 +15,10 @@ import { RunsInspector, syncBadgeOf, BADGE_CLASS } from './video/RunsInspector';
 import { getNextChapter, getPreviousChapter, groupVideoTracksByChapter } from '../services/videoChapterManager';
 import { 
   SyncPin, 
-  createSyncPin, 
+  createSyncPin, pinTimeInSession,
   formatPinTime
 } from '../services/videoSyncPinManager';
-import { videoViewStore, useVideoView, useVideoTracks, useSyncPins, useWindowView, PipPosition, MAX_CAMERAS, videoEndSessionSec } from '../services/videoViewStore';
+import { videoViewStore, useVideoView, useVideoTracks, useAllSyncPins, useWindowView, PipPosition, MAX_CAMERAS, videoEndSessionSec } from '../services/videoViewStore';
 import { PlaybackController, PlaybackTarget } from '../services/playbackController';
 import { asLapSec, asSessionSec, getPlaybackPosition, lapToSessionSec, type PlaybackPosition, type SessionSec } from '../services/playbackPosition';
 import { buildMedia, positionInMedia, positionAtMediaTime, lapOverlapSec, mediaForLap, mediaStartIn, PlayableMedia, MediaPosition } from '../services/playableMedia';
@@ -126,6 +126,7 @@ interface VideoSyncWindowProps {
   position: PlaybackPosition;
   isPlaying: boolean;
   onSeekTime: (timeSec: SessionSec) => void;
+  onPlaybackRange?: (range: { source: string; end: number } | null) => void;
   onTogglePlay: () => void;
   circuitName: string;
   targetSessionId?: string;  // 速度ウィンドウで選択中のセッションID
@@ -143,7 +144,7 @@ interface VideoSyncWindowProps {
   playbackSpeed: number;
   onChangePlaybackSpeed: (speed: number) => void;
   // 動画に合わせるログを選んだとき (そのログを基準車 Car 1 にする)。LATER-12
-  onChooseLog?: (sessionId: string) => void;
+  onChooseLog?: (sessionId: string) => boolean | void | Promise<boolean | void>;
   // 走行比較で Car 2 がいないとき、Car 2 に入れる周 (同じログの別の周) を選ぶ
   onPickCompareLap?: (sessionId: string, lapNumber: number) => void;
   /** ファイルを読み込む (ヘッダーの「読込」と同じ。GoPro の動画は GPS を走行ログにしてから動画同期に登録する) */
@@ -247,6 +248,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   position: playbackPosition,
   isPlaying,
   onSeekTime,
+  onPlaybackRange,
   onTogglePlay,
   circuitName,
   targetSessionId,
@@ -354,8 +356,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   // 手動キーフレーム同期（ピン留め）。コースごとに保存し、どのウインドウでも同じものを出す
   const pinKey = circuitName || 'default';
-  const pins = useSyncPins(pinKey);
-  const setPins = (updated: SyncPin[]) => videoViewStore.setPins(pinKey, updated);
+  const allPins = useAllSyncPins(pinKey);
   const [showPinModal, setShowPinModal] = useState<boolean>(false);
   const [newPinName, setNewPinName] = useState<string>('');
 
@@ -521,6 +522,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const videoStartTime = Math.min(0, ...cameras.map(m => m.startSec));
   // 走行比較は周がないと何も映せないので、周がないとき (GPS のない動画だけを読み込んだときなど) はマルチカメラで出す。
   // 選んだ表示 (win.mode) は変えないので、周のあるログを読み込めば走行比較に戻る
+  const pinTrackIds = useMemo(() => new Set(tracks.map(t => t.id)), [tracks]);
+  const pins = useMemo(() => allPins.filter(p => pinTrackIds.has(p.trackId)), [allPins, pinTrackIds]);
+  const setPins = (updated: SyncPin[]) => videoViewStore.setTrackPins(pinKey, pinTrackIds, updated);
   const isCompare = !simple && win.mode === 'compare' && !!baseLap;
 
   // Car 2 がいないときに走行比較を押したら、Car 1 と同じログの、Car 1 の周以外でいちばん速い周を Car 2 に入れる
@@ -554,6 +558,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   }
   const noFootage = (m: PlayableMedia): MediaPosition => ({ track: m.tracks[0], localTime: -1, durationSec: m.tracks[0].durationSec, outOfRange: true });
   const cars = useMemo(() => [...(compareCars ?? [])].sort((a, b) => a.slot.slot - b.slot.slot), [compareCars]);
+  const compareDuration = baseLap && isCompare && win.compareAlign === 'time'
+    ? Math.max(baseLap.endTime - baseLap.startTime, ...cars.map(c => c.lap.endTime - c.lap.startTime)) : baseLap ? baseLap.endTime - baseLap.startTime : 0;
+  const compareEnd = baseLap && isCompare && win.compareAlign === 'time' ? baseLap.startTime + compareDuration : null;
+  useEffect(() => {
+    if (isVisible && !isGraphEmbedded && baseSession && compareEnd !== null) onPlaybackRange?.({ source: baseSession.id, end: compareEnd });
+    else onPlaybackRange?.(null);
+    return () => onPlaybackRange?.(null);
+  }, [isVisible, isGraphEmbedded, baseSession?.id, compareEnd, onPlaybackRange]);
   const baseSlot = cars[0]?.slot.slot;
   const compareTiles = (): Tile[] => {
     if (!baseLap) return [];
@@ -712,9 +724,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   useEffect(() => {
     // 合わせる (同期の調整) では戻さない (周の外へ動かす・ピンへ飛ぶ・動画の始まりへ飛ぶ、が効かなくなるため)
     if (!(isCompare || seekbarScope === 'lap') || showSyncTools || isGraphEmbedded || !baseLap || !isVisible || isAnyExporting) return;
-    if (isPlaying && sessionSec > baseLap.endTime) seekTo(baseLap.startTime);
-    else if (sessionSec < baseLap.startTime - 0.5 || sessionSec > baseLap.endTime + 0.5) seekTo(baseLap.startTime);
-  }, [isCompare, seekbarScope, showSyncTools, sessionSec, baseLap?.startTime, baseLap?.endTime, isPlaying, isVisible]);
+    const end = baseLap.startTime + compareDuration;
+    if (isPlaying && sessionSec > end) seekTo(baseLap.startTime);
+    else if (sessionSec < baseLap.startTime - 0.5 || sessionSec > end + 0.5) seekTo(baseLap.startTime);
+  }, [isCompare, compareDuration, seekbarScope, showSyncTools, sessionSec, baseLap?.startTime, isPlaying, isVisible]);
 
   // 動画を App の時刻に合わせる (PlaybackController)。見えていないウインドウ・書き出し中は合わせない (書き出しは動画を自分で動かす)
   useEffect(() => {
@@ -788,7 +801,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   // ピン位置へジャンプ (シーク)
   const handleJumpToPin = (pin: SyncPin) => {
-    seekTo(pin.sessionTimeSec);
+    const time = pinTimeInSession(pin, baseSession, sessions);
+    if (time !== null) seekTo(time);
   };
 
   // ピン削除
@@ -1556,9 +1570,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   <span className="text-slate-400 text-[10px] font-medium">{t('動画に合わせるログ:', 'Log for this video:')}</span>
                   <select
                     value={logs.some(l => l.id === activeTrack.matchedSessionId) ? activeTrack.matchedSessionId ?? '' : ''}
-                    onChange={e => {
-                      videoSyncManager.chooseSession(activeTrack.id, e.target.value);
-                      onChooseLog?.(e.target.value);
+                    onChange={async e => {
+                      const id = e.target.value, track = videoSyncManager.getTracks().find(t => t.id === activeTrack.id);
+                      if (await onChooseLog?.(id) === false) return;
+                      if (track && videoSyncManager.getTracks().includes(track)) videoSyncManager.chooseSession(track.id, id);
                     }}
                     className="bg-transparent text-slate-100 font-bold text-xs outline-none cursor-pointer max-w-[220px] truncate"
                   >
@@ -1972,7 +1987,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
           activeTrack={activeTrack}
           subTrack={!isCompare && shownCount > 1 ? positions[1]?.track : undefined}
           chapterGroup={currentGroup}
-          pins={pins}
+          pins={pins.flatMap(p => { const time = pinTimeInSession(p, baseSession, sessions); return time === null ? [] : [{ ...p, sessionTimeSec: time }]; })}
           currentSessionTimeSec={sessionSec}
           onSeekSessionTime={seekTo}
           formatDuration={formatDuration}
@@ -1997,8 +2012,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         const sessionMax = Math.max(logEnd, videoEndSessionSec(activeTrack), subEnd) || 60;
 
         const minVal = isLapMode ? 0 : videoStartTime;
-        const maxVal = isLapMode ? (baseLap.lapTime || 60) : sessionMax;
-        const curVal = isLapMode ? playbackPosition.lapSec : sessionSec;
+        const maxVal = isLapMode ? (compareDuration || 60) : sessionMax;
+        const curVal = isLapMode ? Math.max(0, Math.min(maxVal, sessionSec - baseLap.startTime)) : sessionSec;
 
         return (
           <div className="touch-toolbar bg-surface-1 border-t border-line-1 px-3 py-1 flex items-center justify-between gap-2.5 shrink-0 select-none">

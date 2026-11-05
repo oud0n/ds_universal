@@ -5,7 +5,7 @@ import * as runsFile from './runsFile';
 import type { Session } from '../types/telemetry';
 import { videoSyncManager } from './videoSyncManager';
 import { videoViewStore } from './videoViewStore';
-import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, companionRunMatches, companionRuns, assertRunSyncTarget, releaseClosedRunVideos, getOpenRun, getOpenRunItem, flushOpenRunsStrict, scheduleRunSave, setRunMeta, type RunItem } from './runOpener';
+import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, companionRunMatches, companionRuns, dropCompanion, assertRunSyncTarget, releaseClosedRunVideos, getOpenRun, getOpenRunItem, flushOpenRunsStrict, registerRunSessions, scheduleRunSave, setRunMeta, type RunItem } from './runOpener';
 import type { RunStore } from './runStore';
 import type { RemoteVideo } from './remoteVideo';
 
@@ -435,4 +435,74 @@ it('再添付で同じ動画のピンを、新しい part ID へ付け直して�
   await attachRunVideos({ ...opts, runSessions: live });
   expect(videoViewStore.getPins('C').find(p => p.name === 'p')?.sessionId).toBe(fresh.id);
   await flushOpenRunsStrict();expect(disk.videos?.[0].pins?.[0].logPart).toBe(2);
+});
+
+
+it('動画なしでも保存済みのログ補正を復元する', async () => {
+  const session = { id: 'log-only', points: [], laps: [] } as unknown as Session;
+  const opts = { ...attachment('log-only'), runSessions: [session], sessions: () => [session], fromRuns: false };
+  opts.item.entry = { updatedAt: '', parts: { '1': { clockOffsetSec: 3.25 } } };
+  const set = vi.fn((_id: string, sec: number) => { session.clockOffsetSec = sec; });
+  await attachRunVideos({ ...opts, setClockOffset: set });
+  expect(session.clockOffsetSec).toBe(3.25);
+});
+
+it('動画準備前からログの編集を保存し、準備完了で古い補正へ戻さない', async () => {
+  const session = { id: 'early-log', points: [], laps: [] } as unknown as Session;
+  let live: Session[] = [];
+  const opts = { ...attachment('early-log', true), runSessions: [session], sessions: () => live };
+  opts.item.entry!.parts = { '1': { clockOffsetSec: 3.25 } };
+  let disk = structuredClone(opts.item.entry!);
+  vi.spyOn(runsFile, 'updateRun').mockImplementation(async (_s, _f, _n, update) => disk = { updatedAt: '', ...update(disk) });
+  live = registerRunSessions(opts.store, opts.item, [session], opts.sessions);
+  expect(live[0].clockOffsetSec).toBe(3.25);
+  const { started, resume } = delayMetadata();
+  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new Error('no GPS'));
+  const attaching = attachRunVideos({ ...opts, runSessions: live });await started.promise;
+  live = live.map(s => ({ ...s, clockOffsetSec: 7.5 }));
+  await flushOpenRunsStrict();expect(disk.parts?.['1']?.clockOffsetSec).toBe(7.5);
+  resume.release();await attaching;
+  expect(live[0].clockOffsetSec).toBe(7.5);
+  await flushOpenRunsStrict();expect(disk.parts?.['1']?.clockOffsetSec).toBe(7.5);
+});
+
+it('別コースのピンを保存し、基準のログを閉じても再保存できる', async () => {
+  vi.spyOn(metadata, 'parseVideoMetadata').mockImplementation(async file => ({ fileName: file.name, fileSize: file.size, creationTime: null, durationSec: 10, timescale: 1000 }));
+  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new Error('no GPS'));
+  const a = { id: 'pin-owner', points: [{ timestamp: '2026-01-01T00:00:00Z' }], laps: [] } as unknown as Session;
+  const b = { ...a, id: 'pin-foreign', points: [{ timestamp: '2026-01-01T00:01:00Z' }] } as unknown as Session;
+  let live = [a, b];const opts = { ...attachment('pin-anchor', true), runSessions: [a], sessions: () => live };
+  opts.item.entry!.videos![0].pins = [];
+  let disk = structuredClone(opts.item.entry!);
+  vi.spyOn(runsFile, 'updateRun').mockImplementation(async (_s, _f, _n, update) => disk = { updatedAt: '', ...update(disk) });
+  await attachRunVideos(opts);const track = videoSyncManager.getTracks()[0];
+  videoViewStore.setPins('Foreign course', [{ id: 'foreign-pin', name: 'foreign', sessionId: b.id, sessionTimeSec: 20, videoTimeSec: 2, trackId: track.id, calculatedOffsetSec: 18, createdAt: '' }]);
+  await flushOpenRunsStrict();expect(disk.videos?.[0].pins?.[0].logTimeSec).toBe(80);
+  live = [a];a.clockOffsetSec = 1;
+  await flushOpenRunsStrict();expect(disk.videos?.[0].pins?.[0].logTimeSec).toBe(81);
+});
+
+it('同じ保存行の別形式へ二つ目の担当を作らない', async () => {
+  const a = attachment('run.bon4'), b = attachment('run.nmea');
+  await attachRunVideos(a);
+  await expect(attachCompanionVideos(b)).rejects.toThrow(/format/);
+  expect(getOpenRun()?.item.file).toBe('run.bon4');
+});
+
+
+it('Car から外した動画の保存に失敗しても、小さい同期控えとログの保存担当を残す', async () => {
+  vi.spyOn(metadata, 'parseVideoMetadata').mockImplementation(async file => ({ fileName: file.name, fileSize: file.size, creationTime: null, durationSec: 10, timescale: 1000 }));
+  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new Error('no GPS'));
+  const session = { id: 'retired-log', points: [], laps: [] } as unknown as Session;
+  const opts = { ...attachment('retired-log', true), runSessions: [session], sessions: () => [session] };
+  let disk = structuredClone(opts.item.entry!), fail = true;
+  vi.spyOn(runsFile, 'updateRun').mockImplementation(async (_s, _f, _n, update) => {
+    if (fail) throw new Error('full');return disk = { updatedAt: '', ...update(disk) };
+  });
+  await attachCompanionVideos(opts);const track = videoSyncManager.getTracks()[0];
+  videoSyncManager.setOffsetIn(track.id, session, 7.5);
+  dropCompanion('course/retired-log');expect(videoSyncManager.getTracks()).toHaveLength(0);
+  await expect(flushOpenRunsStrict()).rejects.toThrow('full');
+  fail = false;await flushOpenRunsStrict();expect(disk.videos?.[0].clock?.offsetSec).toBe(7.5);
+  session.clockOffsetSec = 2;await flushOpenRunsStrict();expect(disk.parts?.['1']?.clockOffsetSec).toBe(2);
 });

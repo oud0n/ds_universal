@@ -16,6 +16,7 @@ const videoPath=path.join(fixtureDir,'synthetic.mp4');
 execFileSync('ffmpeg',['-v','error','-f','lavfi','-i','testsrc2=size=160x90:rate=10','-t','4','-c:v','libx264','-pix_fmt','yuv420p',videoPath]);
 const outDir=fileURLToPath(new URL('./out/lap-storage/',import.meta.url));fs.mkdirSync(outDir,{recursive:true});
 const p=await Page.connect(port,{newTab:true,label:'storage',outDir});
+const waitNote = async n => {const end=Date.now()+10000;while(p.notes.length===n){if(Date.now()>end)throw Error('missing save error');await new Promise(r=>setTimeout(r,50));}};
 const assigned = slot => p.waitFor(`[...document.querySelectorAll('[role=dialog] [role=status]')].some(e=>e.textContent.includes('Assigned ')&&e.textContent.includes('Car ${slot+1}'))`,15000,'assignment completion');
 try {
  await p.viewport(1280,800,false);
@@ -24,7 +25,7 @@ try {
  window.electronAPI={laps:{getFolder:async()=>{if(window.holdFolder)await new Promise(resolve=>(window.folderWaiters??=[]).push(resolve));return window.folderRoot??'/synthetic/A'},pickFolder:async()=>null,
  list:async()=>window.failSavedList&&window.__laploupe?.openingSaved?.()?{success:false,error:'synthetic list failure'}:({success:true,files:[...storeFiles].map(([path,b])=>({path,size:b.byteLength,mtimeMs:123,local:true}))}),
  read:async path=>{storeReads.push(path);if(window.holdIndexRead===path)await new Promise(resolve=>window.resumeIndexRead=resolve);if(window.readDelayMs)await new Promise(r=>setTimeout(r,window.readDelayMs));if(window.holdSavedRead===path && window.__laploupe?.openingSaved?.())await new Promise(resolve=>window.resumeSavedRead=resolve);const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
- readText:async path=>{if(window.holdTextRead===path)await new Promise(resolve=>(window.textWaiters??=[]).push(resolve));return {success:true,text:storeFiles.has(path)?new TextDecoder().decode(storeFiles.get(path)):null}},
+ readText:async path=>{if(window.failRunsMetadata&&window.__laploupe?.openingSaved?.()&&path.endsWith('/runs.json'))return {success:false,error:'synthetic metadata failure'};if(window.holdTextRead===path)await new Promise(resolve=>(window.textWaiters??=[]).push(resolve));return {success:true,text:storeFiles.has(path)?new TextDecoder().decode(storeFiles.get(path)):null}},
  writeText:async(path,text)=>{if(path.endsWith('/laptimes.json'))(window.indexWrites??=[]).push(JSON.parse(text));if(window.failWrites)return {success:false,error:'synthetic write failure'};storeWrites.push(path);storeFiles.set(path,new TextEncoder().encode(text));return {success:true}}
  }};
  `});
@@ -60,10 +61,15 @@ try {
  await p.waitFor('window.folderWaiters?.length>0',5000,'attachment barrier');
  await p.ev("document.querySelector('[data-testid=lap-picker-row] [data-slot=\"1\"]').click()");
  await p.waitFor('window.__laploupe.cars.length===2',10000,'second pick during attachment');
+ await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");
+ await p.click('toggle-data-drawer');
+ await p.ev(`(()=>{const e=document.querySelector('[data-testid=data-drawer] input[type=number][step="0.01"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'1.75');e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+ await p.ev("import('/src/services/runOpener.ts').then(m=>m.flushOpenRunsStrict())");
+ assert.equal(await p.ev("JSON.parse(new TextDecoder().decode(storeFiles.get('sodegaura/runs.json'))).runs.demo.parts['1'].clockOffsetSec"),1.75,'clock edit saves before video attachment finishes');
+ await p.click('data-drawer-close');
  await p.ev('window.holdFolder=false;window.folderWaiters.forEach(f=>f())');
  await p.waitFor("window.storeReads.includes('sodegaura/demo.iphone_imu.csv')",10000,'IMU sidecar');
  assert.equal(await p.ev("import('/src/services/imuG.ts').then(m=>m.parseImuCsv(new TextDecoder().decode(storeFiles.get('sodegaura/demo.iphone_imu.csv')))?.t.length)"),2000);
- await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");
  await p.ev("import('/src/services/runOpener.ts').then(m=>window.testRunOpener=m)");
 
  await p.waitFor("!!window.testRunOpener.getOpenRun()",10000,"video owner");
@@ -150,10 +156,19 @@ try {
  assert.deepEqual((await p.state()).cars,carsBeforeIO,'failed list does not partially restore comparison');
  assert.ok(p.notes.slice(notesBeforeIO).some(s=>s.includes('Could not load the comparison')));
  assert.ok(!p.notes.slice(notesBeforeIO).some(s=>s.includes('runs of this session were not found')));
- await p.ev("window.failSavedList=false;document.querySelector('[data-testid=library-session-row] button').click()");
+ await p.ev("window.failSavedList=false;window.failRunsMetadata=true;document.querySelector('[data-testid=library-session-row] button').click()");
+ await p.waitFor('!window.__laploupe.openingSaved()');
+ assert.deepEqual((await p.state()).cars,carsBeforeIO,'metadata IO does not replace the working comparison');
+ await p.ev("window.failRunsMetadata=false;document.querySelector('[data-testid=library-session-row] button').click()");
  await p.waitFor(`window.__laploupe.screen==='analysis' && window.__laploupe.cars.length===1 && window.__laploupe.cars[0].lapNumber===${chosenLap}`);
  assert.ok(Math.abs((await p.state()).sessionTimeSec-(await p.state()).baseLap.startTime)<0.001,'saved base starts at its own lap');
- await p.ev("storeFiles.set('sodegaura/B.nmea',storeFiles.get('sodegaura/demo.nmea'))");
+ const beforeMissingLap=(await p.state()).cars;
+ await p.ev("(()=>{const data={version:1,name:'Vanished lap',createdAt:'2025-01-01T00:00:00Z',cars:[{slot:0,run:'sodegaura/demo.nmea',lap:999999}]};storeFiles.set('sessions/vanished.lapsession.json',new TextEncoder().encode(JSON.stringify(data)));window.__laploupe.go('library')})()");
+ await p.waitFor("[...document.querySelectorAll('[data-testid=library-session-row]')].some(r=>r.innerText.includes('Vanished lap'))");
+ await p.ev("[...document.querySelectorAll('[data-testid=library-session-row]')].find(r=>r.innerText.includes('Vanished lap')).querySelector('button').click()");
+ await p.waitFor('!window.__laploupe.openingSaved()');
+ assert.deepEqual((await p.state()).cars,beforeMissingLap,'missing saved lap does not discard working analysis');
+ await p.ev("window.__laploupe.go('analysis');storeFiles.set('sodegaura/B.nmea',storeFiles.get('sodegaura/demo.nmea'))");
  await p.click('open-lap-picker');
  if(await p.ev("[...document.querySelectorAll('button')].some(x=>x.textContent==='Stored runs')"))await p.clickText('Stored runs');
  await p.waitFor("[...document.querySelectorAll('[data-testid=lap-picker-row]')].some(r=>r.parentElement.querySelector('p')?.title.includes('B.nmea'))",15000,'second stored run');
@@ -165,7 +180,12 @@ try {
  await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");
  await p.click('toggle-data-drawer');
  const aid=await p.ev("window.__laploupe.sessions.find(s=>s.fileName==='demo.nmea').id");
+ const beforeManualFailure=(await p.state()).cars, notesBeforeManual=p.notes.length;
  await p.ev(`(()=>{const i=window.__laploupe.sessions.findIndex(s=>s.id===${JSON.stringify(aid)});const card=document.querySelectorAll('[data-testid=session-card]')[i];const e=card.querySelector('input[type=number][step="0.01"]');window.failWrites=true;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'5.75');e.dispatchEvent(new Event('input',{bubbles:true}));window.holdFolder=true;const b=[...card.querySelectorAll('tbody tr button')].find(x=>x.textContent.trim()==='1');if(!b)throw Error('legacy Car 1 missing');b.click();})()`);
+ await waitNote(notesBeforeManual);
+ assert.deepEqual((await p.state()).cars,beforeManualFailure,'legacy manual selection retains Cars after save failure');
+ assert.ok(await p.ev("window.testRunOpener.companionRuns().includes('sodegaura/demo.nmea')"),'failed manual switch keeps retry owner');
+ await p.ev(`(()=>{window.failWrites=false;const i=window.__laploupe.sessions.findIndex(s=>s.id===${JSON.stringify(aid)});const card=document.querySelectorAll('[data-testid=session-card]')[i];[...card.querySelectorAll('tbody tr button')].find(x=>x.textContent.trim()==='1').click();})()`);
  await p.waitFor(`window.__laploupe.cars.find(c=>c.slot===0)?.sessionId===${JSON.stringify(aid)}`);
  await p.waitFor('window.folderWaiters.length>2',5000,'promotion barrier');
  assert.ok(await p.ev("window.testRunOpener.companionRuns().includes('sodegaura/demo.nmea')"),'pending promotion keeps its companion owner');
