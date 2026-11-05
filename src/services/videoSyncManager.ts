@@ -557,25 +557,46 @@ class VideoSyncManager {
    * 記録のいちばん細かい (Hz の高い) ログに出す。時刻が重なるだけのログ (同じ走行枠のチームメイト) には付け替えない。
    * 利用者が選んだ動画は変えない。付け替えたものを [元のログ, 付け替えたログ] で返す
    */
-  public async preferHighestRateSessions(sessions: Session[], sameRun: (a: Session, b: Session) => Promise<boolean>): Promise<Array<[string, string]>> {
-    const changed: Array<[string, string]> = [];
+  public async preferHighestRateSessions(sessions: Session[], sameRun: (a: Session, b: Session) => Promise<boolean>, context: {
+    getSessions?: () => Session[];
+    isCurrent?: () => boolean;
+    onChanged?: (from: string, to: string) => void;
+  } = {}): Promise<Array<[string, string]>> {
+    const committed: Array<{ track: VideoTrack; from: string; to: string }> = [];
     const done = new Set<string>();
+    const live = () => context.getSessions?.() ?? sessions;
+    const currentRequest = () => context.isCurrent?.() ?? true;
     for (const track of [...this.videos]) {
+      if (!currentRequest()) break;
       if (done.has(track.id) || track.isSessionChosenManually || !track.matchedSessionId) continue;
       const group = this.getChapterGroupForTrack(track.id);
-      (group ? group.tracks.map(ct => ct.track) : [track]).forEach(t => done.add(t.id));
-      if (group && group.tracks.some(ct => ct.track.isSessionChosenManually)) continue;
+      const targets = group ? group.tracks.map(ct => ct.track) : [track];
+      targets.forEach(t => done.add(t.id));
+      if (targets.some(t => t.isSessionChosenManually)) continue;
       const current = sessions.find(s => s.id === track.matchedSessionId);
       if (!current) continue;
-      for (const c of overlappingSessions(track, sessions, this)) {
-        if (c.id === current.id || (c.samplingRate || 0) <= (current.samplingRate || 0)) break;
-        if (!(await sameRun(current, c))) continue;
-        changed.push([current.id, c.id]);
-        this.setMatchedSession(track.id, c.id);
+      for (const candidate of overlappingSessions(track, sessions, this)) {
+        if (candidate.id === current.id || (candidate.samplingRate || 0) <= (current.samplingRate || 0)) break;
+        const same = await sameRun(current, candidate);
+        if (!currentRequest()) break;
+        const now = live();
+        const nowGroup = this.getChapterGroupForTrack(track.id);
+        const nowTargets = nowGroup ? nowGroup.tracks.map(ct => ct.track) : [track];
+        const unchanged = targets.length === nowTargets.length && targets.every((t, i) => t === nowTargets[i]
+          && this.videos.includes(t) && !t.isSessionChosenManually && t.matchedSessionId === current.id);
+        const source = now.find(s => s.id === current.id), target = now.find(s => s.id === candidate.id);
+        if (!unchanged || source?.points !== current.points || target?.points !== candidate.points
+          || source?.clockOffsetSec !== current.clockOffsetSec || target?.clockOffsetSec !== candidate.clockOffsetSec) break;
+        if (!same || !overlappingSessions(track, now, this).some(s => s.id === candidate.id)) continue;
+        this.setMatchedSession(track.id, candidate.id);
+        committed.push({ track, from: current.id, to: candidate.id });
+        // 確定した同じ継続処理で通知する。別動画の照合待ちを挟んで Car を動かさない。
+        context.onChanged?.(current.id, candidate.id);
         break;
       }
     }
-    return changed;
+    return currentRequest() ? committed.filter(c => this.videos.includes(c.track) && !c.track.isSessionChosenManually
+      && c.track.matchedSessionId === c.to && live().some(s => s.id === c.to)).map(c => [c.from, c.to]) : [];
   }
 
   // トラック削除

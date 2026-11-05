@@ -804,6 +804,7 @@ const RunDetail: React.FC<{
   const ExtraLapView = lapViews.find(v => v.id === lapView)?.Component;
   // 書き換えている間は、隠す・出すを押せなくする
   const [saving, setSaving] = useState(false);
+  const [lapError, setLapError] = useState<string | null>(null);
   useEscapeKey(!!onClose, () => onClose?.());
   const visible = run.laps.filter(l => !l.hidden);
   const best = visible.length ? Math.min(...visible.map(l => l.time)) : null;
@@ -854,6 +855,7 @@ const RunDetail: React.FC<{
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-4">
         {onSaveMeta && <RunNoteField key={`${run.folder}/${run.file}`} note={run.entry?.note} onSave={note => void onSaveMeta({ note })} testId="run-detail-note" />}
+        {lapError && <p role="alert" className="text-xs text-amber-500">{lapError}</p>}
         {run.laps.length > 0 && (
           <section>
             <div className="flex items-center gap-2 mb-2">
@@ -879,7 +881,7 @@ const RunDetail: React.FC<{
                   <span className="w-12 text-xs text-slate-400">{l.part ? `${l.part}-` : ''}L{l.n}</span>
                   <span className={`font-mono font-bold flex-1 ${!l.hidden && l.time === best ? 'text-fuchsia-400' : 'text-slate-200'}`}>{formatLapTime(l.time)}</span>
                   <button
-                    onClick={() => { setSaving(true); void onToggleLap(l, !l.hidden).finally(() => setSaving(false)); }}
+                    onClick={() => { setSaving(true); setLapError(null); void onToggleLap(l, !l.hidden).catch(error => setLapError(error instanceof Error ? error.message : String(error))).finally(() => setSaving(false)); }}
                     disabled={saving}
                     className="p-2.5 -m-1.5 rounded text-slate-500 hover:text-slate-300 cursor-pointer disabled:opacity-40"
                     title={l.hidden ? t('出す', 'Show') : t('隠す (ピットイン・赤旗の周など)', 'Hide (pit, red flag laps etc.)')}

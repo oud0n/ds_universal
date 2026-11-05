@@ -35,6 +35,7 @@ export interface LapFileStore {
   read(path: string): Promise<Uint8Array>;
   /** ない・読めないときは null */
   readText(path: string): Promise<string | null>;
+  readTextStrict?(path: string): Promise<string | null>;
   writeText(path: string, text: string): Promise<void>;
 }
 
@@ -99,9 +100,9 @@ export const LAP_INDEX_FILE = 'laptimes.json';
 
 /** 控え (laptimes.json) の書き換えを 1 つずつにする (周を隠す操作と、控えの作り直しが、互いの書き換えを古い中身で上書きしないように) */
 let lapIndexWrites: Promise<void> = Promise.resolve();
-export function queueLapIndexWrite(fn: () => Promise<void>): Promise<void> {
+export function queueLapIndexWrite<T>(fn: () => Promise<T>): Promise<T> {
   const next = lapIndexWrites.then(fn, fn);
-  lapIndexWrites = next.catch(() => {});
+  lapIndexWrites = next.then(() => {}, () => {});
   return next;
 }
 /** 走行に付けられる動画の拡張子 */
@@ -236,7 +237,7 @@ function sameRunRecord(files: Record<string, LapFileRecord>, name: string): LapF
 }
 
 /** 非表示の印を、計算し直した周へ引き継ぐ (同じファイルで、始まりの時刻がいちばん近い周。SAME_LAP_MS より離れていれば捨てる) */
-function carryHidden(hidden: HiddenLap[], files: Record<string, LapFileRecord>): HiddenLap[] {
+export function carryHidden(hidden: HiddenLap[], files: Record<string, LapFileRecord>, skipped: string[] = []): HiddenLap[] {
   const out: HiddenLap[] = [];
   for (const h0 of hidden) {
     // 日付のフォルダへ移したファイル (前はファイルの名前だけ) にも引き継ぐ
@@ -249,6 +250,10 @@ function carryHidden(hidden: HiddenLap[], files: Record<string, LapFileRecord>):
     if (best && Math.abs(best.startMs - h.startMs) <= SAME_LAP_MS && !out.some(o => o.file === h.file && o.part === best!.part && o.n === best!.n)) {
       out.push({ file: h.file, ...(best.part ? { part: best.part } : {}), n: best.n, startMs: best.startMs });
     }
+  }
+  for (const h of hidden) {
+    const to = skipped.find(k => k === h.file || runStem(k) === runStem(h.file));
+    if (to && !out.some(o => o.file === to && o.part === h.part && o.n === h.n)) out.push({ ...h, file: to });
   }
   return out;
 }
@@ -319,12 +324,7 @@ export async function reconcileFolder(
     }
   }
   if (prev && Object.keys(prev.files).some(k => !(k in next))) changed = true;
-  const hidden = carryHidden(prev?.hidden ?? [], next);
-  // 数えずに飛ばした走行の印は、そのまま残す (日付のフォルダへ移した名前にして)
-  for (const h of prev?.hidden ?? []) {
-    const to = skipped.find(k => k === h.file || runStem(k) === runStem(h.file));
-    if (to && !hidden.some(o => o.file === to && o.part === h.part && o.n === h.n)) hidden.push({ ...h, file: to });
-  }
+  const hidden = carryHidden(prev?.hidden ?? [], next, skipped);
   if (prev && hidden.length !== prev.hidden.length) changed = true;
   return { index: { version: 1, courseHash: hash, courseName: course.name, files: next, hidden }, changed, computed };
 }

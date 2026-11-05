@@ -33,11 +33,11 @@ try {
  window.failDefinitions=true;await(await import('/src/services/csvFormatStore.ts')).loadCsvFormats(1);
  window.__laploupe.go('analysis');
  })()`);
- const pick=async()=>{
+ const pick=async(file='split.nmea')=>{
   await p.click('open-lap-picker');
   if(await p.ev("[...document.querySelectorAll('button')].some(b=>b.textContent==='Stored runs')"))await p.clickText('Stored runs');
   await p.waitFor("document.querySelector('[data-testid=lap-picker-row] [data-slot=\"0\"]')",20000,'split lap');
-  await p.ev("document.querySelector('[data-testid=lap-picker-row] [data-slot=\"0\"]').click()");
+  await p.ev(`[...document.querySelectorAll('[data-testid=lap-picker-row]')].find(r=>r.parentElement.querySelector('p')?.title.includes(${JSON.stringify(file)})).querySelector('[data-slot="0"]').click()`);
   await p.waitFor("document.querySelector('[role=status]')?.textContent.includes('Assigned ')",15000,'assigned split lap');
   await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");
  };
@@ -50,8 +50,10 @@ try {
  await p.click('toggle-data-drawer');
  await p.ev("[...document.querySelectorAll('button[title=\"Delete session\"]')][1].click()");
  await p.waitFor('window.__laploupe.sessions.length===1');
+ await p.ev(`(()=>{const e=document.querySelector('[data-testid=data-drawer] input[type=number][step="0.01"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'3.25');e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
  await p.click('data-drawer-close');
  await pick();
+ assert.equal(await p.ev("JSON.parse(new TextDecoder().decode(storeFiles.get('sodegaura/runs.json'))).runs.split.parts['1'].clockOffsetSec"),3.25,'partial edit before repick persisted');
  await p.waitFor('window.__laploupe.sessions.length===2');
  assert.ok(await p.ev('window.__laploupe.analysisSnapshot().sessions[1].id!==oldIds[1]'),'reopened part receives a fresh ID');
  await p.waitFor("window.__laploupe.analysisSnapshot().sessions[1].clockOffsetSec===2.5",5000,'saved second-part clock restored');
@@ -59,6 +61,11 @@ try {
  await p.ev(`(()=>{const e=[...document.querySelectorAll('[data-testid=data-drawer] input[type=number][step="0.01"]')][1];if(!e)throw Error('part2 clock input missing');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'4.75');e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
  await p.ev('testRunOpener.flushOpenRunsStrict()');
  assert.equal(await p.ev("JSON.parse(new TextDecoder().decode(storeFiles.get('sodegaura/runs.json'))).runs['split'].parts['2'].clockOffsetSec"),4.75,'rebound owner persists edits to the correct part');
+ await p.ev("[...document.querySelectorAll('button[title=\"Delete session\"]')][0].click()");
+ await p.waitFor('window.__laploupe.sessions.length===1');
+ await p.ev(`(()=>{const e=document.querySelector('[data-testid=data-drawer] input[type=number][step="0.01"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'6.5');e.dispatchEvent(new Event('input',{bubbles:true}));storeFiles.set('sodegaura/B.nmea',storeFiles.get('sodegaura/split.nmea'));})()`);
+ await p.click('data-drawer-close');await pick('B.nmea');
+ assert.equal(await p.ev("JSON.parse(new TextDecoder().decode(storeFiles.get('sodegaura/runs.json'))).runs.split.parts['2'].clockOffsetSec"),6.5,'part2 edit saved before switching Car');
  assert.equal(p.errors.length,0,p.errors.join('\n'));
  console.log('PASS split owner rebind: fresh ID, restored clock, second-part edit persisted');
 } catch(error) {console.log(JSON.stringify(await p.ev(`({sessions:window.__laploupe.analysisSnapshot().sessions.map(s=>({id:s.id,part:s.sourceFile?.part,clock:s.clockOffsetSec})),owner:testRunOpener.getOpenRun()?.item.entry,ids:window.oldIds,matches:testRunOpener.currentRunMatches?.('sodegaura/split.nmea',window.__laploupe.analysisSnapshot().sessions.map(s=>s.id)),disk:JSON.parse(new TextDecoder().decode(storeFiles.get('sodegaura/runs.json')))})`),null,2));throw error;} finally {await p.close();}

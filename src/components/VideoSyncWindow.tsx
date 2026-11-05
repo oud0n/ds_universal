@@ -57,7 +57,7 @@ import { RunFolderVideos } from './RunFolderVideos';
 import { SKIP_SEC, Skip10Icon } from './Skip10Icon';
 import { useWheelScrollX } from '../hooks/useWheelScrollX';
 import { useEscapeKey } from '../hooks/useEscapeKey';
-import { companionSessionsOfVideo, onOpenRun, openRunOverlayLayout, setOpenRunOverlayLayout } from '../services/runOpener';
+import { assertRunSyncTarget, companionSessionsOfVideo, onOpenRun, openRunOverlayLayout, setOpenRunOverlayLayout } from '../services/runOpener';
 
 /** 書き出しの範囲の時刻 (分:秒.1 桁) */
 function formatRangeTime(sec: number): string {
@@ -739,7 +739,11 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   // 手で合わせる (ずれの入力・微調整・ワンクリック同期・同期ピン)。基準のログの時刻でのずれで入れ、その時刻を基準のログに付ける
   const setOffset = (trackId: string, offsetSec: number) => {
-    if (baseSession) videoSyncManager.setOffsetIn(trackId, baseSession, offsetSec);
+    if (!baseSession) return false;
+    try { assertRunSyncTarget(trackId, baseSession); }
+    catch (error) { alert(error instanceof Error ? error.message : String(error)); return false; }
+    videoSyncManager.setOffsetIn(trackId, baseSession, offsetSec);
+    return true;
   };
 
   // ワンクリック同期: 現在の動画フレームを GPS の現在選択タイムに合わせる
@@ -761,8 +765,11 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const handleAddPin = () => {
     const el = mainVideo();
     if (!el || !activeTrack) return;
+    if (!baseSession) return;
+    try { assertRunSyncTarget(activeTrack.id, baseSession, true); }
+    catch (error) { alert(error instanceof Error ? error.message : String(error)); return; }
     const currentVideoTime = el.currentTime;
-    
+
     const pin = createSyncPin(
       newPinName || `${tr('ピン', 'Pin')} ${pins.length + 1}`,
       sessionSec,
@@ -771,7 +778,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     );
     pin.sessionId = baseSession?.id;
     // ピンの位置でずれを合わせる
-    setOffset(pin.trackId, pin.calculatedOffsetSec);
+    if (!setOffset(pin.trackId, pin.calculatedOffsetSec)) return;
 
     const updated = [...pins, pin];
     setPins(updated);

@@ -1,3 +1,4 @@
+import { sessionStartUtcMs, type ClockSession } from './mediaClock';
 /**
  * 過去の走行の一覧と、走行を開く (ログ・同じフォルダの動画・動画の同期をそろえて開く)。2026-10-20。
  * docs/session_storage_design.md の「作る順番」の 1〜3。
@@ -11,10 +12,10 @@
 import { isTempC, isWeather, type Weather } from './runWeather';
 import { notifyRunsChanged } from './runsChanged';
 import type { Session } from '../types/telemetry';
-import { loadLapHistory } from './lapHistory';
-import { LAP_INDEX_FILE, groupRunsByFolder, queueLapIndexWrite, isRunVideoName, lapKey, parseLapIndex, runStem, setHidden, type LapRecord } from './lapIndex';
+import { loadLapHistory, updateLapHidden } from './lapHistory';
+import { LAP_INDEX_FILE, groupRunsByFolder, isRunVideoName, lapKey, parseLapIndex, runStem, type LapRecord } from './lapIndex';
 import { findRunRow, isRunsConflictCopy, noteRunsConflictCopies, readRunsFile, updateRun, type RunRow, type RunVideo } from './runsFile';
-import { rowParts, rowVideoFromTrack, syncPinsFromRow, syncVideoFromRow } from './runSync';
+import { UnpersistableSyncError, rowParts, rowVideoFromTrack, syncPinsFromRow, syncVideoFromRow } from './runSync';
 import type { RunFileInfo, RunStore } from './runStore';
 import { parseVideoMetadata } from './videoMetadataParser';
 import { remoteFileLike, type RemoteVideo } from './remoteVideo';
@@ -168,6 +169,8 @@ interface OpenRun {
   requestedLayout?: string;
   /** その走行のログ (読み込んだ順。何番目 = 分かれた走行の番号) */
   sessionIds: string[];
+  /** 元の part 番号と時計だけを保持。閉じた点列は持たない。 */
+  partClocks: Map<number, ClockSession>;
   circuitName: () => string;
   sessions: () => Session[];
   /** その走行の動画 (保管場所の道) */
@@ -210,18 +213,37 @@ const sessionsOf = (run: OpenRun): Session[] => {
     return { ...s, clockOffsetSec: p.sec };
   });
 };
-const runSessionsOf = (run: OpenRun, all: Session[] = sessionsOf(run)) =>
-  run.sessionIds.map(id => all.find(s => s.id === id)).filter((s): s is Session => !!s);
+const clockCopy = (s: ClockSession): ClockSession => ({ id: s.id, clockOffsetSec: s.clockOffsetSec, points: s.points.length ? [{ timestamp: s.points[0].timestamp }] : [] });
+function partClocksOf(sessions: Session[], prior?: OpenRun): Map<number, ClockSession> {
+  const parts = prior && sessions.some(s => prior.sessionIds.includes(s.id)) ? new Map(prior.partClocks) : new Map<number, ClockSession>();
+  sessions.forEach((s, i) => parts.set(s.sourceFile?.part ?? i + 1, clockCopy(s)));
+  return parts;
+}
+const runSessionsOf = (run: OpenRun, all: Session[] = sessionsOf(run)): Array<Session | undefined> =>
+  Array.from({ length: Math.max(0, ...run.partClocks.keys()) }, (_, i) => all.find(s => s.id === run.partClocks.get(i + 1)?.id));
+
+function clockPartsOf(parts: Map<number, ClockSession>, all: Session[], saved?: RunRow['parts']): Array<ClockSession | undefined> {
+  return Array.from({ length: Math.max(0, ...parts.keys()) }, (_, i) => {
+    const prior = parts.get(i + 1);
+    return prior ? all.find(s => s.id === prior.id) ?? { ...prior, clockOffsetSec: saved?.[String(i + 1)]?.clockOffsetSec ?? prior.clockOffsetSec } : undefined;
+  });
+}
 
 /** その走行の今の動画・ピン・ログ (書く前に取っておく。書くのを待つ間に動画が外されても、外す前の中身で書くため) */
 interface RunSnapshot {
   all: Session[];
+  parts: Map<number, ClockSession>;
   tracks: ReturnType<typeof videoSyncManager.getTracks>;
   pins: SyncPin[];
 }
 function snapshotOf(run: OpenRun): RunSnapshot {
+  const all = sessionsOf(run);
+  for (const [part, prior] of run.partClocks) {
+    const live = all.find(s => s.id === prior.id);
+    if (live) run.partClocks.set(part, clockCopy(live));
+  }
   return {
-    all: sessionsOf(run),
+    all, parts: new Map(run.partClocks),
     tracks: videoSyncManager.getTracks().filter(t => t.remote && run.paths.has(t.remote.path)).map(t => ({ ...t, clock: { ...t.clock } })),
     pins: videoViewStore.getPins(run.circuitName() || 'default').slice()
   };
@@ -229,33 +251,35 @@ function snapshotOf(run: OpenRun): RunSnapshot {
 
 /** その走行の、行の中身 (動画・時計の補正)。ログが 1 つも無い (閉じた) ときは null */
 function rowContent(run: OpenRun, prev: RunRow | null, snap: RunSnapshot = snapshotOf(run)): Pick<RunRow, 'parts' | 'videos'> | null {
-  const { all, tracks, pins } = snap;
-  const runSessions = runSessionsOf(run, all);
-  // その走行のログが 1 つでも外されていたら書かない (残ったログの番号が詰まり、2 番目のログの同期を 1 番目として書いてしまうため)
-  if (!runSessions.length || runSessions.length !== run.sessionIds.length) return null;
+  const { all, tracks, pins, parts } = snap;
+  const liveParts = Array.from({ length: Math.max(0, ...parts.keys()) }, (_, i) => all.find(s => s.id === parts.get(i + 1)?.id));
+  if (!liveParts.some(Boolean)) return null;
+  // 欠けた part は時計換算だけに使い、保存する補正は存命 part だけ。閉じた part の最新行を上書きしない。
+  const runSessions = clockPartsOf(parts, all, prev?.parts);
+  const clocks = [...all, ...runSessions.filter((s): s is ClockSession => !!s && !all.some(l => l.id === s.id))];
   const opened = new Set(tracks.map(t => t.fileName));
   const videos = [
-    ...tracks.map(t => rowVideoFromTrack(t, pins.filter(p => p.trackId === t.id), runSessions, all, prev?.videos?.find(v => v.name === t.fileName))),
+    ...tracks.map(t => rowVideoFromTrack(t, pins.filter(p => p.trackId === t.id), runSessions, clocks, prev?.videos?.find(v => v.name === t.fileName))),
     ...run.kept.filter(v => !opened.has(v.name)),
     // 開いている間にほかの端末が足した動画 (書く直前の行にあって、開いたときには知らなかったもの)
     ...(prev?.videos ?? []).filter(v => !opened.has(v.name) && !run.known.has(v.name) && !run.kept.some(k => k.name === v.name))
   ];
-  return { parts: rowParts(runSessions, prev?.parts), videos };
+  return { parts: rowParts(liveParts, prev?.parts), videos };
 }
 
 const contentKey = (c: Pick<RunRow, 'parts' | 'videos'>) => JSON.stringify(c);
 
 /** 走行の動画と同期を runs.json に書く (中身が変わったときだけ) */
 async function saveRun(run: OpenRun, strict = false): Promise<void> {
-  // 今の中身を取っておく (書くのを待つ間に、Car 1 を替えた・比べる相手から外したなどで動画が外されても、外す前の中身で書く)
-  const snap = snapshotOf(run);
-  const content = rowContent(run, run.item.entry, snap);
-  const metadataKey = metadataKeyOf(run.store, run.item);
-  const metadata = new Map(pendingMetadata.get(metadataKey) ?? []);
-  if (!content && metadata.size === 0) return;
-  const key = content ? contentKey(content) : null;
-  if (content && key === run.baseline && metadata.size === 0) return;
   try {
+    // 今の中身を取っておく (書くのを待つ間に、Car 1 を替えた・比べる相手から外したなどで動画が外されても、外す前の中身で書く)
+    const snap = snapshotOf(run);
+    const content = rowContent(run, run.item.entry, snap);
+    const metadataKey = metadataKeyOf(run.store, run.item);
+    const metadata = new Map(pendingMetadata.get(metadataKey) ?? []);
+    if (!content && metadata.size === 0) return;
+    const key = content ? contentKey(content) : null;
+    if (content && key === run.baseline && metadata.size === 0) return;
     let writtenMetadata = new Map<keyof RunMetaPatch, { version: number; value: unknown }>();
     const row = await updateRun(run.store, run.item.folder, run.item.file, prev => {
       // 書く直前の行で作り直す (ほかの端末が足した項目を残す)。動画・ピンは取っておいたもの
@@ -365,7 +389,7 @@ function restoreRowVideos(run: OpenRun, row: RunRow | null, setClockOffset?: (id
     }
   }
   const all = sessionsOf(run);
-  const runSessions = runSessionsOf(run, all);
+  const runSessions = clockPartsOf(run.partClocks, all, row.parts);
   const key = run.circuitName() || 'default';
   let pins = videoViewStore.getPins(key);
   let pinsChanged = false;
@@ -485,7 +509,7 @@ async function attachRunVideosNow(opts: AttachOptions, isCurrent: () => boolean)
   const openedNames = new Set(videoSyncManager.getTracks().filter(t => t.remote && mine.has(t.remote.path)).map(t => t.fileName));
   const row = retained?.item.entry ?? item.entry;
   const run: OpenRun = retained ?? {
-    store, item, sessionIds: opts.runSessions.map(s => s.id), circuitName: opts.circuitName, sessions: opts.sessions, paths: mine,
+    store, item, sessionIds: opts.runSessions.map(s => s.id), partClocks: partClocksOf(opts.runSessions, owned ?? undefined), circuitName: opts.circuitName, sessions: opts.sessions, paths: mine,
     // runs.json にあって今回は開かなかった動画 (iCloud にだけある・見つからない) は、消さずに残す
     kept: opts.fromRuns ? (row?.videos ?? []).filter(v => !openedNames.has(v.name)) : [],
     known: new Set([...(row?.videos ?? []).map(v => v.name), ...openedNames]),
@@ -593,7 +617,7 @@ async function attachCompanionVideosNow(opts: AttachOptions, isCurrent: () => bo
   const openedNames = new Set(videoSyncManager.getTracks().filter(t => t.remote && mine.has(t.remote.path)).map(t => t.fileName));
   const row = item.entry;
   const run: OpenRun = {
-    store: opts.store, item, sessionIds: opts.runSessions.map(s => s.id), circuitName: opts.circuitName, sessions: opts.sessions, paths: mine,
+    store: opts.store, item, sessionIds: opts.runSessions.map(s => s.id), partClocks: partClocksOf(opts.runSessions), circuitName: opts.circuitName, sessions: opts.sessions, paths: mine,
     kept: opts.fromRuns ? (row?.videos ?? []).filter(v => !openedNames.has(v.name)) : [],
     known: new Set([...(row?.videos ?? []).map(v => v.name), ...openedNames]),
     baseline: null,
@@ -637,6 +661,17 @@ export async function addVideoToOpenRun(video: RemoteVideo): Promise<boolean> {
   }
   scheduleSave();
   return true;
+}
+
+/** 保存元へ換算できない調整は、時計やピンを変える前に止める。 */
+export function assertRunSyncTarget(trackId: string, session: Session, pin = false): void {
+  const track = videoSyncManager.getTracks().find(t => t.id === trackId);
+  if (!track?.remote) return;
+  const owner = [...(current ? [current] : []), ...companions.values()].find(r => r.paths.has(track.remote!.path));
+  if (!owner) return;
+  if ([...owner.partClocks.values()].some(p => p.id === session.id)) return;
+  const own = [...owner.partClocks.values()].find(p => p.id === track.matchedSessionId) ?? [...owner.partClocks.values()][0];
+  if (sessionStartUtcMs(session) === null || (pin && sessionStartUtcMs(own) === null)) throw new UnpersistableSyncError();
 }
 
 /** 開いている走行 (動画の画面で、同じフォルダの動画を出すため) */
@@ -762,14 +797,8 @@ export async function setRunMeta(store: RunStore, item: RunItem, patch: RunMetaP
 }
 
 /** 走行の周を隠す・出す (控え laptimes.json に書く。ファイルは消さない) */
-export function setRunLapHidden(store: RunStore, item: RunItem, lap: LapRecord, hide: boolean): Promise<void> {
-  const run = async () => {
-    const path = `${item.folder}/${LAP_INDEX_FILE}`;
-    const index = parseLapIndex(await store.readText(path));
-    if (!index) return;
-    await store.writeText(path, JSON.stringify(setHidden(index, item.file, lap.part, lap.n, hide)));
-  };
-  return queueLapIndexWrite(run);
+export async function setRunLapHidden(store: RunStore, item: RunItem, lap: LapRecord, hide: boolean): Promise<void> {
+  await updateLapHidden(store, item.folder, item.file, lap, hide);
 }
 
 /** 保存を待ったあと、開いている走行の最新の同期行を採用側へ渡す。 */

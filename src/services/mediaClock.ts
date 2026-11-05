@@ -7,7 +7,13 @@
  * - UTC の時刻は動かない
  * 画面に出すときは、そのとき基準にしているログ (Car 1) での位置に直す (placeTrack)。動画を別のログに付け替えることはしない
  */
-import type { Session } from '../types/telemetry';
+
+/** 時計の換算に必要な情報。閉じたログの点列全体を保持しない。 */
+export interface ClockSession {
+  id: string;
+  points: ReadonlyArray<{ timestamp?: string }>;
+  clockOffsetSec?: number;
+}
 
 /** 動画の時刻の出どころ。gps: 動画自身の GPS、manual: 手で合わせた・同期ピン、creation: ファイルの撮影日時 (±1 秒) */
 export type ClockSource = 'gps' | 'manual' | 'creation';
@@ -28,7 +34,7 @@ export const NO_CLOCK: VideoClock = { source: 'creation', logId: null, offsetSec
  * ログの先頭の本当の時刻 (UTC、ミリ秒)。ログの時計の補正 (clockOffsetSec) を引いたもの。時刻のないログは null。
  * ロガーごとの時計のずれは、ここ 1 か所で直す
  */
-export function sessionStartUtcMs(session: Session | null | undefined): number | null {
+export function sessionStartUtcMs(session: ClockSession | null | undefined): number | null {
   const ts = session?.points[0]?.timestamp;
   if (!ts) return null;
   const ms = Date.parse(ts);
@@ -36,7 +42,7 @@ export function sessionStartUtcMs(session: Session | null | undefined): number |
 }
 
 /** 動画の先頭のコマの本当の時刻 (UTC、ミリ秒)。決まらなければ null */
-export function clockStartUtcMs(clock: VideoClock, sessions: Session[]): number | null {
+export function clockStartUtcMs(clock: VideoClock, sessions: readonly ClockSession[]): number | null {
   if (clock.logId) {
     const start = sessionStartUtcMs(sessions.find(s => s.id === clock.logId));
     if (start !== null) return start + clock.offsetSec * 1000;
@@ -48,7 +54,7 @@ export function clockStartUtcMs(clock: VideoClock, sessions: Session[]): number 
  * 動画の先頭のコマの、あるログの時刻での位置 (秒)。決まらなければ null。
  * そのログに付いた時刻なら、時刻のないログ (UTC にできないログ) でもそのまま使える
  */
-export function clockOffsetIn(clock: VideoClock, session: Session | null | undefined, sessions: Session[]): number | null {
+export function clockOffsetIn(clock: VideoClock, session: ClockSession | null | undefined, sessions: readonly ClockSession[]): number | null {
   if (!session) return null;
   if (clock.logId === session.id) return clock.offsetSec;
   const v = clockStartUtcMs(clock, sessions);
@@ -57,7 +63,7 @@ export function clockOffsetIn(clock: VideoClock, session: Session | null | undef
 }
 
 /** ログに付いた時刻を作る。そのログの先頭から offsetSec 秒 */
-export function clockOnLog(source: ClockSource, session: Session, offsetSec: number): VideoClock {
+export function clockOnLog(source: ClockSource, session: ClockSession, offsetSec: number): VideoClock {
   const start = sessionStartUtcMs(session);
   return { source, logId: session.id, offsetSec: round3(offsetSec), utcMs: start === null ? null : start + offsetSec * 1000 };
 }
@@ -77,7 +83,7 @@ export function shiftClock(clock: VideoClock, sec: number): VideoClock {
 }
 
 /** 控えの UTC を今のログの時刻で入れ直す (保存の前。ログを読み込まずに開いても位置が分かるように) */
-export function refreshClockUtc(clock: VideoClock, sessions: Session[]): VideoClock {
+export function refreshClockUtc(clock: VideoClock, sessions: readonly ClockSession[]): VideoClock {
   const utcMs = clockStartUtcMs(clock, sessions);
   return utcMs === clock.utcMs ? clock : { ...clock, utcMs };
 }

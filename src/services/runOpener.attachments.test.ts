@@ -5,7 +5,7 @@ import * as runsFile from './runsFile';
 import type { Session } from '../types/telemetry';
 import { videoSyncManager } from './videoSyncManager';
 import { videoViewStore } from './videoViewStore';
-import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, companionRunMatches, companionRuns, releaseClosedRunVideos, getOpenRun, getOpenRunItem, flushOpenRunsStrict, scheduleRunSave, setRunMeta, type RunItem } from './runOpener';
+import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, companionRunMatches, companionRuns, assertRunSyncTarget, releaseClosedRunVideos, getOpenRun, getOpenRunItem, flushOpenRunsStrict, scheduleRunSave, setRunMeta, type RunItem } from './runOpener';
 import type { RunStore } from './runStore';
 import type { RemoteVideo } from './remoteVideo';
 
@@ -344,4 +344,54 @@ it('次の動画の準備中、ログを全部手放した担当の古い動画�
   resume.release(); await next;
   expect(getOpenRun()?.item.file).toBe('B');
   expect(videoSyncManager.getTracks().map(t => t.fileName)).toEqual(['B.mp4']);
+});
+
+it.each([0, 1])('part %s を閉じた後の補正を、元の番号で保存する', async removed => {
+  const first = { id: 'first', points: [{ timestamp: '2026-01-01T00:00:00Z' }], clockOffsetSec: 1 } as Session;
+  const second = { id: 'second', points: [{ timestamp: '2026-01-01T01:00:00Z' }], clockOffsetSec: 8 } as Session;
+  let live = [first, second];
+  const opts = { ...attachment('partial-clock'), runSessions: live, sessions: () => live };
+  let disk: runsFile.RunRow = { updatedAt: '', parts: { '1': { clockOffsetSec: 1 }, '2': { clockOffsetSec: 8 } }, videos: opts.item.entry!.videos };
+  opts.item.entry = disk;
+  vi.spyOn(runsFile, 'updateRun').mockImplementation(async (_s, _f, _n, update) => disk = { updatedAt: '', ...update(disk) });
+  await attachRunVideos(opts); await flushOpenRunsStrict();
+  live = live.filter((_, i) => i !== removed);
+  // 閉じた側を別の保存で更新した値も戻さない。
+  disk.parts![String(removed + 1)] = { clockOffsetSec: 19 };
+  live[0].clockOffsetSec = 4.75;
+  await flushOpenRunsStrict();
+  expect(disk.parts?.[String(2 - removed)]?.clockOffsetSec).toBe(4.75);
+  expect(disk.parts?.[String(removed + 1)]?.clockOffsetSec).toBe(19);
+  expect(disk.videos).toEqual(opts.item.entry!.videos);
+});
+
+it('part 2 だけ付け直しても、保存行の part 2 の補正を復元する', async () => {
+  const second = { id: 'second', points: [], clockOffsetSec: 0, sourceFile: { part: 2 } } as unknown as Session;
+  const opts = { ...attachment('part-two'), runSessions: [second], sessions: () => [second] };
+  opts.item.entry!.parts = { '1': { clockOffsetSec: 1 }, '2': { clockOffsetSec: 8 } };
+  const restore = vi.fn((id, sec) => { if (id === second.id) second.clockOffsetSec = sec; });
+  await attachRunVideos({ ...opts, setClockOffset: restore });
+  expect(restore).toHaveBeenCalledExactlyOnceWith(second.id, 8);
+});
+
+
+it('日時の換算不能を strict 保存の成功にせず、元の時計・ピンを保持して修正後に再保存する', async () => {
+  vi.spyOn(metadata, 'parseVideoMetadata').mockImplementation(async file => ({ fileName: file.name, fileSize: file.size, creationTime: null, durationSec: 10, timescale: 1000 }));
+  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new Error('no GPS'));
+  const own = { id: 'own', points: [{ timestamp: '2026-01-01T00:00:00Z' }] } as Session;
+  const undated = { id: 'undated', points: [{ time: 0 }] } as Session;
+  const a = { ...attachment('guard', true), runSessions: [own], sessions: () => [own, undated] };
+  a.item.entry!.videos![0].clock = { source: 'manual', logPart: 1, offsetSec: 2, utcMs: null };
+  let disk = structuredClone(a.item.entry!);
+  const write = vi.spyOn(runsFile, 'updateRun').mockImplementation(async (_s, _f, _n, update) => disk = { updatedAt: '', ...update(disk) });
+  await attachRunVideos(a); await flushOpenRunsStrict();
+  const previous = structuredClone(disk), t = videoSyncManager.getTracks()[0];
+  expect(() => assertRunSyncTarget(t.id, undated)).toThrow();
+  // 保存層も、プロジェクト復元など UI を通らない変更を検査する。
+  videoSyncManager.setOffsetIn(t.id, undated, 7);
+  write.mockClear();
+  await expect(flushOpenRunsStrict()).rejects.toThrow();
+  expect(write).not.toHaveBeenCalled(); expect(disk).toEqual(previous);
+  videoSyncManager.setOffsetIn(t.id, own, 5);await flushOpenRunsStrict();
+  expect(disk.videos![0].clock?.offsetSec).toBe(5);
 });

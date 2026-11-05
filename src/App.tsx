@@ -1517,7 +1517,7 @@ export const App: React.FC = () => {
       }
       const sessionsNow = () => {
         const cur = analysisStore.getSnapshot().sessions.filter(x => !removedIds.has(x.id));
-        return [...cur, ...added.filter(a => !cur.some(c => c.id === a.id))];
+        return cur;
       };
       const ownerId = currentBaseId();
       const isCurrent = () => reads === getStorageReadRevision() && !isStorageSelectionPending()
@@ -1968,18 +1968,16 @@ export const App: React.FC = () => {
   // ログが増えたら、動画を、時間の重なるログのうち記録の細かい (Hz の高い) ログに付け替える (LATER-12)。
   // Car 1 が付け替える前のログなら、Car 1 も付け替える
   // 動画がログより後に加わったとき (ログと動画を一緒に読み込んだとき) も同じにする
-  const sessionCountRef = useRef(0);
-  const videoCountRef = useRef(0);
   useEffect(() => {
-    const grew = sessions.length > sessionCountRef.current || videoTracks.length > videoCountRef.current;
-    sessionCountRef.current = sessions.length;
-    videoCountRef.current = videoTracks.length;
-    if (!grew) return;
-    // 同じ走行かを確かめてから付け替える (時刻が重なるだけのチームメイトのログには付け替えない)。比べは Web Worker で行う
-    videoSyncManager.preferHighestRateSessions(sessions, isSameRun).then(changed => {
-      for (const [from, to] of changed) setBaseSession(to, { fromId: from });
-    });
-  }, [sessions, videoTracks.length]);
+    let active = true;
+    const root = getStorageRevision(), reads = getStorageReadRevision();
+    if (!isStorageSelectionPending()) void videoSyncManager.preferHighestRateSessions(sessions, isSameRun, {
+      getSessions: () => analysisStore.getSnapshot().sessions,
+      isCurrent: () => active && root === getStorageRevision() && reads === getStorageReadRevision() && !isStorageSelectionPending(),
+      onChanged: (from, to) => setBaseSession(to, { fromId: from })
+    }).catch(error => console.warn('[video] log matching failed:', error));
+    return () => { active = false; };
+  }, [sessions, videoTracks.length, storageReadRevision]);
 
   // サーキットプリセット選択。当てはめなかったときは false
   const handleSelectCircuitPreset = (presetId: string): boolean => {
@@ -2889,14 +2887,18 @@ export const App: React.FC = () => {
               setConvertSessionId(id);
               navStore.go('convert');
             }}
-            onRemoveSession={id => {
-              // 開いている走行の書きかけ (直前に動かした同期など) を、そのログを外す前に書く
-              flushOpenRuns();
-              polylineRequestRef.current.delete(id);
-              // 閉じたログの G センサー・値の CSV も手放す (数 MB あり、開くたびにたまっていた)
-              imuTracksRef.current.delete(id); imuPendingRef.current.delete(id); sensorPendingRef.current.delete(id);
-              setConvertSessionId(prev => (prev === id ? '' : prev));
-              analysisStore.update(prev => ({ sessions: prev.sessions.filter(s => s.id !== id), selectedCars: prev.selectedCars.filter(c => c.sessionId !== id) }));
+            onRemoveSession={async id => {
+              try {
+                await flushOpenRunsStrict();
+                if (!analysisStore.getSnapshot().sessions.some(s => s.id === id)) return;
+                invalidateAssignments();
+                polylineRequestRef.current.delete(id);
+                // 閉じたログの G センサー・値の CSV も手放す (数 MB あり、開くたびにたまっていた)
+                imuTracksRef.current.delete(id); imuPendingRef.current.delete(id); sensorPendingRef.current.delete(id);
+                setConvertSessionId(prev => (prev === id ? '' : prev));
+                analysisStore.update(prev => ({ sessions: prev.sessions.filter(s => s.id !== id), selectedCars: prev.selectedCars.filter(c => c.sessionId !== id) }));
+                releaseClosedRunVideos(new Set(analysisStore.getSnapshot().sessions.map(s => s.id)));
+              } catch (error) { alert(tr('保存できないためログを閉じませんでした: ', 'The log was kept open because saving failed: ') + (error instanceof Error ? error.message : String(error))); }
             }}
             onEditSessionName={(id, name) => {
               setSessions(prev => prev.map(s => (s.id === id ? { ...s, sessionName: name } : s)));

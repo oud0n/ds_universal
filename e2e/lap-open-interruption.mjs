@@ -64,6 +64,12 @@ try {
   await p.ev('window.testRunOpener.flushOpenRunsStrict()');
   const saved=await p.ev("testBridge.callNative('system.readRunFile',{path:'sodegaura/runs.json'}).then(r=>new TextDecoder().decode(testBridge.fromBase64(r.b64)))");
   assert.ok(saved.includes('3.25'),'resumed owner persists clock edit');
+  await p.click('data-drawer-close');await p.ev("window.__laploupe.go('settings')");
+  await p.waitFor("document.querySelector('[data-testid=storage-local]')?.disabled",5000,'current local storage is not reselectable');
+  const beforeLocal=await p.ev("window.ownerBeforeLocal=testRunOpener.getOpenRun()?.item;({root:testStorage.getStorageRevision(),reads:testStorage.getStorageReadRevision(),calls:window.__dsMockNative.requests.filter(r=>r.method==='system.setStorageLocal').length})");
+  await p.ev("document.querySelector('[data-testid=storage-local]').click()");
+  const afterLocal=await p.ev("({root:testStorage.getStorageRevision(),reads:testStorage.getStorageReadRevision(),calls:window.__dsMockNative.requests.filter(r=>r.method==='system.setStorageLocal').length,ownerKept:testRunOpener.getOpenRun()?.item===ownerBeforeLocal})");
+  assert.deepEqual(afterLocal,{...beforeLocal,ownerKept:true});
   assert.deepEqual(p.errors,[]);
  }
  console.log(JSON.stringify({result:'PASS interrupted legacy open retries owner after cancel before/after video reply; later clock edit persisted',errors:p.errors}));

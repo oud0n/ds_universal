@@ -1,3 +1,4 @@
+import { tr } from '../utils/i18n';
 /**
  * ラップタイムの一覧を、保管場所から読み込む (2026-10-20、PLAN-19)。iPhone のアプリとデスクトップ版で共通。
  * 保管場所/<サーキットのフォルダ>/ ごとに、コースを見つけて控え (laptimes.json) を作り直し、一覧の行にする
@@ -8,11 +9,11 @@ import { CIRCUIT_PRESETS } from './circuitDatabase';
 import { userCircuitStorage } from './userCircuitStorage';
 import { courseFolder } from '../utils/courseNames';
 import { findRunRow, readRunsFile } from './runsFile';
-import { getStorageReadRevision, StorageChangedError } from './storageRevision';
+import { getStorageReadRevision, isStorageSelectionPending, StorageChangedError } from './storageRevision';
 import { loadStorageCourses } from './storageCourses';
 import {
-  LAP_INDEX_FILE, groupBon4ByFolder, lapRows, parseLapIndex, queueLapIndexWrite, reconcileFolder, setHidden,
-  type LapCourse, type LapFileStore, type LapIndex, type LapRow
+  LAP_INDEX_FILE, carryHidden, groupBon4ByFolder, lapRows, parseLapIndex, queueLapIndexWrite, reconcileFolder, setHidden,
+  type LapCourse, type LapFileStore, type LapIndex, type LapRow, type LapRecord
 } from './lapIndex';
 
 /** フォルダの名前から、周を数えるコースを見つける (入っているコースは ID、自分のコースは保存フォルダ名か名前から作ったフォルダ名) */
@@ -71,18 +72,19 @@ export async function loadLapHistory(store: LapFileStore, onProgress?: (folder: 
     const indexPath = `${folder}/${LAP_INDEX_FILE}`;
     // 書くのは 1 つずつ (lapIndex.ts)。計算している間に周を隠した・出したときは、その隠し方を残す
     let written: LapIndex | null = null;
-    const writeIndex = (ix: LapIndex) => queueLapIndexWrite(async () => {
+    const writeIndex = (ix: LapIndex, final = false) => queueLapIndexWrite(async () => {
       check();
       const cur = parseLapIndex(await store.readText(indexPath));
       check();
-      const userChanged = !!cur && JSON.stringify(cur.hidden) !== JSON.stringify(prev?.hidden ?? []);
-      written = userChanged ? { ...ix, hidden: cur!.hidden } : ix;
+      const hidden = cur?.hidden ?? ix.hidden;
+      const skipped = files.filter(f => f.local === false).map(f => f.path.slice(folder.length + 1));
+      written = { ...ix, hidden: final ? carryHidden(hidden, ix.files, skipped) : hidden };
       await store.writeText(indexPath, JSON.stringify(written));
     });
     const result = await reconcileFolder(folder, files, course, prev, p => store.read(p), undefined, writeIndex);
     check();
     // 控えを書けなくても、一覧は出す (次に開いたときにもう一度計算する)
-    if (result.changed) await writeIndex(result.index).catch(error => {
+    if (result.changed) await writeIndex(result.index, true).catch(error => {
       if (error instanceof StorageChangedError) throw error;
     });
     // 一覧には、書いた中身 (計算の間に隠した周を残したもの) を出す
@@ -109,9 +111,24 @@ export async function loadLapHistory(store: LapFileStore, onProgress?: (folder: 
 }
 
 /** 周の非表示を切り替えて、控えに書く (ファイルは消さない) */
+export async function updateLapHidden(store: LapFileStore, folder: string, file: string, lap: Pick<LapRecord, 'part' | 'n' | 'startMs'>, hide: boolean): Promise<LapIndex> {
+  const reads = getStorageReadRevision();
+  const check = () => { if (reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError(); };
+  return queueLapIndexWrite(async () => {
+    check();
+    const path = `${folder}/${LAP_INDEX_FILE}`;
+    const index = parseLapIndex(await (store.readTextStrict ? store.readTextStrict(path) : store.readText(path)));
+    check();
+    const current = index?.files[file]?.laps.find(l => (l.part ?? 1) === (lap.part ?? 1) && l.n === lap.n && l.startMs === lap.startMs);
+    if (!index || !current) throw new Error(tr('周の控えが変わりました。一覧を読み直してください。', 'The lap index changed. Reload the lap list.'));
+    const next = setHidden(index, file, current.part, current.n, hide);
+    await store.writeText(path, JSON.stringify(next)); check();
+    return next;
+  });
+}
 export async function toggleLapHidden(store: LapFileStore, item: LapFolder, file: string, part: number | undefined, n: number, hide: boolean): Promise<LapFolder> {
-  if (!item.index) return item;
-  const index = setHidden(item.index, file, part, n, hide);
-  await store.writeText(`${item.folder}/${LAP_INDEX_FILE}`, JSON.stringify(index));
+  const expected = item.index?.files[file]?.laps.find(l => (l.part ?? 1) === (part ?? 1) && l.n === n);
+  if (!expected) throw new Error(tr('周の控えが変わりました。一覧を読み直してください。', 'The lap index changed. Reload the lap list.'));
+  const index = await updateLapHidden(store, item.folder, file, expected, hide);
   return { ...item, index, rows: lapRows(item.folder, index) };
 }

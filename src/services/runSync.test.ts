@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Session } from '../types/telemetry';
-import { rowParts, rowVideoFromTrack, syncPinsFromRow, syncVideoFromRow } from './runSync';
+import { UnpersistableSyncError, rowParts, rowVideoFromTrack, syncPinsFromRow, syncVideoFromRow } from './runSync';
 import type { VideoTrack } from './videoSyncManager';
 import type { SyncPin } from './videoSyncPinManager';
 
@@ -74,4 +74,30 @@ describe('runs.json の行と開いている動画の読み替え', () => {
     expect(v.clock?.future).toBe('k');
     expect(v.pins?.[0]).toMatchObject({ note: 'n', logTimeSec: 100 });
   });
+});
+
+
+it('日時なしの別ログの時計・ピンは保存可能な値として返さず、前の行を変えない', () => {
+  const undated = session('undated', '');
+  const prev = { name: 'GX010017.MP4', clock: { source: 'manual' as const, logPart: 1, offsetSec: 3, utcMs: null }, pins: [{ name: 'old', logPart: 1, logTimeSec: 3, videoTimeSec: 0 }] };
+  const before = structuredClone(prev);
+  expect(() => rowVideoFromTrack(track({ source: 'manual', logId: 'undated', offsetSec: 30, utcMs: null }, 'car2'), [], [car2], [car2, undated], prev)).toThrow(UnpersistableSyncError);
+  expect(prev).toEqual(before);
+  const pin = { sessionId: 'undated', sessionTimeSec: 10, videoTimeSec: 2, name: 'new' } as SyncPin;
+  expect(() => rowVideoFromTrack(track({ source: 'manual', logId: 'car2', offsetSec: 3, utcMs: null }, 'car2'), [pin], [car2], [car2, undated], prev)).toThrow(UnpersistableSyncError);
+});
+it('日時がなくても元走行自身の相対秒は保存でき、明示した時計・ピン削除も反映する', () => {
+  const own = session('undated', '');
+  const prev = { name: 'GX010017.MP4', clock: { source: 'manual' as const, logPart: 1, offsetSec: 3, utcMs: null }, pins: [{ name: 'old', logPart: 1, logTimeSec: 3, videoTimeSec: 0 }] };
+  expect(rowVideoFromTrack(track({ source: 'manual', logId: own.id, offsetSec: 7, utcMs: null }, own.id), [], [own], [own], prev).clock?.offsetSec).toBe(7);
+  const cleared = rowVideoFromTrack(track({ source: 'creation', logId: null, offsetSec: 0, utcMs: null }, own.id), [], [own], [own], prev);
+  expect(cleared.clock).toBeUndefined(); expect(cleared.pins).toBeUndefined();
+});
+
+it('欠番のピンを別パートへ割り当てず保存行に残し、開いたパートのピン削除は尊重する', () => {
+  const prev = { name: 'GX010017.MP4', pins: [{ name: 'unopened', logPart: 1, logTimeSec: 3, videoTimeSec: 1 }, { name: 'deleted', logPart: 2, logTimeSec: 4, videoTimeSec: 2 }] };
+  const parts = [undefined, car2];
+  expect(syncPinsFromRow(prev, 'v1', parts).map(p => p.sessionId)).toEqual([car2.id]);
+  const row = rowVideoFromTrack(track({ source: 'manual', logId: car2.id, offsetSec: 5, utcMs: null }, car2.id), [], parts, [car2], prev);
+  expect(row.clock?.logPart).toBe(2);expect(row.pins).toEqual([prev.pins[0]]);
 });

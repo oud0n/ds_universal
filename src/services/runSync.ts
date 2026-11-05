@@ -6,16 +6,21 @@
  * 書くときは、その走行のログで表し直す (比べる相手の動画を手で合わせると、Car 1 のログに付いた時刻になっているため)
  */
 
-import type { Session } from '../types/telemetry';
-import { clockOffsetIn, clockStartUtcMs, sessionStartUtcMs, type VideoClock } from './mediaClock';
+import { clockOffsetIn, clockStartUtcMs, sessionStartUtcMs, type VideoClock, type ClockSession } from './mediaClock';
 import type { RunClock, RunPin, RunRow, RunVideo } from './runsFile';
 import type { SyncProjectData, VideoTrack } from './videoSyncManager';
 import type { SyncPin } from './videoSyncPinManager';
 
+import { tr } from '../utils/i18n';
+
+export class UnpersistableSyncError extends Error {
+  constructor() { super(tr('このログの日時を保存元の走行へ換算できないため、同期を保存できません。保存元のログを選んで合わせてください。', 'This log has no time that can be converted to the stored run. Choose the original log to save synchronization.')); this.name = 'UnpersistableSyncError'; }
+}
+
 const round3 = (x: number) => Number(x.toFixed(3));
 
 /** 行の動画を、同期を戻す形 (同期プロジェクトの動画の形、今のログの ID) にする。時刻を持たない動画は null */
-export function syncVideoFromRow(v: RunVideo, runSessions: Session[]): SyncProjectData['videos'][number] | null {
+export function syncVideoFromRow(v: RunVideo, runSessions: readonly (ClockSession | undefined)[]): SyncProjectData['videos'][number] | null {
   const c = v.clock;
   if (!c) return null;
   const logSession = c.logPart !== null ? runSessions[c.logPart - 1] : undefined;
@@ -40,10 +45,11 @@ export function syncVideoFromRow(v: RunVideo, runSessions: Session[]): SyncProje
 }
 
 /** 行の動画のピンを、開いている動画 (trackId) のピンにする (時刻は、その走行のログの今の ID で) */
-export function syncPinsFromRow(v: RunVideo, trackId: string, runSessions: Session[]): Array<{ name: string; sessionTimeSec: number; videoTimeSec: number; sessionId?: string; createdAt?: string }> {
-  return (v.pins ?? []).map(p => {
+export function syncPinsFromRow(v: RunVideo, trackId: string, runSessions: readonly (ClockSession | undefined)[]): Array<{ name: string; sessionTimeSec: number; videoTimeSec: number; sessionId?: string; createdAt?: string }> {
+  return (v.pins ?? []).flatMap(p => {
     const s = runSessions[p.logPart - 1];
-    return { name: p.name, sessionTimeSec: p.logTimeSec, videoTimeSec: p.videoTimeSec, ...(s ? { sessionId: s.id } : {}), ...(p.createdAt ? { createdAt: p.createdAt } : {}), trackId };
+    if (!s) return [];
+    return [{ name: p.name, sessionTimeSec: p.logTimeSec, videoTimeSec: p.videoTimeSec, ...(s ? { sessionId: s.id } : {}), ...(p.createdAt ? { createdAt: p.createdAt } : {}), trackId }];
   });
 }
 
@@ -51,14 +57,14 @@ export function syncPinsFromRow(v: RunVideo, trackId: string, runSessions: Sessi
  * 開いている動画を、その走行の行の動画にする。時刻は、その走行のログ (runSessions) で表し直す。
  * prev はその動画の前の行 (知らない項目を残すため)
  */
-export function rowVideoFromTrack(track: VideoTrack, pins: SyncPin[], runSessions: Session[], allSessions: Session[], prev?: RunVideo): RunVideo {
+export function rowVideoFromTrack(track: VideoTrack, pins: SyncPin[], runSessions: readonly (ClockSession | undefined)[], allSessions: readonly ClockSession[], prev?: RunVideo): RunVideo {
   const partOf = (id: string | null | undefined) => {
-    const i = id ? runSessions.findIndex(s => s.id === id) : -1;
+    const i = id ? runSessions.findIndex(s => s?.id === id) : -1;
     return i >= 0 ? i + 1 : null;
   };
   const shownPart = partOf(track.matchedSessionId);
   // 時刻を表し直すときの、その走行のログ (動画を出すログ。分からなければ 1 番目)
-  const own = (shownPart ? runSessions[shownPart - 1] : undefined) ?? runSessions[0];
+  const own = (shownPart ? runSessions[shownPart - 1] : undefined) ?? runSessions.find(s => !!s);
   const ownPart = own ? runSessions.indexOf(own) + 1 : 1;
   const utcMs = clockStartUtcMs(track.clock, allSessions);
   let clock: RunClock | undefined;
@@ -76,6 +82,7 @@ export function rowVideoFromTrack(track: VideoTrack, pins: SyncPin[], runSession
   } else if (utcMs !== null) {
     clock = { source: c.source, logPart: null, offsetSec: 0, utcMs };
   }
+  if (c.logId && logPart === null && !clock) throw new UnpersistableSyncError();
   const rowPins: RunPin[] = [];
   for (const p of pins) {
     const pinPart = partOf(p.sessionId);
@@ -90,12 +97,15 @@ export function rowVideoFromTrack(track: VideoTrack, pins: SyncPin[], runSession
     const ownStart = sessionStartUtcMs(own);
     if (baseStart === null || ownStart === null) {
       // 基準のログが分からない古いピンは、その走行のログで打ったものとみなす
+      if (p.sessionId) throw new UnpersistableSyncError();
       if (!p.sessionId && own) rowPins.push({ name: p.name, logPart: ownPart, logTimeSec: round3(p.sessionTimeSec), videoTimeSec: round3(p.videoTimeSec), ...(p.createdAt ? { createdAt: p.createdAt } : {}) });
       continue;
     }
     const at = baseStart + p.sessionTimeSec * 1000;
     rowPins.push({ name: p.name, logPart: ownPart, logTimeSec: round3((at - ownStart) / 1000), videoTimeSec: round3(p.videoTimeSec), utcMs: Math.round(at), ...(p.createdAt ? { createdAt: p.createdAt } : {}) });
   }
+  // まだ開いたことのない part のピンは表示へ復元せず、保存行にそのまま残す。
+  rowPins.push(...(prev?.pins ?? []).filter(p => !runSessions[p.logPart - 1]));
   if (clock) clock = { ...keepClock, ...clock };
   for (const [i, rp] of rowPins.entries()) {
     const old = prev?.pins?.find(o => o.name === rp.name && Math.abs(o.videoTimeSec - rp.videoTimeSec) < 0.001);
@@ -117,9 +127,9 @@ export function rowVideoFromTrack(track: VideoTrack, pins: SyncPin[], runSession
 }
 
 /** その走行のログの時計の補正 (何番目ごと)。前の行の知らない項目は残す */
-export function rowParts(runSessions: Session[], prev?: RunRow['parts']): NonNullable<RunRow['parts']> {
+export function rowParts(runSessions: readonly (ClockSession | undefined)[], prev?: RunRow['parts']): NonNullable<RunRow['parts']> {
   // 今のログに無い番号の行 (分かれ方が違う端末が書いたものなど) も残す
   const parts: NonNullable<RunRow['parts']> = { ...prev };
-  runSessions.forEach((s, i) => { parts[String(i + 1)] = { ...prev?.[String(i + 1)], clockOffsetSec: s.clockOffsetSec ?? 0 }; });
+  runSessions.forEach((s, i) => { if (s) parts[String(i + 1)] = { ...prev?.[String(i + 1)], clockOffsetSec: s.clockOffsetSec ?? 0 }; });
   return parts;
 }

@@ -26,6 +26,8 @@ it('新保存先のコースが準備できるまで索引を書かず、隠し�
     expect(write).not.toHaveBeenCalled();
     release();
     const folders = await scan;
+    expect(write).not.toHaveBeenCalled();
+    expect(folders[0].index!.courseHash).toBe(courseHash(course));
     expect(folders[0].index!.hidden).toEqual(hidden);
     expect(index.hidden).toEqual(hidden);
     expect(folders[0].rows.filter(r => r.hidden)).toHaveLength(1);
