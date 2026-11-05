@@ -24,7 +24,9 @@ import { SpeedGraphWindow } from './components/SpeedGraphWindow';
 import { TrackMapWindow } from './components/TrackMapWindow';
 import { asSessionSec, asLapSec, getPlaybackPosition, lapDistanceToSessionSec, lapToSessionSec, type SessionSec, type LapSec } from './services/playbackPosition';
 import { LapPicker, type LapPickerChoice } from './components/LapPicker';
-import { applyRunMetadata, assignLap, createAnalysisStore, reuseStoredSessions, selectAvailableCars } from './services/lapAssignmentState';
+import { applyRunMetadata, assignLap, reuseStoredSessions, selectAvailableCars } from './services/lapAssignmentState';
+import { createWebEngineSession as createEngineSession } from './adapters/web/engineSession';
+import { storageContext } from './services/storageRevision';
 import { prepareStoredLap } from './services/lapSelection';
 import { FrictionCircleWindow } from './components/FrictionCircleWindow';
 import { DriftWindow } from './components/DriftWindow';
@@ -158,16 +160,18 @@ export const App: React.FC = () => {
   useEffect(() => { navStore.init(plan); }, [plan]);
   const nav = useNav();
   // 解析の「走行とコース」の引き出し (今のデータの画面の中身。PLAN-24 の作る順番の 6)
+  const [engine] = useState(() => createEngineSession({ storage: storageContext, flush: flushOpenRunsStrict }));
+  const engineState = useSyncExternalStore(engine.subscribe, engine.getSnapshot, engine.getSnapshot);
   const [dataDrawer, setDataDrawer] = useState(false);
   const [lapPickerOpen, setLapPickerOpen] = useState(false);
-  const pickerActiveRef = useRef(false);
-  const slotRequestsRef = useRef([0, 0, 0, 0]);
-  const selectionEpochRef = useRef(0);
-  const manualSelectionRef = useRef(0);
+  const pickerActiveRef = engine.operations.pickerActive;
+  const slotRequestsRef = engine.operations.slotRequests;
+  const selectionEpochRef = engine.operations.selectionEpoch;
+  const manualSelectionRef = engine.operations.manualSelection;
   const storageReadRevision = useSyncExternalStore(subscribeStorageRevision, getStorageReadRevision, getStorageReadRevision);
   const storageRevision = getStorageRevision();
   useEffect(() => subscribeBeforeStorageSelection(flushOpenRunsStrict), []);
-  const pendingParsesRef = useRef(new Map<string, { readers: number; parsed?: Promise<Session[]> }>());
+  const pendingParsesRef = engine.operations.pendingParses;
   const invalidateAssignments = () => { selectionEpochRef.current++; };
   const showLapPicker = () => { pickerActiveRef.current = true; setLapPickerOpen(true); };
   const closeLapPicker = () => { pickerActiveRef.current = false; invalidateAssignments(); setLapPickerOpen(false); };
@@ -258,8 +262,8 @@ export const App: React.FC = () => {
 
   // セッション一覧
   // 点列と Car の割当てを一度に採用し、存在しない走行への割当てを描画しない。
-  const [analysisStore] = useState(createAnalysisStore);
-  const analysisState = useSyncExternalStore(analysisStore.subscribe, analysisStore.getSnapshot, analysisStore.getSnapshot);
+  const analysisStore = engine.analysis;
+  const analysisState = engineState.analysis;
   const { sessions, selectedCars } = analysisState;
   const setSessions = useCallback((action: React.SetStateAction<Session[]>) => analysisStore.update(prev => ({
     ...prev, sessions: typeof action === 'function' ? action(prev.sessions) : action
@@ -314,10 +318,10 @@ export const App: React.FC = () => {
   const polylineRequestRef = useRef(new Map<string, number>());
 
   // 再生アニメーション状態
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
+  const isPlaying = engineState.isPlaying, setIsPlaying = engine.setIsPlaying;
+  const playbackSpeed = engineState.playbackSpeed, setPlaybackSpeed = engine.setPlaybackSpeed;
   // 正本は対象の走行に結びついた走行全体の秒。周の秒・距離はここから求める。
-  const [playhead, setPlayhead] = useState<{ source: string | null; sessionSec: SessionSec }>({ source: null, sessionSec: asSessionSec(0) });
+  const playhead = engineState.playhead, setPlayhead = engine.setPlayhead;
 
   // モーダル
   const [isCircuitEditorOpen, setIsCircuitEditorOpen] = useState(false);
@@ -333,9 +337,9 @@ export const App: React.FC = () => {
   const [runsSheetOpen, setRunsSheetOpen] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
   /** 保存した比べ方を開いている途中か */
-  const savedOpeningRef = useRef(false);
+  const savedOpeningRef = engine.operations.savedOpening;
   /** いちばん最近に開けた走行 (保存した比べ方が、Car 1 を開けたか確かめる) */
-  const openedRunRef = useRef<string | null>(null);
+  const openedRunRef = engine.operations.openedRun;
   /** 取り込みの確認 (ログを開いたとき、走行の保管場所があれば。2026-10-21、PLAN-24) */
   // 複数のファイルを一度に取り込むとき、何番目のシートか (「2/3」)。並んだ数と、出した数
   const importCountRef = useRef({ queued: 0, shown: 0 });
@@ -353,14 +357,14 @@ export const App: React.FC = () => {
   const importDoneRef = useRef<(() => void) | null>(null);
   /** 確認は 1 つずつ (出ている間に別のファイルを開いたら、前のを閉じてから出す) */
   const importQueueRef = useRef<Promise<unknown>>(Promise.resolve());
-  const runOpeningRef = useRef(false);
+  const runOpeningRef = engine.operations.runOpening;
   // iCloud から取り込み中の動画 (取り込み終わったら、走行に付けて開く)。percent はふつう分からない (取り込み中とだけ出す)
   const [runDownload, setRunDownload] = useState<{ names: string[]; done: number; gb?: string; run: string } | null>(null);
-  const runDownloadTokenRef = useRef(0);
+  const runDownloadTokenRef = engine.operations.runDownloadToken;
   /** 保管場所から開いた走行の道と、そのログ (同じ名前のほかのフォルダの走行と取り違えないため) */
-  const runSessionsRef = useRef(new Map<string, string[]>());
+  const runSessionsRef = engine.operations.runSessions;
   /** 保管場所から開いた走行の一覧の行 (道 → 行)。Car 1 を替えたときに、その走行の動画を付け直すため */
-  const runItemsRef = useRef(new Map<string, RunItem>());
+  const runItemsRef = engine.operations.runItems;
   const [runAssociationsVersion, setRunAssociationsVersion] = useState(0);
   const shareRunItem = (item: RunItem, store: NonNullable<Awaited<ReturnType<typeof getRunStore>>>): RunItem => {
     if (store.storageRevision !== undefined && store.storageRevision !== getStorageRevision()) throw new Error(tr('保管場所が変わりました。', 'Storage changed.'));
@@ -372,7 +376,7 @@ export const App: React.FC = () => {
     return saved;
   };
   /** 今、動画を付けている走行の道 */
-  const attachedRunRef = useRef<string | null>(null);
+  const attachedRunRef = engine.operations.attachedRun;
   /** 走行の一覧を出す: 走行の画面がある組み方ならそこへ、なければ重ねて出す */
   const showAllRuns = () => (plan.available.has('library') ? navStore.go('library') : setRunsSheetOpen(true));
   /** 読み込みのボタン: 保管場所があれば走行の一覧、なければファイルを選ぶ */
@@ -664,16 +668,7 @@ export const App: React.FC = () => {
     const value = currentTab === 'analysis' && baseLap ? Math.max(baseLap.startTime, Math.min(baseLap.startTime + playEndTime, time)) : time;
     setPlayhead({ source: playbackSource, sessionSec: asSessionSec(value) });
   };
-  const selectCarsAtLapStart = (cars: SelectedCarSlot[]) => {
-    const committed = analysisStore.update(prev => selectAvailableCars(prev, cars));
-    const base = committed.selectedCars[0];
-    const session = committed.sessions.find(s => s.id === base?.sessionId);
-    const lap = session?.laps.find(l => l.lapNumber === base?.lapNumber);
-    if (session && lap) {
-      setIsPlaying(false);
-      setPlayhead({ source: session.id, sessionSec: asSessionSec(lap.startTime) });
-    }
-  };
+  const selectCarsAtLapStart = engine.selectCarsAtLapStart;
   const releaseUnselectedRunVideos = () => {
     const state = analysisStore.getSnapshot(), base = state.sessions.find(s => s.id === state.selectedCars[0]?.sessionId);
     const keep = new Set(state.selectedCars.map(c => c.sessionId)), owner = getOpenRun();
@@ -2163,19 +2158,11 @@ export const App: React.FC = () => {
     const videoOwner = getOpenRun();
     const ownerIds = videoOwner && (videoOwner.store.storageRevision === undefined || videoOwner.store.storageRevision === revision)
       ? runSessionsRef.current.get(`${videoOwner.item.folder}/${videoOwner.item.file}`) ?? [] : [];
-    const preflight = assignLap(analysisStore.getSnapshot(), incoming, sessionId, lapNumber, slot, false);
-    const proposedBase = preflight.sessions.find(s => s.id === preflight.selectedCars[0]?.sessionId);
-    assignLap(analysisStore.getSnapshot(), incoming, sessionId, lapNumber, slot, true, proposedBase && !proposedBase.sourceFile ? ownerIds : []);
-    if (selectedRun && choice.kind === 'stored') {
-      selectedRun = shareRunItem(selectedRun, choice.store);
-      incoming = registerRunSessions(choice.store, selectedRun, incoming, analysisStore.getSessions);
-    }
-    analysisStore.update(prev => {
-      const proposed = assignLap(prev, incoming, sessionId, lapNumber, slot, false);
-      const base = proposed.sessions.find(s => s.id === proposed.selectedCars[0]?.sessionId);
-      // 別の GPS ログを基準にしても、動画の同期を保存する元走行を手放さない。
-      return assignLap(prev, incoming, sessionId, lapNumber, slot, true, base && !base.sourceFile ? ownerIds : []);
-    });
+    engine.assign(incoming, sessionId, lapNumber, slot, ownerIds, selectedRun && choice.kind === 'stored' ? prepared => {
+      selectedRun = shareRunItem(selectedRun!, choice.store);
+      incoming = registerRunSessions(choice.store, selectedRun, prepared, analysisStore.getSessions);
+      return incoming;
+    } : undefined);
     releaseClosedRunVideos(new Set(analysisStore.getSnapshot().sessions.map(s => s.id)));
     if (selectedRun) {
       if (choice.kind === 'stored') selectedRun = shareRunItem(selectedRun, choice.store);
@@ -2187,11 +2174,6 @@ export const App: React.FC = () => {
     }
     requestSessionPolylines(incoming);
     if (moved) setSelectionNotice(tr('周の番号が変わっていたため、開始時刻の近い周を選び直しました。', 'Lap numbering changed; the lap was matched again by its start time.'));
-    const committedBase = [...analysisStore.getSnapshot().selectedCars].sort((a, b) => a.slot - b.slot)[0];
-    if (committedBase?.slot === slot) {
-      setIsPlaying(false);
-      setPlayhead({ source: sessionId, sessionSec: asSessionSec(lap.startTime) });
-    }
     navStore.go('analysis');
   };
   const [selectionNotice, setSelectionNotice] = useState('');

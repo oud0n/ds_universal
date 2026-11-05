@@ -1,5 +1,7 @@
 # 解析データと再生位置の保持と呼出し
 
+2026-11-06の分離後は、以下のAppの解析状態・再生位置・要求の保持をEngineSessionが担当する。保存担当は共通側のRunController、動画の時計はVideoSyncManager、ピンはSyncPinStore。同じモデルをWebの互換入口から呼び、ページ同士で状態を参照しない。詳細と移植時の残りは [engine_boundaries.md](engine_boundaries.md)。
+
 1.3.0 のラップ選択・再生位置の整理に合わせた説明。元ログ、解析中の点列、周の一覧、Car の割当て、再生位置、動画の状態を区別する。
 
 ## データをどこに持つか

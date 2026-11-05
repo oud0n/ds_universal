@@ -8,6 +8,7 @@
 |---|---|
 | [../AGENTS.md](../AGENTS.md) | エージェント向けの入口 (守ること・作業の流れ) |
 | [architecture.md](architecture.md) | 構成 (Web・Electron・iOS・Android、ネイティブの窓口、保管場所の形、主なファイル) |
+| [engine_boundaries.md](engine_boundaries.md) | 共通エンジンの正本、端末との窓口、移植時の残りと検査 |
 | [analysis_data_flow.md](analysis_data_flow.md) | 元ログ・周・Car 割当て・再生位置・動画の保持場所、呼出し元、非同期結果の採用条件 |
 | [maintenance.md](maintenance.md) | 開発・試験・レビュー・リリース (PC・ブラウザ・App Store・TestFlight) の手順 |
 | [../TODO.md](../TODO.md)・[../BUGS.md](../BUGS.md) | 今の状態と残件 |

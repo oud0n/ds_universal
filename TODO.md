@@ -1,5 +1,7 @@
 # LapLoupe の残件 (TODO)
 
+2026-11-06: 解析・動画同期・保存制御を共通エンジンへ分離。DOMなしの検査をbuildに追加。[境界と残り](docs/engine_boundaries.md)。GUI作成・ネイティブ移行は未着手。既存同期残件と独立レビューの完了判定は別。
+
 2026-10-27 に作り直した。1.1.0 までに終えたもの・決めたことの全文は [docs/history/todo_until_1.1.0.md](docs/history/todo_until_1.1.0.md) にある (ID はそこから続けて使う。番号は使い回さない)。
 手順は [docs/maintenance.md](docs/maintenance.md)、構成は [docs/architecture.md](docs/architecture.md)、文書の一覧は [docs/README.md](docs/README.md)。
 

@@ -6,7 +6,8 @@
 import { useState, useSyncExternalStore } from 'react';
 import { videoSyncManager, VideoTrack, PlacedTrack } from './videoSyncManager';
 import { SyncPin, loadPinsFromStorage, savePinsToStorage, pinUtcMs } from './videoSyncPinManager';
-import type { ClockSession } from './mediaClock';
+import { createSyncPinStore } from '../engine/syncPinStore';
+export const syncPinStore = createSyncPinStore(loadPinsFromStorage, savePinsToStorage);
 
 export type PipPosition = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
 export type StageLayout = 'single' | 'grid' | 'pip';
@@ -32,12 +33,12 @@ function leadId(trackId: string): string {
 class VideoViewStore {
   private state: VideoViewState = { cameraIds: [], compareCameras: {}, isExporting: false };
   private listeners = new Set<() => void>();
-  private pinCache = new Map<string, SyncPin[]>();
-  private allPins: SyncPin[] | null = null;
+
   // 照合した動画を自動で選んだセッション。同じセッションのあいだは選び直さない (タブの切り替え・書き出しの後に、手で選んだ動画を戻さない)
   autoSelectedSessionId: string | null = null;
 
   constructor() {
+    syncPinStore.subscribe(() => this.listeners.forEach(l => l()));
     // 動画を足したり消したりしたら、出すカメラがなくならないように選び直す
     videoSyncManager.subscribe(() => this.reconcile(videoSyncManager.getTracks()));
   }
@@ -111,57 +112,13 @@ class VideoViewStore {
     this.set({ cameraIds: cams });
   }
 
-  // 同期ピンはコースごとに保存する。同じ配列を返す (useSyncExternalStore が変化を見分けられるように)
-  getPins = (key: string): SyncPin[] => {
-    let pins = this.pinCache.get(key);
-    if (!pins) {
-      pins = loadPinsFromStorage(key);
-      if (!Array.isArray(pins)) pins = [];
-      this.pinCache.set(key, pins);
-      this.allPins = null;
-    }
-    return pins;
-  };
+  getPins = syncPinStore.getPins;
+  getAllPins = syncPinStore.getAllPins;
+  setPins = syncPinStore.setPins.bind(syncPinStore);
+  setTrackPins = syncPinStore.setTrackPins.bind(syncPinStore);
+  anchorPins = syncPinStore.anchorPins.bind(syncPinStore);
+  remapPinSessions = syncPinStore.remapPinSessions.bind(syncPinStore);
 
-  setPins(key: string, pins: SyncPin[]): void {
-    this.pinCache.set(key, pins);
-    this.allPins = null;
-    savePinsToStorage(key, pins);
-    this.listeners.forEach(l => l());
-  }
-
-  getAllPins = (key?: string): SyncPin[] => {
-    if (key) this.getPins(key);
-    return this.allPins ??= [...new Map([...this.pinCache.values()].flat().map(p => [p.id, p])).values()];
-  };
-
-  /** コースの表示を変えても、同じ動画のピンを一つの集合として編集する。 */
-  setTrackPins(key: string, ids: ReadonlySet<string>, pins: SyncPin[]): void {
-    this.getPins(key);
-    for (const [bucket, old] of this.pinCache) {
-      const next = [...old.filter(p => !ids.has(p.trackId)), ...(bucket === key ? pins : [])];
-      if (next.length !== old.length || next.some((p, i) => p !== old[i])) this.setPins(bucket, next);
-    }
-  }
-
-  anchorPins(sessions: readonly ClockSession[]): void {
-    for (const [key, pins] of this.pinCache) {
-      let changed = false;
-      const next = pins.map(p => {
-        const utcMs = pinUtcMs(p, sessions);
-        if (utcMs === null || utcMs === p.utcMs) return p;
-        changed = true;return { ...p, utcMs };
-      });
-      if (changed) this.setPins(key, next);
-    }
-  }
-
-  remapPinSessions(ids: ReadonlyMap<string, string>): void {
-    for (const [key, pins] of this.pinCache) {
-      const next = pins.map(p => p.sessionId && ids.has(p.sessionId) ? { ...p, sessionId: ids.get(p.sessionId)! } : p);
-      if (next.some((p, i) => p !== pins[i])) this.setPins(key, next);
-    }
-  }
 }
 
 export const videoViewStore = new VideoViewStore();
