@@ -156,6 +156,19 @@ LapLoupe is a free, personal project. Your support, from the price of a coffee (
 
 - **Free for non-commercial use**: personal use (hobby, study, research and other uses not leading to commercial gain) and use by non-profit organisations, educational institutions, public research organisations and government bodies is free, including modification and redistribution. When you redistribute, pass on `LICENSE` (or the license URL) and the `Required Notice:` line with it.
 - **Commercial use requires prior permission**: if you want to use it at work, include it in a paid product or service, or sell it, please contact [caliber.trivia66@icloud.com](mailto:caliber.trivia66@icloud.com).
+- **Common cases** (when in doubt, just ask):
+
+  | Use | Contact needed |
+  |---|---|
+  | Posting screens or videos made with LapLoupe on your personal YouTube, social media or blog (**even if monetized**) | No |
+  | Showing or giving your own data or videos to friends at track days or in your club, free of charge | No |
+  | Showing your own laps to a coach when you take lessons | No |
+  | A shop or tuner using it for business (analysing customers' cars, promotional videos) | Yes |
+  | A school or coach using it in paid lessons, or an event organiser providing it to participants for a fee | Yes |
+  | Doing video or data analysis for others as paid work | Yes |
+  | Selling this software or including it in a paid product or service | Yes |
+
+  A mention such as "Made with LapLoupe" in the video description is appreciated (optional).
 - **If you publish or distribute a modified version**, please make its origin clear:
   - State, somewhere users will see it such as the README, that it is based on this software ([oud0n/ds_universal](https://github.com/oud0n/ds_universal)) and that you modified it.
   - Give the modified version a different name, and do not use names or wording that could be mistaken for the official or an endorsed version.
