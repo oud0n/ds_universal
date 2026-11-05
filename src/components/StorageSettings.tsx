@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useSyncExternalStore } from 'react';
 import { FolderOpen, Smartphone } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { callNative, hasNative } from '../native/bridge';
 import type { StorageInfo } from '../native/contract';
 import { storageFolderChanged, trackStorageSelection, pickDesktopStorage } from '../services/storageCourses';
 import { myDeviceWord } from '../utils/device';
+import { getStorageReadRevision, isStorageSelectionPending, subscribeStorageRevision } from '../services/storageRevision';
 
 /** Android のアプリか (保管場所の言い方と、フォルダを選べるか) */
 const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
@@ -18,6 +19,7 @@ export const StorageSettings: React.FC = () => {
   const t = useT();
   const native = hasNative();
   const desktop = !!window.electronAPI?.laps;
+  const reads = useSyncExternalStore(subscribeStorageRevision, getStorageReadRevision);
   const [info, setInfo] = useState<StorageInfo | null>(null);
   const [folderPath, setFolderPath] = useState<string | null>(null);
   /** 結果の 1 行 (ok: うまくいった・text: そのまま出す文) */
@@ -25,9 +27,13 @@ export const StorageSettings: React.FC = () => {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (native) callNative('system.storageInfo', {}).then(setInfo, () => setInfo(null));
-    else if (desktop) void window.electronAPI!.laps!.getFolder().then(setFolderPath, () => setFolderPath(null));
-  }, [native, desktop]);
+    if (isStorageSelectionPending()) return;
+    let active = true;
+    const current = () => active && reads === getStorageReadRevision() && !isStorageSelectionPending();
+    if (native) void callNative('system.storageInfo', {}).then(value => { if (current()) setInfo(value); }, () => { if (current()) setInfo(null); });
+    else if (desktop) void window.electronAPI!.laps!.getFolder().then(value => { if (current()) setFolderPath(value); }, () => { if (current()) setFolderPath(null); });
+    return () => { active = false; };
+  }, [native, desktop, reads]);
 
   const choose = async (kind: 'local' | 'folder') => {
     setBusy(true);

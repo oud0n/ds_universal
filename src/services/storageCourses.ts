@@ -37,6 +37,11 @@ export async function storageFolderChanged(): Promise<void> {
 let courseLoad: { reads: number; promise: Promise<number> } | null = null;
 let courseRetryNeeded = false;
 let courseRetryQueued = false;
+const courseListeners = new Set<() => void>();
+export function subscribeStorageCourses(listener: () => void): () => void {
+  courseListeners.add(listener);
+  return () => { courseListeners.delete(listener); };
+}
 function retryCourses(): void {
   if (!courseRetryNeeded || courseRetryQueued || isStorageSelectionPending()) return;
   courseRetryQueued = true;
@@ -44,9 +49,10 @@ function retryCourses(): void {
     courseRetryQueued = false;
     if (!courseRetryNeeded || isStorageSelectionPending()) return;
     const reads = getStorageReadRevision();
-    void loadStorageCourses().then(() => {
+    void loadStorageCourses().then(async () => {
+      await loadCsvFormats();
       if (reads === getStorageReadRevision() && !isStorageSelectionPending()) invalidateStorageReads();
-    }, () => undefined);
+    }).catch(() => undefined);
   });
 }
 subscribeStorageRevision(retryCourses);
@@ -56,7 +62,10 @@ export function loadStorageCourses(): Promise<number> {
   const reads = getStorageReadRevision();
   if (courseLoad?.reads === reads) return courseLoad.promise;
   courseRetryNeeded = false;
-  const request = { reads, promise: loadStorageCoursesNow(reads) };
+  const request = { reads, promise: loadStorageCoursesNow(reads).then(n => {
+    if (reads === getStorageReadRevision() && !isStorageSelectionPending()) for (const listener of courseListeners) listener();
+    return n;
+  }) };
   courseLoad = request;
   void request.promise.catch(error => {
     if (courseLoad !== request) return;

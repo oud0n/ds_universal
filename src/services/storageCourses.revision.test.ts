@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getStorageRevision, invalidateStorageRevision, subscribeStorageRevision, trackStorageSelection, loadStorageCourses } from './storageCourses';
+import { getStorageRevision, invalidateStorageRevision, subscribeStorageRevision, trackStorageSelection, loadStorageCourses, subscribeStorageCourses } from './storageCourses';
 import { getStorageReadRevision, invalidateStorageReads, isStorageSelectionPending, subscribeBeforeStorageSelection, pickDesktopStorage, revisionBoundStore, StorageChangedError } from './storageRevision';
 import type { RunStore } from './runStore';
 import * as storeModule from './runStore';
@@ -142,6 +142,7 @@ describe('保管場所の切り替え', () => {
     vi.spyOn(storeModule, 'getRunStore').mockResolvedValue(revisionBoundStore(raw));
     vi.spyOn(userCircuitStorage, 'setSyncedEdited').mockResolvedValue();
     const apply = vi.spyOn(userCircuitStorage, 'setStorageCourseFiles');
+    const completed = vi.fn(); const stop = subscribeStorageCourses(completed);
     try {
       const scan = loadStorageCourses();
       expect(loadStorageCourses()).toBe(scan);
@@ -157,9 +158,10 @@ describe('保管場所の切り替え', () => {
       await vi.waitFor(() => expect(replies).toHaveLength(2));
       expect(apply).not.toHaveBeenCalled();
       replies[1](new Uint8Array([2]));
-      await vi.waitFor(() => expect(apply).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(completed).toHaveBeenCalledOnce());
+      expect(apply).toHaveBeenCalledOnce();
       expect(apply.mock.calls[0][0]).toEqual([{ path: 'course/ControlLine/test.cln', text: String.fromCharCode(2) }]);
-    } finally { vi.restoreAllMocks(); }
+    } finally { stop(); vi.restoreAllMocks(); }
   });
 
   it('コース保持側の非同期待ちが終わった直後にも、採用可能か検査する', async () => {

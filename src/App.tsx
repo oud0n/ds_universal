@@ -72,7 +72,7 @@ import { interpolatePoint } from './utils/telemetrySearch';
 import { ImportSheet } from './components/import/ImportSheet';
 import { applyOverlaps, findSameRun, freeBase, planImport, type ImportPlan } from './services/import/importPlan';
 import { rangeCandidates, readRunRanges, runFilesByBase } from './services/import/runRanges';
-import { loadStorageCourses, getStorageRevision, getStorageReadRevision, isStorageSelectionPending, subscribeBeforeStorageSelection, subscribeStorageRevision } from './services/storageCourses';
+import { loadStorageCourses, subscribeStorageCourses, getStorageRevision, getStorageReadRevision, isStorageSelectionPending, subscribeBeforeStorageSelection, subscribeStorageRevision } from './services/storageCourses';
 import { applyPlan, IMPORT_SOURCE_FOLDER, type PartResult } from './services/import/importApply';
 import { electronWriter, nativeWriter } from './services/import/importWriters';
 import { LOG_EXTENSIONS } from './services/logLoader';
@@ -298,11 +298,15 @@ export const App: React.FC = () => {
     if (!r.saved) alert(tr(`外しましたが、保存できませんでした: ${r.saveError ?? ''}`, `Removed, but it could not be saved: ${r.saveError ?? ''}`));
   };
   useEffect(() => {
-    userCircuitStorage.ready.then(() => setUserCircuitCount(userCircuitStorage.getCircuitCount()));
+    let active = true;
+    const refresh = () => { if (active) setUserCircuitCount(userCircuitStorage.getCircuitCount()); };
+    const stop = subscribeStorageCourses(refresh);
+    userCircuitStorage.ready.then(refresh);
     // 保管場所の digspice/ (デジスパイスと同じ形のフォルダ) のコースデータも使う (内蔵のコースと同じコースは、コース図だけ)
-    void loadStorageCourses().then(n => { if (n) setUserCircuitCount(userCircuitStorage.getCircuitCount()); }).catch(() => undefined);
+    void loadStorageCourses().catch(() => undefined);
     // CSV の形式の定義・計算式 (PLAN-36)
     void loadCsvFormats().catch(() => undefined);
+    return () => { active = false; stop(); };
   }, []);
   // コース図の取得の受付番号 (セッションごと)。後から別のコース図を設定したセッションに、古い取得結果を上書きしない
   const polylineRequestRef = useRef(new Map<string, number>());
