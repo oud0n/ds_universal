@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Lap, Session } from '../types/telemetry';
-import { assignLap, createAnalysisStore, reuseStoredSessions, type AnalysisState } from './lapAssignmentState';
+import { applyRunMetadata, assignLap, createAnalysisStore, reuseStoredSessions, selectAvailableCars, type AnalysisState } from './lapAssignmentState';
 
 function run(id: string, file?: { name: string; revision: number; part: number }): Session {
   const lap: Lap = { lapNumber: 1, lapTime: 30, startTime: 0, endTime: 30, startIndex: 0, endIndex: 0,
@@ -126,6 +126,27 @@ describe('ラップを Car へ割り当てる', () => {
 });
 
 describe('解析状態の同期更新', () => {
+  it('復元中に外した走行や消えた周を割り当てず、最新の名前と基準枠を使う', () => {
+    const a = run('live'), removed = run('removed');
+    const stale = assignLap(assignLap(empty(), [removed], removed.id, 1, 0), [a], a.id, 1, 1).selectedCars;
+    const current = { sessions: [{ ...a, sessionName: 'Latest' }], selectedCars: [] };
+    const restored = selectAvailableCars(current, [...stale, { ...stale[1], slot: 3, lapNumber: 99 }]);
+    expect(restored.sessions).toBe(current.sessions);
+    expect(restored.selectedCars.map(c => [c.slot, c.sessionId, c.label])).toEqual([[1, 'live', 'Latest (L1)']]);
+  });
+
+  it('再解析で未保存の名前を消さず、共有する最新行のメモと車種を反映する', () => {
+    const old = { ...run('old', { name: 'run.bon4', revision: 1, part: 1 }), sessionName: 'Unsaved name', runNote: 'Unsaved note', vehicleName: 'Unsaved car' };
+    const parsed = run('new', { name: 'run.bon4', revision: 1, part: 1 });
+    const reused = reuseStoredSessions([old], [parsed]);
+    expect(reused[0].sessionName).toBe('Unsaved name');
+    expect(reused[0].runNote).toBe('Unsaved note');
+    const latest = applyRunMetadata(reused, { updatedAt: '', name: 'Latest name', car: 'Latest car' });
+    expect(latest[0]).toMatchObject({ id: 'old', sessionName: 'Latest name', vehicleName: 'Latest car' });
+    expect(latest[0].runNote).toBeUndefined();
+    expect(latest[0].points).toBe(parsed.points);
+  });
+
   it('続けて割り当てても直前の枠を残し、購読者には確定した一覧を渡す', () => {
     const store = createAnalysisStore();
     const snapshots: AnalysisState[] = [];

@@ -5,7 +5,7 @@ import * as runsFile from './runsFile';
 import type { Session } from '../types/telemetry';
 import { videoSyncManager } from './videoSyncManager';
 import { videoViewStore } from './videoViewStore';
-import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, companionRunMatches, companionRuns, getOpenRun, getOpenRunItem, flushOpenRunsStrict, type RunItem } from './runOpener';
+import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, companionRunMatches, companionRuns, getOpenRun, getOpenRunItem, flushOpenRunsStrict, setRunMeta, type RunItem } from './runOpener';
 import type { RunStore } from './runStore';
 import type { RemoteVideo } from './remoteVideo';
 
@@ -85,6 +85,13 @@ it('開いている走行を比較車へ置いても保存者を二重に作ら�
   expect(getOpenRun()?.item).toBe(opts.item);
   expect(companionRuns()).toEqual([]);
   expect(restore).not.toHaveBeenCalled();
+});
+
+it('初めての名前編集を保存できなくても、手元の行に編集値を保つ', async () => {
+  const opts = attachment('A'); opts.item.entry = null;
+  vi.spyOn(runsFile, 'updateRun').mockRejectedValue(new Error('write failed'));
+  await expect(setRunMeta(opts.store, opts.item, { name: 'New name', note: 'New note', car: 'New car' })).rejects.toThrow('write failed');
+  expect(opts.item.entry).toMatchObject({ name: 'New name', note: 'New note', car: 'New car' });
 });
 
 it.each([true, false])('比較側の通知が先=%s でも、基準から外れた走行の動画と保存担当を引き継ぐ', async companionFirst => {

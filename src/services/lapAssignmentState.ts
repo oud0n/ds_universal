@@ -1,5 +1,6 @@
 import type { SelectedCarSlot, Session } from '../types/telemetry';
 import { tr } from '../utils/i18n';
+import type { RunRow } from './runsFile';
 
 export interface AnalysisState {
   sessions: Session[];
@@ -97,6 +98,27 @@ export function reuseStoredSessions(prior: Session[], incoming: Session[]): Sess
     if (!old) return session;
     const keepPath = old.pathPolylinesSource === 'manual' || old.sourceFile!.courseHash === f.courseHash;
     return { ...session, id: old.id, clockOffsetSec: old.clockOffsetSec,
+      sessionName: old.sessionName, runNote: old.runNote, vehicleName: old.vehicleName,
       ...(keepPath && old.pathPolylines ? { pathPolylines: old.pathPolylines, pathPolylinesSource: old.pathPolylinesSource } : {}) };
   });
+}
+
+/** 保存待ちの編集は共有する行から取り、解析前に読んだ古い控えで戻さない。 */
+export function applyRunMetadata(sessions: Session[], entry: RunRow | null): Session[] {
+  if (!entry) return sessions;
+  const car = entry.reference ? entry.reference.car : entry.car;
+  return sessions.map((session, i) => ({ ...session,
+    ...(entry.name ? { sessionName: i ? `${entry.name} (${i + 1})` : entry.name } : {}),
+    runNote: entry.note, vehicleName: car ?? session.vehicleName }));
+}
+
+/** 保存した比べ方も、採用する瞬間に存在する走行と周だけを割り当てる。 */
+export function selectAvailableCars(state: AnalysisState, cars: SelectedCarSlot[]): AnalysisState {
+  const valid = new Map<number, SelectedCarSlot>();
+  for (const car of cars) {
+    const session = state.sessions.find(s => s.id === car.sessionId);
+    if (!Number.isInteger(car.slot) || car.slot < 0 || car.slot > 3 || !session?.laps.some(l => l.lapNumber === car.lapNumber)) continue;
+    valid.set(car.slot, { ...car, label: `${session.sessionName} (L${car.lapNumber})` });
+  }
+  return { ...state, selectedCars: [...valid.values()].sort((a, b) => a.slot - b.slot) };
 }

@@ -24,7 +24,7 @@ import { SpeedGraphWindow } from './components/SpeedGraphWindow';
 import { TrackMapWindow } from './components/TrackMapWindow';
 import { asSessionSec, asLapSec, getPlaybackPosition, lapDistanceToSessionSec, lapToSessionSec, type SessionSec, type LapSec } from './services/playbackPosition';
 import { LapPicker, type LapPickerChoice } from './components/LapPicker';
-import { assignLap, createAnalysisStore, reuseStoredSessions } from './services/lapAssignmentState';
+import { applyRunMetadata, assignLap, createAnalysisStore, reuseStoredSessions, selectAvailableCars } from './services/lapAssignmentState';
 import { prepareStoredLap } from './services/lapSelection';
 import { FrictionCircleWindow } from './components/FrictionCircleWindow';
 import { DriftWindow } from './components/DriftWindow';
@@ -642,9 +642,9 @@ export const App: React.FC = () => {
     setPlayhead({ source: playbackSource, sessionSec: asSessionSec(value) });
   };
   const selectCarsAtLapStart = (cars: SelectedCarSlot[]) => {
-    setSelectedCars(cars);
-    const base = [...cars].sort((a, b) => a.slot - b.slot)[0];
-    const session = analysisStore.getSnapshot().sessions.find(s => s.id === base?.sessionId);
+    const committed = analysisStore.update(prev => selectAvailableCars(prev, cars));
+    const base = committed.selectedCars[0];
+    const session = committed.sessions.find(s => s.id === base?.sessionId);
     const lap = session?.laps.find(l => l.lapNumber === base?.lapNumber);
     if (session && lap) {
       setIsPlaying(false);
@@ -1270,7 +1270,7 @@ export const App: React.FC = () => {
   const importSessionFile = async (file: File): Promise<string | null> => {
     const data = parseLapSession(await file.text());
     if (!data) return tr('比べ方のファイルではありません', 'Not a saved comparison file');
-    const { picks, missing, moved } = matchFileSession(data, sessions);
+    const { picks, missing, moved } = matchFileSession(data, analysisStore.getSnapshot().sessions);
     if (!picks.length) return tr(`このログが開かれていません: ${missing.join(', ')} (先にログを開いてください)`, `Open these logs first: ${missing.join(', ')}`);
     const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b'];
     selectCarsAtLapStart(picks.map(p => ({ slot: p.slot, sessionId: p.session.id, lapNumber: p.lapNumber, colorHex: colors[p.slot] ?? colors[0], label: `${p.session.sessionName} (L${p.lapNumber})` })));
@@ -2007,10 +2007,11 @@ export const App: React.FC = () => {
     const revision = getStorageRevision();
     const reads = getStorageReadRevision();
     const current = () => pickerActiveRef.current && !signal.aborted && epoch === selectionEpochRef.current
-      && revision === getStorageRevision() && reads === getStorageReadRevision() && !isStorageSelectionPending() && ticket === slotRequestsRef.current[slot];
+      && revision === getStorageRevision() && reads === getStorageReadRevision() && !isStorageSelectionPending()
+      && !runOpeningRef.current && !savedOpeningRef.current && ticket === slotRequestsRef.current[slot];
     const check = () => { if (!current()) throw new Error(tr('選択対象が変わりました。もう一度選んでください', 'The selection changed. Choose the lap again.')); };
+    if (runOpeningRef.current || savedOpeningRef.current) throw new Error(tr('走行の読込みが終わってから選んでください', 'Wait for the run to finish loading'));
     check();
-    if (runOpeningRef.current) throw new Error(tr('走行の読込みが終わってから選んでください', 'Wait for the run to finish loading'));
     let incoming: Session[] = [];
     let selected: Session;
     let lap: Lap;
@@ -2053,6 +2054,7 @@ export const App: React.FC = () => {
     }
     if (selectedRun) {
       selectedRun = shareRunItem(selectedRun);
+      incoming = applyRunMetadata(incoming, selectedRun.entry);
     }
     const sessionId = selected.id, lapNumber = lap.lapNumber;
     analysisStore.update(prev => assignLap(prev, incoming, sessionId, lapNumber, slot));

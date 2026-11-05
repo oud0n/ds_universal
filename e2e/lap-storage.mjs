@@ -16,13 +16,14 @@ const videoPath=path.join(fixtureDir,'synthetic.mp4');
 execFileSync('ffmpeg',['-v','error','-f','lavfi','-i','testsrc2=size=160x90:rate=10','-t','4','-c:v','libx264','-pix_fmt','yuv420p',videoPath]);
 const outDir=fileURLToPath(new URL('./out/lap-storage/',import.meta.url));fs.mkdirSync(outDir,{recursive:true});
 const p=await Page.connect(port,{newTab:true,label:'storage',outDir});
+const assigned = slot => p.waitFor(`[...document.querySelectorAll('[role=dialog] [role=status]')].some(e=>e.textContent.includes('Assigned ')&&e.textContent.includes('Car ${slot+1}'))`,15000,'assignment completion');
 try {
  await p.viewport(1280,800,false);
  await p.send('Page.addScriptToEvaluateOnNewDocument',{source:`
  window.storeFiles = new Map(); window.storeWrites=[]; window.storeReads=[]; window.failWrites=false;
  window.electronAPI={laps:{getFolder:async()=>{if(window.holdFolder)await new Promise(resolve=>(window.folderWaiters??=[]).push(resolve));return '/synthetic/A'},pickFolder:async()=>null,
  list:async()=>({success:true,files:[...storeFiles].map(([path,b])=>({path,size:b.byteLength,mtimeMs:123,local:true}))}),
- read:async path=>{storeReads.push(path);const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
+ read:async path=>{storeReads.push(path);if(window.holdSavedRead===path && window.__laploupe?.screen==='analysis')await new Promise(resolve=>window.resumeSavedRead=resolve);const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
  readText:async path=>({success:true,text:storeFiles.has(path)?new TextDecoder().decode(storeFiles.get(path)):null}),
  writeText:async(path,text)=>{if(window.failWrites)return {success:false,error:'synthetic write failure'};storeWrites.push(path);storeFiles.set(path,new TextEncoder().encode(text));return {success:true}}
  }};
@@ -63,6 +64,7 @@ try {
  await p.waitFor("document.querySelector('[data-testid=lap-picker-row]')",10000,'stored reload');
  await p.ev("document.querySelector('[data-testid=lap-picker-row] [data-slot=\"1\"]').click()");
  await p.waitFor('window.__laploupe.cars.length===2',10000,'second stored assignment');
+ await assigned(1);
  assert.equal(await p.ev('window.__laploupe.sessions.length'),1,'same source reuses its session');
  assert.equal(await p.ev('window.__laploupe.pointsOf(0).clockOffsetSec'),1.25,'second stored pick retains clock');
  await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");
@@ -113,6 +115,33 @@ try {
  assert.equal(await p.ev(`window.__laploupe.pointsOf(window.__laploupe.sessions.findIndex(s=>s.id===${JSON.stringify(aid)})).clockOffsetSec`),5.75,'promotion preserves failed-save edit');
  await p.ev('window.failWrites=false;window.testRunOpener.flushOpenRunsStrict()');
  await p.click('data-drawer-close');
+ await p.click('toggle-data-drawer');
+ await p.ev(`(()=>{const i=window.__laploupe.sessions.findIndex(s=>s.id===${JSON.stringify(aid)});window.failWrites=true;document.querySelectorAll('[data-testid=session-card]')[i].querySelector('[data-testid=session-rename]').click();})()`);
+ await p.waitFor("document.querySelector('[data-testid=session-name-input]')");
+ await p.ev("(()=>{const e=document.querySelector('[data-testid=session-name-input]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'Edited without disk');e.dispatchEvent(new Event('input',{bubbles:true}));})()");
+ await p.ev("document.querySelector('[data-testid=session-name-input]').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',bubbles:true}))");
+ await p.waitFor("window.testRunOpener.getOpenRunItem('sodegaura','demo.nmea').entry?.name==='Edited without disk'");
+ await p.click('data-drawer-close');
+ await p.click('open-lap-picker');await p.clickText('Stored runs');
+ await p.waitFor("[...document.querySelectorAll('[data-testid=lap-picker-row]')].some(r=>r.parentElement.querySelector('p')?.title.includes('demo.nmea'))");
+ await p.ev(`(${pickStored})('demo.nmea',1)`);
+ await p.waitFor(`window.__laploupe.cars.find(c=>c.slot===1)?.sessionId===${JSON.stringify(aid)}`);
+ await assigned(1);
+ assert.equal(await p.ev(`window.__laploupe.sessions.find(s=>s.id===${JSON.stringify(aid)}).sessionName`),'Edited without disk','stored reparse keeps pending name');
+ await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click();window.failWrites=false");
+ await p.ev("(()=>{for(const f of ['C','D'])storeFiles.set('sodegaura/'+f+'.nmea',storeFiles.get('sodegaura/demo.nmea'));const data={version:1,name:'Interleaved saved',createdAt:'2025-01-01T00:00:00Z',cars:['demo','C','D'].map((f,slot)=>({slot,run:'sodegaura/'+f+'.nmea',lap:1}))};storeFiles.set('sessions/interleaved.lapsession.json',new TextEncoder().encode(JSON.stringify(data)));window.holdSavedRead='sodegaura/D.nmea';window.__laploupe.go('library');})()");
+ await p.waitFor("[...document.querySelectorAll('[data-testid=library-session-row] button')].some(b=>b.innerText.includes('Interleaved saved'))",15000,'overlap comparison');
+ await p.ev("[...document.querySelectorAll('[data-testid=library-session-row] button')].find(b=>b.innerText.includes('Interleaved saved')).click()");
+ await p.waitFor("typeof window.resumeSavedRead==='function'",15000,'saved-open companion barrier');
+ const duringSaved=(await p.state()).cars;
+ await p.click('open-lap-picker');
+ await p.waitFor("document.querySelector('[data-testid=lap-picker-row]')");
+ await p.ev(`(${pickStored})('demo.nmea',1)`);
+ await p.waitFor("document.querySelector('[role=dialog] [role=alert]')");
+ assert.deepEqual((await p.state()).cars,duringSaved,'picker cannot replace unfinished saved restore');
+ await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click();window.holdSavedRead=null;window.resumeSavedRead()");
+ await p.waitFor('window.__laploupe.cars.length===3',15000,'finished saved comparison');
+ const completed=await p.state();assert.ok(completed.cars.every(c=>completed.sessions.some(s=>s.id===c.sessionId)),'all restored Cars have a live source');
  assert.deepEqual(p.errors,[]);
- await p.shot('preserved');console.log(JSON.stringify({result:'PASS repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
+ await p.shot('preserved');console.log(JSON.stringify({result:'PASS repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion; pending metadata and overlapping saved restore',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
 }finally{await p.close();fs.rmSync(fixtureDir,{recursive:true,force:true});}

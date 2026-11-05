@@ -667,8 +667,8 @@ function applyConditions(row: Partial<RunRow>, patch: RunMetaPatch): void {
  */
 export async function setRunMeta(store: RunStore, item: RunItem, patch: RunMetaPatch): Promise<RunRow> {
   // 書き終わる前に開いても新しい値が使われるよう、先に手元の行にも入れておく (車種を書いてすぐ「解析で開く」を押したとき)
-  if (item.entry) {
-    const preview = { ...item.entry };
+  {
+    const preview = { ...(item.entry ?? { updatedAt: '' }) };
     for (const k of ['name', 'note', 'car', 'tyre'] as const) if (k in patch) { const v = patch[k]?.trim(); if (v) preview[k] = v; else delete preview[k]; }
     applyConditions(preview, patch);
     // 参考ラップの印も先に入れる (入れないと、参考ラップに替えた直後に一覧から外れ、詳細が一度消えていた)
