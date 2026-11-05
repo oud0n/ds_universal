@@ -4,6 +4,7 @@ import type { EntitlementSnapshot, NativeMethods } from '../native/contract';
 
 export interface EntitlementState {
   readonly status: 'unknown' | 'ready' | 'error' | 'unsupported';
+  /** この画面を開いてから端末が最後に確認した所有一覧。最初の確認までは空。 */
   readonly productIds: readonly string[];
 }
 
@@ -14,7 +15,6 @@ const pendingStates: EntitlementState[] = [];
 let notifying = false;
 let revision = -1;
 let attempt = 0;
-let cacheKey = '';
 let setup: Promise<boolean> | undefined;
 let initialRead: Promise<void> | undefined;
 
@@ -53,23 +53,12 @@ function normalizeIds(ids: unknown): readonly string[] | null {
   return Object.freeze([...new Set<string>(ids)].sort());
 }
 
-function cachedIds(): readonly string[] {
-  try {
-    const cached: unknown = JSON.parse(localStorage.getItem(cacheKey) ?? 'null');
-    return normalizeIds(cached) ?? emptyIds;
-  } catch { return emptyIds; }
-}
-
 function accept(snapshot: EntitlementSnapshot): void {
   if (!snapshot || !Number.isSafeInteger(snapshot.revision) || snapshot.revision < 0) throw new Error('Invalid entitlement revision');
   if (snapshot.revision <= revision) return;
   const ids = normalizeIds(snapshot.productIds);
   if (!ids) throw new Error('Invalid entitlement list');
   revision = snapshot.revision;
-  // revision は次の起動のものと比べられないので、確認した一覧だけを保存する。
-  try { localStorage.setItem(cacheKey, JSON.stringify(ids)); } catch {
-    try { localStorage.removeItem(cacheKey); } catch { /* 保存できなくても今の一覧を使う */ }
-  }
   publish('ready', ids);
 }
 
@@ -85,7 +74,6 @@ function connect(): Promise<boolean> {
       publish('unsupported', emptyIds);
       return false;
     }
-    cacheKey = `ds_entitlements_v1_${caps.platform}`;
     onNative('iap.entitlementsChanged', snapshot => {
       try { accept(snapshot); } catch { /* 不完全な知らせでは一覧を変えない */ }
     });
@@ -101,7 +89,7 @@ async function read(method: 'iap.entitlements' | 'iap.restore'): Promise<void> {
   } catch (error) {
     // 新しい一覧や試みがあるときは、古い失敗でその状態を戻さない。
     if (revision === startedAt && (revision < 0 || request === attempt)) {
-      publish('error', revision < 0 ? cachedIds() : state.productIds);
+      publish('error', state.productIds);
     }
     throw error;
   }

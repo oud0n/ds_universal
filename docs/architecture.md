@@ -60,10 +60,11 @@ LapLoupe は、1 つの Web アプリ (React + TypeScript、`src/`) を 4 つの
 
 ## 3. ネイティブの窓口 (`src/native/`)
 
-- 約束は `src/native/contract.ts` に 1 か所。名前空間ごと: `system.*` (ファイル・保管場所・共有・画面の向き・G センサー・設定アプリを開く)、`ble.*`、`spp.*` (Android の Bluetooth Classic)、`camera.*`、`recorder.*` (画面を消している間の BLE の記録)、`iap.*` (アプリ内課金の投げ銭)、`caps` (使える機能)。
+- 約束は `src/native/contract.ts` に 1 か所。名前空間ごと: `system.*` (ファイル・保管場所・共有・画面の向き・G センサー・設定アプリを開く)、`ble.*`、`spp.*` (Android の Bluetooth Classic)、`camera.*`、`recorder.*` (画面を消している間の BLE の記録)、`iap.*` (アプリ内課金の投げ銭・買い切り商品の所有一覧と復元)、`caps` (使える機能)。
 - 呼ぶ: `callNative(method, params)`、知らせを受ける: `onNative(event, cb)` (`bridge.ts`)。
 - iPhone: `NativeBridge.swift` が受けて、`SystemModule`・`BleModule`・`CameraModule`・`MotionRecorder`・`IapModule`・`RunFiles` (保管場所のファイル・lapfile:// の範囲読み) に回す。WKUIDelegate (alert・confirm・prompt)・ダウンロード → 共有の画面は `WebDownloads.swift`。画面の向き `Orientation.swift`。
 - 画面の読み直し (BUG-45): 最初の `caps.get` だけは要求番号 0。対応するネイティブは、そのプロセスで一度だけ使う `session` を返す。画面は一度受け取った番号を使い、通常の返事は `session` と要求番号の両方が一致するときだけ受け取る。番号付きの応答を送る式は、実行時の画面に `sessionReplies: true` があることも確かめる。開き直した先が旧版の画面なら、旧版が頼んだ番号なしの応答だけが届く。取引や測位の知らせは今の画面に届け、購入一覧は `revision` で古い知らせを除く。
+- 買い切り商品の所有一覧 (`entitlements.ts`): 新しい画面では空から始め、端末の StoreKit が確認した購入一覧を受け取ってから利用できる。オフラインでも端末で一覧が取れれば使える。同じ画面で再取得に失敗した場合は最後に確認した一覧を保ち、確認済みの空の一覧を受け取れば所有をすべて外す (BUG-46)。
 - 旧版のネイティブは、`caps.get` の成功を確かめた後、同じ WebView の `sessionStorage` に要求番号の範囲を予約する。確保できなければ操作を送らない。番号の控えを外から消した場合や、この修正前の画面の応答が残っている場合には、旧版の応答を完全には区別できない。
 - Android: `NativeBridge.kt` → `SystemModule`・`BleModule`・`SppModule`・`CameraModule`・`MotionModule`・`SafStore` (選んだフォルダ)。
 - ブラウザで試すとき: `?native=mock` で `mockNative.ts` が iPhone のアプリのふりをする (e2e と GUI の洗い出しで使う)。

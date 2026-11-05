@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MockNativeOptions } from '../native/mockNative';
 import type { EntitlementSnapshot } from '../native/contract';
 
-const cacheKey = 'ds_entitlements_v1_mock';
+const legacyCacheKey = 'ds_entitlements_v1_mock';
 const tick = () => vi.advanceTimersByTimeAsync(25);
 async function host(options?: MockNativeOptions) {
   const { installMockNative } = await import('../native/mockNative');
@@ -72,11 +72,11 @@ describe('買い切り商品の状態', () => {
     await tick();
     await stale;
     expect(service.isOwned('a')).toBe(false);
-    expect(JSON.parse(localStorage.getItem(cacheKey)!)).toEqual([]);
+    expect(service.getEntitlementState().productIds).toEqual([]);
   });
 
-  it('ストアが応答しないときだけ控えを使い、遅れた答えと壊れた知らせでは新しい結果を変えない', async () => {
-    localStorage.setItem(cacheKey, JSON.stringify(['a']));
+  it('最初の確認が間に合わなければ所有は空のまま、遅れた答えと壊れた知らせでは取り消しを戻さない', async () => {
+    localStorage.setItem(legacyCacheKey, JSON.stringify(['a']));
     const { mock, service } = await host();
     mock.setOwned(['a'], false);
     const hold = mock.holdNextEntitlements();
@@ -85,7 +85,7 @@ describe('買い切り商品の状態', () => {
     expect(service.isOwned('a')).toBe(false);
     await vi.advanceTimersByTimeAsync(10000);
     await init;
-    expect(service.getEntitlementState()).toEqual({ status: 'error', productIds: ['a'] });
+    expect(service.getEntitlementState()).toEqual({ status: 'error', productIds: [] });
     mock.setOwned([]);
     await tick();
     hold.release();
@@ -98,10 +98,9 @@ describe('買い切り商品の状態', () => {
     await tick();
     await failed;
     expect(service.getEntitlementState()).toEqual({ status: 'error', productIds: [] });
-    expect(JSON.parse(localStorage.getItem(cacheKey)!)).toEqual([]);
   });
 
-  it('控えなしの失敗を確認済みの空と区別し、復元で全件を入れ替える', async () => {
+  it('読み取り失敗を確認済みの空と区別し、復元で全件を入れ替える', async () => {
     const { mock, service } = await host();
     mock.failNextEntitlements();
     const init = service.initializeEntitlements();
@@ -118,6 +117,82 @@ describe('買い切り商品の状態', () => {
     await tick();
     await cleared;
     expect(service.getEntitlementState()).toEqual({ status: 'ready', productIds: [] });
+  });
+
+  it('取り消しを保存できず古い控えが残っても、次の起動で確認するまでは所有を戻さない', async () => {
+    const disk = new Map([[legacyCacheKey, JSON.stringify(['a'])]]);
+    let writable = true;
+    const store = {
+      getItem: vi.fn((key: string) => disk.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => {
+        if (!writable) throw Error('storage unavailable');
+        disk.set(key, value);
+      }),
+      removeItem: vi.fn((key: string) => {
+        if (!writable) throw Error('storage unavailable');
+        disk.delete(key);
+      })
+    };
+    vi.stubGlobal('localStorage', store);
+    const first = await host();
+    first.mock.setOwned(['a'], false);
+    const firstInit = first.service.initializeEntitlements();
+    await tick();
+    await firstInit;
+    expect(first.service.isOwned('a')).toBe(true);
+    writable = false;
+    first.mock.setOwned([]);
+    await tick();
+    expect(first.service.getEntitlementState()).toEqual({ status: 'ready', productIds: [] });
+    first.mock.uninstall();
+
+    writable = true;
+    vi.resetModules();
+    vi.stubGlobal('window', {});
+    const next = await host();
+    next.mock.failNextEntitlements();
+    const seen = [next.service.isOwned('a')];
+    next.service.subscribeEntitlements(() => seen.push(next.service.isOwned('a')));
+    const nextInit = next.service.initializeEntitlements();
+    await tick();
+    await nextInit;
+    expect(next.service.getEntitlementState()).toEqual({ status: 'error', productIds: [] });
+    expect(seen).toEqual([false, false]);
+    expect(disk.get(legacyCacheKey)).toBe('["a"]');
+    expect(store.getItem).not.toHaveBeenCalled();
+    expect(store.setItem).not.toHaveBeenCalled();
+    expect(store.removeItem).not.toHaveBeenCalled();
+    next.mock.setOwned(['a']);
+    await tick();
+    expect(seen).toEqual([false, false, true]);
+  });
+
+  it('Web の保存領域を開けなくても、端末で確認した所有と取り消しを使う', async () => {
+    const touched = vi.fn(() => { throw Error('storage unavailable'); });
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')!;
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, get: touched });
+    Object.defineProperty(window, 'localStorage', { configurable: true, get: touched });
+    try {
+      const { mock, service } = await host();
+      mock.setOwned(['a'], false);
+      const init = service.initializeEntitlements();
+      await tick();
+      await init;
+      expect(service.getEntitlementState()).toEqual({ status: 'ready', productIds: ['a'] });
+      mock.failNextEntitlements();
+      const failed = expect(service.refreshEntitlements()).rejects.toThrow();
+      await tick();
+      await failed;
+      expect(service.getEntitlementState()).toEqual({ status: 'error', productIds: ['a'] });
+      mock.setOwned([]);
+      await tick();
+      mock.failNextEntitlements();
+      const failureAfterRemoval = expect(service.refreshEntitlements()).rejects.toThrow();
+      await tick();
+      await failureAfterRemoval;
+      expect(service.getEntitlementState()).toEqual({ status: 'error', productIds: [] });
+      expect(touched).not.toHaveBeenCalled();
+    } finally { Object.defineProperty(globalThis, 'localStorage', original); }
   });
 
   it('購入結果だけで所有とせず、承認待ち・取り消し・失敗と消耗型を扱う', async () => {
@@ -176,7 +251,7 @@ describe('買い切り商品の状態', () => {
   });
 
   it.each([{ entitlements: false }, { iap: false }])('以前のアプリや非対応端末では課金を呼ばない (%j)', async options => {
-    localStorage.setItem(cacheKey, '["a"]');
+    localStorage.setItem(legacyCacheKey, '["a"]');
     const { mock, service } = await host(options);
     const init = service.initializeEntitlements();
     await tick();
@@ -188,7 +263,7 @@ describe('買い切り商品の状態', () => {
   });
 
   it('ブラウザでは保存した購入を使わず、窓口を呼ばない', async () => {
-    localStorage.setItem(cacheKey, '["a"]');
+    localStorage.setItem(legacyCacheKey, '["a"]');
     const service = await import('./entitlements');
     await service.initializeEntitlements();
     expect(service.getEntitlementState()).toEqual({ status: 'unsupported', productIds: [] });
@@ -196,7 +271,7 @@ describe('買い切り商品の状態', () => {
   });
 
   it('初回読出しが期限超過、あとから始めた読出しは応答待ちのまま', async () => {
-    localStorage.setItem(cacheKey, JSON.stringify(['a']));
+    localStorage.setItem(legacyCacheKey, JSON.stringify(['a']));
     const { mock, service } = await host();
     const holdFirst = mock.holdNextEntitlements();
     const init = service.initializeEntitlements();
@@ -209,7 +284,7 @@ describe('買い切り商品の状態', () => {
     await holdSecond.captured;
     await vi.advanceTimersByTimeAsync(5000);
     await init;
-    expect(service.getEntitlementState()).toEqual({ status: 'error', productIds: ['a'] });
+    expect(service.getEntitlementState()).toEqual({ status: 'error', productIds: [] });
     holdFirst.release();
     holdSecond.release();
     await tick();
