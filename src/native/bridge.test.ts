@@ -262,3 +262,37 @@ it('複数の模擬窓口はモジュールを読み直しても別の番号を�
   }
   expect(sessions[0]).not.toBe(sessions[1]);
 });
+
+it('旧版に読み直してから届く応答は、旧版自身の要求だけを完了させる', async () => {
+  vi.stubGlobal('window', {});
+  vi.resetModules();
+  const { installMockNative } = await import('./mockNative');
+  const mock = installMockNative({ latencyMs: 5 });
+  const bridge = await import('./bridge');
+  expect(window.dsNative!.sessionReplies).toBe(true);
+  const sink = window.webkit!.messageHandlers!.dsNative!;
+  const hold = mock.holdNextEntitlements();
+  void bridge.callNative('iap.entitlements', {});
+  await tick();
+  await hold.captured;
+  const modern = mock.requests.find(req => req.method === 'iap.entitlements')!;
+  hold.release();
+  await vi.advanceTimersByTimeAsync(0);
+  sink.postMessage(JSON.stringify({ ...modern, method: 'unknown' }));
+  sink.postMessage(JSON.stringify({ id: 0, v: 1, method: 'caps.get', params: {}, requestSession: true }));
+
+  // 旧版は pending の id が一致した最初の答えを受け取る。
+  const messages: Array<{ id?: number; event?: string; result?: unknown }> = [];
+  let settled: unknown;
+  window.dsNative = { receive(json) {
+    const message = JSON.parse(json);
+    messages.push(message);
+    if (message.id === 1 && settled === undefined) settled = message.result ?? message.error;
+  } };
+  sink.postMessage(JSON.stringify({ id: 1, v: 1, method: 'system.closeFiles', params: { all: true } }));
+  await tick();
+  expect(messages.filter(message => message.id !== undefined)).toEqual([{ id: 1, ok: true, result: { open: 0 } }]);
+  expect(settled).toEqual({ open: 0 });
+  expect(messages.filter(message => message.event).map(message => message.event)).toEqual(['iap.entitlementsChanged']);
+  mock.uninstall();
+});

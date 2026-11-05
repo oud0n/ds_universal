@@ -7,11 +7,13 @@ annotation class JavascriptInterface
 class WebView {
     val url = "https://example.local"
     val sent = mutableListOf<JSONObject>()
+    val scripts = mutableListOf<String>()
 
     fun evaluateJavascript(script: String, callback: Any?) {
-        val prefix = "window.dsNative && window.dsNative.receive("
-        check(script.startsWith(prefix) && script.endsWith(")"))
-        val literal = script.removePrefix(prefix).removeSuffix(")")
+        scripts += script
+        val call = "window.dsNative.receive("
+        check(call in script && script.endsWith(")"))
+        val literal = script.substringAfter(call).removeSuffix(")")
         sent += JSONObject(JsonParser.parseString(literal).asString)
     }
 }

@@ -123,14 +123,15 @@ class NativeBridge(private val activity: MainActivity, private val webView: WebV
             msg.remove("result")
             msg.put("ok", false).put("error", JSONObject().put("code", "io").put("message", "reply could not be encoded")).toString()
         }
-        sendJson(json)
+        sendJson(json, session != null)
     }
 
-    private fun send(message: JSONObject) = sendJson(message.toString())
+    private fun send(message: JSONObject) = sendJson(message.toString(), false)
 
-    private fun sendJson(json: String) {
+    private fun sendJson(json: String, sessionReply: Boolean) {
         // JSON の文字列を、JavaScript の文字列の値として渡す (中身をそのまま実行しない)
         val literal = JSONObject.quote(json)
-        main.post { webView.evaluateJavascript("window.dsNative && window.dsNative.receive($literal)", null) }
+        val check = if (sessionReply) "window.dsNative.sessionReplies === true && " else ""
+        main.post { webView.evaluateJavascript("window.dsNative && ${check}window.dsNative.receive($literal)", null) }
     }
 }

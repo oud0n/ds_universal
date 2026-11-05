@@ -34,7 +34,7 @@ npm run build             # dist (iOS・Android のアプリにも入る)
 
 ネイティブ応答の変更 (BUG-45) は `scripts/test-native-bridge.sh ios` と `scripts/test-native-bridge.sh android` で確かめる。両方を続けて試す場合は引数を省略する。iOS 側は macOS・Swift 6、Android 側は JDK と展開済みの Gradle (Kotlin コンパイラ・Gson を含むもの) を使う。必要なら `JAVA_HOME` に JDK、`GRADLE_HOME` に Gradle のフォルダを指定する。通常は Android プロジェクトの既存の wrapper キャッシュを使う。ネットワークから追加のものは取得しない。
 
-この試験は本体の Swift / Kotlin の窓口をコンパイルし、模擬 WebView に届く応答を検査する。プラットフォーム SDK との組み合わせは通常の iOS ビルド・Android の `:app:compileDebugKotlin` で別に確認する。
+この試験は本体の Swift / Kotlin の窓口をコンパイルし、模擬 WebView に届く応答を検査する。さらに、窓口が送った JavaScript を Node.js で実行し、実行前に画面が旧版へ切り替わっても別の要求を完了させないことを確かめる。開発途中の番号付き応答の実装は、画面とネイティブを同じリビジョンからビルドする。プラットフォーム SDK との組み合わせは通常の iOS ビルド・Android の `:app:compileDebugKotlin` で別に確認する。
 
 ## 3. 画面の通しの試験 (e2e)
 

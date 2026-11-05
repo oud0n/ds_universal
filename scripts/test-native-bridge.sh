@@ -12,7 +12,8 @@ check_ios() {
   sed '/^import WebKit$/d' "$root/mobile/ios/DSUniversal/NativeBridge.swift" > "$scratch/NativeBridge.swift"
   swiftc -swift-version 6 -module-cache-path "$scratch/cache" -o "$scratch/swift-check" \
     "$fixtures/swift/"*.swift "$scratch/NativeBridge.swift"
-  "$scratch/swift-check"
+  "$scratch/swift-check" "$scratch/ios-scripts.json"
+  node "$fixtures/check-delivery.mjs" "$scratch/ios-scripts.json"
 }
 
 check_android() {
@@ -40,7 +41,8 @@ check_android() {
   "$java_bin" -cp "$gradle_dir/lib/*" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
     -no-stdlib -no-reflect -classpath "$cp" -d "$scratch/kotlin-check.jar" \
     "$root/mobile/android/app/src/main/java/io/github/oud0n/laploupe/NativeBridge.kt" "$fixtures/kotlin/"*.kt
-  "$java_bin" -cp "$scratch/kotlin-check.jar:$cp" test.CheckKt
+  "$java_bin" -cp "$scratch/kotlin-check.jar:$cp" test.CheckKt "$scratch/android-scripts.json"
+  node "$fixtures/check-delivery.mjs" "$scratch/android-scripts.json"
 }
 
 case "${1:-all}" in

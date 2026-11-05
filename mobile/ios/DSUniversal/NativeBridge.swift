@@ -141,7 +141,9 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
               // JSON の文字列を、JavaScript の文字列の値として渡す (中身をそのまま実行しない)
               let literalData = try? JSONSerialization.data(withJSONObject: json, options: .fragmentsAllowed),
               let literal = String(data: literalData, encoding: .utf8) else { return }
-        let script = "window.dsNative && window.dsNative.receive(\(literal))"
+        // 実行の直前に読み直されていても、番号を照合できない旧版の画面には渡さない。
+        let check = message["session"] is String ? "window.dsNative.sessionReplies === true && " : ""
+        let script = "window.dsNative && \(check)window.dsNative.receive(\(literal))"
         webView?.evaluateJavaScript(script)
     }
 }

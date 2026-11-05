@@ -24,7 +24,7 @@ declare global {
     webkit?: { messageHandlers?: { dsNative?: NativeSink } };
     dsNativeAndroid?: NativeSink;
     /** ネイティブが答えと知らせを渡すところ */
-    dsNative?: { receive(message: string): void };
+    dsNative?: { sessionReplies?: true; receive(message: string): void };
   }
 }
 
@@ -107,7 +107,7 @@ function cancelPending() {
 }
 
 if (typeof window !== 'undefined') {
-  window.dsNative = { receive };
+  window.dsNative = { sessionReplies: true, receive };
   // ページのキャッシュから戻る場合も、離れる前の呼び出しを待ち続けない。番号は戻さない。
   window.addEventListener?.('pagehide', e => { if (e.persisted) cancelPending(); });
   window.addEventListener?.('pageshow', e => { if (e.persisted) cancelPending(); });

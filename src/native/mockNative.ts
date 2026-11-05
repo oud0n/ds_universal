@@ -107,7 +107,11 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
     timers.delete(id);
   };
   const send = (message: NativeResponse | NativeEvent) => {
-    later(latency, () => window.dsNative?.receive(JSON.stringify(message)));
+    later(latency, () => {
+      const receiver = window.dsNative;
+      if ('session' in message && message.session !== undefined && receiver?.sessionReplies !== true) return;
+      receiver?.receive(JSON.stringify(message));
+    });
   };
   // 記録 (ネイティブの recorder のふり。ファイルの代わりにメモリに書く)
   const files = new Map<string, { lines: string[]; modifiedMs: number }>();

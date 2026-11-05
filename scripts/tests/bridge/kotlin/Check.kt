@@ -1,6 +1,9 @@
 package test
 
 import android.webkit.WebView
+import com.google.gson.Gson
+import java.nio.file.Files
+import java.nio.file.Path
 import io.github.oud0n.laploupe.MainActivity
 import io.github.oud0n.laploupe.NativeBridge
 import io.github.oud0n.laploupe.NativeError
@@ -14,7 +17,7 @@ private fun request(bridge: NativeBridge, id: Int, method: String?, session: Str
     bridge.postMessage(message.toString())
 }
 
-fun main() {
+fun main(args: Array<String>) {
     val web = WebView()
     val bridge = NativeBridge(MainActivity(), web)
     val otherWeb = WebView()
@@ -45,5 +48,19 @@ fun main() {
     check(web.sent.last().opt("session") == first && web.sent.last().opt("ok") == false)
     request(bridge, 4, "caps.get", next, version = 99)
     check(web.sent.last().opt("session") == next && web.sent.last().opt("ok") == false)
+    repeat(2) {
+        request(bridge, 0, "caps.get", open = true)
+        val sender = web.sent.last().optString("session")
+        request(bridge, 1, "system.closeFiles", sender)
+    }
+    request(bridge, 1, "system.closeFiles")
+    val deliveries = StubModule.replies.takeLast(3)
+    val start = web.scripts.size
+    deliveries[0](Result.success(JSONObject().put("from", "modern")))
+    deliveries[1](Result.failure(NativeError.io("queued error")))
+    request(bridge, 0, "caps.get", open = true)
+    bridge.emit("system.appState", JSONObject().put("state", "active"))
+    deliveries[2](Result.success(JSONObject().put("from", "legacy")))
+    Files.writeString(Path.of(args.single()), Gson().toJson(web.scripts.drop(start)))
     println("PASS Kotlin native reply routing")
 }

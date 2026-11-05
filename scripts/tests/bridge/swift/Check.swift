@@ -47,6 +47,22 @@ import Foundation
         request(bridge, web, id: 4, method: "caps.get", session: next, version: 99)
         precondition(web.sent.last!["session"] as? String == next && web.sent.last!["ok"] as? Bool == false)
         precondition(web.configuration.userContentController.registrations == 1)
+        // 互いに別の画面の id=1 の成功・失敗、開始応答、知らせ、旧版自身の id=1 の応答を並べる。
+        for _ in 0..<2 {
+            request(bridge, web, id: 0, method: "caps.get", open: true)
+            let sender = web.sent.last!["session"] as! String
+            request(bridge, web, id: 1, method: "system.closeFiles", session: sender)
+        }
+        request(bridge, web, id: 1, method: "system.closeFiles")
+        let deliveries = Array(NativeCore.shared.system.replies.suffix(3))
+        let start = web.scripts.count
+        deliveries[0](.success(["from": "modern"]))
+        deliveries[1](.failure(NativeError(.io, "queued error")))
+        request(bridge, web, id: 0, method: "caps.get", open: true)
+        bridge.emit("system.appState", ["state": "active"])
+        deliveries[2](.success(["from": "legacy"]))
+        let queued = try! JSONSerialization.data(withJSONObject: Array(web.scripts[start...]))
+        try! queued.write(to: URL(fileURLWithPath: CommandLine.arguments[1]))
         print("PASS Swift native reply routing")
     }
 }

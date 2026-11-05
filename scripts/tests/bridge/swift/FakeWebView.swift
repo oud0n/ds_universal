@@ -26,11 +26,14 @@ struct WKScriptMessage {
     var navigationDelegate: WebDownloads?
     var uiDelegate: WebDownloads?
     private(set) var sent: [[String: Any]] = []
+    private(set) var scripts: [String] = []
 
     func evaluateJavaScript(_ script: String) {
-        let prefix = "window.dsNative && window.dsNative.receive("
-        precondition(script.hasPrefix(prefix) && script.hasSuffix(")"))
-        let literal = Data(script.dropFirst(prefix.count).dropLast().utf8)
+        scripts.append(script)
+        // ここでは応答の中身だけを読む。実際の配送条件は Node.js でこの式をそのまま実行して試す。
+        let call = script.range(of: "window.dsNative.receive(")!
+        precondition(script.hasSuffix(")"))
+        let literal = Data(script[call.upperBound...].dropLast().utf8)
         let json = try! JSONSerialization.jsonObject(with: literal, options: .fragmentsAllowed) as! String
         sent.append(try! JSONSerialization.jsonObject(with: Data(json.utf8)) as! [String: Any])
     }
