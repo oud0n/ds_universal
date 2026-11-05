@@ -7,7 +7,7 @@
 import { loadCsvFormats } from './csvFormatStore';
 import { canUseRunStore, getRunStore } from './runStore';
 import { clearCourseCornersCache } from './courseCorners';
-import { getStorageReadRevision, invalidateStorageReads, StorageChangedError } from './storageRevision';
+import { getStorageReadRevision, invalidateStorageReads, isStorageSelectionPending, subscribeStorageRevision, StorageChangedError } from './storageRevision';
 import { userCircuitStorage, type CourseFile, type UserCircuitItem } from './userCircuitStorage';
 import { COURSE_INDEX, courseFileKey, itemFromCourseFiles, markEditedCourseDeleted, mergeEditedCourses, parseCourseIndex, writeEditedCourse } from './courseFolderSync';
 
@@ -24,16 +24,50 @@ export { getStorageRevision, getStorageReadRevision, isStorageSelectionPending, 
 export async function storageFolderChanged(): Promise<void> {
   invalidateStorageReads();
   clearCourseCornersCache();
-  await loadStorageCourses().catch(() => 0);
+  try { await loadStorageCourses(); } catch (error) {
+    // 取消後のコース再試行が終わるまで、旧要求から後続の読込みを始めない。
+    if (error instanceof StorageChangedError) return;
+  }
   // CSV の形式の定義・計算式も、新しい保管場所のものにする (PLAN-36)
   await loadCsvFormats().catch(() => undefined);
   invalidateStorageReads();
 }
 
 /** 保管場所の digspice/ のコースデータを読み直す。読んだファイルの数 (保管場所が無ければ 0) */
-export async function loadStorageCourses(): Promise<number> {
-  if (!canUseRunStore()) return 0;
+let courseLoad: { reads: number; promise: Promise<number> } | null = null;
+let courseRetryNeeded = false;
+let courseRetryQueued = false;
+function retryCourses(): void {
+  if (!courseRetryNeeded || courseRetryQueued || isStorageSelectionPending()) return;
+  courseRetryQueued = true;
+  queueMicrotask(() => {
+    courseRetryQueued = false;
+    if (!courseRetryNeeded || isStorageSelectionPending()) return;
+    const reads = getStorageReadRevision();
+    void loadStorageCourses().then(() => {
+      if (reads === getStorageReadRevision() && !isStorageSelectionPending()) invalidateStorageReads();
+    }, () => undefined);
+  });
+}
+subscribeStorageRevision(retryCourses);
+
+/** 同じ期間の読込みを共有し、中断した最新の要求は選択終了後にやり直す。 */
+export function loadStorageCourses(): Promise<number> {
   const reads = getStorageReadRevision();
+  if (courseLoad?.reads === reads) return courseLoad.promise;
+  courseRetryNeeded = false;
+  const request = { reads, promise: loadStorageCoursesNow(reads) };
+  courseLoad = request;
+  void request.promise.catch(error => {
+    if (courseLoad !== request) return;
+    courseLoad = null;
+    if (error instanceof StorageChangedError) { courseRetryNeeded = true; retryCourses(); }
+  });
+  return request.promise;
+}
+
+async function loadStorageCoursesNow(reads: number): Promise<number> {
+  if (!canUseRunStore()) return 0;
   const check = () => { if (reads !== getStorageReadRevision()) throw new StorageChangedError(); };
   const store = await getRunStore().catch(() => null);
   check();
@@ -41,6 +75,7 @@ export async function loadStorageCourses(): Promise<number> {
     // 保管場所が無くなった (外した) ときは、前の保管場所のコースデータを使わない
     userCircuitStorage.onEditedChanged = undefined;
     await userCircuitStorage.setStorageCourseFiles([], check);
+    check();
     return 0;
   }
   // コース編集で保存したコース (course/courses.json に載っているもの) を、端末の中のコースと合わせる
@@ -72,6 +107,7 @@ export async function loadStorageCourses(): Promise<number> {
   // 読む順で結果が変わらないよう、道の順にそろえる
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   await userCircuitStorage.setStorageCourseFiles(files, check);
+  check();
   return files.length;
 }
 

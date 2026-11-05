@@ -43,6 +43,14 @@ try {
  await p.ev("(async()=>{window.holdIndexRead=null;await(await import('/src/services/storageRevision.ts')).trackStorageSelection(()=>null);window.resumeIndexRead();})()");
  await p.waitFor("document.querySelector('[data-testid=run-row]') && window.indexWrites?.some(x=>x.files['demo.nmea']?.laps.length>0)",15000,'run list recovers after cancel');
  assert.ok(await p.ev("window.indexWrites.every(x=>!x.files['demo.nmea']||x.files['demo.nmea'].laps.length>0)"),'interrupted read never writes a zero-lap record');
+ // 従来のラップ履歴も、中断後に閉じ直さず表示が回復する。
+ await p.ev("storeFiles.delete('sodegaura/laptimes.json');window.holdIndexRead='sodegaura/demo.nmea';window.resumeIndexRead=null");
+ await p.ev("window.__laploupe.go('analysis')");await p.click('toggle-data-drawer');await p.click('open-lap-history');
+ await p.waitFor('window.resumeIndexRead',10000,'in-flight legacy history scan');
+ await p.ev("(async()=>{window.holdIndexRead=null;await(await import('/src/services/storageRevision.ts')).trackStorageSelection(()=>null);window.resumeIndexRead();})()");
+ await p.waitFor("document.querySelectorAll('[data-testid=lap-history-row]').length>0",15000,'history recovers after cancel');
+ assert.equal(await p.ev("document.querySelector('[role=dialog]').innerText.includes('The run folder changed.')"),false);
+ await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");await p.click('data-drawer-close');
  await p.ev("window.__laploupe.go('analysis')");await p.click('open-lap-picker');
  const hasStored=await p.ev("[...document.querySelectorAll('button')].some(x=>x.textContent==='Stored runs')");if(hasStored)await p.clickText('Stored runs');
  await p.waitFor("document.querySelector('[data-testid=lap-picker-row]')",20000,'stored laps');
@@ -182,5 +190,5 @@ try {
  assert.ok(await p.ev("(()=>{const item=window.testRunOpener.getOpenRunItem('sodegaura','demo.nmea');return item.laps===window.ownerLapsBefore && item.folderVideos===window.ownerVideosBefore;})()"),'rejected assignment does not mutate live run metadata');
  await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");
  assert.deepEqual(p.errors,[]);
- await p.shot('preserved');console.log(JSON.stringify({result:'PASS repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion; pending metadata, overlapping saved restore, same-source delayed earlier-lap first renders',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
-}finally{await p.close();fs.rmSync(fixtureDir,{recursive:true,force:true});}
+ await p.shot('preserved');console.log(JSON.stringify({result:'PASS interrupted run-list and legacy history scans; repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion; pending metadata, overlapping saved restore, same-source delayed earlier-lap first renders',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
+}catch(error){console.log(await p.ev("({body:document.body.innerText,reads:storeReads.slice(-12),indexes:window.indexWrites?.map(x=>Object.keys(x.files))})"),p.errors);throw error;}finally{await p.close();fs.rmSync(fixtureDir,{recursive:true,force:true});}

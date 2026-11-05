@@ -129,25 +129,36 @@ describe('保管場所の切り替え', () => {
   });
 
 
-  it('古い保存先のコース読込み中断を、空のコースとして反映しない', async () => {
-    let complete!: (data: Uint8Array) => void;
+  it.each([false, true])('取消がコース応答より先=%s でも、古い結果を採用せず自動で読み直す', async cancelFirst => {
+    const replies: Array<(data: Uint8Array) => void> = [];
     const raw: RunStore = {
       list: async () => [], listAll: async () => [{ path: 'course/ControlLine/test.cln', size: 1, mtimeMs: 1, local: true }],
-      read: () => new Promise(resolve => { complete = resolve; }), readText: async () => null, readTextStrict: async () => null,
+      read: () => new Promise(resolve => { replies.push(resolve); }), readText: async () => null, readTextStrict: async () => null,
       writeText: async () => {}, videoUrl: path => path, startDownload: async () => {},
       fileStatus: async () => ({ local: true, downloading: false }), supportsVideos: async () => true
     };
+    invalidateStorageReads();
     vi.spyOn(storeModule, 'canUseRunStore').mockReturnValue(true);
     vi.spyOn(storeModule, 'getRunStore').mockResolvedValue(revisionBoundStore(raw));
     vi.spyOn(userCircuitStorage, 'setSyncedEdited').mockResolvedValue();
     const apply = vi.spyOn(userCircuitStorage, 'setStorageCourseFiles');
     try {
       const scan = loadStorageCourses();
+      expect(loadStorageCourses()).toBe(scan);
       const rejected = expect(scan).rejects.toBeInstanceOf(StorageChangedError);
-      await vi.waitFor(() => expect(complete).toBeTypeOf('function'));
-      invalidateStorageReads(); complete(new Uint8Array([1]));
-      await rejected;
+      await vi.waitFor(() => expect(replies).toHaveLength(1));
+      let cancel!: (value: null) => void;
+      const selection = trackStorageSelection(() => new Promise<null>(resolve => { cancel = resolve; }));
+      await vi.waitFor(() => expect(isStorageSelectionPending()).toBe(true));
+      if (cancelFirst) { cancel(null); await selection; }
+      replies[0](new Uint8Array([1])); await rejected;
       expect(apply).not.toHaveBeenCalled();
+      if (!cancelFirst) { cancel(null); await selection; }
+      await vi.waitFor(() => expect(replies).toHaveLength(2));
+      expect(apply).not.toHaveBeenCalled();
+      replies[1](new Uint8Array([2]));
+      await vi.waitFor(() => expect(apply).toHaveBeenCalledOnce());
+      expect(apply.mock.calls[0][0]).toEqual([{ path: 'course/ControlLine/test.cln', text: String.fromCharCode(2) }]);
     } finally { vi.restoreAllMocks(); }
   });
 

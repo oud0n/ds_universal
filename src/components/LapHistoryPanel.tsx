@@ -6,7 +6,7 @@
 import { NO_FILTER, effectiveFilter, filterOptions, matchesFilter, type ConditionFilter, type RunConditions } from '../services/runFilters';
 import { ConditionFilters } from './ConditionFilters';
 import { WEATHER_LABELS } from '../services/runWeather';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { getOpenRun } from '../services/runOpener';
 import { X, FolderOpen, EyeOff, Eye, RefreshCw, BarChart3 } from 'lucide-react';
 import { loadLapHistory, toggleLapHidden, type LapFolder } from '../services/lapHistory';
@@ -16,6 +16,7 @@ import { formatLapTime } from '../services/liveLapTimer';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { storageFolderChanged, trackStorageSelection, pickDesktopStorage } from '../services/storageCourses';
+import { getStorageReadRevision, isStorageSelectionPending, subscribeStorageRevision, StorageChangedError } from '../services/storageRevision';
 
 interface Props {
   onClose: () => void;
@@ -44,6 +45,8 @@ function fmtDate(ms: number | null): string {
 export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
   const t = useT();
   const desktop = !!window.electronAPI?.laps;
+  const readRevision = useSyncExternalStore(subscribeStorageRevision, getStorageReadRevision);
+  const loadRequest = useRef(0);
   const [store, setStore] = useState<LapFileStore | null>(null);
   const [folderPath, setFolderPath] = useState<string | null>(null);
   const [folders, setFolders] = useState<LapFolder[] | null>(null);
@@ -60,11 +63,15 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
   useEscapeKey(true, onClose);
 
   const load = useCallback(async (s: LapFileStore | null) => {
+    const request = ++loadRequest.current;
+    const reads = getStorageReadRevision();
+    const current = () => request === loadRequest.current && reads === getStorageReadRevision() && !isStorageSelectionPending();
     setError(null);
-    if (!s) { setFolders([]); return; }
+    if (!s) { setFolders([]); setBusy(null); return; }
     setBusy('');
     try {
-      const list = await loadLapHistory(s, f => setBusy(f));
+      const list = await loadLapHistory(s, f => { if (current()) setBusy(f); });
+      if (!current()) return;
       setFolders(list);
       // はじめは、開いている走行 (Car 1) のコース。開いていなければ、いちばん新しい走行のあるコース (BUG-36: 一覧の先頭が出ていた)
       const openFolder = getOpenRun()?.item.folder;
@@ -72,21 +79,32 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
         : openFolder && list.some(f => f.folder === openFolder) ? openFolder
         : [...list].sort((a, b) => (b.rows[0]?.runStartMs ?? 0) - (a.rows[0]?.runStartMs ?? 0))[0]?.folder ?? '');
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setFolders([]);
+      if (current() && !(e instanceof StorageChangedError)) {
+        setError(e instanceof Error ? e.message : String(e));
+        setFolders([]);
+      }
     } finally {
-      setBusy(null);
+      if (current()) setBusy(null);
     }
   }, []);
 
   useEffect(() => {
+    if (isStorageSelectionPending()) return;
+    let active = true;
     void (async () => {
       const s = desktop ? await electronLapStore() : nativeLapStore();
-      if (desktop) setFolderPath(await window.electronAPI!.laps!.getFolder());
+      const path = desktop ? await window.electronAPI!.laps!.getFolder() : null;
+      if (!active || readRevision !== getStorageReadRevision() || isStorageSelectionPending()) return;
+      if (desktop) setFolderPath(path);
       setStore(s);
       await load(s);
-    })();
-  }, [desktop, load]);
+    })().catch(e => {
+      if (active && readRevision === getStorageReadRevision() && !isStorageSelectionPending()) {
+        setError(e instanceof Error ? e.message : String(e)); setBusy(null);
+      }
+    });
+    return () => { active = false; loadRequest.current++; };
+  }, [desktop, load, readRevision]);
 
   const pickFolder = async () => {
     setError(null);
@@ -94,10 +112,7 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
       const p = await pickDesktopStorage(window.electronAPI?.laps);
       if (!p) return;
       setFolderPath(p);
-      void storageFolderChanged();
-      const s = await electronLapStore();
-      setStore(s);
-      await load(s);
+      await storageFolderChanged();
     } catch (e) {
       setError(t(`フォルダを選べませんでした: ${e instanceof Error ? e.message : String(e)}`, `Could not choose the folder: ${e instanceof Error ? e.message : String(e)}`));
     }
