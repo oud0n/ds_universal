@@ -5,7 +5,7 @@ import * as runsFile from './runsFile';
 import type { Session } from '../types/telemetry';
 import { videoSyncManager } from './videoSyncManager';
 import { videoViewStore } from './videoViewStore';
-import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, companionRunMatches, companionRuns, getOpenRun, getOpenRunItem, flushOpenRunsStrict, setRunMeta, type RunItem } from './runOpener';
+import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, companionRunMatches, companionRuns, getOpenRun, getOpenRunItem, flushOpenRunsStrict, scheduleRunSave, setRunMeta, type RunItem } from './runOpener';
 import type { RunStore } from './runStore';
 import type { RemoteVideo } from './remoteVideo';
 
@@ -92,6 +92,65 @@ it('初めての名前編集を保存できなくても、手元の行に編集�
   vi.spyOn(runsFile, 'updateRun').mockRejectedValue(new Error('write failed'));
   await expect(setRunMeta(opts.store, opts.item, { name: 'New name', note: 'New note', car: 'New car' })).rejects.toThrow('write failed');
   expect(opts.item.entry).toMatchObject({ name: 'New name', note: 'New note', car: 'New car' });
+});
+
+it('名前・車種の保存が失敗したあと時計だけ保存しても、未保存の編集を手元から消さない', async () => {
+  const session = { id: 's', points: [], laps: [], clockOffsetSec: 0 } as unknown as Session;
+  const opts = { ...attachment('meta'), runSessions: [session], sessions: () => [session] };
+  let disk: runsFile.RunRow = { ...opts.item.entry!, name: 'Saved name', note: 'Saved note', car: 'Saved car' };
+  opts.item.entry = disk;
+  let fail = true;
+  vi.spyOn(runsFile, 'updateRun').mockImplementation(async (_s, _folder, _file, update) => {
+    if (fail) throw new Error('metadata write failed');
+    disk = { updatedAt: disk.updatedAt, ...update(disk) };
+    return disk;
+  });
+  await attachRunVideos(opts);
+  await expect(setRunMeta(opts.store, opts.item, { name: 'Edited name', note: null, car: 'Edited car' })).rejects.toThrow();
+  fail = false; session.clockOffsetSec = 2;
+  await flushOpenRunsStrict();
+  expect(disk.name).toBe('Edited name');
+  expect(disk.note).toBeUndefined();
+  expect(opts.item.entry).toMatchObject({ name: 'Edited name', car: 'Edited car', parts: { '1': { clockOffsetSec: 2 } } });
+  expect(opts.item.entry?.note).toBeUndefined();
+});
+
+it('古い名前保存の完了で、次の編集の preview を戻さない', async () => {
+  const opts = attachment('meta');
+  let finishFirst!: () => void, finishSecond!: () => void;
+  const original = { ...opts.item.entry! };
+  vi.spyOn(runsFile, 'updateRun')
+    .mockImplementationOnce(async (_s, _folder, _file, update) => new Promise(resolve => {
+      finishFirst = () => resolve({ ...original, ...update(original) });
+    }))
+    .mockImplementationOnce(async (_s, _folder, _file, update) => new Promise(resolve => {
+      finishSecond = () => resolve({ ...original, ...update(original) });
+    }));
+  const first = setRunMeta(opts.store, opts.item, { name: 'First' });
+  const second = setRunMeta(opts.store, opts.item, { name: 'Second' });
+  finishFirst(); await first;
+  expect(opts.item.entry?.name).toBe('Second');
+  finishSecond(); await second;
+  expect(opts.item.entry?.name).toBe('Second');
+});
+
+it('別の一覧が持つ古い行から、保存済みの古い編集を再び持ち込まない', async () => {
+  const session = { id: 's', points: [], laps: [], clockOffsetSec: 0 } as unknown as Session;
+  const opts = { ...attachment('shared-meta'), runSessions: [session], sessions: () => [session] };
+  const otherView = { ...opts.item };
+  let disk: runsFile.RunRow = { ...opts.item.entry!, name: 'Original' };
+  let fail = true;
+  vi.spyOn(runsFile, 'updateRun').mockImplementation(async (_s, _folder, _file, update) => {
+    if (fail) throw new Error('metadata write failed');
+    disk = { updatedAt: '', ...update(disk) }; return disk;
+  });
+  await attachRunVideos(opts);
+  await expect(setRunMeta(opts.store, otherView, { name: 'First' })).rejects.toThrow();
+  fail = false; await flushOpenRunsStrict();
+  await setRunMeta(opts.store, opts.item, { name: 'Second' });
+  await setRunMeta(opts.store, otherView, { note: 'Later note' });
+  expect(disk).toMatchObject({ name: 'Second', note: 'Later note' });
+  expect(opts.item.entry).toMatchObject({ name: 'Second', note: 'Later note' });
 });
 
 it.each([true, false])('比較側の通知が先=%s でも、基準から外れた走行の動画と保存担当を引き継ぐ', async companionFirst => {
@@ -220,4 +279,24 @@ it('保存に失敗したら手放す処理へ進めず、元の所有者を保�
   vi.spyOn(runsFile, 'updateRun').mockRejectedValue(new Error('disk full'));
   await expect(flushOpenRunsStrict()).rejects.toThrow('disk full');
   expect(getOpenRun()?.item).toBe(opts.item);
+});
+
+it('厳格な保存を待つ間の追加編集も保存し、最初の控えだけで切替えを許さない', async () => {
+  const session = { id: 's', points: [], laps: [], clockOffsetSec: 0 } as unknown as Session;
+  const opts = { ...attachment('editing'), runSessions: [session], sessions: () => [session] };
+  await attachRunVideos(opts);
+  const started = latch(), resume = latch();
+  const saved: runsFile.RunRow[] = [];
+  vi.spyOn(runsFile, 'updateRun').mockImplementation(async (_s, _folder, _file, update) => {
+    const row = { updatedAt: '', ...update(opts.item.entry!) };
+    saved.push(row);
+    if (saved.length === 1) { started.release(); await resume.promise; }
+    return row;
+  });
+  session.clockOffsetSec = 1;
+  const flush = flushOpenRunsStrict();
+  await started.promise;
+  session.clockOffsetSec = 2; scheduleRunSave();
+  resume.release(); await flush;
+  expect(saved.map(row => row.parts?.['1']?.clockOffsetSec)).toEqual([1, 2]);
 });

@@ -89,12 +89,18 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
   }, [desktop, load]);
 
   const pickFolder = async () => {
-    const p = await pickDesktopStorage(window.electronAPI?.laps);
-    setFolderPath(p ?? null);
-    if (p) void storageFolderChanged();
-    const s = await electronLapStore();
-    setStore(s);
-    await load(s);
+    setError(null);
+    try {
+      const p = await pickDesktopStorage(window.electronAPI?.laps);
+      if (!p) return;
+      setFolderPath(p);
+      void storageFolderChanged();
+      const s = await electronLapStore();
+      setStore(s);
+      await load(s);
+    } catch (e) {
+      setError(t(`フォルダを選べませんでした: ${e instanceof Error ? e.message : String(e)}`, `Could not choose the folder: ${e instanceof Error ? e.message : String(e)}`));
+    }
   };
 
   const current = folders?.find(f => f.folder === selected) ?? null;

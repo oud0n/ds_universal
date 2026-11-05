@@ -48,7 +48,7 @@ import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
 import { RecentRunsList, RunsSheet, notifyRunsChanged } from './components/RecentRuns';
 import { canUseRunStore, getRunStore } from './services/runStore';
-import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, closeOpenRun, companionRunMatches, companionRuns, dropCompanion, flushOpenRuns, flushOpenRunsStrict, getOpenRunItem, listRuns, scheduleRunSave, setRunMeta, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
+import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, closeOpenRun, companionRunMatches, companionRuns, dropCompanion, flushOpenRuns, flushOpenRunsStrict, getOpenRunItem, getRunItemEntry, listRuns, scheduleRunSave, setRunMeta, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
 import { runStem, courseHash } from './services/lapIndex';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLapTimer, canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
@@ -356,10 +356,12 @@ export const App: React.FC = () => {
   /** 保管場所から開いた走行の一覧の行 (道 → 行)。Car 1 を替えたときに、その走行の動画を付け直すため */
   const runItemsRef = useRef(new Map<string, RunItem>());
   const [runAssociationsVersion, setRunAssociationsVersion] = useState(0);
-  const shareRunItem = (item: RunItem): RunItem => {
+  const shareRunItem = (item: RunItem, store: NonNullable<Awaited<ReturnType<typeof getRunStore>>>): RunItem => {
+    if (store.storageRevision !== undefined && store.storageRevision !== getStorageRevision()) throw new Error(tr('保管場所が変わりました。', 'Storage changed.'));
     const saved = getOpenRunItem(item.folder, item.file);
-    if (!saved) return item;
-    const { entry, videos, synced } = saved;
+    if (!saved) { item.entry = getRunItemEntry(store, item); return item; }
+    const { videos, synced } = saved;
+    const entry = getRunItemEntry(store, saved);
     Object.assign(saved, item, { entry, videos, synced });
     return saved;
   };
@@ -1227,7 +1229,7 @@ export const App: React.FC = () => {
       added = await loadStoredFileData(store, item);
       runSessionsRef.current.set(runPath, added.map(x => x.id));
     }
-    runItemsRef.current.set(runPath, shareRunItem(item));
+    runItemsRef.current.set(runPath, shareRunItem(item, store));
     return added;
   };
 
@@ -1345,7 +1347,7 @@ export const App: React.FC = () => {
         added = await loadStoredFileData(store, item);
         runSessionsRef.current.set(runPath, added.map(x => x.id));
       }
-      item = shareRunItem(item);
+      item = shareRunItem(item, store);
       runItemsRef.current.set(runPath, item);
       if (added.length === 0) return;
       const { session, lapNumber } = pickRunBestLap(added, item);
@@ -1397,7 +1399,7 @@ export const App: React.FC = () => {
       const already = analysisStore.getSnapshot().sessions.filter(x => openedIds.includes(x.id));
       let added = already.length ? already : await loadStoredFileData(store, item);
       runSessionsRef.current.set(runPath, added.map(x => x.id));
-      item = shareRunItem(item);
+      item = shareRunItem(item, store);
       runItemsRef.current.set(runPath, item);
       // 覚えている走行の名前・メモ (runs.json の行。PLAN-32・33) を、開いた走行の呼び名とメモにする
       // (分かれた走行は、2 番目から「名前 (2)」)。比べる相手・ラップの一覧にも、この名前が出る
@@ -1513,7 +1515,7 @@ export const App: React.FC = () => {
             }
             // 待っている間に Car 1 を別の走行に替えた (走行とコースの引き出しなど) ときは付けない
             if (attachedRunRef.current !== runPath) { setRunDownload(null); return; }
-            const refreshed = shareRunItem({ ...item, folderVideos: item.folderVideos.map(v => (paths.includes(v.path) ? { ...v, local: true } : v)) });
+            const refreshed = shareRunItem({ ...item, folderVideos: item.folderVideos.map(v => (paths.includes(v.path) ? { ...v, local: true } : v)) }, store);
             const again = await videoCandidates(store, refreshed, ownsVideos);
             if (token !== runDownloadTokenRef.current || attachedRunRef.current !== runPath) return;
             await attachRunVideos({
@@ -2053,12 +2055,13 @@ export const App: React.FC = () => {
       lap = selected.laps.find(l => l.lapNumber === targetLap)!;
     }
     if (selectedRun) {
-      selectedRun = shareRunItem(selectedRun);
-      incoming = applyRunMetadata(incoming, selectedRun.entry);
+      const owned = getOpenRunItem(selectedRun.folder, selectedRun.file);
+      incoming = applyRunMetadata(incoming, choice.kind === 'stored' ? getRunItemEntry(choice.store, owned ?? selectedRun) : owned?.entry ?? selectedRun.entry);
     }
     const sessionId = selected.id, lapNumber = lap.lapNumber;
     analysisStore.update(prev => assignLap(prev, incoming, sessionId, lapNumber, slot));
     if (selectedRun) {
+      if (choice.kind === 'stored') selectedRun = shareRunItem(selectedRun, choice.store);
       const runPath = `${selectedRun.folder}/${selectedRun.file}`;
       runSessionsRef.current.set(runPath, incoming.map(s => s.id));
       runItemsRef.current.set(runPath, selectedRun);

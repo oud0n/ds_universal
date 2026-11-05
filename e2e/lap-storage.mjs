@@ -125,6 +125,10 @@ try {
  await p.click('open-lap-picker');await p.clickText('Stored runs');
  await p.waitFor("[...document.querySelectorAll('[data-testid=lap-picker-row]')].some(r=>r.parentElement.querySelector('p')?.title.includes('demo.nmea'))");
  await p.ev(`(${pickStored})('demo.nmea',1)`);
+ await p.waitFor("document.querySelector('[role=dialog] [role=alert]')");
+ assert.equal(await p.ev(`window.__laploupe.sessions.find(s=>s.id===${JSON.stringify(aid)}).sessionName`),'Edited without disk');
+ await p.ev('window.failWrites=false');
+ await p.ev(`(${pickStored})('demo.nmea',1)`);
  await p.waitFor(`window.__laploupe.cars.find(c=>c.slot===1)?.sessionId===${JSON.stringify(aid)}`);
  await assigned(1);
  assert.equal(await p.ev(`window.__laploupe.sessions.find(s=>s.id===${JSON.stringify(aid)}).sessionName`),'Edited without disk','stored reparse keeps pending name');
@@ -142,6 +146,15 @@ try {
  await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click();window.holdSavedRead=null;window.resumeSavedRead()");
  await p.waitFor('window.__laploupe.cars.length===3',15000,'finished saved comparison');
  const completed=await p.state();assert.ok(completed.cars.every(c=>completed.sessions.some(s=>s.id===c.sessionId)),'all restored Cars have a live source');
+ const beforeReject=(await p.state()).cars;
+ await p.ev("(()=>{const item=window.testRunOpener.getOpenRunItem('sodegaura','demo.nmea');window.ownerLapsBefore=item.laps;window.ownerVideosBefore=item.folderVideos;const old=storeFiles.get('sodegaura/demo.nmea');const changed=new Uint8Array(old.length+1);changed.set(old);changed[old.length]=10;storeFiles.set('sodegaura/demo.nmea',changed);})()");
+ await p.click('open-lap-picker');await p.clickText('Stored runs');
+ await p.waitFor("[...document.querySelectorAll('[data-testid=lap-picker-row]')].some(r=>r.parentElement.querySelector('p')?.title.includes('demo.nmea'))",15000,'changed source catalog');
+ await p.ev(`(${pickStored})('demo.nmea',3)`);
+ await p.waitFor("document.querySelector('[role=dialog] [role=alert]')");
+ assert.deepEqual((await p.state()).cars,beforeReject,'rejected assignment does not change Cars');
+ assert.ok(await p.ev("(()=>{const item=window.testRunOpener.getOpenRunItem('sodegaura','demo.nmea');return item.laps===window.ownerLapsBefore && item.folderVideos===window.ownerVideosBefore;})()"),'rejected assignment does not mutate live run metadata');
+ await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");
  assert.deepEqual(p.errors,[]);
  await p.shot('preserved');console.log(JSON.stringify({result:'PASS repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion; pending metadata and overlapping saved restore',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
 }finally{await p.close();fs.rmSync(fixtureDir,{recursive:true,force:true});}

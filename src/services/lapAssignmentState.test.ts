@@ -15,6 +15,10 @@ function run(id: string, file?: { name: string; revision: number; part: number }
 const empty = (): AnalysisState => ({ sessions: [], selectedCars: [] });
 
 describe('ラップを Car へ割り当てる', () => {
+  it('直接開いた同名ファイルの分割走行は、各セッションを独立に保持する', () => {
+    const first = { ...run('first'), sessionName: 'log_1' }, second = { ...run('second'), sessionName: 'log_2' };
+    expect(assignLap({ sessions: [first, second], selectedCars: [] }, [], first.id, 1, 0).sessions).toEqual([first]);
+  });
   it('従来の選択窓口では未割当ての走行を閉じない', () => {
     const a = run('a'), b = run('b'), c = run('c');
     const initial = { sessions: [a, b, c], selectedCars: [] };

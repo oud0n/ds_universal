@@ -194,6 +194,7 @@ let current: OpenRun | null = null;
 const companions = new Map<string, OpenRun>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 let subscribed = false;
+let editSequence = 0;
 
 const runPath = (item: RunItem) => `${item.folder}/${item.file}`;
 /** その走行が見るログ (戻した時計の補正がまだ入っていなければ、入れたもの) */
@@ -251,15 +252,25 @@ async function saveRun(run: OpenRun, strict = false): Promise<void> {
   const content = rowContent(run, run.item.entry, snap);
   if (!content) return;
   const key = contentKey(content);
-  if (key === run.baseline) return;
+  const metadataKey = metadataKeyOf(run.store, run.item);
+  const metadata = new Map(pendingMetadata.get(metadataKey) ?? []);
+  if (key === run.baseline && metadata.size === 0) return;
   try {
+    let writtenMetadata = new Map<keyof RunMetaPatch, { version: number; value: unknown }>();
     const row = await updateRun(run.store, run.item.folder, run.item.file, prev => {
       // 書く直前の行で作り直す (ほかの端末が足した項目を残す)。動画・ピンは取っておいたもの
       const fresh = rowContent(run, prev ?? null, snap) ?? content;
-      return { ...prev, ...fresh };
+      // 先に別の保存が完了した項目や、その後に編集した項目へ古い値を書かない。
+      writtenMetadata = new Map([...metadata].filter(([k, v]) => pendingMetadata.get(metadataKey)?.get(k)?.version === v.version));
+      return patchMetadata({ ...prev, ...fresh }, Object.fromEntries([...writtenMetadata].map(([k, v]) => [k, v.value])) as RunMetaPatch);
     });
     run.baseline = key;
-    run.item.entry = row;
+    const pending = pendingMetadata.get(metadataKey);
+    if (pending) {
+      for (const [k, v] of writtenMetadata) if (pending.get(k)?.version === v.version) pending.delete(k);
+      if (!pending.size) pendingMetadata.delete(metadataKey);
+    }
+    run.item.entry = withPendingMetadata(run.store, run.item, row);
     // 次にこの走行を開き直すとき (Car 1 を替えて戻ったときなど) の動画の候補も、書いた中身にする (外した動画が戻らないように)
     const synced = !!row.videos?.some(v => !!v.clock);
     const videosChanged = synced !== run.item.synced || (row.videos?.length ?? 0) !== run.item.videos.length;
@@ -279,6 +290,7 @@ function saveAll(strict = false): Promise<unknown> {
 }
 
 function scheduleSave(): void {
+  editSequence++;
   if (!current && companions.size === 0) return;
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => { timer = null; void saveAll(); }, 2000);
@@ -314,7 +326,14 @@ export function companionSessionsOfVideo(path: string): string[] | null {
 /** 保存先や開いたログを手放す前に、失敗を呼出し側へ返して保存する。 */
 export async function flushOpenRunsStrict(): Promise<void> {
   if (timer) { clearTimeout(timer); timer = null; }
-  try { await saveAll(true); }
+  try {
+    let version: number;
+    do {
+      version = editSequence;
+      await saveAll(true);
+    } while (version !== editSequence);
+    if (timer) { clearTimeout(timer); timer = null; }
+  }
   catch (error) { scheduleSave(); throw error; }
 }
 
@@ -661,41 +680,65 @@ function applyConditions(row: Partial<RunRow>, patch: RunMetaPatch): void {
   }
 }
 
+let metadataSequence = 0;
+const pendingMetadata = new Map<string, Map<keyof RunMetaPatch, { version: number; value: unknown }>>();
+const metadataStores = new WeakMap<RunStore, number>();
+let metadataStoreSequence = 0;
+
+function metadataKeyOf(store: RunStore, item: RunItem): string {
+  if (store.storageRevision === undefined && !metadataStores.has(store)) metadataStores.set(store, ++metadataStoreSequence);
+  return JSON.stringify([store.storageRevision === undefined ? ['store', metadataStores.get(store)] : ['root', store.storageRevision],
+    item.folder, item.file.slice(0, item.file.lastIndexOf('/') + 1), runStem(item.file)]);
+}
+
+function patchMetadata(row: Partial<RunRow> | null | undefined, patch: RunMetaPatch): RunRow {
+  const next: RunRow = { updatedAt: '', ...row };
+  for (const k of ['name', 'note', 'car', 'tyre'] as const) if (k in patch) {
+    const value = patch[k]?.trim(); if (value) next[k] = value; else delete next[k];
+  }
+  if ('reference' in patch) {
+    if (patch.reference) next.reference = { driver: patch.reference.driver?.trim() || undefined, car: patch.reference.car?.trim() || undefined };
+    else delete next.reference;
+  }
+  applyConditions(next, patch);
+  return next;
+}
+
+function withPendingMetadata(store: RunStore, item: RunItem, row: RunRow): RunRow {
+  const pending = pendingMetadata.get(metadataKeyOf(store, item));
+  return pending?.size ? patchMetadata(row, Object.fromEntries([...pending].map(([k, v]) => [k, v.value])) as RunMetaPatch) : row;
+}
+
+function relatedRunItems(store: RunStore, item: RunItem): Set<RunItem> {
+  return new Set([item, ...[current, ...companions.values()].filter((r): r is OpenRun =>
+    !!r && metadataKeyOf(r.store, r.item) === metadataKeyOf(store, item)).map(r => r.item)]);
+}
+
+export function getRunItemEntry(store: RunStore, item: RunItem): RunRow | null {
+  return pendingMetadata.get(metadataKeyOf(store, item))?.size
+    ? withPendingMetadata(store, item, item.entry ?? { updatedAt: '' }) : item.entry;
+}
+
 /**
  * 走行の名前・メモを runs.json の行に書く (PLAN-32・33)。ファイルの名前は変えない (同期・控え・runs.json の鍵がファイル名で引いているため)。
  * 空にしたら消す。開いている走行の行も、書いた中身にそろえる
  */
 export async function setRunMeta(store: RunStore, item: RunItem, patch: RunMetaPatch): Promise<RunRow> {
-  // 書き終わる前に開いても新しい値が使われるよう、先に手元の行にも入れておく (車種を書いてすぐ「解析で開く」を押したとき)
-  {
-    const preview = { ...(item.entry ?? { updatedAt: '' }) };
-    for (const k of ['name', 'note', 'car', 'tyre'] as const) if (k in patch) { const v = patch[k]?.trim(); if (v) preview[k] = v; else delete preview[k]; }
-    applyConditions(preview, patch);
-    // 参考ラップの印も先に入れる (入れないと、参考ラップに替えた直後に一覧から外れ、詳細が一度消えていた)
-    if ('reference' in patch) {
-      if (patch.reference) preview.reference = { driver: patch.reference.driver?.trim() || undefined, car: patch.reference.car?.trim() || undefined };
-      else delete preview.reference;
-    }
-    item.entry = preview;
+  editSequence++;
+  const version = ++metadataSequence;
+  const targets = relatedRunItems(store, item);
+  const key = metadataKeyOf(store, item);
+  const pending = pendingMetadata.get(key) ?? new Map<keyof RunMetaPatch, { version: number; value: unknown }>();
+  for (const [field, value] of Object.entries(patch)) pending.set(field as keyof RunMetaPatch, { version, value });
+  pendingMetadata.set(key, pending);
+  for (const target of targets) {
+    target.entry = withPendingMetadata(store, target, target.entry ?? { updatedAt: '' });
   }
-  const row = await updateRun(store, item.folder, item.file, prev => {
-    const next: Partial<RunRow> = { ...prev };
-    // 参考ラップの印 (null で外す)。誰・車は前後の空白を落とす
-    if ('reference' in patch) {
-      if (patch.reference) next.reference = { driver: patch.reference.driver?.trim() || undefined, car: patch.reference.car?.trim() || undefined };
-      else delete next.reference;
-    }
-    for (const k of ['name', 'note', 'car', 'tyre'] as const) {
-      if (!(k in patch)) continue;
-      const v = patch[k]?.trim();
-      if (v) next[k] = v;
-      else delete next[k];
-    }
-    applyConditions(next, patch);
-    return next;
-  });
-  item.entry = row;
-  for (const r of [current, ...companions.values()]) if (r && runPath(r.item) === runPath(item)) r.item.entry = row;
+  const row = await updateRun(store, item.folder, item.file, prev => patchMetadata(prev, patch));
+  for (const target of relatedRunItems(store, item)) targets.add(target);
+  for (const [field, value] of pending) if (value.version === version) pending.delete(field);
+  if (!pending.size && pendingMetadata.get(key) === pending) pendingMetadata.delete(key);
+  for (const target of targets) target.entry = withPendingMetadata(store, target, row);
   return row;
 }
 
