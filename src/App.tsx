@@ -22,6 +22,7 @@ import { userCircuitStorage, runsOnPolylines } from './services/userCircuitStora
 import { Header } from './components/Header';
 import { SpeedGraphWindow } from './components/SpeedGraphWindow';
 import { TrackMapWindow } from './components/TrackMapWindow';
+import { sessionToLapClock } from './utils/lapClock';
 import { FrictionCircleWindow } from './components/FrictionCircleWindow';
 import { DriftWindow } from './components/DriftWindow';
 import { CornerAnalysisWindow } from './components/CornerAnalysisWindow';
@@ -1941,6 +1942,8 @@ export const App: React.FC = () => {
     alignBaseMissing,
     onClearAlignedSector: () => setAlignedSector(null)
   };
+  // 動画の画面は走行全体の時刻で動くので、周を前提にしたコース図には周の中の時刻に読み替えて渡す (BUG-43)
+  const mapClock = (isSessionClock ? sessionToLapClock(currentTimeSec, baseLap) : null) ?? { time: currentTimeSec, distance: currentDistanceKm };
   const trackMapEl = (
     <TrackMapWindow
       cars={activeCars}
@@ -1948,8 +1951,8 @@ export const App: React.FC = () => {
       finishLine={currentFinishLine}
       sectors={currentSectors}
       pathPolylines={currentPthPolylines}
-      currentDistance={currentDistanceKm}
-      currentTime={currentTimeSec}
+      currentDistance={mapClock.distance}
+      currentTime={mapClock.time}
       compareAxis={compareAxis}
       onSeekDistance={handleSeekDistance}
       circuitName={baseSession?.circuitName}
