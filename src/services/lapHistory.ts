@@ -8,6 +8,7 @@ import { CIRCUIT_PRESETS } from './circuitDatabase';
 import { userCircuitStorage } from './userCircuitStorage';
 import { courseFolder } from '../utils/courseNames';
 import { findRunRow, readRunsFile } from './runsFile';
+import { getStorageReadRevision, StorageChangedError } from './storageRevision';
 import {
   LAP_INDEX_FILE, groupBon4ByFolder, lapRows, parseLapIndex, queueLapIndexWrite, reconcileFolder, setHidden,
   type LapCourse, type LapFileStore, type LapIndex, type LapRow
@@ -48,32 +49,46 @@ export interface LapFolder {
  * onProgress は計算しているフォルダ (最初に大量のファイルを計算するとき、数秒かかることがある)
  */
 export async function loadLapHistory(store: LapFileStore, onProgress?: (folder: string) => void): Promise<LapFolder[]> {
+  const reads = getStorageReadRevision();
+  const check = () => { if (reads !== getStorageReadRevision()) throw new StorageChangedError(); };
   const groups = groupBon4ByFolder(await store.list());
+  check();
   const out: LapFolder[] = [];
   for (const [folder, files] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
     const course = await courseForFolder(folder);
+    check();
     if (!course) {
       out.push({ folder, courseName: null, fileCount: files.length, rows: [], index: null });
       continue;
     }
     onProgress?.(folder);
     const prev = parseLapIndex(await store.readText(`${folder}/${LAP_INDEX_FILE}`));
+    check();
     const indexPath = `${folder}/${LAP_INDEX_FILE}`;
     // 書くのは 1 つずつ (lapIndex.ts)。計算している間に周を隠した・出したときは、その隠し方を残す
     let written: LapIndex | null = null;
     const writeIndex = (ix: LapIndex) => queueLapIndexWrite(async () => {
+      check();
       const cur = parseLapIndex(await store.readText(indexPath));
+      check();
       const userChanged = !!cur && JSON.stringify(cur.hidden) !== JSON.stringify(prev?.hidden ?? []);
       written = userChanged ? { ...ix, hidden: cur!.hidden } : ix;
       await store.writeText(indexPath, JSON.stringify(written));
     });
     const result = await reconcileFolder(folder, files, course, prev, p => store.read(p), undefined, writeIndex);
+    check();
     // 控えを書けなくても、一覧は出す (次に開いたときにもう一度計算する)
-    if (result.changed) await writeIndex(result.index).catch(() => {});
+    if (result.changed) await writeIndex(result.index).catch(error => {
+      if (error instanceof StorageChangedError) throw error;
+    });
     // 一覧には、書いた中身 (計算の間に隠した周を残したもの) を出す
     const index: LapIndex = result.changed && written ? written : result.index;
     // 走行に付けた名前 (読めなくても一覧は出す)
-    const runsFile = await readRunsFile(store, folder).catch(() => null);
+    const runsFile = await readRunsFile(store, folder).catch(error => {
+      if (error instanceof StorageChangedError) throw error;
+      return null;
+    });
+    check();
     const names: Record<string, string> = {};
     const references: Record<string, string> = {};
     const conditions: Record<string, RunConditions> = {};

@@ -15,6 +15,7 @@ import type { ControlLine, Sector, TelemetryPoint } from '../types/telemetry';
 import { keepRunParts, parseDigispiceRawBinary, SESSION_GAP_SEC } from './rawBinaryParser';
 import { parseNmea } from './nmeaParser';
 import { extractLaps } from './lapCalculator';
+import { StorageChangedError } from './storageRevision';
 
 /** 記録のフォルダのファイル (path は保管場所からの道。例: sodegaura/20261024100000.bon4) */
 export interface LapFileInfo {
@@ -299,7 +300,8 @@ export async function reconcileFolder(
     try {
       const { startMs, laps } = compute(name, await read(f.path), course);
       next[name] = { size: f.size, mtimeMs: f.mtimeMs, startMs, laps, ...keep, split: SPLIT_RULE };
-    } catch {
+    } catch (error) {
+      if (error instanceof StorageChangedError) throw error;
       // 読めなかったら、前の控えがあればそのまま残す (隠した周の印を消さない。大きさが違うままなので、次に開いたときに読み直す)。
       // 前の控えが無ければ、周なしで覚えておく (壊れたファイルを毎回読み直さないように。ファイルが変われば読み直す)
       next[name] = prevRec ?? { size: f.size, mtimeMs: f.mtimeMs, startMs: null, laps: [], ...keep };
@@ -311,7 +313,9 @@ export async function reconcileFolder(
       // 前の控えは、今あるファイルの分だけ (消したファイルを途中の控えに戻さない)
       const partial: Record<string, LapFileRecord> = {};
       if (sameCourse && prev) for (const [k, v] of Object.entries(prev.files)) if (names.has(k)) partial[k] = v;
-      await onCheckpoint({ version: 1, courseHash: hash, courseName: course.name, files: { ...partial, ...next }, hidden: prev?.hidden ?? [] }).catch(() => {});
+      await onCheckpoint({ version: 1, courseHash: hash, courseName: course.name, files: { ...partial, ...next }, hidden: prev?.hidden ?? [] }).catch(error => {
+        if (error instanceof StorageChangedError) throw error;
+      });
     }
   }
   if (prev && Object.keys(prev.files).some(k => !(k in next))) changed = true;

@@ -23,9 +23,9 @@ try {
  window.storeFiles = new Map(); window.storeWrites=[]; window.storeReads=[]; window.failWrites=false;
  window.electronAPI={laps:{getFolder:async()=>{if(window.holdFolder)await new Promise(resolve=>(window.folderWaiters??=[]).push(resolve));return '/synthetic/A'},pickFolder:async()=>null,
  list:async()=>({success:true,files:[...storeFiles].map(([path,b])=>({path,size:b.byteLength,mtimeMs:123,local:true}))}),
- read:async path=>{storeReads.push(path);if(window.readDelayMs)await new Promise(r=>setTimeout(r,window.readDelayMs));if(window.holdSavedRead===path && window.__laploupe?.screen==='analysis')await new Promise(resolve=>window.resumeSavedRead=resolve);const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
+ read:async path=>{storeReads.push(path);if(window.holdIndexRead===path)await new Promise(resolve=>window.resumeIndexRead=resolve);if(window.readDelayMs)await new Promise(r=>setTimeout(r,window.readDelayMs));if(window.holdSavedRead===path && window.__laploupe?.screen==='analysis')await new Promise(resolve=>window.resumeSavedRead=resolve);const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
  readText:async path=>({success:true,text:storeFiles.has(path)?new TextDecoder().decode(storeFiles.get(path)):null}),
- writeText:async(path,text)=>{if(window.failWrites)return {success:false,error:'synthetic write failure'};storeWrites.push(path);storeFiles.set(path,new TextEncoder().encode(text));return {success:true}}
+ writeText:async(path,text)=>{if(path.endsWith('/laptimes.json'))(window.indexWrites??=[]).push(JSON.parse(text));if(window.failWrites)return {success:false,error:'synthetic write failure'};storeWrites.push(path);storeFiles.set(path,new TextEncoder().encode(text));return {success:true}}
  }};
  `});
  await p.goto(url.href);await p.waitFor('window.__laploupe');
@@ -37,6 +37,12 @@ try {
  const imu=['time_utc_ms,g_long,g_lat'];for(let t=0;t<2000;t++)imu.push((first+t*1000)+',0.123,0.234');
  storeFiles.set('sodegaura/demo.iphone_imu.csv',new TextEncoder().encode(imu.join(String.fromCharCode(10))));
  })()`);
+ // 一覧の走査中に保存先を取り消しても、正常なログを周なしとして控えず、一覧は自動で読み直す。
+ await p.ev("(async()=>{window.holdIndexRead='sodegaura/demo.nmea';window.__laploupe.go('library');(await import('/src/services/runsChanged.ts')).notifyRunsChanged();})()");
+ await p.waitFor('window.resumeIndexRead',10000,'in-flight lap index read');
+ await p.ev("(async()=>{window.holdIndexRead=null;await(await import('/src/services/storageRevision.ts')).trackStorageSelection(()=>null);window.resumeIndexRead();})()");
+ await p.waitFor("document.querySelector('[data-testid=run-row]') && window.indexWrites?.some(x=>x.files['demo.nmea']?.laps.length>0)",15000,'run list recovers after cancel');
+ assert.ok(await p.ev("window.indexWrites.every(x=>!x.files['demo.nmea']||x.files['demo.nmea'].laps.length>0)"),'interrupted read never writes a zero-lap record');
  await p.ev("window.__laploupe.go('analysis')");await p.click('open-lap-picker');
  const hasStored=await p.ev("[...document.querySelectorAll('button')].some(x=>x.textContent==='Stored runs')");if(hasStored)await p.clickText('Stored runs');
  await p.waitFor("document.querySelector('[data-testid=lap-picker-row]')",20000,'stored laps');

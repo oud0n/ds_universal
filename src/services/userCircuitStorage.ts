@@ -480,9 +480,10 @@ class UserCircuitStorage {
    * 保管場所の digspice/ にあるコースデータ (デジスパイスと同じ形のフォルダ) を使う。保存はしない (開くたびに読む)。
    * 内蔵のコースと同じコースのものは、コース図だけが使われる (circuitDatabase.ts の isShadowedByPreset)
    */
-  public async setStorageCourseFiles(files: CourseFile[]): Promise<void> {
+  public async setStorageCourseFiles(files: CourseFile[], beforeApply?: () => void): Promise<void> {
     await this.ready.catch(() => undefined);
     const { CIRCUIT_PRESETS } = await import('./circuitDatabase');
+    beforeApply?.();
     const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase();
     const sameFile = (a: CourseFile, b: CourseFile) => {
       const pa = norm(a.path);
@@ -558,8 +559,9 @@ class UserCircuitStorage {
   public onEditedChanged?: (e: { saved?: UserCircuitItem; deletedName?: string }) => void;
 
   /** 保管場所の course/ と合わせた、コース編集で保存したコースを使う */
-  public async setSyncedEdited(edited: UserCircuitItem[]): Promise<void> {
+  public async setSyncedEdited(edited: UserCircuitItem[], beforeApply?: () => void): Promise<void> {
     await this.ready.catch(() => undefined);
+    beforeApply?.();
     this.edited = edited;
     await this.persist();
   }

@@ -1,6 +1,14 @@
 import { tr } from '../utils/i18n';
 import type { RunStore } from './runStore';
 
+/** 中断した読込みを、壊れたファイルや空の保管場所として覚えない。 */
+export class StorageChangedError extends Error {
+  constructor() {
+    super(tr('走行の保管場所が変わりました。', 'The run folder changed.'));
+    this.name = 'StorageChangedError';
+  }
+}
+
 // 保管場所そのものの世代と、選択画面の間の I/O の寿命は別にする。
 let revision = 0;
 let readRevision = 0;
@@ -55,7 +63,7 @@ export function pickDesktopStorage(api: { getFolder: () => Promise<string | null
 
 /** 変更後の呼び出しと遅れた応答を拒む。ホストにすでに渡した書き込みは完了することがある。 */
 export function revisionBoundStore(store: RunStore, bound = getStorageRevision()): RunStore {
-  const changed = () => new Error(tr('走行の保管場所が変わりました。', 'The run folder changed.'));
+  const changed = () => new StorageChangedError();
   function check() {
     if (bound !== revision || selecting) throw changed();
   }

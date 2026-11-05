@@ -7,12 +7,16 @@
 import { loadCsvFormats } from './csvFormatStore';
 import { canUseRunStore, getRunStore } from './runStore';
 import { clearCourseCornersCache } from './courseCorners';
-import { invalidateStorageReads } from './storageRevision';
+import { getStorageReadRevision, invalidateStorageReads, StorageChangedError } from './storageRevision';
 import { userCircuitStorage, type CourseFile, type UserCircuitItem } from './userCircuitStorage';
 import { COURSE_INDEX, courseFileKey, itemFromCourseFiles, markEditedCourseDeleted, mergeEditedCourses, parseCourseIndex, writeEditedCourse } from './courseFolderSync';
 
 // digspice/ (デジスパイスのフォルダをそのまま置いたもの) と course/ (LapLoupe のコースフォルダ。同じ形)
 const COURSE_FILE = /^(digspice|course)\/.+\.(cln|pth|sci)$/i;
+const fallback = <T>(error: unknown, value: T): T => {
+  if (error instanceof StorageChangedError) throw error;
+  return value;
+};
 
 export { getStorageRevision, getStorageReadRevision, isStorageSelectionPending, subscribeStorageRevision, subscribeBeforeStorageSelection, invalidateStorageRevision, trackStorageSelection, pickDesktopStorage } from './storageRevision';
 
@@ -29,21 +33,25 @@ export async function storageFolderChanged(): Promise<void> {
 /** 保管場所の digspice/ のコースデータを読み直す。読んだファイルの数 (保管場所が無ければ 0) */
 export async function loadStorageCourses(): Promise<number> {
   if (!canUseRunStore()) return 0;
+  const reads = getStorageReadRevision();
+  const check = () => { if (reads !== getStorageReadRevision()) throw new StorageChangedError(); };
   const store = await getRunStore().catch(() => null);
+  check();
   if (!store) {
     // 保管場所が無くなった (外した) ときは、前の保管場所のコースデータを使わない
     userCircuitStorage.onEditedChanged = undefined;
-    await userCircuitStorage.setStorageCourseFiles([]);
+    await userCircuitStorage.setStorageCourseFiles([], check);
     return 0;
   }
   // コース編集で保存したコース (course/courses.json に載っているもの) を、端末の中のコースと合わせる
-  const indexed = await syncEditedCourses(store).catch(() => new Set<string>());
+  const indexed = await syncEditedCourses(store, check).catch(error => fallback(error, new Set<string>()));
+  check();
   // 保存・削除したら course/ に書く
   userCircuitStorage.onEditedChanged = e => {
     if (e.saved) void writeEditedCourse(store, e.saved).catch(() => undefined);
     if (e.deletedName) void markEditedCourseDeleted(store, e.deletedName).catch(() => undefined);
   };
-  const list = (await store.listAll().catch(() => [])).filter(f => COURSE_FILE.test(f.path) && f.size < 4 * 1024 * 1024 && !indexed.has(f.path)
+  const list = (await store.listAll().catch(error => fallback(error, []))).filter(f => COURSE_FILE.test(f.path) && f.size < 4 * 1024 * 1024 && !indexed.has(f.path)
     && !(indexed === ALL_EDITED && /^course\/(ControlLine|Sector)\//.test(f.path)));
   const decoder = new TextDecoder();
   const files: CourseFile[] = [];
@@ -54,7 +62,8 @@ export async function loadStorageCourses(): Promise<number> {
       const f = list[next++];
       try {
         files.push({ path: f.path, text: decoder.decode(await store.read(f.path)) });
-      } catch {
+      } catch (error) {
+        if (error instanceof StorageChangedError) throw error;
         // 読めないファイル (iCloud から落とせないなど) は飛ばす
       }
     }
@@ -62,7 +71,7 @@ export async function loadStorageCourses(): Promise<number> {
   await Promise.all(Array.from({ length: Math.min(8, list.length) }, worker));
   // 読む順で結果が変わらないよう、道の順にそろえる
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  await userCircuitStorage.setStorageCourseFiles(files);
+  await userCircuitStorage.setStorageCourseFiles(files, check);
   return files.length;
 }
 
@@ -70,10 +79,10 @@ export async function loadStorageCourses(): Promise<number> {
 const ALL_EDITED = new Set<string>(['*']);
 
 /** course/courses.json のコースと、端末の中のコース編集で保存したコースを合わせる。courses.json に載っているファイルの道を返す */
-async function syncEditedCourses(store: NonNullable<Awaited<ReturnType<typeof getRunStore>>>): Promise<Set<string>> {
+async function syncEditedCourses(store: NonNullable<Awaited<ReturnType<typeof getRunStore>>>, check: () => void): Promise<Set<string>> {
   // 読めない (無いのではなく。iCloud にだけある・ほかのアプリが開いている) ときは合わせない (空とみなすと、端末の中の古いコースで上書きするため)
   let idxText: string | null;
-  try { idxText = await store.readTextStrict(COURSE_INDEX); } catch { return ALL_EDITED; }
+  try { idxText = await store.readTextStrict(COURSE_INDEX); } catch (error) { return fallback(error, ALL_EDITED); }
   const idx = parseCourseIndex(idxText);
   const files = new Set<string>();
   const remote: Array<{ entry: (typeof idx.courses)[string]; item: UserCircuitItem | null }> = [];
@@ -89,15 +98,17 @@ async function syncEditedCourses(store: NonNullable<Awaited<ReturnType<typeof ge
         // セクター線も、読めない (iCloud にだけある) ときは読めたことにしない (セクターの無いコースとして端末に覚え、あとで直したときに消してしまうため)
         const clnText = await store.readTextStrict(cln);
         if (clnText) item = itemFromCourseFiles(e, clnText, await store.readTextStrict(sci));
-      } catch { /* 読めないコースは端末の中のものを使う */ }
+      } catch (error) { fallback(error, undefined); /* 読めないコースは端末の中のものを使う */ }
     }
     remote.push({ entry: e, item });
   }
   await userCircuitStorage.ready.catch(() => undefined);
+  check();
   const { edited, upload } = mergeEditedCourses(userCircuitStorage.getEditedCircuits(), remote);
-  await userCircuitStorage.setSyncedEdited(edited);
+  await userCircuitStorage.setSyncedEdited(edited, check);
   for (const c of upload) {
-    await writeEditedCourse(store, c.updatedAt ? c : { ...c, updatedAt: new Date(0).toISOString() }).catch(() => undefined);
+    check();
+    await writeEditedCourse(store, c.updatedAt ? c : { ...c, updatedAt: new Date(0).toISOString() }, check).catch(error => fallback(error, undefined));
     files.add(`course/ControlLine/${courseFileKey(c)}.cln`);
     files.add(`course/Sector/${courseFileKey(c)}.sci`);
   }

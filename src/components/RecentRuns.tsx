@@ -5,7 +5,7 @@
  */
 import { conditionsText } from '../services/runWeather';
 import { notifyRunsChanged, onRunsChanged } from '../services/runsChanged';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { FolderOpen, Video, X, Loader2, ChevronRight } from 'lucide-react';
 import { circuitLabel, useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
@@ -13,6 +13,7 @@ import { formatLapTime } from '../services/liveLapTimer';
 import { getRunStore, type RunStore } from '../services/runStore';
 import { listRuns, type RunItem } from '../services/runOpener';
 import { storageFolderChanged, trackStorageSelection, pickDesktopStorage } from '../services/storageCourses';
+import { getStorageReadRevision, isStorageSelectionPending, subscribeStorageRevision } from '../services/storageRevision';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 export function fmtDate(ms: number | null, ja: boolean): string {
@@ -27,6 +28,7 @@ export { notifyRunsChanged };
 
 /** 走行の一覧を読み込む (開いている間に 1 回。notifyRunsChanged でも読み直す) */
 export function useRuns(enabled: boolean) {
+  const readRevision = useSyncExternalStore(subscribeStorageRevision, getStorageReadRevision);
   const [state, setState] = useState<{ store: RunStore | null; runs: RunItem[] | null; error: string | null; noFolder: boolean }>({ store: null, runs: null, error: null, noFolder: false });
   const [reload, setReload] = useState(0);
   useEffect(() => {
@@ -34,20 +36,21 @@ export function useRuns(enabled: boolean) {
     return onRunsChanged(f);
   }, []);
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || isStorageSelectionPending()) return;
     let cancelled = false;
+    const current = () => !cancelled && readRevision === getStorageReadRevision() && !isStorageSelectionPending();
     void (async () => {
       try {
         const store = await getRunStore();
-        if (!store) { if (!cancelled) setState({ store: null, runs: [], error: null, noFolder: true }); return; }
+        if (!store) { if (current()) setState({ store: null, runs: [], error: null, noFolder: true }); return; }
         const runs = await listRuns(store);
-        if (!cancelled) setState({ store, runs, error: null, noFolder: false });
+        if (current()) setState({ store, runs, error: null, noFolder: false });
       } catch (e) {
-        if (!cancelled) setState(s => ({ ...s, runs: [], error: e instanceof Error ? e.message : String(e) }));
+        if (current()) setState(s => ({ ...s, runs: [], error: e instanceof Error ? e.message : String(e) }));
       }
     })();
     return () => { cancelled = true; };
-  }, [enabled, reload]);
+  }, [enabled, reload, readRevision]);
   return { ...state, reload: () => setReload(n => n + 1) };
 }
 

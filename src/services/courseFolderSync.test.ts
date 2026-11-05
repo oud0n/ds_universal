@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import { courseFileKey, courseFiles, itemFromCourseFiles, mergeEditedCourses, parseCourseIndex, type CourseIndexEntry } from './courseFolderSync';
+import { describe, expect, it, vi } from 'vitest';
+import { writeEditedCourse, courseFileKey, courseFiles, itemFromCourseFiles, mergeEditedCourses, parseCourseIndex, type CourseIndexEntry } from './courseFolderSync';
+import type { RunStore } from './runStore';
+import { getStorageReadRevision, invalidateStorageReads, StorageChangedError } from './storageRevision';
 import type { UserCircuitItem } from './userCircuitStorage';
 
 const cl = { name: '日光', latA: 36.662468, lonA: 139.862454, latB: 36.662254, lonB: 139.862701 };
@@ -50,4 +52,25 @@ describe('course/ のコース (コース編集で保存したもの)', () => {
     expect(parseCourseIndex(JSON.stringify({ version: 1, courses: { a: { name: 'x', file: '../a', updatedAt: 'x' }, b: { name: 'y', file: 'b', updatedAt: 'z' } } })).courses).toEqual({ b: { name: 'y', file: 'b', updatedAt: 'z' } });
     expect(parseCourseIndex('{').courses).toEqual({});
   });
+
+  it.each(['initial-read', 'line-write', 'index-read'])('自動のコース同期が %s で中断したら、残りのファイルや一覧を書かない', async at => {
+    const reads = getStorageReadRevision();
+    const check = () => { if (reads !== getStorageReadRevision()) throw new StorageChangedError(); };
+    let readCount = 0;
+    const writes: string[] = [];
+    const store = {
+      readTextStrict: vi.fn(async () => {
+        readCount++;
+        if ((at === 'initial-read' && readCount === 1) || (at === 'index-read' && readCount === 2)) invalidateStorageReads();
+        return null;
+      }),
+      writeText: vi.fn(async (path: string) => {
+        writes.push(path);
+        if (at === 'line-write' && path.endsWith('.cln')) invalidateStorageReads();
+      })
+    } as unknown as RunStore;
+    await expect(writeEditedCourse(store, item(), check)).rejects.toBeInstanceOf(StorageChangedError);
+    expect(writes).toEqual(at === 'initial-read' ? [] : at === 'line-write' ? ['course/ControlLine/nikko.cln'] : ['course/ControlLine/nikko.cln', 'course/Sector/nikko.sci']);
+  });
+
 });
