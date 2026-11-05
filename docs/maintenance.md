@@ -2,6 +2,14 @@
 
 2026-10-27 (1.1.0) 時点。持ち主・ほかのエージェントが、しばらく空いたあとでも同じ手順で直して出せるようにまとめた。構成は [architecture.md](architecture.md)、残件は [../TODO.md](../TODO.md)・[../BUGS.md](../BUGS.md)。
 
+## アイコンの更新
+
+元画像は `build/icon-ios.svg` (通常)・`build/icon-ios-dark.svg` (ダーク)。タイヤの中心は 1024 四方の中央、ダークのタイヤだけ 98% に縮めている。持ち手は同じ寸法。
+
+macOS で `swift scripts/generate-icons.swift` を実行すると、PC の SVG・PNG・ICO・ICNS、Mac の Dock、Web の favicon、iOS・Android の画像をまとめて作り直す。生成済みの画像も git に入れ、通常のビルドで Swift は要求しない。iOS 用の PNG は透明度なし、PC 用は角の外が透明。iOS の `AppIcon.appiconset/Contents.json` が通常・ダークを選ぶ。
+
+Web の favicon と Mac の起動中の Dock は OS の外観に従う。Finder・Windows・Apple touch icon は通常版を使う。Android は通常・night のリソースを持つが、ランチャーによって外観変更の反映が異なる。
+
 ## 1. ブランチとタグ
 
 | 名前 | 役割 |

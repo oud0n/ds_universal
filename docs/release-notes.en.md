@@ -4,6 +4,10 @@
 
 [Back to the README](../README.en.md)
 
+## Next build
+
+- The app icon is now a magnifying glass with a tire as its lens. Its light and dark versions are adjusted to appear the same size.
+
 ## v1.2.0 (2026-11-02)
 
 The PC version and the iPhone / iPad app get different items ([iPhone] = the app only, [PC] = the PC and browser versions only, no mark = both).
