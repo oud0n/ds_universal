@@ -109,6 +109,7 @@ export async function prepareStoredLap(choice: StoredChoice, parse: (fileName: s
   const dir = path.slice(0, path.lastIndexOf('/'));
   const videosIn = (folder: string) => files.filter(f => f.path.startsWith(folder + '/') && isRunVideoName(f.path.slice(folder.length + 1)));
   const item: RunItem = {
+    storageRevision: revision,
     folder: row.folder, file: row.file, courseName: before.name, laps, startMs: row.runStartMs,
     lapCount: visible.length, best: visible.length ? Math.min(...visible.map(l => l.time)) : null,
     videos: entry?.videos?.map(v => v.name) ?? (freshIndex ? cached.videos ?? [] : []),

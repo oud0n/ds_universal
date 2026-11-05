@@ -70,7 +70,7 @@ interface RunsInspectorProps {
   sessions: Session[];
   media: PlayableMedia[];
   /** 主のログにしたとき (そのログを Car 1 にする) */
-  onChooseLog?: (sessionId: string) => void;
+  onChooseLog?: (sessionId: string) => boolean | void | Promise<boolean | void>;
   onClose: () => void;
   /** 見えているか (隠れたタブで開いたままのときは、Esc で閉じる対象にしない) */
   visible?: boolean;
@@ -155,7 +155,11 @@ export const RunsInspector: React.FC<RunsInspectorProps> = ({ sessions, media, o
                         )}
                         {vids.length > 0 && shownBy < vids.length && (
                           <button
-                            onClick={() => { vids.forEach(m => videoSyncManager.chooseSession(m.id, l.session.id)); onChooseLog?.(l.session.id); }}
+                            onClick={async () => {
+                              const tracks = vids.map(m => videoSyncManager.getTracks().find(t => t.id === m.id));
+                              if (await onChooseLog?.(l.session.id) === false) return;
+                              for (const track of tracks) if (track && videoSyncManager.getTracks().includes(track)) videoSyncManager.chooseSession(track.id, l.session.id);
+                            }}
                             className="px-1.5 py-px rounded border border-line-3 text-slate-400 hover:text-slate-100"
                             title={t('この走行の動画を、このログに出します (このログを Car 1 にします)', 'Show this run\'s videos with this log (makes it Car 1)')}
                           >

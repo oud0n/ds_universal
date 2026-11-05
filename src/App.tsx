@@ -32,7 +32,7 @@ import { CornerAnalysisWindow } from './components/CornerAnalysisWindow';
 import { XYGraphWindow } from './components/XYGraphWindow';
 import { BrakingAnalysisWindow } from './components/BrakingAnalysisWindow';
 import { VideoSyncWindow } from './components/VideoSyncWindow';
-import { useVideoTracks, useVideoView, videoEndSessionSec } from './services/videoViewStore';
+import { videoViewStore, useVideoTracks, useVideoView, videoEndSessionSec } from './services/videoViewStore';
 import { DataTab } from './components/DataTab';
 import { LoggerTab } from './components/LoggerTab';
 import { LapTimerScreen, type ReplayLog } from './components/LapTimerScreen';
@@ -48,7 +48,7 @@ import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
 import { RecentRunsList, RunsSheet, notifyRunsChanged } from './components/RecentRuns';
 import { canUseRunStore, getRunStore } from './services/runStore';
-import { abandonOpenRuns, attachCompanionVideos, attachRunVideos, closeOpenRun, companionRunMatches, companionRuns, currentRunMatches, dropCompanion, flushOpenRuns, flushOpenRunsStrict, getOpenRun, getOpenRunItem, getRunItemEntry, listRuns, registerRunSessions, releaseClosedRunVideos, scheduleRunSave, setRunMeta, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
+import { abandonOpenRuns, assertRunItemCurrent, attachCompanionVideos, attachRunVideos, closeOpenRun, companionRunMatches, companionRuns, currentRunMatches, dropCompanion, flushOpenRuns, flushOpenRunsStrict, getOpenRun, getOpenRunItem, getRunItemEntry, listRuns, registerRunSessions, releaseClosedRunVideos, scheduleRunSave, setRunMeta, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
 import { runStem, courseHash } from './services/lapIndex';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLapTimer, canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
@@ -1276,6 +1276,7 @@ export const App: React.FC = () => {
   };
 
   const loadStoredFileData = async (store: NonNullable<Awaited<ReturnType<typeof getRunStore>>>, item: RunItem) => {
+    assertRunItemCurrent(item);
     const path = `${item.folder}/${item.file}`;
     const file = (await store.listAll()).find(f => f.path === path);
     if (!file) throw new Error(tr('元ファイルが見つかりません', 'The source file was not found'));
@@ -1454,9 +1455,10 @@ export const App: React.FC = () => {
       await flushOpenRunsStrict(); check();
       await validateStoredFiles(store, added); check();
       added = reuseStoredSessions(analysisStore.getSnapshot().sessions, added);
+      const { session, lapNumber } = pickRunBestLap(added, item);
+      assignLap(analysisStore.getSnapshot(), added, session.id, lapNumber, 1, false);
       item = shareRunItem(item, store);
       added = registerRunSessions(store, item, added, analysisStore.getSessions);
-      const { session, lapNumber } = pickRunBestLap(added, item);
       analysisStore.update(prev => assignLap(prev, added, session.id, lapNumber, 1, false));
       releaseUnselectedRunVideos();
       item = shareRunItem(item, store);
@@ -1514,72 +1516,36 @@ export const App: React.FC = () => {
       if (reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError();
       await validateStoredFiles(store, added);
       if (reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError();
-      added = reuseStoredSessions(analysisStore.getSnapshot().sessions, added);
+      const before = analysisStore.getSnapshot();
+      added = applyRunMetadata(reuseStoredSessions(before.sessions, added), getRunItemEntry(store, getOpenRunItem(item.folder, item.file) ?? item));
+      const { session: main, lapNumber } = pickRunBestLap(added, item);
+      const otherCars = before.selectedCars.filter(c => c.slot !== 0 && c.sessionId !== main.id
+        && sameCourseName(before.sessions.find(s => s.id === c.sessionId)?.circuitName, main.circuitName));
+      const checked = assignLap({ ...before, selectedCars: otherCars }, added, main.id, lapNumber, 0, false);
+      const incomingIds = new Set(added.map(s => s.id));
+      const retained = checked.sessions.filter(s => incomingIds.has(s.id) || sameCourseName(s.circuitName, main.circuitName) && !added.some(n => {
+        const a = s.sourceFile, b = n.sourceFile;
+        return a && b && a.storageRevision === b.storageRevision && a.folder === b.folder && a.file === b.file && (a.size !== b.size || a.mtimeMs !== b.mtimeMs);
+      }));
+      const removedIds = new Set(before.sessions.filter(s => !retained.some(n => n.id === s.id)).map(s => s.id));
       item = shareRunItem(item, store);
       added = registerRunSessions(store, item, added, analysisStore.getSessions);
-      analysisStore.update(prev => ({ ...prev, sessions: [...prev.sessions.filter(s => !added.some(a => a.id === s.id)), ...added] }));
-      runSessionsRef.current.set(runPath, added.map(x => x.id));
-      item = shareRunItem(item, store);
-      runItemsRef.current.set(runPath, item);
-      // 覚えている走行の名前・メモ (runs.json の行。PLAN-32・33) を、開いた走行の呼び名とメモにする
-      // (分かれた走行は、2 番目から「名前 (2)」)。比べる相手・ラップの一覧にも、この名前が出る
-      const meta = item.entry;
-      // 車種 (runs.json の行。参考ラップは reference.car) は、ログの車の名前より先にする
-      const carName = meta?.reference ? meta.reference.car : meta?.car;
-      // もう開いている走行でも、走行の画面で直した名前・メモ・車種にそろえる (前は初めて開いたときだけ。2026-10-27 のレビュー)
-      if (added.length && (meta?.name || meta?.note || carName)) {
-        const named = added.map((x, i) => ({
-          ...x,
-          ...(meta?.name ? { sessionName: i > 0 ? `${meta.name} (${i + 1})` : meta.name } : {}),
-          ...(meta?.note ? { runNote: meta.note } : {}),
-          ...(carName ? { vehicleName: carName } : {})
-        }));
-        added = named;
-        setSessions(prev => prev.map(x => { const a = named.find(y => y.id === x.id); return a ? { ...x, sessionName: a.sessionName, runNote: a.runNote, vehicleName: a.vehicleName } : x; }));
-      }
-      loadRunSidecars(store, item, added);requestSessionPolylines(added);
-      attachedRunRef.current = runPath;
-      openedRunRef.current = runPath;
-      setRunsSheetOpen(false);
-      // 「動画を見る」なら、はじめから動画の画面へ (動画を読み終わるまで「読み込んでいます」を出す)
-      navStore.go(to);
-      if (added.length === 0) return;
-      const removedIds = new Set<string>();
-      // 開いた走行を Car 1 にする (いちばん速い周)。前に開いていた走行が Car 1 のままだと、解析と動画が別の走行になる。
-      // Car 2〜4 は、同じコースのものだけ残す (違うコースと比べても意味がないため。比べるときは「Car 2 として足す」)
-      {
-        // 隠した周を除いた、いちばん速い周
-        const { session: main, lapNumber } = pickRunBestLap(added, item);
-        const byId = new Map(analysisStore.getSnapshot().sessions.map(x => [x.id, x]));
-        setSelectedCars(prev => [
-          { slot: 0, sessionId: main.id, lapNumber, colorHex: '#ef4444', label: `${main.sessionName} (L${lapNumber})` },
-          ...prev.filter(c => c.slot !== 0 && c.sessionId !== main.id && sameCourseName(byId.get(c.sessionId)?.circuitName, main.circuitName))
-        ].sort((a, b) => a.slot - b.slot));
-        // 周の始めから見る (前に見ていた位置を、新しい周へ持ち込まない)
-        setIsPlaying(false);
-        const selectedLap = main.laps.find(l => l.lapNumber === lapNumber);
-        setPlayhead({ source: main.id, sessionSec: asSessionSec(selectedLap?.startTime ?? 0) });
-        // 距離も周の始めに (前の走行の距離のままだと、距離のグラフ・地図の車・速さの表示が、開いた直後だけ前の位置を出していた)
-
-        // 違うコースのログは「走行とコース」から外す (日光を開いたあとに袖ヶ浦を開いたら、袖ヶ浦だけにする)。
-        // 同じコースのログは残す (比べる相手にできるように。開いた走行が Car 1)
-        const removed = analysisStore.getSnapshot().sessions.filter(x => !added.some(a => a.id === x.id) && !sameCourseName(x.circuitName, main.circuitName));
-        if (removed.length) {
-          // 採用前の厳格保存が成功してから、旧コースの点列を手放す。
-          const ids = removedIds;
-          for (const x of removed) ids.add(x.id);
-          for (const id of ids) { polylineRequestRef.current.delete(id); imuTracksRef.current.delete(id); imuPendingRef.current.delete(id); sensorPendingRef.current.delete(id); }
-          setConvertSessionId(prev => (ids.has(prev) ? '' : prev));
-          analysisStore.update(prev => ({ sessions: prev.sessions.filter(x => !ids.has(x.id)), selectedCars: prev.selectedCars.filter(c => !ids.has(c.sessionId)) }));
-          releaseClosedRunVideos(new Set(analysisStore.getSnapshot().sessions.map(s => s.id)));
-          for (const [path, list] of [...runSessionsRef.current.entries()]) {
-            const rest = list.filter(id => !ids.has(id));
-            if (rest.length) runSessionsRef.current.set(path, rest);
-            else { runSessionsRef.current.delete(path); runItemsRef.current.delete(path); dropCompanion(path); }
-          }
-        }
+      const committed = selectAvailableCars({ sessions: [...retained.filter(s => !incomingIds.has(s.id)), ...added], selectedCars: [] }, checked.selectedCars);
+      analysisStore.update(() => committed);
+      runSessionsRef.current.set(runPath, added.map(x => x.id));runItemsRef.current.set(runPath, item);
+      for (const id of removedIds) { polylineRequestRef.current.delete(id);imuTracksRef.current.delete(id);imuPendingRef.current.delete(id);sensorPendingRef.current.delete(id); }
+      setConvertSessionId(prev => removedIds.has(prev) ? '' : prev);
+      for (const [path, ids] of runSessionsRef.current) {
+        const rest = ids.filter(id => !removedIds.has(id));
+        if (rest.length) runSessionsRef.current.set(path, rest);
+        else { runSessionsRef.current.delete(path);runItemsRef.current.delete(path); }
       }
       releaseUnselectedRunVideos();
+      loadRunSidecars(store, item, added);requestSessionPolylines(added);
+      attachedRunRef.current = runPath;openedRunRef.current = runPath;setRunsSheetOpen(false);
+      setIsPlaying(false);
+      setPlayhead({ source: main.id, sessionSec: asSessionSec(main.laps.find(l => l.lapNumber === lapNumber)?.startTime ?? 0) });
+      navStore.go(to);
       const sessionsNow = analysisStore.getSessions;
       const ownerId = currentBaseId();
       const isCurrent = () => reads === getStorageReadRevision() && !isStorageSelectionPending()
@@ -1849,6 +1815,7 @@ export const App: React.FC = () => {
       const { laps, bestLapIndex, theoreticalBestTime, sectors: lapSectors } = extractLaps(rawPoints, cl, sec, fin);
 
       const newSession: Session = {
+        filePart: part,
         ...(sourceFile ? { sourceFile: { ...sourceFile, part, courseHash: cl ? courseHash({ controlLine: cl, sectors: lapSectors }) : '' } } : {}),
         id: `sess_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
         fileName,
@@ -2003,6 +1970,7 @@ export const App: React.FC = () => {
   // 動画のウインドウが隠れていても (Freeze で描き直さない) 戻すよう、ここで行う
   useEffect(() => {
     for (const [id, sec] of videoSyncManager.remapImportedSessions(sessions)) setSessionClockOffset(id, sec);
+    videoViewStore.remapPinSessions(videoSyncManager.importedSessionIds(sessions));
   }, [sessions]);
 
   // 時計の補正を、同じ時間に記録したほかのログ (基準車のログ、なければ記録の細かいログ) との位置の比べから見積もる (BUG-08)。
@@ -2195,7 +2163,9 @@ export const App: React.FC = () => {
     const videoOwner = getOpenRun();
     const ownerIds = videoOwner && (videoOwner.store.storageRevision === undefined || videoOwner.store.storageRevision === revision)
       ? runSessionsRef.current.get(`${videoOwner.item.folder}/${videoOwner.item.file}`) ?? [] : [];
-    assignLap(analysisStore.getSnapshot(), incoming, sessionId, lapNumber, slot, false);
+    const preflight = assignLap(analysisStore.getSnapshot(), incoming, sessionId, lapNumber, slot, false);
+    const proposedBase = preflight.sessions.find(s => s.id === preflight.selectedCars[0]?.sessionId);
+    assignLap(analysisStore.getSnapshot(), incoming, sessionId, lapNumber, slot, true, proposedBase && !proposedBase.sourceFile ? ownerIds : []);
     if (selectedRun && choice.kind === 'stored') {
       selectedRun = shareRunItem(selectedRun, choice.store);
       incoming = registerRunSessions(choice.store, selectedRun, incoming, analysisStore.getSessions);

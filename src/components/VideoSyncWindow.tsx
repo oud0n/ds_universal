@@ -1140,6 +1140,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       try {
         const text = ev.target?.result as string;
         const { data, clockOffsets } = videoSyncManager.importProjectJson(text, sessions);
+        const sessionIds = videoSyncManager.importedSessionIds(sessions);
         for (const [id, sec] of clockOffsets) onSetClockOffset?.(id, sec);
         // 同期ピンも戻す。動画はファイル名で今の動画に読み替える (同じ時刻・名前のピンは足さない)
         if (data.pins && data.pins.length > 0) {
@@ -1151,7 +1152,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
             .filter(p => !current.some(c => c.name === p.name && Math.abs(c.sessionTimeSec - p.sessionTimeSec) < 0.001))
             .map(p => ({
               ...createSyncPin(p.name, p.sessionTimeSec, p.videoTimeSec, all.find(t => t.fileName === p.trackFileName)?.id ?? ''),
-              ...(p.sessionId ? { sessionId: p.sessionId } : {}),
+              ...(p.sessionId ? { sessionId: sessionIds.get(p.sessionId) ?? p.sessionId } : {}),
+              ...(p.utcMs !== undefined ? { utcMs: p.utcMs } : {}),
               ...(p.createdAt ? { createdAt: p.createdAt } : {})
             }));
           if (restored.length > 0) videoViewStore.setPins(importKey, [...current, ...restored]);

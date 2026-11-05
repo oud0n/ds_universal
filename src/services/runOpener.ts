@@ -22,9 +22,12 @@ import { remoteFileLike, type RemoteVideo } from './remoteVideo';
 import { videoSyncManager } from './videoSyncManager';
 import { videoViewStore } from './videoViewStore';
 import { createSyncPin, type SyncPin } from './videoSyncPinManager';
+import { getStorageRevision, isStorageSelectionPending, StorageChangedError } from './storageRevision';
+import { tr } from '../utils/i18n';
 
 /** 一覧の 1 行 (1 つの走行) */
 export interface RunItem {
+  storageRevision?: number;
   folder: string;
   /** 走行のファイル名 (folder の中) */
   file: string;
@@ -108,6 +111,7 @@ export async function listRuns(store: RunStore, onProgress?: (folder: string) =>
       const entry = findRunRow(runs, file);
       const videos = entry?.videos?.map(v => v.name) ?? rec?.videos ?? [];
       out.push({
+        storageRevision: store.storageRevision,
         folder: f.folder,
         file,
         courseName: f.courseName,
@@ -206,10 +210,23 @@ const runPath = (item: RunItem) => `${item.folder}/${item.file}`;
 const durableKey = (item: RunItem) => `${item.folder}/${runKey(item.file)}`;
 
 function rejectAlias(store: RunStore, item: RunItem): void {
+  assertRunItemCurrent(item);
   for (const run of [...(current ? [current] : []), ...companions.values()]) {
     if (run.store.storageRevision === store.storageRevision && durableKey(run.item) === durableKey(item) && run.item.file !== item.file) {
-      throw new Error('Another format of this run is open. Close it first.');
+      throw new Error(tr('同じ走行の別形式が開いています。先に閉じてください。', 'Another format of this run is open. Close it first.'));
     }
+  }
+}
+
+export function assertRunItemCurrent(item: RunItem): void {
+  if (isStorageSelectionPending() || item.storageRevision !== undefined && item.storageRevision !== getStorageRevision()) throw new StorageChangedError();
+}
+
+function assertVideoOwnership(opts: AttachOptions): void {
+  const wanted = new Set(opts.videos.map(v => v.path));
+  for (const run of [...(current ? [current] : []), ...companions.values()]) {
+    if (run.store.storageRevision === opts.store.storageRevision && runPath(run.item) === runPath(opts.item)) continue;
+    if ([...run.paths].some(path => wanted.has(path))) throw new Error(tr('この動画は別の開いている走行が使用中です。先にその走行の動画を閉じてください。', 'This video belongs to another open run. Close that run’s video first.'));
   }
 }
 
@@ -229,6 +246,7 @@ export function registerRunSessions(store: RunStore, item: RunItem, incoming: Se
       if (old && old.id !== s.id) remap.set(old.id, s.id);
     }
     videoViewStore.remapPinSessions(remap);
+    videoSyncManager.remapLiveSessionIds(remap);
     prior.partClocks = next;prior.sessionIds = restored.map(s => s.id);prior.sessions = sessions;
     return restored;
   }
@@ -532,6 +550,7 @@ export function attachRunVideos(opts: AttachOptions): Promise<number> {
 async function attachRunVideosNow(opts: AttachOptions, isCurrent: () => boolean): Promise<number> {
   const { store, item, videos } = opts;
   rejectAlias(store, item);
+  assertVideoOwnership(opts);
   const circuitName = typeof opts.circuitName === 'function' ? opts.circuitName() : opts.circuitName;
   const ids = new Set(opts.runSessions.map(s => s.id));
   const owned = current && runPath(current.item) === runPath(item) ? current : companions.get(runPath(item));
@@ -645,6 +664,7 @@ export function attachCompanionVideos(opts: AttachOptions): Promise<number> {
 
 async function attachCompanionVideosNow(opts: AttachOptions, isCurrent: () => boolean): Promise<number> {
   rejectAlias(opts.store, opts.item);
+  assertVideoOwnership(opts);
   const circuitName = typeof opts.circuitName === 'function' ? opts.circuitName() : opts.circuitName;
   // 基準のないログへ切り替わった場合も、同じ走行の保存者を二重に作らない。
   const path = runPath(opts.item);

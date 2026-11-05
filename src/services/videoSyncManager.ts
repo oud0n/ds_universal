@@ -4,7 +4,7 @@
 import { isRemoteVideo, remoteByteSource, remoteFileLike, type RemoteVideo } from './remoteVideo';
 import { Session } from '../types/telemetry';
 import { parseVideoMetadata, VideoMetadata } from './videoMetadataParser';
-import type { SyncPin } from './videoSyncPinManager';
+import { pinUtcMs, type SyncPin } from './videoSyncPinManager';
 import { detectCircuitTimezone, scanBestTimezoneOffset } from './masterTimelineEngine';
 import { groupVideoTracksByChapter, VideoChapterGroup, findChapterGroupForTrack } from './videoChapterManager';
 import {
@@ -137,6 +137,7 @@ export interface SyncProjectData {
     samplingRate: number;
     /** ログの時計の補正 (秒) */
     clockOffsetSec?: number;
+    filePart?: number;
   }>;
   // 同期ピン。動画の ID は読み込むたびに変わるので、ファイル名で持つ
   pins?: Array<{
@@ -147,6 +148,7 @@ export interface SyncProjectData {
     trackFileName: string | null;
     /** ピンを打ったときの基準のログ (sessionTimeSec はこのログの時刻) */
     sessionId?: string | null;
+    utcMs?: number;
     createdAt?: string;
   }>;
 }
@@ -217,8 +219,10 @@ class VideoSyncManager {
     const stem = (n: string) => n.replace(/\.(nmea|bon4|bnx4|bon|binx)$/i, '');
     const candidates = sessions.filter(s => s.fileName === saved.fileName || stem(s.fileName) === stem(saved.fileName));
     // 1 つのログが 2 つ以上の走行に分かれるとき (_1・_2) は、走行の名前で選ぶ
-    const hit = candidates.find(s => s.sessionName === saved.sessionName)
-      ?? candidates.find(s => s.date === saved.startDateJst) ?? (candidates.length === 1 ? candidates[0] : undefined);
+    const dated = candidates.filter(s => s.date === saved.startDateJst);
+    const hit = (saved.filePart ? candidates.find(s => (s.sourceFile?.part ?? s.filePart) === saved.filePart) : undefined)
+      ?? candidates.find(s => s.sessionName === saved.sessionName)
+      ?? (dated.length === 1 ? dated[0] : undefined) ?? (candidates.length === 1 ? candidates[0] : undefined);
     return hit ? hit.id : savedId;
   }
 
@@ -254,6 +258,15 @@ class VideoSyncManager {
       this.pendingClockOffsets.delete(savedId);
     }
     return out;
+  }
+
+  public importedSessionIds(sessions: Session[]): Map<string, string> {
+    const ids = new Map<string, string>();
+    for (const saved of this.importedSessions) {
+      const live = this.remapSessionId(saved.id, sessions);
+      if (live && live !== saved.id && sessions.some(s => s.id === live)) ids.set(saved.id, live);
+    }
+    return ids;
   }
 
   private notify(): void {
@@ -552,6 +565,16 @@ class VideoSyncManager {
     this.setMatchedSession(trackId, sessionId);
   }
 
+  /** 同じ元partの再読込み。補正値と手動指定は保ち、参照するIDだけを更新する。 */
+  public remapLiveSessionIds(ids: ReadonlyMap<string, string>): void {
+    let changed = false;
+    for (const track of this.videos) {
+      if (track.matchedSessionId && ids.has(track.matchedSessionId)) { track.matchedSessionId = ids.get(track.matchedSessionId)!; changed = true; }
+      if (track.clock.logId && ids.has(track.clock.logId)) { track.clock = { ...track.clock, logId: ids.get(track.clock.logId)! }; changed = true; }
+    }
+    if (changed) this.notify();
+  }
+
   /**
    * 記録の細かいログへ自動で付け替える (LATER-12)。動画と時間の重なるログのうち、今のログと同じ走行 (同じ車) と確かめられた、
    * 記録のいちばん細かい (Hz の高い) ログに出す。時刻が重なるだけのログ (同じ走行枠のチームメイト) には付け替えない。
@@ -637,7 +660,8 @@ class VideoSyncManager {
         startDateJst: s.date,
         totalLaps: s.laps.length,
         samplingRate: s.samplingRate,
-        clockOffsetSec: s.clockOffsetSec ?? 0
+        clockOffsetSec: s.clockOffsetSec ?? 0,
+        filePart: s.sourceFile?.part ?? s.filePart
       })),
       pins: pins.map(p => ({
         name: p.name,
@@ -646,6 +670,7 @@ class VideoSyncManager {
         calculatedOffsetSec: p.calculatedOffsetSec,
         trackFileName: this.videos.find(v => v.id === p.trackId)?.fileName ?? null,
         sessionId: p.sessionId ?? null,
+        ...(pinUtcMs(p, sessions) !== null ? { utcMs: pinUtcMs(p, sessions)! } : {}),
         createdAt: p.createdAt
       }))
     };
@@ -728,7 +753,7 @@ class VideoSyncManager {
       for (const p of data.pins) {
         const ok = p && typeof p.name === 'string' &&
           [p.sessionTimeSec, p.videoTimeSec, p.calculatedOffsetSec].every(x => Number.isFinite(x) && Math.abs(x) <= MAX_OFFSET_SEC) &&
-          (p.trackFileName === null || typeof p.trackFileName === 'string');
+          (p.trackFileName === null || typeof p.trackFileName === 'string') && (p.utcMs === undefined || Number.isFinite(p.utcMs));
         if (!ok) throw new Error(tr(`同期プロジェクト JSON の同期ピン ${p?.name ?? ''} の値が不正です`, `Invalid values for sync pin ${p?.name ?? ''} in the sync project JSON`));
       }
     }

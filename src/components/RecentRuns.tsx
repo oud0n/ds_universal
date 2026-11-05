@@ -29,7 +29,7 @@ export { notifyRunsChanged };
 /** 走行の一覧を読み込む (開いている間に 1 回。notifyRunsChanged でも読み直す) */
 export function useRuns(enabled: boolean) {
   const readRevision = useSyncExternalStore(subscribeStorageRevision, getStorageReadRevision);
-  const [state, setState] = useState<{ store: RunStore | null; runs: RunItem[] | null; error: string | null; noFolder: boolean }>({ store: null, runs: null, error: null, noFolder: false });
+  const [state, setState] = useState<{ store: RunStore | null; runs: RunItem[] | null; error: string | null; noFolder: boolean; revision: number }>({ store: null, runs: null, error: null, noFolder: false, revision: readRevision });
   const [reload, setReload] = useState(0);
   useEffect(() => {
     const f = () => setReload(n => n + 1);
@@ -42,16 +42,17 @@ export function useRuns(enabled: boolean) {
     void (async () => {
       try {
         const store = await getRunStore();
-        if (!store) { if (current()) setState({ store: null, runs: [], error: null, noFolder: true }); return; }
+        if (!store) { if (current()) setState({ store: null, runs: [], error: null, noFolder: true, revision: readRevision }); return; }
         const runs = await listRuns(store);
-        if (current()) setState({ store, runs, error: null, noFolder: false });
+        if (current()) setState({ store, runs, error: null, noFolder: false, revision: readRevision });
       } catch (e) {
-        if (current()) setState(s => ({ ...s, runs: [], error: e instanceof Error ? e.message : String(e) }));
+        if (current()) setState(s => ({ ...s, revision: readRevision, runs: [], error: e instanceof Error ? e.message : String(e) }));
       }
     })();
     return () => { cancelled = true; };
   }, [enabled, reload, readRevision]);
-  return { ...state, reload: () => setReload(n => n + 1) };
+  const visible = state.revision === readRevision && !isStorageSelectionPending() ? state : { store: null, runs: null, error: null, noFolder: false };
+  return { ...visible, reload: () => setReload(n => n + 1) };
 }
 
 export const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy: boolean; selected?: boolean }> = ({ run, onOpen, busy, selected = false }) => {

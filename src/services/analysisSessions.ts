@@ -108,7 +108,8 @@ export function fileSessionCars(selected: Array<{ slot: number; sessionId: strin
     const s = sessions.find(x => x.id === c.sessionId);
     if (!s) continue;
     const same = sessions.filter(x => x.fileName === s.fileName);
-    const part = same.length > 1 ? same.indexOf(s) + 1 : 0;
+    const originalPart = s.sourceFile?.part ?? s.filePart ?? same.indexOf(s) + 1;
+    const part = same.length > 1 || originalPart > 1 ? originalPart : 0;
     const lapStartMs = lapStartUtcMs(s, c.lapNumber);
     cars.push({ slot: c.slot, run: s.fileName, ...(part > 0 ? { part } : {}), lap: c.lapNumber, ...(lapStartMs !== undefined ? { lapStartMs } : {}) });
   }
@@ -124,9 +125,10 @@ export function matchFileSession(data: LapSession, sessions: Session[]): {
   let moved = 0;
   for (const c of [...data.cars].sort((a, b) => a.slot - b.slot)) {
     const same = sessions.filter(x => x.fileName === c.run);
-    const s = same[(c.part ?? 1) - 1] ?? same[0];
+    const s = same.find((s, i) => (s.sourceFile?.part ?? s.filePart ?? i + 1) === (c.part ?? 1));
     if (!s) { missing.push(c.run); continue; }
     const r = resolveSessionLap(s, c);
+    if (!Number.isInteger(c.slot) || c.slot < 0 || c.slot > 3 || !s.laps.some(l => l.lapNumber === r.lap)) { missing.push(c.run); continue; }
     if (r.moved) moved++;
     picks.push({ slot: c.slot, session: s, lapNumber: r.lap });
   }
