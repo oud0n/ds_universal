@@ -1,3 +1,4 @@
+import type { GFilterLevel } from './physics';
 import { fault } from './errors';
 import { TelemetryPoint } from '../types/telemetry';
 import { calculatePhysics } from './physics';
@@ -43,7 +44,7 @@ export interface RawBinarySession {
 /**
  * 生ログを読み、記録の空き (SESSION_GAP_SEC 以上) で区切った走行ごとに返す (時刻順)
  */
-export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): RawBinarySession[] {
+export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer, physicsLevel: GFilterLevel = 'strong'): RawBinarySession[] {
   const ext = fileName.split('.').pop()?.toLowerCase() || '';
   const bytes = new Uint8Array(buffer);
   const view = new DataView(buffer);
@@ -380,7 +381,7 @@ export function parseDigispiceRawBinary(fileName: string, buffer: ArrayBuffer): 
     if (g && r.timeSec - g[g.length - 1].timeSec < SESSION_GAP_SEC) g.push(r);
     else groups.push([r]);
   }
-  return keepRunParts(groups, r => r.timeSec).map(toSession);
+  return keepRunParts(groups, r => r.timeSec).map(points => toSession(points, physicsLevel));
 }
 
 /**
@@ -396,7 +397,7 @@ export function keepRunParts<T>(groups: T[][], timeSec: (p: T) => number): T[][]
 
 // 区切った走行の点列を、先頭を 0 秒とした TelemetryPoint にして解析値を付ける
 function toSession(
-  rawPoints: { lat: number; lon: number; speedKmh: number; timeSec: number; timestamp?: Date; heading?: number; altitude?: number; satellites?: number }[]
+  rawPoints: { lat: number; lon: number; speedKmh: number; timeSec: number; timestamp?: Date; heading?: number; altitude?: number; satellites?: number }[], physicsLevel: GFilterLevel = 'strong'
 ): RawBinarySession {
   // 最初の時間を t=0 とする相対時間計算
   const t0 = rawPoints[0].timeSec;
@@ -422,7 +423,7 @@ function toSession(
   }));
 
   // 物理計算 (Gフォース、旋回半径、累積距離、方位角)
-  const enriched = calculatePhysics(points);
+  const enriched = calculatePhysics(points, physicsLevel);
 
   // 記録レートは時刻の刻みの中央値から求める (ピットでの停止など記録の空白に影響されないように)
   let samplingRate = 20;

@@ -1,3 +1,5 @@
+import type {ErrorMessages} from './errors';
+import type { GFilterLevel } from './physics';
 import { fault, defaultText } from './errors';
 /**
  * 他社ロガー・解析ソフト形式の入出力
@@ -83,7 +85,8 @@ function speedFactorToKmh(unit: string): number {
 
 /** 時刻順に並んだ有効なサンプルだけを残し、TelemetryPoint へ変換して物理量を付与する */
 // coordDigits: 緯度経度を丸める桁。60Hz の .ibt のように点の間隔が短いログでは、7 桁 (約 1 cm) の丸めが 3 点から求める旋回半径の誤差になる (偽の横 G) ので、桁を増やす
-export function finalizeImportedSamples(samples: RawSample[], formatName: string, coordDigits = 7): ImportedLog {
+export function finalizeImportedSamples(samples: RawSample[], formatName: string | ErrorMessages, coordDigits = 7, physicsLevel: GFilterLevel = 'strong'): ImportedLog {
+  const names=typeof formatName==='string'?{ja:formatName,en:formatName}:formatName;
   const points: TelemetryPoint[] = [];
   // 速度・方位の記録がない点 (速度の列がないログなど)。後で前後の点の位置と時刻から求める
   const noSpeed: number[] = [];
@@ -125,7 +128,7 @@ export function finalizeImportedSamples(samples: RawSample[], formatName: string
     });
   }
   if (points.length < 2) {
-    throw fault('externalFormats.1', { ja: `${formatName} から有効な GPS 位置データを読み取れませんでした`, en: `Could not read valid GPS positions from ${formatName}` });
+    throw fault('externalFormats.1', { ja: `${names.ja} から有効な GPS 位置データを読み取れませんでした`, en: `Could not read valid GPS positions from ${names.en}` });
   }
   const fromNeighbours = (i: number) => {
     const a = points[Math.max(0, i - 1)];
@@ -140,7 +143,7 @@ export function finalizeImportedSamples(samples: RawSample[], formatName: string
     const { distanceMeters, headingDeg } = fromNeighbours(i);
     if (distanceMeters > 0) points[i].heading = headingDeg;
   }
-  const enriched = calculatePhysics(points);
+  const enriched = calculatePhysics(points, physicsLevel);
   const duration = enriched[enriched.length - 1].time - enriched[0].time;
   const samplingRate = duration > 0 ? Math.max(1, Math.round((enriched.length - 1) / duration)) : 10;
   return { points: enriched, samplingRate, startDate };
@@ -154,7 +157,7 @@ export function isVbo(text: string): boolean {
   return /^\s*\[column names\]\s*$/im.test(text) && /^\s*\[data\]\s*$/im.test(text);
 }
 
-export function parseVbo(text: string): ImportedLog {
+export function parseVbo(text: string, physicsLevel: GFilterLevel = 'strong'): ImportedLog {
   const lines = text.split(/\r?\n/);
   let section = '';
   let columns: string[] = [];
@@ -205,7 +208,7 @@ export function parseVbo(text: string): ImportedLog {
       timestamp: baseDate !== null ? new Date(baseDate + t * 1000) : undefined
     });
   }
-  return finalizeImportedSamples(samples, defaultText('VBO ファイル', 'the VBO file'));
+  return finalizeImportedSamples(samples, {ja:'VBO ファイル',en:'the VBO file'}, undefined, physicsLevel);
 }
 
 // ============================================================================
@@ -216,7 +219,7 @@ export function isRaceChronoCsv(text: string): boolean {
   return /^.*created using RaceChrono/i.test(text.substring(0, 200));
 }
 
-export function parseRaceChronoCsv(text: string): ImportedLog {
+export function parseRaceChronoCsv(text: string, physicsLevel: GFilterLevel = 'strong'): ImportedLog {
   const lines = text.split(/\r?\n/);
   // v3: "timestamp,fragment_id,..." + 単位行 + 取得元行 / v2: "Time (s),Session fragment #,..."
   const headerIdx = lines.findIndex(l => /^"?timestamp"?,/i.test(l) || /^"?Time \(s\)"?,/i.test(l));
@@ -270,7 +273,7 @@ export function parseRaceChronoCsv(text: string): ImportedLog {
       timestamp: unix > 1e8 ? new Date(unix * 1000) : undefined
     });
   }
-  return finalizeImportedSamples(samples, 'RaceChrono CSV');
+  return finalizeImportedSamples(samples, 'RaceChrono CSV', undefined, physicsLevel);
 }
 
 // ============================================================================
@@ -291,7 +294,7 @@ function gpxTag(body: string, name: string): string | undefined {
  * GPX (1.0 / 1.1) の航跡 (trk > trkseg > trkpt) を読む。複数の trk / trkseg は連結する
  * 速度は <speed> (GPX 1.0) か拡張要素 (gpxtpx:speed など) の m/s を使い、なければ位置と時刻から求める
  */
-export function parseGpx(text: string): ImportedLog {
+export function parseGpx(text: string, physicsLevel: GFilterLevel = 'strong'): ImportedLog {
   const raw: TrackPoint[] = [];
   const re = /<trkpt\b([^>]*?)(?:\/>|>([\s\S]*?)<\/trkpt>)/gi;
   let m: RegExpExecArray | null;
@@ -312,7 +315,7 @@ export function parseGpx(text: string): ImportedLog {
     });
   }
   if (raw.length === 0) throw fault('externalFormats.5', { ja: 'GPX ファイルに航跡 (trkpt) が見つかりません', en: 'No track points (trkpt) were found in the GPX file' });
-  return trackToLog(raw, defaultText('GPX ファイル', 'the GPX file'));
+  return trackToLog(raw, {ja:'GPX ファイル',en:'the GPX file'}, physicsLevel);
 }
 
 /** 航跡の点 (GPX・TCX・FIT で共通)。t は UNIX 秒、speedMs・course は記録がなければ NaN */
@@ -322,10 +325,11 @@ export interface TrackPoint { t: number; lat: number; lon: number; ele: number; 
  * 航跡の点を、ログの点にする (GPX・TCX・FIT で共通)。時刻・位置のない点を除き、同じ秒の点を割り振り、
  * 速度の記録がない点は前後の点から求める
  */
-export function trackToLog(rawIn: TrackPoint[], formatName: string): ImportedLog {
+export function trackToLog(rawIn: TrackPoint[], formatName: string | ErrorMessages, physicsLevel: GFilterLevel = 'strong'): ImportedLog {
+  const names=typeof formatName==='string'?{ja:formatName,en:formatName}:formatName;
   // 時刻・位置のない点と未測位の点 (0, 0) は、時刻の割り振りと速度の計算より前に除く (前後の点の速度を壊さないため)
   const valid = rawIn.filter(p => Number.isFinite(p.t) && Number.isFinite(p.lat) && Number.isFinite(p.lon) && !(p.lat === 0 && p.lon === 0));
-  if (valid.length === 0) throw fault('externalFormats.6', { ja: `${formatName} に時刻と位置のある点がないため読み込めません`, en: `${formatName} has no points with both a time and a position` });
+  if (valid.length === 0) throw fault('externalFormats.6', { ja: `${names.ja} に時刻と位置のある点がないため読み込めません`, en: `${names.en} has no points with both a time and a position` });
   // 点の多いログで引数の上限を超えないよう、1 つずつ入れる (push(...valid) は十数万点で失敗する)
   const raw: TrackPoint[] = [];
   for (const p of valid) raw.push({ ...p });
@@ -362,7 +366,7 @@ export function trackToLog(rawIn: TrackPoint[], formatName: string): ImportedLog
       timestamp: new Date(p.t * 1000)
     };
   });
-  return finalizeImportedSamples(samples, formatName);
+  return finalizeImportedSamples(samples, formatName, undefined, physicsLevel);
 }
 
 // ============================================================================
@@ -377,7 +381,7 @@ export function isTcx(text: string): boolean {
  * TCX の Trackpoint を読む (Activity > Lap > Track > Trackpoint。複数の Lap・Track は連結する)。
  * 速度は拡張要素 (TPX の Speed、m/s) を使い、なければ位置と時刻から求める。位置のない点 (室内の記録など) は除く
  */
-export function parseTcx(text: string): ImportedLog {
+export function parseTcx(text: string, physicsLevel: GFilterLevel = 'strong'): ImportedLog {
   const raw: TrackPoint[] = [];
   const re = /<(?:[\w-]+:)?Trackpoint\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?Trackpoint>/gi;
   let m: RegExpExecArray | null;
@@ -394,7 +398,7 @@ export function parseTcx(text: string): ImportedLog {
     });
   }
   if (raw.length === 0) throw fault('externalFormats.7', { ja: 'TCX ファイルに Trackpoint が見つかりません', en: 'No Trackpoint elements were found in the TCX file' });
-  return trackToLog(raw, defaultText('TCX ファイル', 'the TCX file'));
+  return trackToLog(raw, {ja:'TCX ファイル',en:'the TCX file'}, physicsLevel);
 }
 
 // ============================================================================
@@ -406,7 +410,7 @@ export function isMotecCsv(text: string): boolean {
   return first[0] === 'Format' && first[1] === 'MoTeC CSV File';
 }
 
-export function parseMotecCsv(text: string): ImportedLog {
+export function parseMotecCsv(text: string, physicsLevel: GFilterLevel = 'strong'): ImportedLog {
   const lines = text.split(/\r?\n/);
   // チャンネル名の行 (先頭が Time) と、その次の空でない行 (単位。先頭が s) を探す
   let headerIdx = -1;
@@ -477,7 +481,7 @@ export function parseMotecCsv(text: string): ImportedLog {
       timestamp: start !== null ? new Date(start + t * 1000) : undefined
     });
   }
-  return finalizeImportedSamples(samples, 'MoTeC CSV');
+  return finalizeImportedSamples(samples, 'MoTeC CSV', undefined, physicsLevel);
 }
 
 /** セッション全体を MoTeC CSV 形式で書き出す。ラップの区切りは Beacon Markers に記録する */

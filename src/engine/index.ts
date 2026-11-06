@@ -46,3 +46,4 @@ export * as csvFormatStore from './csvFormatStore';
 export * as engineRuntime from './EngineRuntime';
 export * as pairAnalysis from './pairAnalysis';
 export * as positionSource from './positionSource';
+export * as playbackAdvance from './playbackAdvance';

@@ -40,6 +40,11 @@ class SyncPinStore {
     }
   }
 
+  mergeImported(key:string,incoming:SyncPin[]):void{
+    const current=this.getPins(key),restored=incoming.filter(p=>!current.some(c=>c.trackId===p.trackId&&c.name===p.name&&c.sessionId===p.sessionId&&Math.abs(c.sessionTimeSec-p.sessionTimeSec)<0.001&&Math.abs(c.videoTimeSec-p.videoTimeSec)<0.001));
+    if(restored.length)this.setPins(key,[...current,...restored]);
+  }
+
   anchorPins(sessions: readonly ClockSession[]): void {
     for (const [key, pins] of this.pinCache) {
       let changed = false;

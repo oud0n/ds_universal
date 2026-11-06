@@ -7,7 +7,7 @@ import type { VideoTrack as CoreVideoTrack, PlacedTrack as CorePlacedTrack, Remo
 export { placeTrack, placeTracks, isClockManual } from './videoTypes';
 import { Session } from '../types/telemetry';
 import type { VideoMetadata } from './videoMetadataParser';
-import { pinUtcMs, type SyncPin } from './videoSyncPinManager';
+import { pinUtcMs, createSyncPin, type SyncPin } from './videoSyncPinManager';
 import { detectCircuitTimezone, scanBestTimezoneOffset } from './masterTimelineEngine';
 import { groupVideoTracksByChapter, VideoChapterGroup, findChapterGroupForTrack } from './videoChapterManager';
 import {
@@ -191,112 +191,92 @@ class VideoSyncManager {
   // 元の動画より先に読み込んだ低画質のファイル (組にする名前 → ファイル)
   private pendingProxies = new Map<string, TFile>();
 
-  private attachProxy(track: VideoTrack, file: TFile): void {
-    if (track.proxyUrl) ports.release(track.proxyUrl);
-    // .LRV はブラウザが種類を知らないファイルなので、MP4 として渡す (Safari は種類の分からない動画を再生しないことがある)
-    track.proxyUrl = ports.open(file.slice(0, file.size, 'video/mp4'));
-    track.proxyFileName = file.name;
+  private generation=0;
+  private closed=false;
+  private identitySequence=0;
+  private ownedHandles=new Set<string>();
+  private releaseOwned(handle:string|undefined):void{
+    if(!handle||!this.ownedHandles.has(handle))return;
+    ports.release(handle);this.ownedHandles.delete(handle);
+  }
+  public cancelPending():void{this.generation++;}
+  public dispose():void{
+    this.closed=true;this.cancelPending();
+    for(const handle of [...this.ownedHandles])this.releaseOwned(handle);
+    this.pendingProxies.clear();this.videos=[];this.importedSessions=[];this.pendingClockOffsets.clear();this.notify();this.listeners.clear();
   }
 
-  // 複数動画ファイルの読み込み & 自動解析。GoPro の低画質のファイル (.LRV) は、元の動画に組にする (動画としては加えない)
-  // readGps: false なら動画の GPS を読まない (呼ぶ側で読んで時刻を入れるとき。同じ動画を 2 回読まないため)
-  public async addVideoFiles(files: ArrayLike<TFile | RemoteVideo>, sessions: Session[], readGps = true, isCurrent = () => true, beforePublish?: () => void): Promise<VideoTrack[]> {
-    if (!isCurrent()) return this.videos;
-    const inputs = Array.from(files);
-    const prepared: Array<{ file: TFile; remote?: RemoteVideo; meta: VideoMetadata; gpsUtcMs?: number }> = [];
-    const placeholderFor = (file: TFile) => this.videos.find(v => !v.objectUrl && v.fileName === file.name && (!v.fileSize || v.fileSize === file.size));
-    // 全ファイルを読み終えてから、トラックと Blob URL を作る。途中で走行が替わったら何も残さない。
-    for (const item of inputs.filter(f => !isProxyFileName(f.name))) {
-      if (!isCurrent()) return this.videos;
-      const remote = isRemoteVideo(item) ? item : undefined;
-      const file = remote ? ports.remoteFile(remote) : item as TFile;
-      const meta = await ports.metadata(file);
-      if (!isCurrent()) return this.videos;
-      let gpsUtcMs: number | undefined;
-      if (readGps && !placeholderFor(file)) {
-        try {
-          const gps = await ports.gps(file, remote);
-          gpsUtcMs = gps.videoStartUtcMs[0];
-        } catch {
-          // GoPro 以外の動画・測位できていない動画
-        }
-        if (!isCurrent()) return this.videos;
+  /** メタデータと資源を全て準備してから公開する。失敗・取消では旧状態を残す。 */
+  public async addVideoFiles(files:ArrayLike<TFile|RemoteVideo>,sessions:Session[],readGps=true,current=()=>true,beforePublish?:()=>void):Promise<VideoTrack[]>{
+    const generation=this.generation;
+    const isCurrent=()=>!this.closed&&generation===this.generation&&current();
+    if(!isCurrent())return this.videos;
+    const inputs=[...new Set(Array.from(files))];
+    const prepared:Array<{file:TFile;remote?:RemoteVideo;meta:VideoMetadata;gpsUtcMs?:number}>=[];
+    const placeholderFor=(file:TFile,remote?:RemoteVideo)=>{
+      const matches=this.videos.filter(v=>!v.objectUrl&&v.fileName===file.name&&(!v.fileSize||v.fileSize===file.size)&&(!remote||!v.projectSourcePath||v.projectSourcePath===remote.path));
+      if(matches.length>1)throw fault('media.ambiguous-file',{ja:'同名の動画を特定できません。プロジェクトの元の場所を確認してください。',en:'The video name is ambiguous. Check the original project source.'});
+      return matches[0];
+    };
+    for(const input of inputs.filter(f=>!isProxyFileName(f.name))){
+      if(!isCurrent())return this.videos;
+      const remote=isRemoteVideo(input)?input:undefined,file=remote?ports.remoteFile(remote):input as TFile;
+      const meta=await ports.metadata(file);if(!isCurrent())return this.videos;
+      let gpsUtcMs:number|undefined;
+      if(readGps&&!placeholderFor(file,remote)){
+        try{gpsUtcMs=(await ports.gps(file,remote)).videoStartUtcMs[0];}catch{/* GPSのない動画。 */}
+        if(!isCurrent())return this.videos;
       }
-      prepared.push({ file, remote, meta, gpsUtcMs });
+      prepared.push({file,remote,meta,gpsUtcMs});
     }
-    if (!isCurrent()) return this.videos;
-    beforePublish?.();
-    if (!isCurrent()) return this.videos;
-    const newTracks: VideoTrack[] = [];
-    const gpsClocks = new Map<VideoTrack, number>();
-    let relinked = false;
-
-    for (const file of inputs.filter((f): f is TFile => !isRemoteVideo(f) && isProxyFileName(f.name))) {
-      const key = proxyKey(file.name);
-      if (!key) continue;
-      const track = this.videos.find(v => proxyKey(v.fileName) === key);
-      if (track) this.attachProxy(track, file); else this.pendingProxies.set(key, file);
-    }
-    for (const { file, remote, meta, gpsUtcMs } of prepared) {
-      // 同期プロジェクトから戻した、ファイルのまだない動画と同じファイルなら、そこにつなぐ (保存した同期を引き継ぐ)
-      const placeholder = placeholderFor(file);
-      if (placeholder) {
-        placeholder.file = remote ? undefined : file;
-        placeholder.remote = remote;
-        placeholder.objectUrl = remote ? remote.url : ports.open(file);
-        placeholder.fileSize = file.size;
-        if (meta.durationSec > 0) placeholder.durationSec = meta.durationSec;
-        if (!placeholder.rawRecordedAt && meta.creationTime) {
-          placeholder.rawRecordedAt = meta.creationTime;
-          placeholder.recordedAtJst = meta.creationTime;
-        }
-        placeholder.notes = undefined;
-        this.remapTrack(placeholder, sessions);
-        const pKey = proxyKey(file.name);
-        const pFile = pKey ? this.pendingProxies.get(pKey) : undefined;
-        if (pKey && pFile) { this.attachProxy(placeholder, pFile); this.pendingProxies.delete(pKey); }
-        relinked = true;
-        continue;
+    const acquired:string[]=[];
+    const open=(file:{arrayBuffer():Promise<ArrayBuffer>})=>{const handle=ports.open(file);acquired.push(handle);return handle;};
+    const rollback=()=>{for(const handle of acquired)ports.release(handle);};
+    const pending=new Map(this.pendingProxies),updates=new Map<VideoTrack,VideoTrack>(),newTracks:VideoTrack[]=[];
+    const gpsClocks=new Map<VideoTrack,number>();
+    const staged=(track:VideoTrack)=>{let copy=updates.get(track);if(!copy){copy={...track};updates.set(track,copy);}return copy;};
+    const proxy=(track:VideoTrack,file:TFile)=>{const next=open(file.slice(0,file.size,'video/mp4'));const prior=acquired.indexOf(track.proxyUrl??'');if(prior>=0){ports.release(acquired[prior]);acquired.splice(prior,1);}track.proxyUrl=next;track.proxyFileName=file.name;};
+    let relinked=false;
+    const claimed=new Set<VideoTrack>();
+    try{
+      for(const file of inputs.filter((f):f is TFile=>!isRemoteVideo(f)&&isProxyFileName(f.name))){
+        const key=proxyKey(file.name);if(!key)continue;
+        const track=this.videos.find(v=>proxyKey(v.fileName)===key);
+        if(track){proxy(staged(track),file);pending.delete(key);}else pending.set(key,file);
       }
-
-      const track: VideoTrack = {
-        id: `vid_${ports.nowMs()}_${ports.random().toString(36).substr(2, 5)}`,
-        file: remote ? undefined : file,
-        remote,
-        objectUrl: remote ? remote.url : ports.open(file),
-        fileName: file.name,
-        fileSize: file.size,
-        durationSec: meta.durationSec,
-        rawRecordedAt: meta.creationTime,
-        recordedAtJst: meta.creationTime,
-        videoTimezone: this.defaultVideoTimezone,
-        gpsTimezone: this.defaultGpsTimezone,
-        matchedSessionId: null,
-        clock: NO_CLOCK,
-        isAutoMatched: false
-      };
-      const utc = creationUtcMs(track);
-      if (utc !== null) track.clock = clockAtUtc('creation', utc);
-      const key = proxyKey(file.name);
-      const proxy = key ? this.pendingProxies.get(key) : undefined;
-      if (key && proxy) { this.attachProxy(track, proxy); this.pendingProxies.delete(key); }
-
-      newTracks.push(track);
-      if (gpsUtcMs !== undefined && Number.isFinite(gpsUtcMs)) gpsClocks.set(track, gpsUtcMs);
+      for(const {file,remote,meta,gpsUtcMs}of prepared){
+        const placeholder=placeholderFor(file,remote);
+        if(placeholder&&claimed.has(placeholder))throw fault('media.duplicate-file',{ja:'同じ動画への複数の読込みはできません。',en:'Multiple inputs refer to the same video.'});
+        if(placeholder)claimed.add(placeholder);
+        const track:VideoTrack=placeholder?staged(placeholder):{
+          id:`vid_${ports.nowMs()}_${ports.random().toString(36).slice(2,7)}_${++this.identitySequence}`,
+          fileName:file.name,fileSize:file.size,durationSec:meta.durationSec,rawRecordedAt:meta.creationTime,recordedAtJst:meta.creationTime,
+          videoTimezone:this.defaultVideoTimezone,gpsTimezone:this.defaultGpsTimezone,matchedSessionId:null,clock:NO_CLOCK,isAutoMatched:false
+        };
+        track.file=remote?undefined:file;track.remote=remote;track.objectUrl=remote?remote.url:open(file);track.fileSize=file.size;
+        if(meta.durationSec>0)track.durationSec=meta.durationSec;
+        if(!track.rawRecordedAt&&meta.creationTime){track.rawRecordedAt=meta.creationTime;track.recordedAtJst=meta.creationTime;}
+        track.notes=undefined;
+        const key=proxyKey(file.name),proxyFile=key?pending.get(key):undefined;
+        if(key&&proxyFile){proxy(track,proxyFile);pending.delete(key);}
+        if(placeholder){this.remapTrack(track,sessions);relinked=true;}
+        else{const utc=creationUtcMs(track);if(utc!==null)track.clock=clockAtUtc('creation',utc);newTracks.push(track);if(Number.isFinite(gpsUtcMs))gpsClocks.set(track,gpsUtcMs!);}
+      }
+      if(!isCurrent()){rollback();return this.videos;}
+      beforePublish?.();
+      if(!isCurrent()){rollback();return this.videos;}
+    }catch(error){rollback();throw error;}
+    for(const handle of acquired)this.ownedHandles.add(handle);
+    for(const [original,next]of updates){
+      if(!this.videos.includes(original)){this.releaseOwned(next.objectUrl);this.releaseOwned(next.proxyUrl);continue;}
+      if(original.proxyUrl!==next.proxyUrl)this.releaseOwned(original.proxyUrl);
+      Object.assign(original,next);
     }
-
-    this.videos = [...this.videos, ...newTracks];
-
-    // GPSセッションとの自動照合。追加した動画だけを照合し、手で合わせた既存の動画の同期は変えない
-    this.autoMatchTracks(sessions, newTracks);
-    // GoPro の動画は、動画自身の GPS の時刻で合わせる (撮影日時は ±1 秒ずれる)。GPS の記録がない動画は撮影日時のまま
-    for (const [track, utcMs] of gpsClocks) track.clock = clockAtUtc('gps', utcMs);
-    if (gpsClocks.size) this.updateChapterGroupOffsets();
-    if (relinked && newTracks.length === 0) this.updateChapterGroupOffsets();
-
-    this.notify();
-
-    return this.videos;
+    this.pendingProxies=pending;this.videos=[...this.videos,...newTracks];
+    this.autoMatchTracks(sessions,newTracks);
+    for(const [track,utc]of gpsClocks)track.clock=clockAtUtc('gps',utc);
+    if(gpsClocks.size||relinked&&newTracks.length===0)this.updateChapterGroupOffsets();
+    this.notify();return this.videos;
   }
 
   /**
@@ -539,9 +519,9 @@ class VideoSyncManager {
   public removeTrack(trackId: string): void {
     const track = this.videos.find(v => v.id === trackId);
     if (track?.objectUrl) {
-      ports.release(track.objectUrl);
+      this.releaseOwned(track.objectUrl);
     }
-    if (track?.proxyUrl) ports.release(track.proxyUrl);
+    if (track?.proxyUrl) this.releaseOwned(track.proxyUrl);
     this.videos = this.videos.filter(v => v.id !== trackId);
     this.notify();
   }
@@ -554,6 +534,7 @@ class VideoSyncManager {
       savedAt: new Date(ports.nowMs()).toISOString(),
       circuitName,
       videos: this.videos.filter(v => !onlyTracks || onlyTracks.has(v.id)).map(v => ({
+        key:v.projectKey??v.id,sourcePath:v.remote?.path??v.projectSourcePath,
         fileName: v.fileName,
         fileSize: v.fileSize,
         durationSec: v.durationSec,
@@ -576,7 +557,8 @@ class VideoSyncManager {
         clockOffsetSec: s.clockOffsetSec ?? 0,
         filePart: s.sourceFile?.part ?? s.filePart
       })),
-      pins: pins.map(p => ({
+      pins: pins.filter(p=>!onlyTracks||onlyTracks.has(p.trackId)).map(p => ({
+        trackKey:this.videos.find(v=>v.id===p.trackId)?.projectKey??this.videos.find(v=>v.id===p.trackId)?.id??null,
         name: p.name,
         sessionTimeSec: p.sessionTimeSec,
         videoTimeSec: p.videoTimeSec,
@@ -638,7 +620,8 @@ class VideoSyncManager {
     return n;
   }
 
-  public importProjectJson(jsonText: string, sessions: Session[] = []): { data: SyncProjectData; clockOffsets: RestoredClockOffsets } {
+  public importProjectJson(jsonText: string, sessions: Session[] = []): { data: SyncProjectData; clockOffsets: RestoredClockOffsets; pins:SyncPin[] } {
+    if(this.closed)throw fault('media.closed',{ja:'動画モデルは終了しました。',en:'The media model is closed.'});
     const parsed = JSON.parse(jsonText);
     if (!parsed || (parsed.version !== '1.0' && parsed.version !== '2.0') || !Array.isArray(parsed.videos)) {
       throw fault('videoSyncManager.1',{ja:'無効な同期プロジェクト JSON 形式です',en:'Invalid sync project JSON'});
@@ -672,6 +655,24 @@ class VideoSyncManager {
     }
 
     // 保存したときのセッションの一覧を覚えておく (ログを後から読み込んだときにも読み替えられるように)
+    const ambiguous=()=>fault('project.video-identity',{ja:'同名の動画を一意に特定できないため復元できません。元の動画を確認してください。',en:'The project videos are ambiguous. Check the original video sources.'});
+    const keys=new Set<string>(),used=new Set<VideoTrack>();
+    const plans=data.videos.map(vData=>{
+      if(vData.key!==undefined&&(typeof vData.key!=='string'||!vData.key||keys.has(vData.key)))throw ambiguous();
+      if(vData.sourcePath!==undefined&&typeof vData.sourcePath!=='string')throw ambiguous();
+      if(vData.key)keys.add(vData.key);
+      if(!vData.key&&data.videos.filter(v=>v.fileName===vData.fileName&&v.fileSize===vData.fileSize).length>1)throw ambiguous();
+      let matches=vData.key?this.videos.filter(v=>(v.projectKey??v.id)===vData.key):[];
+      if(!matches.length&&vData.sourcePath)matches=this.videos.filter(v=>(v.remote?.path??v.projectSourcePath)===vData.sourcePath&&v.fileName===vData.fileName&&v.fileSize===vData.fileSize);
+      if(!matches.length)matches=this.videos.filter(v=>v.fileName===vData.fileName&&v.fileSize===vData.fileSize);
+      if(matches.length>1||matches[0]&&used.has(matches[0]))throw ambiguous();
+      if(matches[0])used.add(matches[0]);
+      return {vData,target:matches[0] as VideoTrack|undefined};
+    });
+    for(const pin of data.pins??[]){
+      const matches=pin.trackKey?plans.filter(p=>p.vData.key===pin.trackKey):pin.trackFileName?plans.filter(p=>p.vData.fileName===pin.trackFileName):[];
+      if((pin.trackKey||pin.trackFileName)&&matches.length!==1)throw ambiguous();
+    }
     if (Array.isArray(data.sessions)) {
       for (const sd of data.sessions) {
         if (!sd || typeof sd.id !== 'string' || typeof sd.fileName !== 'string') continue;
@@ -682,13 +683,14 @@ class VideoSyncManager {
     }
 
     // 既存動画トラックの同期を上書き・復元
-    for (const vData of data.videos) {
-      const existing = this.videos.find(v => v.fileName === vData.fileName);
+    for (const plan of plans) {
+      const {vData}=plan;
+      const existing=plan.target;
       const target: VideoTrack = existing ?? (() => {
         // ファイル未ロードのプレースホルダーとして登録
         const rawDate = vData.rawRecordedAt || vData.recordedAtJst;
         const t: VideoTrack = {
-          id: `vid_imported_${ports.nowMs()}_${ports.random().toString(36).substr(2, 4)}`,
+          id: `vid_imported_${ports.nowMs()}_${ports.random().toString(36).substr(2, 4)}_${++this.identitySequence}`,
           fileName: vData.fileName,
           fileSize: vData.fileSize,
           durationSec: vData.durationSec,
@@ -704,12 +706,18 @@ class VideoSyncManager {
         this.videos.push(t);
         return t;
       })();
+      plan.target=target;target.projectKey=vData.key??target.projectKey??target.id;target.projectSourcePath=vData.sourcePath??target.projectSourcePath;
       this.applyVideoData(target, vData, sessions);
     }
 
     this.updateChapterGroupOffsets();
     this.notify();
-    return { data, clockOffsets: this.remapImportedSessions(sessions) };
+    const clockOffsets=this.remapImportedSessions(sessions),ids=this.importedSessionIds(sessions);
+    const pins=(data.pins??[]).map(p=>{
+      const plan=p.trackKey?plans.find(v=>v.vData.key===p.trackKey):plans.find(v=>v.vData.fileName===p.trackFileName);
+      return {...createSyncPin(p.name,p.sessionTimeSec,p.videoTimeSec,plan?.target?.id??''),...(p.sessionId?{sessionId:ids.get(p.sessionId)??p.sessionId}:{}),...(p.utcMs!==undefined?{utcMs:p.utcMs}:{}),...(p.createdAt?{createdAt:p.createdAt}:{})};
+    });
+    return {data,clockOffsets,pins};
   }
 }
 

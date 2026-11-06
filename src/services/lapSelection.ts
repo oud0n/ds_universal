@@ -4,7 +4,7 @@ import { tr } from '../utils/i18n';
 import { extractLaps } from './lapCalculator';
 import { courseForFolder } from './lapHistory';
 import { courseHash, isRunVideoName, LAP_INDEX_FILE, lapKey, parseLapIndex, type LapCourse, type LapRow } from './lapIndex';
-import { findRunRow, isRunsConflictCopy, mergeRunsFiles, parseRunsFile, RUNS_FILE } from './runsFile';
+import { findRunRow, isRunsConflictCopy, mergeRunsFiles, parseRunsFileStrict as parseRunsFile, noteRunsConflictCopies, RUNS_FILE } from './runsFile';
 import type { RunItem } from './runOpener';
 import { getStorageRevision } from './storageCourses';
 
@@ -90,6 +90,7 @@ export async function prepareStoredLap(choice: StoredChoice, parse: (fileName: s
   const files = await list();
   await course();
   check();
+  noteRunsConflictCopies(row.folder,files.filter(f=>f.path.slice(0,f.path.lastIndexOf('/'))===row.folder&&isRunsConflictCopy(f.path.slice(f.path.lastIndexOf('/')+1))).map(f=>f.path),revision);
 
   const sessions = parsed.map((s, i) => ({
     ...onFolderCourse(s, before),

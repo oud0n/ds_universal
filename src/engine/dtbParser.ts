@@ -1,3 +1,4 @@
+import type { GFilterLevel } from './physics';
 import { fault } from './errors';
 import { TelemetryPoint } from '../types/telemetry';
 import { calculatePhysics } from './physics';
@@ -81,7 +82,7 @@ export function dateToOleDate(date: Date): number {
 /**
  * デジスパイス .dtb バイナリファイルを解析
  */
-export function parseDtb(buffer: ArrayBuffer): {
+export function parseDtb(buffer: ArrayBuffer, physicsLevel: GFilterLevel = 'strong'): {
   points: TelemetryPoint[];
   samplingRate: number;
   startDate?: Date;
@@ -157,7 +158,7 @@ export function parseDtb(buffer: ArrayBuffer): {
   }
 
   // 物理計算（加減速G、横G、合算G、旋回半径、ドリフトアングル）を付与
-  const enrichedPoints = calculatePhysics(points);
+  const enrichedPoints = calculatePhysics(points, physicsLevel);
 
   // 記録レートは時刻の刻み (中央値) から求める
   if (points.length > 2) {

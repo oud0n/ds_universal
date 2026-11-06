@@ -25,6 +25,9 @@ import { TrackMapWindow } from './components/TrackMapWindow';
 import { asSessionSec, asLapSec, getPlaybackPosition, lapDistanceToSessionSec, lapToSessionSec, type SessionSec, type LapSec } from './services/playbackPosition';
 import { LapPicker, type LapPickerChoice } from './components/LapPicker';
 import { applyRunMetadata, assignLap, reuseStoredSessions, selectAvailableCars } from './services/lapAssignmentState';
+import {advancePlayback} from './engine/playbackAdvance';
+import {bindStorageLifecycle} from './engine/EngineSession';
+import {runController} from './services/runOpener';
 import { createWebEngineSession as createEngineSession } from './adapters/web/engineSession';
 import { storageContext } from './services/storageRevision';
 import { prepareStoredLap } from './services/lapSelection';
@@ -170,7 +173,7 @@ export const App: React.FC = () => {
   const manualSelectionRef = engine.operations.manualSelection;
   const storageReadRevision = useSyncExternalStore(subscribeStorageRevision, getStorageReadRevision, getStorageReadRevision);
   const storageRevision = getStorageRevision();
-  useEffect(() => subscribeBeforeStorageSelection(flushOpenRunsStrict), []);
+  useEffect(()=>bindStorageLifecycle(engine,runController),[engine]);
   const pendingParsesRef = engine.operations.pendingParses;
   const invalidateAssignments = () => { selectionEpochRef.current++; };
   const showLapPicker = () => { pickerActiveRef.current = true; setLapPickerOpen(true); };
@@ -183,7 +186,6 @@ export const App: React.FC = () => {
     // 道だけの関連を新しい保管場所へ持ち込まない。点列はメモリ内で引き続き見られる。
     runSessionsRef.current.clear(); runItemsRef.current.clear(); attachedRunRef.current = null;
     runDownloadTokenRef.current++; setRunDownload(null);
-    abandonOpenRuns();
   }, [storageRevision, storageReadRevision]);
   useEffect(() => () => { pickerActiveRef.current = false; selectionEpochRef.current++; }, []);
 
@@ -638,7 +640,7 @@ export const App: React.FC = () => {
       ? { gridTemplateAreas: '"g t" "g b"', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gridTemplateRows: 'auto minmax(0, 1fr)' }
       : { gridTemplateAreas: '"g" "t" "b"', gridTemplateColumns: 'minmax(0, 1fr)', gridTemplateRows: 'minmax(180px, 42%) auto minmax(0, 1fr)' });
   const videoView = useVideoView();
-  const [videoCompareEnd, setVideoCompareEnd] = useState<{ source: string; end: number } | null>(null);
+  const [videoCompareEnd, setVideoCompareEnd] = useState<{ source: string; start: number; end: number } | null>(null);
   const logEndTime = baseSession?.points.length ? baseSession.points[baseSession.points.length - 1].time : 0;
   // 出しているカメラを基準車のログの時刻に置いて、その終わりまで進める。メイン以外は、ログの間に始まるときだけ数える
   // (撮影日の違う動画で、再生の終わりが何日も先にならないように)
@@ -705,8 +707,9 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const pts = isSessionClock ? baseSession?.points : baseLap?.points;
-    const startTime = isSessionClock ? 0 : baseLap?.startTime ?? 0;
-    const endTime = isSessionClock ? sessionEndTime : startTime + playEndTime;
+    const comparison=isSessionClock&&videoCompareEnd?.source===playbackSource?videoCompareEnd:null;
+    const startTime=comparison?.start??(isSessionClock?sessionStartTime:baseLap?.startTime??0);
+    const endTime=comparison?.end??(isSessionClock?sessionEndTime:startTime+playEndTime);
     if (!isPlaying || (!isSessionClock && (!pts || pts.length === 0)) || !(endTime > 0)) {
       if (animRef.current) cancelAnimationFrame(animRef.current);
       return;
@@ -735,22 +738,11 @@ export const App: React.FC = () => {
       setPlayhead(prev => {
         if (prev.source !== playbackSource) return prev;
         const prevTime = prev.sessionSec;
-        let nextTime = prevTime + dtSec;
-        // 動画が動き出すまでは待つ (戻しはしない)。1 秒より離れているとき (周の始めに戻した) と、
-        // このループの外で時刻を動かした直後 (見ている位置を動かした) は、これまでどおり進め、動画のほうが付いてくる
-        const movedOutside = loopTimeRef.current !== null && Math.abs(prevTime - loopTimeRef.current) > 1e-6;
-        if (master !== null && !movedOutside && Math.abs(master - nextTime) < 1) nextTime = Math.max(prevTime, master);
-        if (nextTime > endTime) {
-          if (isSessionClock) {
-            // セッション全体の時刻では、終わりで止める
-            nextTime = endTime;
-            setIsPlaying(false);
-          } else {
-            nextTime = startTime; // 周の始めへ戻る
-            // 周の始めに戻ったら、セクターにそろえるのをやめ、全車を計測線から同時に走らせる
-            setAlignedSector(null);
-          }
-        }
+        const movedOutside=loopTimeRef.current!==null&&Math.abs(prevTime-loopTimeRef.current)>1e-6;
+        const result=advancePlayback({current:prevTime,deltaSec:dtSec,start:startTime,end:endTime,loop:!isSessionClock||comparison!==null,master,movedOutside});
+        const nextTime=result.sessionSec;
+        if(result.stopped)setIsPlaying(false);
+        if(result.looped)setAlignedSector(null);
 
         loopTimeRef.current = nextTime;
         return { source: playbackSource, sessionSec: asSessionSec(nextTime) };
@@ -764,7 +756,7 @@ export const App: React.FC = () => {
     return () => {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
-  }, [isPlaying, playbackSpeed, baseLap, baseSession, playEndTime, sessionEndTime, isSessionClock, isCompact]);
+  }, [isPlaying, playbackSpeed, baseLap, baseSession, playEndTime, sessionEndTime, sessionStartTime, isSessionClock, isCompact, videoCompareEnd?.source, videoCompareEnd?.start, videoCompareEnd?.end]);
 
   // キーボードショートカット (Space: 再生/停止, F / →: コマ送り, B / ←: コマ戻し, Shift で 1 秒単位)
   useEffect(() => {
@@ -1421,7 +1413,7 @@ export const App: React.FC = () => {
       entry.sessions = registerRunSessions(store, entry.item, entry.sessions, analysisStore.getSessions);
     }
     const incoming = entries.flatMap(e => e.sessions);
-    analysisStore.update(() => selectAvailableCars({ sessions: incoming, selectedCars: [] }, picks));
+    engine.replaceAnalysis(selectAvailableCars({sessions:incoming,selectedCars:[]},picks));
     releaseClosedRunVideos(new Set(incoming.map(s => s.id)));
     for (const entry of entries) {
       const item = shareRunItem(entry.item, store), path = `${item.folder}/${item.file}`;
@@ -1430,7 +1422,6 @@ export const App: React.FC = () => {
       loadRunSidecars(store, item, entry.sessions);requestSessionPolylines(entry.sessions);
     }
     setRunAssociationsVersion(n => n + 1);
-    selectCarsAtLapStart(picks);
     navStore.go('analysis');
     if (missing.length) alert(tr(`見つからない走行がありました (${missing.length} 件): ${missing.join(', ')}`, `Some runs were not found (${missing.length}): ${missing.join(', ')}`));
     else if (moved) alert(tr(`計測線が変わっていたので、保存したときの周の始まりの時刻で周を選び直しました (${moved} 台)`, `The timing line changed, so ${moved} lap(s) were matched again by their start time`));
@@ -1526,7 +1517,7 @@ export const App: React.FC = () => {
       item = shareRunItem(item, store);
       added = registerRunSessions(store, item, added, analysisStore.getSessions);
       const committed = selectAvailableCars({ sessions: [...retained.filter(s => !incomingIds.has(s.id)), ...added], selectedCars: [] }, checked.selectedCars);
-      analysisStore.update(() => committed);
+      engine.replaceAnalysis(committed);
       runSessionsRef.current.set(runPath, added.map(x => x.id));runItemsRef.current.set(runPath, item);
       for (const id of removedIds) { polylineRequestRef.current.delete(id);imuTracksRef.current.delete(id);imuPendingRef.current.delete(id);sensorPendingRef.current.delete(id); }
       setConvertSessionId(prev => removedIds.has(prev) ? '' : prev);
@@ -1538,8 +1529,7 @@ export const App: React.FC = () => {
       releaseUnselectedRunVideos();
       loadRunSidecars(store, item, added);requestSessionPolylines(added);
       attachedRunRef.current = runPath;openedRunRef.current = runPath;setRunsSheetOpen(false);
-      setIsPlaying(false);
-      setPlayhead({ source: main.id, sessionSec: asSessionSec(main.laps.find(l => l.lapNumber === lapNumber)?.startTime ?? 0) });
+
       navStore.go(to);
       const sessionsNow = analysisStore.getSessions;
       const ownerId = currentBaseId();
@@ -2195,11 +2185,7 @@ export const App: React.FC = () => {
     const session = analysisStore.getSnapshot().sessions.find(s => s.id === sessionId);
     const lap = session?.laps.find(l => l.lapNumber === lapNumber);
     if (!session || !lap || !chosen || session.points !== chosen.points || lap !== chosenLap) return;
-    analysisStore.update(prev => assignLap(prev, [], sessionId, lapNumber, slotIndex, false));
-    if ([...analysisStore.getSnapshot().selectedCars].sort((a, b) => a.slot - b.slot)[0]?.slot === slotIndex) {
-      setIsPlaying(false);
-      setPlayhead({ source: session.id, sessionSec: asSessionSec(lap.startTime) });
-    }
+    engine.selectLap(sessionId,lapNumber,slotIndex);
     });
   };
 

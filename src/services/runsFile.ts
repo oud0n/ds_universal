@@ -7,3 +7,6 @@ export const noteRunsConflictCopies=runsFileStore.noteRunsConflictCopies;
 export const readRunsFile=withEngineErrors(runsFileStore.readRunsFile);
 export const updateRun=withEngineErrors(runsFileStore.updateRun);
 export const removeRunRow=withEngineErrors(runsFileStore.removeRunRow);
+
+import {parseRunsFileStrict as strictParse} from '../engine/runsFile';
+export const parseRunsFileStrict=withEngineErrors(strictParse);

@@ -1,3 +1,4 @@
+import type { GFilterLevel } from './physics';
 import { decodeWindows1252 } from './codecs';
 import { fault, defaultText } from './errors';
 // iRacing のテレメトリ (.ibt) の読み込み。ゲームで走った記録を、実車のログと同じ画面で比べるため。
@@ -75,7 +76,7 @@ export function parseIbtSessionInfo(yaml: string): { trackName?: string; vehicle
   return { trackName, vehicleName, driverName };
 }
 
-export function parseIbt(bytes: Uint8Array): IbtLog {
+export function parseIbt(bytes: Uint8Array, physicsLevel: GFilterLevel = 'strong'): IbtLog {
   if (!isIbt(bytes)) throw fault('ibtParser.1', { ja: 'iRacing の .ibt として読めませんでした', en: 'Could not read this as an iRacing .ibt file' });
   const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const tickRate = v.getInt32(8, true);
@@ -199,7 +200,7 @@ export function parseIbt(bytes: Uint8Array): IbtLog {
     return d >= 500;
   };
   const logs = parts.filter(p => p.length >= 2 && moved(p)).map(p => {
-    const log = finalizeImportedSamples(p, defaultText('iRacing の .ibt', 'iRacing .ibt'), 9);
+    const log = finalizeImportedSamples(p, {ja:'iRacing の .ibt',en:'iRacing .ibt'}, 9, physicsLevel);
     return { ...log, samplingRate: tickRate };
   });
   if (logs.length === 0) throw fault('ibtParser.4', { ja: 'iRacing の .ibt に、コースを走った記録がありません', en: 'The iRacing .ibt file has no laps driven on track' });

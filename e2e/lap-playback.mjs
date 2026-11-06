@@ -169,6 +169,11 @@ async function exercise(width, height, files) {
     await p.waitFor(`Math.abs(window.__laploupe.sessionTimeSec-window.__laploupe.baseLap.startTime-${tail})<0.1`);
     await new Promise(r=>setTimeout(r,200));
     assert.ok((await p.state()).sessionTimeSec>(await p.state()).baseLap.startTime+fast.d,'slow-car tail is not reset at the base endpoint');
+    // 比較終端は全ログの終端より手前でも一巡し、再生中のまま先頭へ戻る。
+    await p.ev(`(()=>{const w=document.querySelector('[data-testid=video-mode-compare]').closest('[data-testid=video-window]'),r=w.querySelector('input[type=range]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(r,${slow.d}-0.05);r.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await p.ev("document.activeElement?.blur();document.dispatchEvent(new KeyboardEvent('keydown',{code:'Space',bubbles:true}))");
+    await p.waitFor('window.__laploupe.isPlaying && window.__laploupe.sessionTimeSec<window.__laploupe.baseLap.startTime+1',5000,'comparison loops without stopping');
+    await p.ev("document.dispatchEvent(new KeyboardEvent('keydown',{code:'Space',bubbles:true}))");
     assert.deepEqual(p.errors, []);
     console.log(`PASS ${width}×${height} 選択・切り替え・シーク・閉じた後の読み取り`);
   } finally {

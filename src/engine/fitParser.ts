@@ -1,3 +1,4 @@
+import type { GFilterLevel } from './physics';
 import { fault, defaultText } from './errors';
 /**
  * Garmin の FIT (.fit) の読み込み。公開されている FIT の仕様 (FIT Protocol) に沿って、record のメッセージ (番号 20) だけを読む。
@@ -43,7 +44,7 @@ function readValue(view: DataView, pos: number, f: FieldDef, le: boolean): numbe
 }
 
 /** FIT のファイルを読む。record に位置がなければ (室内の記録など) 読み込めない */
-export function parseFit(bytes: Uint8Array): ImportedLog {
+export function parseFit(bytes: Uint8Array, physicsLevel: GFilterLevel = 'strong'): ImportedLog {
   if (!isFit(bytes)) throw fault('fitParser.1', { ja: 'FIT のファイルとして読めませんでした', en: 'Could not read this as a FIT file' });
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const raw: TrackPoint[] = [];
@@ -128,5 +129,5 @@ export function parseFit(bytes: Uint8Array): ImportedLog {
     offset = offset + headerSize + dataSize + 2;
   }
   if (raw.length === 0) throw fault('fitParser.3', { ja: 'FIT のファイルに記録 (record) がありません', en: 'The FIT file has no records' });
-  return trackToLog(raw, defaultText('FIT のファイル', 'the FIT file'));
+  return trackToLog(raw, {ja:'FIT のファイル',en:'the FIT file'}, physicsLevel);
 }

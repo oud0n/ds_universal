@@ -23,6 +23,7 @@ export interface PlaybackTarget {
    * 時計の元にするのは Car 1 だけ
    */
   clockEligible?: boolean;
+  hold?: boolean;
 }
 
 // ずれを詰め始める大きさと、詰め終える大きさ (行ったり来たりしないよう、間をあける)。
@@ -172,7 +173,7 @@ export class PlaybackController {
     this.entries.forEach((entry, key) => {
       const t = targets.get(key);
       const el = entry.el;
-      const eligible = clockMasterEnabled && appTime !== undefined && isPlaying && !!t && !t.outOfRange && t.rate === undefined && t.clockEligible !== false && !el.muted
+      const eligible = clockMasterEnabled && appTime !== undefined && isPlaying && !!t && !t.hold && !t.outOfRange && t.rate === undefined && t.clockEligible !== false && !el.muted
         && performance.now() >= entry.masterBlockedUntil
         && t.localTime >= 0 && !(t.durationSec > 0 && t.localTime > t.durationSec);
       entry.appOffset = eligible ? t!.localTime - appTime! : null;
@@ -183,7 +184,7 @@ export class PlaybackController {
     this.entries.forEach((entry, key) => {
       const t = targets.get(key);
       if (!t || t.outOfRange) { if (!entry.el.paused) entry.el.pause(); this.stopSeekWait(entry); return; }
-      this.syncEntry(entry, t, isPlaying, speed);
+      this.syncEntry(entry,t,isPlaying&&!t.hold,speed);
     });
   }
 

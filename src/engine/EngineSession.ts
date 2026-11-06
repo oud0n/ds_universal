@@ -1,68 +1,77 @@
-import type { Session, SelectedCarSlot } from '../types/telemetry';
-import type { RunItem } from './runRecords';
-import { assignLap, selectAvailableCars, type AnalysisState } from './lapAssignmentState';
-import { asSessionSec, type SessionSec } from './playbackPosition';
-import { createStorageContext, type StorageContext } from './storageContext';
+import type {Session,SelectedCarSlot} from '../types/telemetry';
+import type {RunItem} from './runRecords';
+import {assignLap,selectAvailableCars,type AnalysisState} from './lapAssignmentState';
+import {asSessionSec,type SessionSec} from './playbackPosition';
+import {createStorageContext,type StorageContext} from './storageContext';
+import {EngineError} from './errors';
 
-export interface Playhead { source: string | null; sessionSec: SessionSec }
-export interface EngineSnapshot { analysis: AnalysisState; playhead: Playhead; isPlaying: boolean; playbackSpeed: number }
-type Change<T> = T | ((current: T) => T);
+export interface Playhead {source:string|null;sessionSec:SessionSec}
+export interface EngineSnapshot {analysis:AnalysisState;playhead:Playhead;isPlaying:boolean;playbackSpeed:number;closed:boolean}
+type Change<T>=T|((current:T)=>T);
+export interface EngineSessionOptions {storage?:StorageContext;flush?:()=>Promise<void>;onClosing?:()=>void;onClose?:()=>void}
 
-/** 画面やホストを持たない、アプリ一つ分の正本。UIはこのインスタンスを購読する。 */
-export function createEngineSession(options: { storage?: StorageContext; flush?: () => Promise<void> } = {}) {
-  let snapshot: EngineSnapshot = { analysis: { sessions: [], selectedCars: [] }, playhead: { source: null, sessionSec: asSessionSec(0) }, isPlaying: false, playbackSpeed: 1 };
-  const listeners = new Set<() => void>();
-  const storage = options.storage ?? createStorageContext();
-  const operations = {
-    pickerActive: { current: false }, slotRequests: { current: [0, 0, 0, 0] }, selectionEpoch: { current: 0 }, manualSelection: { current: 0 },
-    pendingParses: { current: new Map<string, { readers: number; parsed?: Promise<Session[]> }>() },
-    savedOpening: { current: false }, runOpening: { current: false },
-    runSessions: { current: new Map<string, string[]>() }, runItems: { current: new Map<string, RunItem>() },
-    attachedRun: { current: null as string | null }, openedRun: { current: null as string | null }, runDownloadToken: { current: 0 }
-  };
-  const publish = (next: EngineSnapshot) => { if (next === snapshot) return; snapshot = next;for (const listener of listeners) listener(); };
-  const subscribe = (listener: () => void) => { listeners.add(listener);return () => { listeners.delete(listener); }; };
-  const analysis = {
-    getSnapshot: () => snapshot.analysis,
-    getSessions: () => snapshot.analysis.sessions,
-    subscribe,
-    update(change: (state: AnalysisState) => AnalysisState): AnalysisState {
-      const next = change(snapshot.analysis);
-      if (next !== snapshot.analysis) publish({ ...snapshot, analysis: next });
-      return next;
-    }
-  };
-  const setPlayhead = (change: Change<Playhead>) => {
-    const next = typeof change === 'function' ? change(snapshot.playhead) : change;
-    if (!Number.isFinite(next.sessionSec)) return;
-    if (next.source !== snapshot.playhead.source || next.sessionSec !== snapshot.playhead.sessionSec) publish({ ...snapshot, playhead: next });
-  };
-  const selectCarsAtLapStart = (cars: SelectedCarSlot[]) => {
-    const next = selectAvailableCars(snapshot.analysis, cars), base = next.selectedCars[0];
-    const lap = next.sessions.find(s => s.id === base?.sessionId)?.laps.find(l => l.lapNumber === base?.lapNumber);
-    publish({ ...snapshot, analysis: next, ...(base && lap ? { playhead: { source: base.sessionId, sessionSec: asSessionSec(lap.startTime) }, isPlaying: false } : {}) });
-    return next;
-  };
-  const cancelPending = () => { operations.pickerActive.current = false;operations.selectionEpoch.current++;operations.runDownloadToken.current++; };
-  return {
-    storage, operations, analysis, getSnapshot: () => snapshot, subscribe, setPlayhead, selectCarsAtLapStart,
-    setIsPlaying(change: Change<boolean>) { const next = typeof change === 'function' ? change(snapshot.isPlaying) : change;if (next !== snapshot.isPlaying) publish({ ...snapshot, isPlaying: next }); },
-    setPlaybackSpeed(change: Change<number>) { const next = typeof change === 'function' ? change(snapshot.playbackSpeed) : change;if (Number.isFinite(next) && next > 0 && next !== snapshot.playbackSpeed) publish({ ...snapshot, playbackSpeed: next }); },
-    assign(incoming: Session[], id: string, lap: number, slot: number, retained: readonly string[] = [], register?: (incoming: Session[]) => Session[]) {
-      const proposed = assignLap(snapshot.analysis, incoming, id, lap, slot, false);
-      const base = proposed.sessions.find(s => s.id === proposed.selectedCars[0]?.sessionId);
-      const keep = base && !base.sourceFile ? retained : [];
-      assignLap(snapshot.analysis, incoming, id, lap, slot, true, keep);
-      const next = assignLap(snapshot.analysis, register?.(incoming) ?? incoming, id, lap, slot, true, keep);
-      const chosenBase = next.selectedCars[0];
-      if (chosenBase?.slot === slot) {
-        const chosenLap = next.sessions.find(s => s.id === id)?.laps.find(l => l.lapNumber === lap)!;
-        publish({ ...snapshot, analysis: next, playhead: { source: id, sessionSec: asSessionSec(chosenLap.startTime) }, isPlaying: false });
-      } else publish({ ...snapshot, analysis: next });
-      return next;
-    },
-    cancelPending,
-    async close() { await options.flush?.();cancelPending();publish({ ...snapshot, isPlaying: false }); }
-  };
+/** 一つの正本。点列・Carの採用と基準時計の更新を同じ通知で公開する。 */
+export function createEngineSession(options:EngineSessionOptions={}){
+ let snapshot:EngineSnapshot={analysis:{sessions:[],selectedCars:[]},playhead:{source:null,sessionSec:asSessionSec(0)},isPlaying:false,playbackSpeed:1,closed:false};
+ let closing:Promise<void>|null=null;
+ const listeners=new Set<()=>void>();
+ const storage=options.storage??createStorageContext();
+ const operations={
+  pickerActive:{current:false},slotRequests:{current:[0,0,0,0]},selectionEpoch:{current:0},manualSelection:{current:0},
+  pendingParses:{current:new Map<string,{readers:number;parsed?:Promise<Session[]>}>()},savedOpening:{current:false},runOpening:{current:false},
+  runSessions:{current:new Map<string,string[]>()},runItems:{current:new Map<string,RunItem>()},attachedRun:{current:null as string|null},openedRun:{current:null as string|null},runDownloadToken:{current:0}
+ };
+ const active=()=>{if(snapshot.closed||closing)throw new EngineError('engine.closed',{ja:'エンジンは終了しました。',en:'The engine is closed.'});};
+ const publish=(next:EngineSnapshot)=>{if(next===snapshot)return;snapshot=next;for(const listener of listeners)listener();};
+ const subscribe=(listener:()=>void)=>{listeners.add(listener);return()=>{listeners.delete(listener);};};
+ const baseOf=(state:AnalysisState)=>[...state.selectedCars].sort((a,b)=>a.slot-b.slot).find(car=>state.sessions.some(s=>s.id===car.sessionId&&s.laps.some(l=>l.lapNumber===car.lapNumber)));
+ const adopt=(state:AnalysisState,restart=false)=>{
+  active();
+  const next=selectAvailableCars(state,state.selectedCars),before=baseOf(snapshot.analysis),base=baseOf(next);
+  const changed=before?.sessionId!==base?.sessionId||before?.lapNumber!==base?.lapNumber;
+  const reset=restart||changed;
+  const lap=base&&next.sessions.find(s=>s.id===base.sessionId)?.laps.find(l=>l.lapNumber===base.lapNumber);
+  publish({...snapshot,analysis:next,...(reset?{playhead:{source:base?.sessionId??null,sessionSec:asSessionSec(lap?.startTime??0)},isPlaying:false}:{})});
+  return next;
+ };
+ const analysis={getSnapshot:()=>snapshot.analysis,getSessions:()=>snapshot.analysis.sessions,subscribe,update(change:(state:AnalysisState)=>AnalysisState){active();const next=change(snapshot.analysis);return next===snapshot.analysis?next:adopt(next);}};
+ const setPlayhead=(change:Change<Playhead>)=>{
+  if(snapshot.closed||closing)return;
+  const next=typeof change==='function'?change(snapshot.playhead):change;
+  if(!Number.isFinite(next.sessionSec)||next.source!==(baseOf(snapshot.analysis)?.sessionId??null))return;
+  if(next.source!==snapshot.playhead.source||next.sessionSec!==snapshot.playhead.sessionSec)publish({...snapshot,playhead:next});
+ };
+ const cancelPending=()=>{operations.pickerActive.current=false;operations.selectionEpoch.current++;operations.runDownloadToken.current++;};
+ const resetStorage=()=>{cancelPending();operations.runSessions.current.clear();operations.runItems.current.clear();operations.attachedRun.current=null;operations.openedRun.current=null;};
+ return {
+  storage,operations,analysis,getSnapshot:()=>snapshot,subscribe,setPlayhead,cancelPending,resetStorage,
+  replaceAnalysis:(state:AnalysisState,restart=true)=>adopt(state,restart),
+  selectCarsAtLapStart:(cars:SelectedCarSlot[])=>adopt(selectAvailableCars(snapshot.analysis,cars),true),
+  selectLap(id:string,lap:number,slot:number){active();const next=assignLap(snapshot.analysis,[],id,lap,slot,false);return adopt(next,baseOf(next)?.slot===slot);},
+  setIsPlaying(change:Change<boolean>){if(snapshot.closed||closing)return;const next=typeof change==='function'?change(snapshot.isPlaying):change;if(next!==snapshot.isPlaying)publish({...snapshot,isPlaying:next});},
+  setPlaybackSpeed(change:Change<number>){if(snapshot.closed||closing)return;const next=typeof change==='function'?change(snapshot.playbackSpeed):change;if(Number.isFinite(next)&&next>0&&next!==snapshot.playbackSpeed)publish({...snapshot,playbackSpeed:next});},
+  assign(incoming:Session[],id:string,lap:number,slot:number,retained:readonly string[]=[],register?:(incoming:Session[])=>Session[]){
+   active();
+   const proposed=assignLap(snapshot.analysis,incoming,id,lap,slot,false),base=proposed.sessions.find(s=>s.id===proposed.selectedCars[0]?.sessionId);
+   const keep=base&&!base.sourceFile?retained:[];
+   assignLap(snapshot.analysis,incoming,id,lap,slot,true,keep);
+   const next=assignLap(snapshot.analysis,register?.(incoming)??incoming,id,lap,slot,true,keep);
+   return adopt(next,baseOf(next)?.slot===slot);
+  },
+  close():Promise<void>{
+   if(snapshot.closed)return Promise.resolve();if(closing)return closing;
+   cancelPending();options.onClosing?.();
+   closing=(async()=>{await options.flush?.();options.onClose?.();resetStorage();operations.pendingParses.current.clear();publish({...snapshot,analysis:{sessions:[],selectedCars:[]},playhead:{source:null,sessionSec:asSessionSec(0)},isPlaying:false,closed:true});listeners.clear();})().finally(()=>{closing=null;});
+   return closing;
+  }
+ };
 }
-export type EngineSession = ReturnType<typeof createEngineSession>;
+export type EngineSession=ReturnType<typeof createEngineSession>;
+
+/** Webと他のホストに共通の保存先切替え契約。解除はホストの寿命に合わせる。 */
+export function bindStorageLifecycle(session:EngineSession,controller:{flushOpenRunsStrict():Promise<void>;abandonOpenRuns():void}){
+ const {storage}=session;let revision=storage.getStorageRevision();
+ const before=storage.subscribeBeforeStorageSelection(()=>controller.flushOpenRunsStrict());
+ const changed=storage.subscribeStorageRevision(()=>{const next=storage.getStorageRevision();if(next===revision)return;revision=next;session.resetStorage();controller.abandonOpenRuns();});
+ return()=>{before();changed();};
+}

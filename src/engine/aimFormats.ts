@@ -1,3 +1,4 @@
+import type { GFilterLevel } from './physics';
 import { fault, defaultText } from './errors';
 import { inflateZlib } from './codecs';
 // AiM (Race Studio) のログの読み込み: Race Studio が書き出す CSV と、ロガーのファイル (.xrk / 圧縮した .xrz)。
@@ -14,7 +15,7 @@ export function isAimCsv(text: string): boolean {
   return /^"?Format"?\s*,\s*"?AiM CSV File"?/i.test(text.slice(0, 200).trimStart());
 }
 
-export function parseAimCsv(text: string): ImportedLog {
+export function parseAimCsv(text: string, physicsLevel: GFilterLevel = 'strong'): ImportedLog {
   const lines = text.split(/\r?\n/);
   // 先頭の情報の行 ("Date","Tuesday, December 16, 2025" / "Time","11:49 AM")
   const meta = new Map<string, string>();
@@ -69,7 +70,7 @@ export function parseAimCsv(text: string): ImportedLog {
       timestamp: start ? new Date(start.getTime() + t * 1000) : undefined
     });
   }
-  return finalizeImportedSamples(samples, defaultText('AiM の CSV', 'the AiM CSV'));
+  return finalizeImportedSamples(samples, {ja:'AiM の CSV',en:'the AiM CSV'}, undefined, physicsLevel);
 }
 
 function parseAimDateTime(date?: string, time?: string): Date | undefined {
@@ -139,7 +140,7 @@ function ecefToLla(x: number, y: number, z: number): { lat: number; lon: number;
 }
 
 /** .xrk (展開済み) から GPS の走行ログを読む */
-export function parseXrk(bytes: Uint8Array): ImportedLog {
+export function parseXrk(bytes: Uint8Array, physicsLevel: GFilterLevel = 'strong'): ImportedLog {
   const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const fixes: { utcMs: number; lat: number; lon: number; alt: number; speedMs: number; headingDeg: number }[] = [];
   // '<h' + 'GPS' (4 文字目は 0x00 か空白) / 'GPS1' + 長さ (int32) + 版 + '>' + 本体 + '<' + 'GPS ' + 照合値 (本体の和) + '>'
@@ -213,5 +214,5 @@ export function parseXrk(bytes: Uint8Array): ImportedLog {
       timestamp: new Date(f.utcMs)
     };
   });
-  return finalizeImportedSamples(samples, defaultText('AiM のファイル', 'the AiM file'));
+  return finalizeImportedSamples(samples, {ja:'AiM のファイル',en:'the AiM file'}, undefined, physicsLevel);
 }

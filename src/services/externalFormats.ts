@@ -5,16 +5,16 @@ export const detectDecimalComma: typeof core.detectDecimalComma = withEngineErro
 export const splitCsvLine: typeof core.splitCsvLine = withEngineErrors(core.splitCsvLine);
 export const finalizeImportedSamples: typeof core.finalizeImportedSamples = withEngineErrors(core.finalizeImportedSamples);
 export const isVbo: typeof core.isVbo = withEngineErrors(core.isVbo);
-export const parseVbo: typeof core.parseVbo = withEngineErrors(withLogPreferences(core.parseVbo));
+export const parseVbo: typeof core.parseVbo = withEngineErrors(withLogPreferences(core.parseVbo, 1));
 export const isRaceChronoCsv: typeof core.isRaceChronoCsv = withEngineErrors(core.isRaceChronoCsv);
-export const parseRaceChronoCsv: typeof core.parseRaceChronoCsv = withEngineErrors(withLogPreferences(core.parseRaceChronoCsv));
+export const parseRaceChronoCsv: typeof core.parseRaceChronoCsv = withEngineErrors(withLogPreferences(core.parseRaceChronoCsv, 1));
 export const isGpx: typeof core.isGpx = withEngineErrors(core.isGpx);
-export const parseGpx: typeof core.parseGpx = withEngineErrors(withLogPreferences(core.parseGpx));
+export const parseGpx: typeof core.parseGpx = withEngineErrors(withLogPreferences(core.parseGpx, 1));
 export const trackToLog: typeof core.trackToLog = withEngineErrors(core.trackToLog);
 export const isTcx: typeof core.isTcx = withEngineErrors(core.isTcx);
-export const parseTcx: typeof core.parseTcx = withEngineErrors(withLogPreferences(core.parseTcx));
+export const parseTcx: typeof core.parseTcx = withEngineErrors(withLogPreferences(core.parseTcx, 1));
 export const isMotecCsv: typeof core.isMotecCsv = withEngineErrors(core.isMotecCsv);
-export const parseMotecCsv: typeof core.parseMotecCsv = withEngineErrors(withLogPreferences(core.parseMotecCsv));
+export const parseMotecCsv: typeof core.parseMotecCsv = withEngineErrors(withLogPreferences(core.parseMotecCsv, 1));
 export const exportMotecCsv: typeof core.exportMotecCsv = withEngineErrors(core.exportMotecCsv);
 
 import {withLogPreferences} from '../adapters/web/logPreferences';

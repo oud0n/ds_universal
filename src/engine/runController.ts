@@ -1,4 +1,4 @@
-import { fault, defaultText } from './errors';
+import { fault, defaultText, EngineError } from './errors';
 import { sessionStartUtcMs, type ClockSession } from './mediaClock';
 /**
  * 過去の走行の一覧と、走行を開く (ログ・同じフォルダの動画・動画の同期をそろえて開く)。2026-10-20。
@@ -50,6 +50,7 @@ export interface RunMetaPatch {
   weather?: Weather | null;
   airTempC?: number | null;
   trackTempC?: number | null;
+  overlayLayout?: string | null;
 }
 export interface RunControllerPorts {
  storage: StorageContext;
@@ -62,6 +63,7 @@ export interface RunControllerPorts {
  scheduler: SchedulerPort; nowMs(): number;
 }
 export function createRunController(host: RunControllerPorts) {
+let disposed=false;
 const {getStorageRevision,isStorageSelectionPending} = host.storage;
 const videoSyncManager=host.media, videoViewStore=host.pins;
 const {loadLapHistory,updateLapHidden}=host.history;
@@ -84,7 +86,9 @@ function startFromName(file: string): number | null {
 async function listRuns(store: RunStore, onProgress?: (folder: string) => void, strict = false): Promise<RunItem[]> {
   const all = await store.listAll();
   // 周の控えを作るときも、今引いたファイルの一覧を使う (iCloud の置き場所では、一覧を引くのに時間がかかるので 2 回引かない)
-  const listed: RunStore = { ...store, list: async () => all };
+  const listed = {storageRevision:store.storageRevision,list:async()=>all,
+    read:(path:string)=>store.read(path),readText:(path:string)=>store.readText(path),
+    readTextStrict:(path:string)=>store.readTextStrict(path),writeText:(path:string,text:string)=>store.writeText(path,text)};
   const folders = await loadLapHistory(listed, onProgress);
   // フォルダごとの動画と .bon4 を先に 1 回だけ分けておく (走行ごとに全部のファイルを探すと、数千件で遅くなる)
   const videosByDir = new Map<string, RunFileInfo[]>();
@@ -126,7 +130,7 @@ async function listRuns(store: RunStore, onProgress?: (folder: string) => void, 
       // 行の名前は「日付のフォルダ/拡張子なしの名前」(.nmea と .bon4 は 1 行)。日付のフォルダへ移す前の、名前だけの行も引く
       const entry = findRunRow(runs, file);
       const videos = entry?.videos?.map(v => v.name) ?? rec?.videos ?? [];
-      out.push({
+      const listedItem:RunItem={
         storageRevision: store.storageRevision,
         folder: f.folder,
         file,
@@ -140,7 +144,8 @@ async function listRuns(store: RunStore, onProgress?: (folder: string) => void, 
         folderVideos,
         pending: !rec && remoteOnly.has(`${f.folder}/${file}`),
         entry
-      });
+      };
+      listedItem.entry=getRunItemEntry(store,listedItem);out.push(listedItem);
     }
   }
   return out.sort((a, b) => (b.startMs ?? 0) - (a.startMs ?? 0) || b.file.localeCompare(a.file));
@@ -220,6 +225,7 @@ let current: OpenRun | null = null;
 const companions = new Map<string, OpenRun>();
 let timer: unknown | null = null;
 let subscribed = false;
+const subscriptions:Array<()=>void>=[];
 let editSequence = 0;
 
 const runPath = (item: RunItem) => `${item.folder}/${item.file}`;
@@ -373,7 +379,7 @@ async function saveRunSnapshot(run: OpenRun, snap: RunSnapshot, metadata: Map<ke
     const pending = pendingMetadata.get(metadataKey);
     if (pending) {
       for (const [k, v] of writtenMetadata) if (pending.get(k)?.version === v.version) pending.delete(k);
-      if (!pending.size) pendingMetadata.delete(metadataKey);
+      if (!pending.size) {pendingMetadata.delete(metadataKey);metadataOwners.delete(metadataKey);}
     }
     run.item.entry = withPendingMetadata(run.store, run.item, row);
     // 次にこの走行を開き直すとき (Car 1 を替えて戻ったときなど) の動画の候補も、書いた中身にする (外した動画が戻らないように)
@@ -391,7 +397,9 @@ async function saveRunSnapshot(run: OpenRun, snap: RunSnapshot, metadata: Map<ke
 
 function saveAll(strict = false): Promise<unknown> {
   const runs = [...(current ? [current] : []), ...companions.values()];
-  return Promise.all(runs.map(run => saveRun(run, strict)));
+  const openKeys=new Set(runs.map(run=>metadataKeyOf(run.store,run.item)));
+  const closed=[...metadataOwners].filter(([key])=>!openKeys.has(key));
+  return Promise.all([...runs.map(run=>saveRun(run,strict)),...closed.map(([key,owner])=>persistMetadata(key,owner.store,owner.item).catch(error=>{if(strict)throw error;}))]);
 }
 
 function scheduleSave(): void {
@@ -405,8 +413,7 @@ function scheduleSave(): void {
 function ensureSubscribed(): void {
   if (subscribed) return;
   subscribed = true;
-  videoSyncManager.subscribe(scheduleSave);
-  videoViewStore.subscribe(scheduleSave);
+  subscriptions.push(videoSyncManager.subscribe(scheduleSave),videoViewStore.subscribe(scheduleSave));
 }
 
 /** ログの時計の補正を変えたときなど、動画・ピンのほかに走行の中身が変わったとき (App から) */
@@ -805,15 +812,9 @@ function openRunOverlayLayout(sessionId: string | undefined): string | null {
 async function setOpenRunOverlayLayout(sessionId: string | undefined, id: string): Promise<void> {
   const run = current;
   if (!run || !sessionId || !run.sessionIds.includes(sessionId)) return;
-  // 自動も 'auto' として覚える (覚えていない走行と分けるため。覚えていない走行はウインドウの並びのまま)
-  if ((run.requestedLayout ?? run.item.entry?.overlayLayout) === id) return;
-  run.requestedLayout = id;
-  try {
-    const row = await updateRun(run.store, run.item.folder, run.item.file, prev => ({ ...prev, overlayLayout: run.requestedLayout ?? id }));
-    run.item.entry = row;
-  } catch {
-    // 書けなくても、今のウインドウではその並びで出す
-  }
+  if(run.item.entry?.overlayLayout===id && !pendingMetadata.get(metadataKeyOf(run.store,run.item))?.has('overlayLayout'))return;
+  run.requestedLayout=id;
+  await setRunMeta(run.store,run.item,{overlayLayout:id});
 }
 
 /** 走行の行に書ける項目 (null・空は消す) */
@@ -830,6 +831,7 @@ function applyConditions(row: Partial<RunRow>, patch: RunMetaPatch): void {
 }
 
 let metadataSequence = 0;
+const metadataOwners=new Map<string,{store:RunStore;item:RunItem}>();
 const pendingMetadata = new Map<string, Map<keyof RunMetaPatch, { version: number; value: unknown }>>();
 const metadataStores = new WeakMap<RunStore, number>();
 let metadataStoreSequence = 0;
@@ -842,7 +844,7 @@ function metadataKeyOf(store: RunStore, item: RunItem): string {
 
 function patchMetadata(row: Partial<RunRow> | null | undefined, patch: RunMetaPatch): RunRow {
   const next: RunRow = { updatedAt: '', ...row };
-  for (const k of ['name', 'note', 'car', 'tyre'] as const) if (k in patch) {
+  for (const k of ['name', 'note', 'car', 'tyre', 'overlayLayout'] as const) if (k in patch) {
     const value = patch[k]?.trim(); if (value) next[k] = value; else delete next[k];
   }
   if ('reference' in patch) {
@@ -883,17 +885,28 @@ async function setRunMeta(store: RunStore, item: RunItem, patch: RunMetaPatch): 
   for (const target of targets) {
     target.entry = withPendingMetadata(store, target, target.entry ?? { updatedAt: '' });
   }
-  const row = await updateRun(store, item.folder, item.file, prev => patchMetadata(prev, patch));
-  for (const target of relatedRunItems(store, item)) targets.add(target);
-  for (const [field, value] of pending) if (value.version === version) pending.delete(field);
-  if (!pending.size && pendingMetadata.get(key) === pending) pendingMetadata.delete(key);
-  for (const target of targets) target.entry = withPendingMetadata(store, target, row);
-  return row;
+  metadataOwners.set(key,{store,item});
+  return persistMetadata(key,store,item,targets);
 }
 
 /** 走行の周を隠す・出す (控え laptimes.json に書く。ファイルは消さない) */
 async function setRunLapHidden(store: RunStore, item: RunItem, lap: LapRecord, hide: boolean): Promise<void> {
   await updateLapHidden(store, item.folder, item.file, lap, hide);
+}
+
+async function persistMetadata(key:string,store:RunStore,item:RunItem,targets=relatedRunItems(store,item)):Promise<RunRow>{
+ const requested=new Map(pendingMetadata.get(key)??[]);
+ let written=new Map<keyof RunMetaPatch,{version:number;value:unknown}>();
+ const row=await updateRun(store,item.folder,item.file,prev=>{
+  written=new Map([...requested].filter(([field,value])=>pendingMetadata.get(key)?.get(field)?.version===value.version));
+  return patchMetadata(prev,Object.fromEntries([...written].map(([field,value])=>[field,value.value])) as RunMetaPatch);
+ });
+ const pending=pendingMetadata.get(key);
+ if(pending){for(const [field,value]of written)if(pending.get(field)?.version===value.version)pending.delete(field);
+  if(!pending.size){pendingMetadata.delete(key);metadataOwners.delete(key);}}
+ for(const target of relatedRunItems(store,item))targets.add(target);
+ for(const target of targets)target.entry=withPendingMetadata(store,target,row);
+ return row;
 }
 
 /** 保存を待ったあと、開いている走行の最新の同期行を採用側へ渡す。 */
@@ -902,6 +915,8 @@ function getOpenRunItem(folder: string, file: string): RunItem | null {
   return current && runPath(current.item) === path ? current.item : companions.get(path)?.item ?? null;
 }
 
-return {baseName,startFromName,listRuns,totalBytes,videoCandidates,assertRunItemCurrent,registerRunSessions,scheduleRunSave,companionSessionsOfVideo,flushOpenRunsStrict,flushOpenRuns,closeOpenRun,abandonOpenRuns,attachRunVideos,companionPaths,companionRuns,companionRunMatches,currentRunMatches,releaseClosedRunVideos,attachCompanionVideos,dropCompanion,addVideoToOpenRun,assertRunSyncTarget,getOpenRun,onOpenRun,openRunOverlayLayout,setOpenRunOverlayLayout,getRunItemEntry,setRunMeta,setRunLapHidden,getOpenRunItem};
+const dispose=()=>{if(disposed)return;disposed=true;for(const unsubscribe of subscriptions.splice(0))unsubscribe();subscribed=false;abandonOpenRuns();openRunListeners.clear();};
+const methods={baseName,startFromName,listRuns,totalBytes,videoCandidates,assertRunItemCurrent,registerRunSessions,scheduleRunSave,companionSessionsOfVideo,flushOpenRunsStrict,flushOpenRuns,closeOpenRun,abandonOpenRuns,attachRunVideos,companionPaths,companionRuns,companionRunMatches,currentRunMatches,releaseClosedRunVideos,attachCompanionVideos,dropCompanion,addVideoToOpenRun,assertRunSyncTarget,getOpenRun,onOpenRun,openRunOverlayLayout,setOpenRunOverlayLayout,getRunItemEntry,setRunMeta,setRunLapHidden,getOpenRunItem};
+return {dispose,...Object.fromEntries(Object.entries(methods).map(([name,method])=>[name,(...args:unknown[])=>{if(disposed)throw new EngineError('controller.closed',{ja:'保存担当は終了しました。',en:'The run controller is closed.'});return (method as (...args:unknown[])=>unknown)(...args); }])) as typeof methods};
 }
 export type RunController = ReturnType<typeof createRunController>;

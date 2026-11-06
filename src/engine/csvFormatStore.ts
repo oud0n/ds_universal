@@ -29,6 +29,7 @@ const isDeleted = (text: string) => { try { return (JSON.parse(text) as { delete
 export interface CsvFormatPorts { storage:StorageContext; repository():Promise<RunStore|null>; preferences:PreferencesPort; scheduler:SchedulerPort; channelsChanged(specs:CustomChannelSpec[]):void }
 export function createCsvFormatStore(host:CsvFormatPorts) {
 const {getStorageRevision,getStorageReadRevision,isStorageSelectionPending,subscribeStorageRevision}=host.storage;
+let disposed=false;
 // 定義と計算式は同じ保存先から準備し、一括で公開する。
 let formats: CsvFormat[] = [];
 let calc: CalcChannel[] = [];
@@ -58,14 +59,15 @@ const csvFormatsReady = (): boolean => snapshot.storageRevision === getStorageRe
 
 const store = () => host.repository();
 const checkRoot = (root: number) => {
+  if(disposed)throw new EngineError('formats.closed',{ja:'形式の管理は終了しました。',en:'The format store is closed.'});
   if (root !== getStorageRevision() || isStorageSelectionPending()) throw new StorageChangedError();
 };
 function retryWhenReady(): void {
-  if (!retryNeeded || retryQueued || isStorageSelectionPending()) return;
+  if (disposed || !retryNeeded || retryQueued || isStorageSelectionPending()) return;
   retryQueued = true;
   host.scheduler.defer(() => {
     retryQueued = false;
-    if (retryNeeded && !isStorageSelectionPending()) void loadCsvFormats().catch(() => undefined);
+    if (!disposed && retryNeeded && !isStorageSelectionPending()) void loadCsvFormats().catch(() => undefined);
   });
 }
 const unsubscribe = subscribeStorageRevision(() => {
@@ -92,6 +94,7 @@ function writeLocal(key: string, list: unknown[]): void {
 
 /** 中断後も選択終了時にやり直す。同じ期間の要求は共有する。 */
 function loadCsvFormats(retries = 0): Promise<void> {
+  if(disposed)return Promise.reject(new EngineError('formats.closed',{ja:'形式の管理は終了しました。',en:'The format store is closed.'}));
   const reads = getStorageReadRevision();
   if (retries === 0 && attempt?.reads === reads) return attempt.promise;
   const root = getStorageRevision(), ticket = ++sequence;
@@ -197,7 +200,7 @@ async function deleteCsvFormat(id: string, root = getStorageRevision()): Promise
   const next = formats.filter(x => x.id !== id);
   if (!s) writeLocal(LOCAL_FORMATS, next);
   else await s.writeText(`${FORMATS_DIR}/${id.slice(5)}.csvformat.json`, JSON.stringify({ version: 1, deleted: true }));
-  check(); formats = next; saved();
+  check(); formats = formats.filter(x => x.id !== id); saved();
 }
 async function saveCalcChannels(list: CalcChannel[], root = getStorageRevision()): Promise<void> {
   requireLoaded(root);
@@ -209,5 +212,5 @@ async function saveCalcChannels(list: CalcChannel[], root = getStorageRevision()
   check(); calc = list; saved();
 }
 
-return {currentCsvFormats,csvFormatsReady,loadCsvFormats,saveCsvFormat,deleteCsvFormat,saveCalcChannels,getSnapshot:()=>snapshot,subscribe:(listener:()=>void)=>{listeners.add(listener);return ()=>{listeners.delete(listener);};},dispose(){unsubscribe();sequence++;if(retryTimer!==null) host.scheduler.cancel(retryTimer);}};
+return {currentCsvFormats,csvFormatsReady,loadCsvFormats,saveCsvFormat,deleteCsvFormat,saveCalcChannels,getSnapshot:()=>snapshot,subscribe:(listener:()=>void)=>{listeners.add(listener);return ()=>{listeners.delete(listener);};},dispose(){disposed=true;unsubscribe();sequence++;attempt=null;retryNeeded=false;if(retryTimer!==null)host.scheduler.cancel(retryTimer);retryTimer=null;formats=[];calc=[];dataRoot=null;formatsReadable=false;calcReadable=false;listeners.clear();publish();}};
 }

@@ -4,6 +4,8 @@ import { clockOffsetIn, clockStartUtcMs, type VideoClock } from './mediaClock';
 export interface RemoteVideo { name: string; size: number; url: string; path: string; lastModified: number; readRange?: (start: number, end: number) => Promise<ArrayBuffer> }
 export interface VideoTrack<TFile extends BinaryFile = BinaryFile> {
   id: string;
+  projectKey?: string;
+  projectSourcePath?: string;
   file?: TFile;
   objectUrl?: string;
   /** 保管場所の動画 (lapfile://run/。file はない。範囲を頼んで読む) */
@@ -66,6 +68,8 @@ export interface SyncProjectData {
   savedAt: string;
   circuitName: string;
   videos: Array<{
+    key?: string;
+    sourcePath?: string;
     fileName: string;
     fileSize: number;
     durationSec: number;
@@ -95,6 +99,7 @@ export interface SyncProjectData {
     videoTimeSec: number;
     calculatedOffsetSec: number;
     trackFileName: string | null;
+    trackKey?: string | null;
     /** ピンを打ったときの基準のログ (sessionTimeSec はこのログの時刻) */
     sessionId?: string | null;
     utcMs?: number;

@@ -1,3 +1,4 @@
+import type { GFilterLevel } from './physics';
 import { isLoneSecondJump } from '../utils/timeRepair';
 import { TelemetryPoint, type GgaFields } from '../types/telemetry';
 import { calculatePhysics, calculateGeoDistanceAndHeading } from './physics';
@@ -123,7 +124,7 @@ function applyGga(p: TelemetryPoint, gga: GgaFix | null) {
  * RMC を位置・速度・日付の元にし、同じ時刻の GGA から標高と衛星数を付ける。
  * RMC の無い GGA だけのログは、GGA の位置から速度と方位を求める
  */
-export function parseNmea(nmeaText: string, fileName = ''): { points: TelemetryPoint[]; samplingRate: number; startDate?: Date } {
+export function parseNmea(nmeaText: string, fileName = '', physicsLevel: GFilterLevel = 'strong'): { points: TelemetryPoint[]; samplingRate: number; startDate?: Date } {
   // 日付の欄が無いログ (GGA だけなど) は、ファイル名の日付で日時を決める
   const hint = fileDateHint(fileName);
   let hintDayMs: number | null = null;
@@ -253,7 +254,7 @@ export function parseNmea(nmeaText: string, fileName = ''): { points: TelemetryP
     }
   }
 
-  const enriched = calculatePhysics(points);
+  const enriched = calculatePhysics(points, physicsLevel);
   // 記録レートは時刻の刻みから求める
   let samplingRate = 10;
   if (points.length > 2) {

@@ -1,3 +1,4 @@
+import type { GFilterLevel } from './physics';
 /**
  * CSV の形式の定義 (PLAN-36。docs/csv_format_design.md)。
  * どこの機器・アプリの CSV でも、列が何の値か・単位・時刻の形・タイムゾーンを人が決めて保存し、読むときに使う。
@@ -247,7 +248,7 @@ function setValue(p: TelemetryPoint, target: ColumnTarget, x: number): void {
 }
 
 /** log の形式で CSV を走行の点にする (位置の読めない行は捨てる) */
-export function parseLogWithFormat(text: string, f: CsvFormat): { points: TelemetryPoint[]; samplingRate: number; startDate?: Date } {
+export function parseLogWithFormat(text: string, f: CsvFormat, physicsLevel: GFilterLevel = 'strong'): { points: TelemetryPoint[]; samplingRate: number; startDate?: Date } {
   const { rows, utc } = readRows(text, f);
   const points: TelemetryPoint[] = [];
   for (const { t, v } of rows) {
@@ -268,7 +269,7 @@ export function parseLogWithFormat(text: string, f: CsvFormat): { points: Teleme
   }
   const t0 = points[0]?.time ?? 0;
   for (const p of points) p.time = Number((p.time - t0).toFixed(3));
-  const enriched = calculatePhysics(points);
+  const enriched = calculatePhysics(points, physicsLevel);
   const span = points.length > 1 ? points[points.length - 1].time - points[0].time : 0;
   const samplingRate = span > 0 ? Math.round((points.length - 1) / span) || 10 : 10;
   return { points: enriched, samplingRate, ...(utc && points.length ? { startDate: new Date(t0 * 1000) } : {}) };

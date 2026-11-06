@@ -1,3 +1,4 @@
+import {fault} from './errors';
 /**
  * runs.json (走行の情報)。サーキットのフォルダごとに 1 つ。2026-10-20、2 版は 2026-10-24 (docs/run_storage_v2.md)。
  *
@@ -272,6 +273,12 @@ function isRunsFileText(text: string): boolean {
   }
 }
 
+/** 保存に使う読込みは、未存在と読込み失敗・不正形式を区別する。 */
+export function parseRunsFileStrict(text:string|null):RunsFile{
+ if(text!==null&&!isRunsFileText(text))throw fault('runs.invalid',{ja:'走行の情報を読み取れませんでした。',en:'The run metadata could not be read.'});
+ return parseRunsFile(text);
+}
+
 /** 2 つの runs.json を合わせる (行ごとに新しいほう。ぶつかったときの写しを本体に入れる) */
 export function mergeRunsFiles(base: RunsFile, other: RunsFile): RunsFile {
   const runs = { ...base.runs };
@@ -290,6 +297,7 @@ const isLogName = (file: string) => /\.(nmea|bon4)$/i.test(file);
 
 
 export function createRunsFileStore() {
+const parseStrict=parseRunsFileStrict;
 const conflictKey=(folder:string,revision:number)=>JSON.stringify([revision,folder]);
 /** iCloud がぶつかったときに作った写し (runs 2.json など) の道。フォルダごと (一覧を作るときに見つける) */
 const conflictCopies = new Map<string, string[]>();
@@ -307,8 +315,8 @@ function noteRunsConflictCopies(folder: string, paths: string[], revision = 0): 
 
 async function readRunsFile(store: LapFileStore & {readonly storageRevision?: number}, folder: string, strict = false): Promise<RunsFile> {
   const read = (path: string) => strict && store.readTextStrict ? store.readTextStrict(path) : store.readText(path);
-  let file = parseRunsFile(await read(`${folder}/${RUNS_FILE}`));
-  for (const p of conflictCopies.get(conflictKey(folder, store.storageRevision ?? 0)) ?? []) file = mergeRunsFiles(file, parseRunsFile(await (strict ? read(p) : read(p).catch(() => null))));
+  let file = (strict?parseStrict:parseRunsFile)(await read(`${folder}/${RUNS_FILE}`));
+  for (const p of conflictCopies.get(conflictKey(folder, store.storageRevision ?? 0)) ?? []) file = mergeRunsFiles(file, (strict?parseStrict:parseRunsFile)(await (strict ? read(p) : read(p).catch(() => null))));
   return file;
 }
 
@@ -331,13 +339,13 @@ function updateRun(store: RunStore, folder: string, file: string, change: (row: 
 
 /** 走行の行を消す (走行を消したとき)。ほかの走行の行はそのまま。書き方は updateRun と同じく 1 つずつ */
 function removeRunRow(store: RunStore, folder: string, file: string): Promise<void> {
-  const key = `${folder}/${RUNS_FILE}`;
+  const key = conflictKey(folder, store.storageRevision ?? 0);
   const run = async () => {
     const text = await store.readTextStrict(`${folder}/${RUNS_FILE}`);
     if (text === null) return;
     if (!isRunsFileText(text)) throw new Error('runs.json could not be read');
     let current = parseRunsFile(text);
-    for (const p of conflictCopies.get(conflictKey(folder, store.storageRevision ?? 0)) ?? []) current = mergeRunsFiles(current, parseRunsFile(await store.readText(p).catch(() => null)));
+    for (const p of conflictCopies.get(conflictKey(folder, store.storageRevision ?? 0)) ?? []) current = mergeRunsFiles(current, parseStrict(await store.readTextStrict(p)));
     const k = runKey(file);
     const short = runStem(file);
     // 名前だけの古い行は、新しい行が無いときだけ (ログだけ)
@@ -363,7 +371,7 @@ async function updateRunNow(store: RunStore, folder: string, file: string, chang
   const text = await store.readTextStrict(`${folder}/${RUNS_FILE}`);
   if (text !== null && !isRunsFileText(text)) throw new Error('runs.json could not be read');
   let current = parseRunsFile(text);
-  for (const p of conflictCopies.get(conflictKey(folder, store.storageRevision ?? 0)) ?? []) current = mergeRunsFiles(current, parseRunsFile(await store.readText(p).catch(() => null)));
+  for (const p of conflictCopies.get(conflictKey(folder, store.storageRevision ?? 0)) ?? []) current = mergeRunsFiles(current, parseStrict(await store.readTextStrict(p)));
   const key = runKey(file);
   // 日付のフォルダへ移す前に、名前だけで書いた行は、新しい名前 (日付/名前) の行へ移す
   const short = runStem(file);

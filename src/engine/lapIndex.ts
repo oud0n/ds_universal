@@ -1,3 +1,4 @@
+import type { GFilterLevel } from './physics';
 /**
  * ラップタイムの一覧 (2026-10-20、PLAN-19)。
  *
@@ -147,9 +148,9 @@ export function courseHash(course: Pick<LapCourse, 'controlLine' | 'sectors'>): 
 }
 
 /** 走行のファイルの点を、記録の空き (SESSION_GAP_SEC 以上) で分けた走行ごとに (.bon4 と .nmea で分け方・番号 part をそろえる) */
-function partsFromFile(name: string, bytes: Uint8Array): TelemetryPoint[][] {
+function partsFromFile(name: string, bytes: Uint8Array, physicsLevel: GFilterLevel = 'strong'): TelemetryPoint[][] {
   if (/\.nmea$/i.test(name)) {
-    const { points } = parseNmea(decodeUtf8(bytes), name);
+    const { points } = parseNmea(decodeUtf8(bytes), name, physicsLevel);
     const parts: TelemetryPoint[][] = [];
     for (const p of points) {
       const cur = parts[parts.length - 1];
@@ -159,29 +160,29 @@ function partsFromFile(name: string, bytes: Uint8Array): TelemetryPoint[][] {
     return keepRunParts(parts, p => p.time);
   }
   const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  return parseDigispiceRawBinary(name, buffer).map(p => p.points as TelemetryPoint[]);
+  return parseDigispiceRawBinary(name, buffer, physicsLevel).map(p => p.points as TelemetryPoint[]);
 }
 
 /** .bon4 から周を数える (計測線で区切れた周だけ。ログ全体や途中で終わった周は入れない) */
-export function lapsFromBon4(name: string, bytes: Uint8Array, course: LapCourse): { startMs: number | null; laps: LapRecord[] } {
-  return lapsFromParts(partsFromFile(name, bytes), course);
+export function lapsFromBon4(name: string, bytes: Uint8Array, course: LapCourse, physicsLevel: GFilterLevel = 'strong'): { startMs: number | null; laps: LapRecord[] } {
+  return lapsFromParts(partsFromFile(name, bytes, physicsLevel), course);
 }
 
 /** .nmea から周を数える。.bon4 と同じく、記録の空きで走行を分ける (隠した周の印を引き継げるように) */
-export function lapsFromNmea(name: string, bytes: Uint8Array, course: LapCourse): { startMs: number | null; laps: LapRecord[] } {
-  return lapsFromParts(partsFromFile(name, bytes), course);
+export function lapsFromNmea(name: string, bytes: Uint8Array, course: LapCourse, physicsLevel: GFilterLevel = 'strong'): { startMs: number | null; laps: LapRecord[] } {
+  return lapsFromParts(partsFromFile(name, bytes, physicsLevel), course);
 }
 
 /** 走行のファイルから周を数える (.nmea か .bon4) */
-export function lapsFromFile(name: string, bytes: Uint8Array, course: LapCourse): { startMs: number | null; laps: LapRecord[] } {
-  return lapsFromParts(partsFromFile(name, bytes), course);
+export function lapsFromFile(name: string, bytes: Uint8Array, course: LapCourse, physicsLevel: GFilterLevel = 'strong'): { startMs: number | null; laps: LapRecord[] } {
+  return lapsFromParts(partsFromFile(name, bytes, physicsLevel), course);
 }
 
 /**
  * 走行のファイルの、決まった周 (part・n は laptimes.json と同じ数え方) の点。ラップタイマーの差の基準にする。見つからなければ null
  */
-export function lapPointsFromFile(name: string, bytes: Uint8Array, course: LapCourse, part: number | undefined, n: number): TelemetryPoint[] | null {
-  const points = partsFromFile(name, bytes)[(part ?? 1) - 1];
+export function lapPointsFromFile(name: string, bytes: Uint8Array, course: LapCourse, part: number | undefined, n: number, physicsLevel: GFilterLevel = 'strong'): TelemetryPoint[] | null {
+  const points = partsFromFile(name, bytes, physicsLevel)[(part ?? 1) - 1];
   if (!points) return null;
   const laps = extractLaps(points, course.controlLine, course.sectors).laps.filter(l => !l.isWholeSession && !l.isPartialLap);
   return laps[n - 1]?.points ?? null;
@@ -306,8 +307,15 @@ export async function reconcileFolder(
     // 動画は計算では作れないので、前の控えから引き継ぐ (コースを直したときも)
     const videos = prevRec?.videos;
     const keep = videos?.length ? { videos } : {};
+    let bytes:Uint8Array;
+    try { bytes=await read(f.path); }
+    catch(error){
+      if(error instanceof StorageChangedError)throw error;
+      if(prevRec)next[name]=prevRec;
+      skipped.push(name);changed=true;continue;
+    }
     try {
-      const { startMs, laps } = compute(name, await read(f.path), course);
+      const { startMs, laps } = compute(name, bytes, course);
       next[name] = { size: f.size, mtimeMs: f.mtimeMs, startMs, laps, ...keep, split: SPLIT_RULE };
     } catch (error) {
       if (error instanceof StorageChangedError) throw error;

@@ -117,6 +117,7 @@ class VideoViewStore {
   setPins = syncPinStore.setPins.bind(syncPinStore);
   setTrackPins = syncPinStore.setTrackPins.bind(syncPinStore);
   anchorPins = syncPinStore.anchorPins.bind(syncPinStore);
+  mergeImported = syncPinStore.mergeImported.bind(syncPinStore);
   remapPinSessions = syncPinStore.remapPinSessions.bind(syncPinStore);
 
 }

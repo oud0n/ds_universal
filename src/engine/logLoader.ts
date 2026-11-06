@@ -1,3 +1,4 @@
+import type { GFilterLevel } from './physics';
 import { fault, defaultText as englishText } from './errors';
 /**
  * ログのファイルを読み、走行ごとの点の並びにする (2026-10-21 に App.tsx の loadFileData から切り出した。取り込みの画面と共通にするため)。
@@ -50,7 +51,7 @@ export function splitByGaps(points: any[]): any[][] {
 
 const validPos = (p: any) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude) && Math.abs(p.latitude) <= 90 && Math.abs(p.longitude) <= 180 && !(p.latitude === 0 && p.longitude === 0);
 
-export async function parseLogBuffer(fileName: string, buffer: ArrayBuffer, defaultText: Tr = englishText, formats: readonly CsvFormat[] = []): Promise<ParsedLog> {
+export async function parseLogBuffer(fileName: string, buffer: ArrayBuffer, defaultText: Tr = englishText, formats: readonly CsvFormat[] = [], physicsLevel: GFilterLevel = 'strong'): Promise<ParsedLog> {
   const ext = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() : '';
   let parts: ParsedPart[] | null = null;
   let single: ParsedPart | null = null;
@@ -58,22 +59,22 @@ export async function parseLogBuffer(fileName: string, buffer: ArrayBuffer, defa
   let kind = ext || '';
 
   if (ext === 'dtb') {
-    single = parseDtb(buffer);
+    single = parseDtb(buffer, physicsLevel);
   } else if (ext === 'bnx4' || ext === 'bon4' || ext === 'binx' || ext === 'bon') {
-    parts = parseDigispiceRawBinary(fileName, buffer);
+    parts = parseDigispiceRawBinary(fileName, buffer, physicsLevel);
   } else if (ext === 'xrk' || ext === 'xrz') {
     // AiM のロガーのファイル (.xrz は圧縮したもの)
     const bytes = await inflateXrz(new Uint8Array(buffer));
     if (!isXrk(bytes)) throw fault('logLoader.1', { ja: 'AiM の .xrk / .xrz として読めませんでした', en: 'Could not read this as an AiM .xrk / .xrz file' });
-    single = parseXrk(bytes);
+    single = parseXrk(bytes, physicsLevel);
   } else if (ext === 'fit') {
     // Garmin などの FIT (腕時計・サイクルコンピューターの記録)
-    single = parseFit(new Uint8Array(buffer));
+    single = parseFit(new Uint8Array(buffer), physicsLevel);
   } else if (ext === 'ibt') {
     // iRacing のテレメトリ。コースに出ていた間ごとに分ける (ピットへの移動などで区切る)
     const bytes = new Uint8Array(buffer);
     if (!isIbt(bytes)) throw fault('logLoader.2', { ja: 'iRacing の .ibt として読めませんでした', en: 'Could not read this as an iRacing .ibt file' });
-    const parsed = parseIbt(bytes);
+    const parsed = parseIbt(bytes, physicsLevel);
     parts = parsed.parts;
     meta = { vehicleName: parsed.vehicleName, driverName: parsed.driverName, trackName: parsed.trackName };
   } else if (['vbo', 'csv', 'txt', 'gpx', 'tcx', 'nmea', 'log'].includes(ext || '')) {
@@ -94,12 +95,12 @@ export async function parseLogBuffer(fileName: string, buffer: ArrayBuffer, defa
       : ext === 'vbo' || ext === 'gpx' || ext === 'tcx' || ext === 'nmea' ? ext
       : ext === 'log' ? 'nmea'
       : 'csv';
-    if (kind === 'gpx') single = parseGpx(text);
-    else if (kind === 'tcx') single = parseTcx(text);
-    else if (kind === 'vbo') single = parseVbo(text);
+    if (kind === 'gpx') single = parseGpx(text, physicsLevel);
+    else if (kind === 'tcx') single = parseTcx(text, physicsLevel);
+    else if (kind === 'vbo') single = parseVbo(text, physicsLevel);
     else if (kind === 'nmea') {
       // NMEA も、記録の空き (10 分以上) で走行を分ける (.bon4・周の一覧と同じ分け方。2026-10-21)
-      const parsed = parseNmea(text, fileName);
+      const parsed = parseNmea(text, fileName, physicsLevel);
       // 分けた 2 つ目からは、時刻と距離をその走行の始めから数え直し、走り始めの日時もその走行のものにする
       // (.bon4 の分け方と同じ。続きのまま持つと、2 つ目の走行の時刻が数時間後から始まり、再生・距離がずれる)
       parts = keepRunParts(splitByGaps(parsed.points), p => p.time ?? 0).map(points => {
@@ -119,11 +120,11 @@ export async function parseLogBuffer(fileName: string, buffer: ArrayBuffer, defa
       }
       // 自分で決めた CSV の形式に合えば、それで読む (PLAN-36)
       const fmt = matchCsvFormat(fileName, text, [...formats]);
-      if (fmt?.kind === 'log') single = parseLogWithFormat(text, fmt);
-      else single = isRaceChronoCsv(text) ? parseRaceChronoCsv(text)
-        : isAimCsv(text) ? parseAimCsv(text)
-        : isMotecCsv(text) ? parseMotecCsv(text)
-        : parseCsv(text);
+      if (fmt?.kind === 'log') single = parseLogWithFormat(text, fmt, physicsLevel);
+      else single = isRaceChronoCsv(text) ? parseRaceChronoCsv(text, physicsLevel)
+        : isAimCsv(text) ? parseAimCsv(text, physicsLevel)
+        : isMotecCsv(text) ? parseMotecCsv(text, physicsLevel)
+        : parseCsv(text, physicsLevel);
     }
   } else {
     throw new Error(`${defaultText('未対応のファイル形式です', 'Unsupported file type')}: ${ext ? `.${ext}` : defaultText('(拡張子なし)', '(no extension)')}`);

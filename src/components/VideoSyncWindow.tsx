@@ -1,3 +1,4 @@
+import {comparisonTime} from '../engine/playbackAdvance';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { 
@@ -126,7 +127,7 @@ interface VideoSyncWindowProps {
   position: PlaybackPosition;
   isPlaying: boolean;
   onSeekTime: (timeSec: SessionSec) => void;
-  onPlaybackRange?: (range: { source: string; end: number } | null) => void;
+  onPlaybackRange?: (range: { source: string; start: number; end: number } | null) => void;
   onTogglePlay: () => void;
   circuitName: string;
   targetSessionId?: string;  // 速度ウィンドウで選択中のセッションID
@@ -303,6 +304,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
   // シークバースコープ ('lap': 速度ウィンドウ選択中ラップ時間, 'session': セッション全体時間)
   // 動画同期タブはセッション全体の時刻で再生するので、はじめはセッション全体にする (周の表示は周の外に出ると端に止まる)
+  const [showSyncTools,setShowSyncTools]=useState(false);
   const [seekbarScope, setSeekbarScope] = useState<'lap' | 'session'>(isGraphEmbedded ? 'lap' : 'session');
   // 利用者が音を消したか (動画の再生の段のボタン)。この端末に覚えておく
   const [userMuted, setUserMuted] = useState<boolean>(() => {
@@ -461,7 +463,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   /** メーターの並びを選ぶ。開いている走行の runs.json の行にも覚え、次に開いたときもその並びにする (PLAN-08) */
   const chooseLayout = (id: string, extra: Partial<typeof win> = {}) => {
     setWin({ overlayLayout: id, ...extra });
-    void setOpenRunOverlayLayout(baseSession?.id, id);
+    void setOpenRunOverlayLayout(baseSession?.id, id).catch(error=>alert(tr('並びを保存できませんでした: ', 'Could not save the layout: ')+(error instanceof Error?error.message:String(error))));
   };
   // 走行を開いたら (窓を開いたときに開いている走行も)、その走行に覚えた並びにする
   const applyRunLayoutRef = useRef<() => void>(() => {});
@@ -555,17 +557,18 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     delta?: number | null;
     /** 選んだ動画か (false: 自動) */
     chosen?: boolean;
+    hold?: boolean;
   }
   const noFootage = (m: PlayableMedia): MediaPosition => ({ track: m.tracks[0], localTime: -1, durationSec: m.tracks[0].durationSec, outOfRange: true });
   const cars = useMemo(() => [...(compareCars ?? [])].sort((a, b) => a.slot.slot - b.slot.slot), [compareCars]);
   const compareDuration = baseLap && isCompare && win.compareAlign === 'time'
     ? Math.max(baseLap.endTime - baseLap.startTime, ...cars.map(c => c.lap.endTime - c.lap.startTime)) : baseLap ? baseLap.endTime - baseLap.startTime : 0;
-  const compareEnd = baseLap && isCompare && win.compareAlign === 'time' ? baseLap.startTime + compareDuration : null;
+  const compareEnd=baseLap&&(isCompare||seekbarScope==='lap')&&!showSyncTools?baseLap.startTime+compareDuration:null;
   useEffect(() => {
-    if (isVisible && !isGraphEmbedded && baseSession && compareEnd !== null) onPlaybackRange?.({ source: baseSession.id, end: compareEnd });
+    if (isVisible && !isGraphEmbedded && baseSession && compareEnd !== null) onPlaybackRange?.({source:baseSession.id,start:baseLap!.startTime,end:compareEnd});
     else onPlaybackRange?.(null);
     return () => onPlaybackRange?.(null);
-  }, [isVisible, isGraphEmbedded, baseSession?.id, compareEnd, onPlaybackRange]);
+  }, [isVisible, isGraphEmbedded, baseSession?.id, baseLap?.startTime, compareEnd, onPlaybackRange]);
   const baseSlot = cars[0]?.slot.slot;
   const compareTiles = (): Tile[] => {
     if (!baseLap) return [];
@@ -590,7 +593,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       // Car 1 と同じ地点にいたときの、その車の時刻 (タイム差はいつもこれで出す)
       const atDistance = isBase ? sessionSec : d === null || !lap ? null : compareSessionTimeAtDistance(car.lap, lap, d);
       // 映す時刻: 地点で合わせるときは同じ地点の時刻、時間で合わせるときは周の始めから同じ経過時間 (その車の周の長さまで)
-      const ct = isBase || !byTime ? atDistance : !lap ? null : lap.startTime + Math.max(0, Math.min(lap.endTime - lap.startTime, baseElapsed));
+      const atTime=lap?comparisonTime(lap.startTime,lap.endTime,baseElapsed):null;
+      const ct=byTime?atTime?.sessionSec??null:atDistance;
+      const hold=byTime?atTime?.hold??false:baseElapsed>=baseLap.endTime-baseLap.startTime;
       const start = m && session ? mediaStartIn(m, session, sessions) : null;
       const position = !m ? null : ct === null || start === null ? noFootage(m) : positionAtMediaTime(m, ct - start);
       // 速さの倍率: 約 0.5 秒先までの、距離の対応の傾き (遅い車の動画ほど速く回す)
@@ -614,7 +619,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
         compareRateRef.current.set(car.slot.slot, rate);
       }
       return {
-        media: m, position, rate, slot: car.slot.slot, color: car.slot.colorHex, chosen: !!chosenId,
+        media: m, position, rate, hold, slot: car.slot.slot, color: car.slot.colorHex, chosen: !!chosenId,
         gauge: { session, lap, time: ct ?? sessionSec },
         delta: isBase || atDistance === null || !lap ? null : (atDistance - lap.startTime) - baseElapsed
       };
@@ -643,7 +648,6 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   // グラフ解析に埋め込んだときは、タイムゾーン・再同期の段とタイムラインを、ボタンで開くまで隠す。
   // 狭い枠ではこれらの段が場所を使い切り、動画の映る部分の高さが 0 になっていた (BUG-19)。同期の調整は動画同期の画面でもできる
   // 合わせる (同期) の道具を出しているか。動画の画面は「見る」から始める (PLAN-24 の作る順番の 5。ずれが大きいときは帯を出す)
-  const [showSyncTools, setShowSyncTools] = useState(false);
   // 比べる・合わせるなどへ移ったら、配置の編集を閉じる (編集は「見る」のメインの枠だけ)
   useEffect(() => { if (isCompare || isCompactLayout || showSyncTools || showExportModal) setEditLayout(null); }, [isCompare, isCompactLayout, showSyncTools, showExportModal]);
   // 走行の確認 (RunsInspector) を開く。解析の枠では狭いので、動画タブを開く (そこの「走行の確認」で見る)
@@ -725,7 +729,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     // 合わせる (同期の調整) では戻さない (周の外へ動かす・ピンへ飛ぶ・動画の始まりへ飛ぶ、が効かなくなるため)
     if (!(isCompare || seekbarScope === 'lap') || showSyncTools || isGraphEmbedded || !baseLap || !isVisible || isAnyExporting) return;
     const end = baseLap.startTime + compareDuration;
-    if (isPlaying && sessionSec > end) seekTo(baseLap.startTime);
+    if (isPlaying && sessionSec >= end) seekTo(baseLap.startTime);
     else if (sessionSec < baseLap.startTime - 0.5 || sessionSec > end + 0.5) seekTo(baseLap.startTime);
   }, [isCompare, compareDuration, seekbarScope, showSyncTools, sessionSec, baseLap?.startTime, isPlaying, isVisible]);
 
@@ -739,7 +743,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     // 走行比較では、時計の元にするのは基準車だけ (比べる車の動画は周の終わりで止まるので、時計の元にすると App の時計を止めてしまう)。
     // 以前は走行比較では時計の元を使わず、iPhone では音を出している Car 1 が、0.2 秒遅れるたびに飛んで 0.4〜0.6 秒止まっていた (BUG-32)
     tiles.slice(0, shownCount).forEach((x, i) => {
-      if (x.position) targets.set(`tile-${i}`, { ...x.position, rate: x.rate, ...(isCompare && x.slot !== baseSlot ? { clockEligible: false } : {}) });
+      if (x.position) targets.set(`tile-${i}`, {...x.position,rate:x.rate,hold:x.hold,...(x.hold||isCompare&&x.slot!==baseSlot?{clockEligible:false}:{})});
     });
     playback.sync(targets, isPlaying, playbackSpeed, sessionSec);
   });
@@ -1139,25 +1143,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     reader.onload = ev => {
       try {
         const text = ev.target?.result as string;
-        const { data, clockOffsets } = videoSyncManager.importProjectJson(text, sessions);
-        const sessionIds = videoSyncManager.importedSessionIds(sessions);
-        for (const [id, sec] of clockOffsets) onSetClockOffset?.(id, sec);
-        // 同期ピンも戻す。動画はファイル名で今の動画に読み替える (同じ時刻・名前のピンは足さない)
-        if (data.pins && data.pins.length > 0) {
-          // ピンは、書き出したときのコースに戻す (ログを読み込む前に戻しても、そのコースを開けば出る)
-          const importKey = data.circuitName || 'default';
-          const current = videoViewStore.getPins(importKey);
-          const all = videoSyncManager.getTracks();
-          const restored = data.pins
-            .filter(p => !current.some(c => c.name === p.name && Math.abs(c.sessionTimeSec - p.sessionTimeSec) < 0.001))
-            .map(p => ({
-              ...createSyncPin(p.name, p.sessionTimeSec, p.videoTimeSec, all.find(t => t.fileName === p.trackFileName)?.id ?? ''),
-              ...(p.sessionId ? { sessionId: sessionIds.get(p.sessionId) ?? p.sessionId } : {}),
-              ...(p.utcMs !== undefined ? { utcMs: p.utcMs } : {}),
-              ...(p.createdAt ? { createdAt: p.createdAt } : {})
-            }));
-          if (restored.length > 0) videoViewStore.setPins(importKey, [...current, ...restored]);
-        }
+        const {data,clockOffsets,pins}=videoSyncManager.importProjectJson(text,sessions);
+        for(const [id,sec]of clockOffsets)onSetClockOffset?.(id,sec);
+        videoViewStore.mergeImported(data.circuitName||'default',pins);
       } catch (err: any) {
         alert(tr('プロジェクト復元エラー: ', 'Could not restore the project: ') + err.message);
       }

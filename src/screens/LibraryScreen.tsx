@@ -433,7 +433,8 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
       onSaveMeta={async patch => {
         // 参考ラップの印を付けた・外したら、その走行が見える側の一覧に切り替える (詳細を開いたままにする)
         if (patch.reference !== undefined) setOwner(patch.reference ? 'ref' : 'mine');
-        await setRunMeta(store, selected, patch).catch(() => undefined);
+        try{await setRunMeta(store,selected,patch);}
+        catch(error){alert(t('保存できませんでした。未保存の変更は再試行まで保持します: ', 'Could not save. Pending changes are kept for retry: ')+(error instanceof Error?error.message:String(error)));return;}
         reload();
       }}
       onClose={wide ? undefined : () => setSelectedKey(null)}

@@ -1,3 +1,4 @@
+import type { GFilterLevel } from './physics';
 import { fault } from './errors';
 import { TelemetryPoint, Lap } from '../types/telemetry';
 import { calculatePhysics } from './physics';
@@ -10,7 +11,7 @@ import { formatMinSec } from '../utils/timeFormat';
  * - MoTeC i2 CSV
  * - 汎用 GPS ロガー CSV
  */
-export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingRate: number; startDate?: Date } {
+export function parseCsv(csvText: string, physicsLevel: GFilterLevel = 'strong'): { points: TelemetryPoint[]; samplingRate: number; startDate?: Date } {
   const lines = csvText.split(/\r?\n/).filter(line => line.trim().length > 0);
   if (lines.length < 2) {
     throw fault('csvParser.1', { ja: 'CSVデータが空または行数が不足しています', en: 'The CSV is empty or has too few rows' });
@@ -172,7 +173,7 @@ export function parseCsv(csvText: string): { points: TelemetryPoint[]; samplingR
   }
 
   // 物理計算の付与・更新
-  const enriched = calculatePhysics(points);
+  const enriched = calculatePhysics(points, physicsLevel);
 
   // サンプリングレート推定
   let avgDt = 0.1;

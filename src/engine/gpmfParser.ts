@@ -1,3 +1,4 @@
+import type { GFilterLevel } from './physics';
 import { fault, defaultText, EngineError, type ErrorMessages } from './errors';
 // GoPro の動画 (MP4) に記録された GPS (GPMF の GPS9 / GPS5) を走行ログとして読む。
 // 動画は数 GB あるので、全体は読み込まず、MP4 の箱 (box) の構造をたどって GPMF のトラックのサンプルだけを読む。
@@ -351,7 +352,7 @@ async function readGpsFixes(src: ByteSource): Promise<{ fixes: GpsFix[]; formats
  * GoPro の動画から GPS の走行ログを読む。
  * 1 回の撮影が複数のファイル (チャプター) に分かれているときは、まとめて渡すと 1 つのログにつなげる
  */
-export async function parseGoproGps(sources: ByteSource[]): Promise<GoproLog> {
+export async function parseGoproGps(sources: ByteSource[], physicsLevel: GFilterLevel = 'strong'): Promise<GoproLog> {
   // 読めないチャプター (撮影中に電池が切れた最後のファイルなど) があっても、読めたものでログを作る
   const perVideo: { fixes: GpsFix[]; formats: Set<string> }[] = [];
   let firstError: unknown = null;
@@ -393,7 +394,7 @@ export async function parseGoproGps(sources: ByteSource[]): Promise<GoproLog> {
       timestamp: new Date(f.utcMs)
     };
   });
-  const log = finalizeImportedSamples(raw, defaultText('GoPro の動画', 'the GoPro video'));
+  const log = finalizeImportedSamples(raw, {ja:'GoPro の動画',en:'the GoPro video'}, undefined, physicsLevel);
   return { ...log, videoStartUtcMs, gpsFormat };
 }
 
