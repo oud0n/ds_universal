@@ -77,3 +77,22 @@ it('再計算の書込み直前に strict 読込みが失敗しても、直前�
     expect(disk.hidden).toEqual(saved);expect(write).toHaveBeenCalledTimes(1);
   } finally { spy.mockRestore(); }
 });
+
+it('計測線変更後の読込み失敗を保存しても、回復後に読み直して非表示と動画を保持する', async () => {
+  const preset=CIRCUIT_PRESETS.find(c=>c.id==='sodegaura')!;
+  const course={name:preset.name,controlLine:preset.controlLine!,sectors:preset.sectors};
+  const bytes=new Uint8Array(readFileSync(new URL('../../public/demo/sodegaura_20260815.nmea',import.meta.url)));
+  const measured=lapsFromNmea('a.nmea',bytes,course),oldLap={...measured.laps[0],n:77,time:999};
+  const hidden={file:'a.nmea',...(oldLap.part?{part:oldLap.part}:{}),n:77,startMs:oldLap.startMs};
+  let disk:LapIndex={version:1,courseHash:'previous course',courseName:course.name,hidden:[hidden],files:{'a.nmea':{size:bytes.length,mtimeMs:1,...measured,laps:[oldLap],split:SPLIT_RULE,videos:['clip.mp4']}}};
+  let fail=true,local=true,reads=0;
+  const store={list:async()=>[{path:'sodegaura/a.nmea',size:bytes.length,mtimeMs:1,local}],read:async()=>{reads++;if(fail)throw Error('temporary read');return bytes;},readText:async(p:string)=>p.endsWith('laptimes.json')?JSON.stringify(disk):null,writeText:async(_p:string,text:string)=>{disk=JSON.parse(text);}};
+  const spy=vi.spyOn(courses,'loadStorageCourses').mockResolvedValue(0);
+  try{
+    for(let i=0;i<2;i++){
+      const result=await loadLapHistory(store);expect(result[0].rows).toEqual([]);expect(disk.files['a.nmea'].needsRecompute).toBe(true);expect(disk.hidden).toEqual([hidden]);
+    }
+    local=false;await loadLapHistory(store);expect(disk.hidden).toEqual([hidden]);expect(reads).toBe(2);
+    fail=false;local=true;const recovered=await loadLapHistory(store);expect(reads).toBe(3);expect(recovered[0].rows[0].time).not.toBe(999);expect(disk.files['a.nmea'].needsRecompute).toBeUndefined();expect(disk.files['a.nmea'].videos).toEqual(['clip.mp4']);expect(disk.hidden[0]).toMatchObject({n:measured.laps[0].n,startMs:measured.laps[0].startMs});
+  }finally{spy.mockRestore();}
+});

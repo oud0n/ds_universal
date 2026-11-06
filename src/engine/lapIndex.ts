@@ -72,6 +72,8 @@ export interface LapFileRecord {
    * (前は .nmea だけ短い切れ端を捨てず、分けた番号 part がずれていたため)
    */
   split?: number;
+  /** 再計算失敗で残した控え。属性が同じでも次の走査で必ず読み直す。 */
+  needsRecompute?: true;
 }
 
 /** 記録の空きで分けた走行の残し方の版 (LapFileRecord.split) */
@@ -293,7 +295,7 @@ export async function reconcileFolder(
     const old = sameCourse ? prevRec : undefined;
     // .nmea を前の分け方で数えた控えは数え直す (隠した周の印は、始まりの時刻で引き継ぐ)
     const sameSplit = !/\.nmea$/i.test(name) || old?.split === SPLIT_RULE;
-    if (old && old.size === f.size && old.mtimeMs === f.mtimeMs && sameSplit) {
+    if (old && !old.needsRecompute && old.size === f.size && old.mtimeMs === f.mtimeMs && sameSplit) {
       next[name] = old;
       continue;
     }
@@ -301,7 +303,7 @@ export async function reconcileFolder(
     // 前の控えがあればそのまま使い、なければ「まだ数えていない」として控えに入れない (開いたときに落ちてきて、次に数える)
     if (f.local === false) {
       if (old) next[name] = old;
-      else skipped.push(name);
+      if (!old || old.needsRecompute) skipped.push(name);
       continue;
     }
     // 動画は計算では作れないので、前の控えから引き継ぐ (コースを直したときも)
@@ -311,7 +313,7 @@ export async function reconcileFolder(
     try { bytes=await read(f.path); }
     catch(error){
       if(error instanceof StorageChangedError)throw error;
-      if(prevRec)next[name]=prevRec;
+      if(prevRec)next[name]={...prevRec,laps:sameCourse?prevRec.laps:[],needsRecompute:true};
       skipped.push(name);changed=true;continue;
     }
     try {
@@ -319,9 +321,10 @@ export async function reconcileFolder(
       next[name] = { size: f.size, mtimeMs: f.mtimeMs, startMs, laps, ...keep, split: SPLIT_RULE };
     } catch (error) {
       if (error instanceof StorageChangedError) throw error;
-      // 読めなかったら、前の控えがあればそのまま残す (隠した周の印を消さない。大きさが違うままなので、次に開いたときに読み直す)。
+      // 前の控えは再計算待ちにする。別の計測線の周を現在の一覧へ出さない。
       // 前の控えが無ければ、周なしで覚えておく (壊れたファイルを毎回読み直さないように。ファイルが変われば読み直す)
-      next[name] = prevRec ?? { size: f.size, mtimeMs: f.mtimeMs, startMs: null, laps: [], ...keep };
+      next[name] = prevRec ? {...prevRec,laps:sameCourse?prevRec.laps:[],needsRecompute:true} : { size: f.size, mtimeMs: f.mtimeMs, startMs: null, laps: [], ...keep };
+      if(prevRec)skipped.push(name);
     }
     computed++;
     changed = true;
