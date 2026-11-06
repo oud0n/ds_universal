@@ -1496,7 +1496,7 @@ export const App: React.FC = () => {
       await flushOpenRunsStrict(); check();
       await validateStoredFiles(store, added); check();
       added=refreshParsedPhysics(added);
-      added = reuseStoredSessions(analysisStore.getSnapshot().sessions, added);
+      added = applyRunMetadata(reuseStoredSessions(analysisStore.getSnapshot().sessions, added),getRunItemEntry(store,getOpenRunItem(item.folder,item.file)??item));
       const { session, lapNumber } = pickRunBestLap(added, item);
       assignLap(analysisStore.getSnapshot(), added, session.id, lapNumber, 1, false);
       item = shareRunItem(item, store);

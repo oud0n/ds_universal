@@ -490,6 +490,18 @@ try {
  const closedHistory=await p.ev('JSON.stringify(window.__laploupe.analysisSnapshot())');
  await p.ev('window.holdHistoryRead=null;window.resumeHistoryRead();new Promise(resolve=>setTimeout(resolve,0))');
  assert.equal(await p.ev('JSON.stringify(window.__laploupe.analysisSnapshot())'),closedHistory,'closed history cannot reopen its late read');
+ // coldなCar2にも保存済みの説明を表示する。
+ await p.ev(`(async()=>{
+  await testRunOpener.flushOpenRunsStrict();
+  storeFiles.set('sodegaura/described-companion.nmea',storeFiles.get('sodegaura/demo.nmea'));
+  const path='sodegaura/runs.json',saved=JSON.parse(new TextDecoder().decode(storeFiles.get(path)));
+  saved.runs['described-companion']={updatedAt:'',name:'Saved companion',note:'Saved note',car:'Saved car'};
+  storeFiles.set(path,new TextEncoder().encode(JSON.stringify(saved)));
+  const store=await(await import('/src/services/runStore.ts')).getRunStore(),row=(await testRunOpener.listRuns(store)).find(row=>row.file==='described-companion.nmea');
+  await window.__laploupe.openStoredRun(row,true);
+ })()`);
+ const described=await p.ev("(()=>{const s=window.__laploupe.analysisSnapshot().sessions.find(s=>s.fileName==='described-companion.nmea');return {name:s.sessionName,note:s.runNote,car:s.vehicleName};})()");
+ assert.deepEqual(described,{name:'Saved companion',note:'Saved note',car:'Saved car'});
  assert.deepEqual(p.errors,[]);
  await p.shot('preserved');console.log(JSON.stringify({result:'PASS interrupted run-list and legacy history scans; repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion; pending metadata, overlapping saved restore, same-source delayed earlier-lap first renders',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
 }catch(error){console.log(await p.ev("({body:document.body.innerText,reads:storeReads.slice(-12),indexes:window.indexWrites?.map(x=>Object.keys(x.files))})"),p.errors);throw error;}finally{await p.close();fs.rmSync(fixtureDir,{recursive:true,force:true});}
