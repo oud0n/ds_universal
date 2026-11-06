@@ -129,6 +129,7 @@ interface VideoSyncWindowProps {
   onSeekTime: (timeSec: SessionSec) => void;
   onPlaybackRange?: (range: { source: string; start: number; end: number } | null) => void;
   onTogglePlay: () => void;
+  onImportProject:(file:File,current:()=>boolean)=>Promise<void>;
   circuitName: string;
   targetSessionId?: string|null;  // 速度ウィンドウで選択中のセッションID
   isGraphEmbedded?: boolean; // グラフ解析画面に埋め込まれているかどうか
@@ -251,6 +252,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   onSeekTime,
   onPlaybackRange,
   onTogglePlay,
+  onImportProject,
   circuitName,
   targetSessionId,
   isGraphEmbedded = false,
@@ -1136,22 +1138,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     downloadBlob(new Blob([jsonStr], { type: 'application/json' }), `${circuitName || 'telemetry'}_sync_project.dssync.json`);
   };
 
-  const handleImportProject = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      try {
-        const text = ev.target?.result as string;
-        const {data,clockOffsets,pins}=videoSyncManager.importProjectJson(text,sessions);
-        for(const [id,sec]of clockOffsets)onSetClockOffset?.(id,sec);
-        videoViewStore.mergeImported(data.circuitName||'default',pins);
-      } catch (err: any) {
-        alert(tr('プロジェクト復元エラー: ', 'Could not restore the project: ') + err.message);
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
+  const projectRequest=useRef(0);
+  useEffect(()=>()=>{projectRequest.current++;},[]);
+  const handleImportProject=(event:React.ChangeEvent<HTMLInputElement>)=>{
+    const file=event.target.files?.[0];event.target.value='';if(!file)return;
+    const ticket=++projectRequest.current;
+    const current=()=>ticket===projectRequest.current&&!!rootRef.current?.isConnected&&rootRef.current.getClientRects().length>0;
+    void onImportProject(file,current).catch(error=>{if(current())alert(tr('プロジェクト復元エラー: ', 'Could not restore the project: ')+(error instanceof Error?error.message:String(error)));});
   };
 
   // メインの枠に重ねるメーター。PinP の小窓がある隅のメーターは、小窓の横へずらす (BUG-23)

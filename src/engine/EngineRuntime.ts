@@ -40,7 +40,7 @@ export function createEngineRuntime<TFile extends BinaryFile>(ports: EngineRunti
   const controller = createRunController({storage, runs, media, pins, history, metadata: remote => ports.remoteMetadata(remote), changed: () => ports.runsChanged(), scheduler: ports.scheduler, nowMs: () => ports.media.nowMs()});
   const formats = createCsvFormatStore({storage, repository: () => ports.repository(), preferences: ports.preferences, scheduler: ports.scheduler, channelsChanged: specs => channels.setCustomChannels(specs)});
   let unbind=()=>{};
-  const session=createEngineSession({storage,flush:()=>controller.flushOpenRunsStrict(),onClosing:()=>media.cancelPending(),onClose:()=>{unbind();formats.dispose();controller.dispose();media.dispose();}});
+  const session=createEngineSession({storage,flush:()=>controller.flushOpenRunsStrict(),onClockChanged:()=>controller.scheduleRunSave(),onClosing:()=>media.cancelPending(),onClose:()=>{unbind();formats.dispose();controller.dispose();media.dispose();}});
   unbind=bindStorageLifecycle(session,controller);
-  return {storage, runs, media, pins, channels, history, controller, formats, session, pairs, positionSource, close:()=>session.close()};
+  return {storage, runs, media, pins, channels, history, controller, formats, session, pairs, positionSource, close:()=>session.close(),importProject:(text:string)=>session.applySyncProject(text,media,pins)};
 }

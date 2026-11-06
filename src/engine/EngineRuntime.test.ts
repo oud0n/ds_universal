@@ -328,3 +328,21 @@ it('invalidates pending video attachment when its source row is deleted',async()
  await entered.promise;await a.runs.removeRunRow(a.repo.store,row.folder,row.file);release.resolve({fileName:'clip.mp4',fileSize:8,creationTime:null,durationSec:30,timescale:1});
  expect(await pending).toBe(0);expect(a.media.getTracks()).toEqual([]);expect(a.controller.companionRuns()).toEqual([]);await a.controller.flushOpenRunsStrict();expect(JSON.parse(a.repo.text.get('course/runs.json')!).runs.run).toBeUndefined();
 });
+
+it('adopts a delayed project against current sessions and retains a closed log’s correction for reopening',async()=>{
+ const source=runtime(),saved=run('saved');saved.points=[{timestamp:'2026-01-01T00:00:00Z'}] as any;saved.clockOffsetSec=7;
+ const text=source.media.exportProjectJson([saved],'Course');
+ const a=runtime(),old={...saved,clockOffsetSec:0};a.session.analysis.update(()=>({sessions:[old],selectedCars:[]}));
+ const read=deferred<string>(),current=a.session.beginProjectImport();
+ const pending=read.promise.then(text=>{if(current())a.importProject(text);});
+ a.session.analysis.update(()=>({sessions:[],selectedCars:[]}));read.resolve(text);await pending;
+ const reopened={...old,id:'reopened'};a.session.analysis.update(()=>({sessions:[reopened],selectedCars:[]}));
+ expect(a.media.remapImportedSessions([reopened])).toEqual([[reopened.id,7]]);
+});
+
+it('invalidates superseded, storage-cancelled, manually corrected and closed project imports',async()=>{
+ const a=runtime(),first=a.session.beginProjectImport(),second=a.session.beginProjectImport();expect(first()).toBe(false);expect(second()).toBe(true);
+ a.session.markClockEdited('manual');expect(second()).toBe(false);
+ const storage=a.session.beginProjectImport();await a.storage.trackStorageSelection(()=>null);expect(storage()).toBe(false);
+ const closing=a.session.beginProjectImport();await a.close();expect(closing()).toBe(false);
+});

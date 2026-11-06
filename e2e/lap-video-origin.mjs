@@ -30,5 +30,21 @@ try{
  await p.waitFor('window.__laploupe.sessionTimeSec>1',5000,'video-only origin advances');
  const state=await p.ev("({app:window.__laploupe.sessionTimeSec,video:document.querySelector('[data-origin-test] video').currentTime,range:Number(document.querySelector('[data-origin-test] input[type=range]').max),noFootage:document.querySelector('[data-origin-test]').innerText.includes('No footage at this time')})");
  assert(Math.abs(state.app-state.video)<0.7,JSON.stringify(state));assert(Math.abs(state.range-20)<0.2,JSON.stringify(state));assert.equal(state.noFootage,false);assert.deepEqual(p.errors,[]);
- await p.shot('video-only');console.log('PASS cleared final Car: App and local video share the video-only origin');
+ await p.shot('video-only');
+ // 同期プロジェクトの読込み中に画面を離れたら、旧結果を復元しない。
+ const project=await p.ev(`(async()=>{const m=(await import('/src/services/videoSyncManager.ts')).videoSyncManager;const sessions=window.__laploupe.analysisSnapshot().sessions.map(s=>({...s,clockOffsetSec:7}));return m.exportProjectJson(sessions,'test');})()`);
+ const projectPath=path.join(dir,'late.dssync.json');fs.writeFileSync(projectPath,project);
+ const before=await p.ev("import('/src/services/videoSyncManager.ts').then(({videoSyncManager:m})=>JSON.stringify(m.getTracks().map(t=>t.clock)))");
+ await p.ev(`(()=>{const text=File.prototype.text;window.originalFileText=text;File.prototype.text=function(){if(this.name==='late.dssync.json')return text.call(this).then(value=>new Promise(resolve=>{window.finishProjectRead=()=>resolve(value);}));return text.call(this);};})()`);
+ await p.setFiles('[data-origin-test] input[type=file][accept*="dssync"]',[projectPath]);await p.waitFor('window.finishProjectRead');
+ await p.ev("window.__laploupe.go('convert');window.finishProjectRead()");
+ assert.equal(await p.ev("import('/src/services/videoSyncManager.ts').then(({videoSyncManager:m})=>JSON.stringify(m.getTracks().map(t=>t.clock)))"),before);
+ assert.equal(await p.ev('window.__laploupe.pointsOf(0).clockOffsetSec??0'),0);assert.deepEqual(p.errors,[]);
+ console.log('PASS project read is cancelled after leaving its window');
+ await p.ev("File.prototype.text=window.originalFileText;window.__laploupe.go('video')");
+ await p.waitFor("document.querySelector('[data-origin-test]')?.getClientRects().length>0");
+ await p.setFiles('[data-origin-test] input[type=file][accept*="dssync"]',[projectPath]);
+ await p.waitFor('window.__laploupe.pointsOf(0).clockOffsetSec===7',10000,'project adopted with current sessions');
+ assert.deepEqual(p.errors,[]);console.log('PASS project import uses the App engine to restore the live clock');
+ console.log('PASS cleared final Car: App and local video share the video-only origin');
 }finally{await p.close();fs.rmSync(dir,{recursive:true,force:true});}

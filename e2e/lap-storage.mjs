@@ -24,7 +24,7 @@ try {
  window.storeFiles = new Map(); window.storeWrites=[]; window.storeReads=[]; window.failWrites=false;
  window.electronAPI={laps:{getFolder:async()=>{if(window.holdFolder)await new Promise(resolve=>(window.folderWaiters??=[]).push(resolve));return window.folderRoot??'/synthetic/A'},pickFolder:async()=>null,
  list:async()=>window.failSavedList&&window.__laploupe?.openingSaved?.()?{success:false,error:'synthetic list failure'}:({success:true,files:[...storeFiles].map(([path,b])=>({path,size:b.byteLength,mtimeMs:123,local:true}))}),
- read:async path=>{storeReads.push(path);if(window.holdIndexRead===path)await new Promise(resolve=>window.resumeIndexRead=resolve);if(window.readDelayMs)await new Promise(r=>setTimeout(r,window.readDelayMs));if(window.holdSavedRead===path && window.__laploupe?.openingSaved?.())await new Promise(resolve=>window.resumeSavedRead=resolve);const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
+ read:async path=>{storeReads.push(path);if(window.holdLegacyRead===path && window.__laploupe?.openingRun?.())await new Promise(resolve=>window.resumeLegacyRead=resolve);if(window.holdIndexRead===path)await new Promise(resolve=>window.resumeIndexRead=resolve);if(window.readDelayMs)await new Promise(r=>setTimeout(r,window.readDelayMs));if(window.holdSavedRead===path && window.__laploupe?.openingSaved?.())await new Promise(resolve=>window.resumeSavedRead=resolve);const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
  readText:async path=>{if(window.failRunsMetadata&&window.__laploupe?.openingSaved?.()&&path.endsWith('/runs.json'))return {success:false,error:'synthetic metadata failure'};if(window.holdTextRead===path)await new Promise(resolve=>(window.textWaiters??=[]).push(resolve));return {success:true,text:storeFiles.has(path)?new TextDecoder().decode(storeFiles.get(path)):null}},
  writeText:async(path,text)=>{if(path.endsWith('/laptimes.json'))(window.indexWrites??=[]).push(JSON.parse(text));if(window.failWrites)return {success:false,error:'synthetic write failure'};storeWrites.push(path);storeFiles.set(path,new TextEncoder().encode(text));return {success:true}}
  }};
@@ -299,6 +299,21 @@ try {
  await p.click('calc-open');
  assert.ok(await p.ev("[...document.querySelectorAll('[data-testid=calc-editor] input')].some(e=>e.value==='B formats')"),'editor uses new root formula');
  await p.ev("document.querySelector('[data-testid=calc-editor] button').click()");
+ // 古いLibrary読込みが、新しい明示のCar選択を上書きしない。
+ for(const compare of [false,true]){
+  await p.ev(`(async()=>{
+   const store=await(await import('/src/services/runStore.ts')).getRunStore();
+   storeFiles.set('sodegaura/legacy-slow.nmea',storeFiles.get('sodegaura/demo.nmea'));
+   const rows=await(await import('/src/services/runOpener.ts')).listRuns(store);
+   window.legacyItem=rows.find(r=>r.file==='legacy-slow.nmea');window.holdLegacyRead='sodegaura/legacy-slow.nmea';window.resumeLegacyRead=null;
+   window.__laploupe.go('library');void window.__laploupe.openStoredRun(window.legacyItem,${compare});
+  })()`);
+  await p.waitFor('window.resumeLegacyRead',15000,'held legacy load');
+  await p.ev(`(async()=>{window.__laploupe.go('analysis');const s=window.__laploupe.analysisSnapshot().sessions.find(s=>s.laps.length);await window.__laploupe.selectCar(${compare?1:0},s.id,s.laps[0].lapNumber);})()`);
+  const manual=await p.ev('JSON.stringify(window.__laploupe.cars)');
+  await p.ev('window.holdLegacyRead=null;window.resumeLegacyRead()');await p.waitFor('!window.__laploupe.runBusy');
+  assert.equal(await p.ev('JSON.stringify(window.__laploupe.cars)'),manual,'new manual choice wins over late Library read');assert.equal(await p.ev('window.__laploupe.screen'),'analysis');
+ }
  assert.deepEqual(p.errors,[]);
  await p.shot('preserved');console.log(JSON.stringify({result:'PASS interrupted run-list and legacy history scans; repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion; pending metadata, overlapping saved restore, same-source delayed earlier-lap first renders',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
 }catch(error){console.log(await p.ev("({body:document.body.innerText,reads:storeReads.slice(-12),indexes:window.indexWrites?.map(x=>Object.keys(x.files))})"),p.errors);throw error;}finally{await p.close();fs.rmSync(fixtureDir,{recursive:true,force:true});}

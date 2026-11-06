@@ -164,7 +164,7 @@ export const App: React.FC = () => {
   useEffect(() => { navStore.init(plan); }, [plan]);
   const nav = useNav();
   // 解析の「走行とコース」の引き出し (今のデータの画面の中身。PLAN-24 の作る順番の 6)
-  const [engine] = useState(() => createEngineSession({ storage: storageContext, flush: flushOpenRunsStrict }));
+  const [engine] = useState(() => createEngineSession({ storage: storageContext, flush: flushOpenRunsStrict,onClockChanged:scheduleRunSave }));
   const engineState = useSyncExternalStore(engine.subscribe, engine.getSnapshot, engine.getSnapshot);
   const [dataDrawer, setDataDrawer] = useState(false);
   const [lapPickerOpen, setLapPickerOpen] = useState(false);
@@ -1429,11 +1429,12 @@ export const App: React.FC = () => {
   };
 
   const addRunAsCar2 = async (item: RunItem) => {
-    invalidateAssignments();
     if (runOpeningRef.current || savedOpeningRef.current) return;
+    invalidateAssignments();
+    const epoch=selectionEpochRef.current,manual=manualSelectionRef.current,cars=analysisStore.getSnapshot().selectedCars;
     runOpeningRef.current = true; setRunBusy(true);
     const reads = getStorageReadRevision();
-    const check = () => { if (reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError(); };
+    const check = () => { if (cars!==analysisStore.getSnapshot().selectedCars||epoch!==selectionEpochRef.current||manual!==manualSelectionRef.current||reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError(); };
     try {
       const store = await getRunStore(); check();
       if (!store) return;
@@ -1453,14 +1454,14 @@ export const App: React.FC = () => {
       loadRunSidecars(store, item, added);requestSessionPolylines(added); setRunAssociationsVersion(n => n + 1);
       navStore.go('analysis');
     } catch (error) {
-      if (!(error instanceof StorageChangedError) && reads === getStorageReadRevision()) alert(tr('比較する走行を開けませんでした: ', 'Could not open the comparison run: ') + (error instanceof Error ? error.message : String(error)));
+      if (!(error instanceof StorageChangedError) &&epoch===selectionEpochRef.current&&manual===manualSelectionRef.current&&cars===analysisStore.getSnapshot().selectedCars&& reads === getStorageReadRevision()) alert(tr('比較する走行を開けませんでした: ', 'Could not open the comparison run: ') + (error instanceof Error ? error.message : String(error)));
     } finally { runOpeningRef.current = false; setRunBusy(false); }
   };
 
   /** 保管場所の走行を、道で開く (ラップタイムの記録から)。走行の一覧に無ければ、ファイルとして読み込む */
   const openRunByPath = async (run: { folder: string; file: string }, file: File) => {
-    const reads = getStorageReadRevision();
-    const current = () => reads === getStorageReadRevision() && !isStorageSelectionPending();
+    const reads = getStorageReadRevision(),manual=manualSelectionRef.current;
+    const current = () => manual===manualSelectionRef.current&&reads === getStorageReadRevision() && !isStorageSelectionPending();
     try {
       const store = await getRunStore();
       if (!current()) return;
@@ -1484,9 +1485,10 @@ export const App: React.FC = () => {
 
   // 過去の走行を開く: ログを読み込み、同じフォルダの動画と同期をそろえる (runOpener.ts)
   const openRun = async (item: RunItem, to: 'analysis' | 'video' = 'analysis') => {
-    invalidateAssignments();
     // 続けて押しても 1 回だけ開く
     if (runOpeningRef.current || savedOpeningRef.current) return;
+    invalidateAssignments();
+    const epoch=selectionEpochRef.current,manual=manualSelectionRef.current,cars=analysisStore.getSnapshot().selectedCars;
     // ほかの走行を開いたら、前の走行の取り込み待ちはやめる
     runDownloadTokenRef.current++;
     setRunDownload(null);
@@ -1498,11 +1500,11 @@ export const App: React.FC = () => {
       const store = await getRunStore();
       if (!store) return;
       let added = await loadStoredFileData(store, item);
-      if (reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError();
+      if (cars!==analysisStore.getSnapshot().selectedCars||epoch!==selectionEpochRef.current||manual!==manualSelectionRef.current||reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError();
       await flushOpenRunsStrict();
-      if (reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError();
+      if (cars!==analysisStore.getSnapshot().selectedCars||epoch!==selectionEpochRef.current||manual!==manualSelectionRef.current||reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError();
       await validateStoredFiles(store, added);
-      if (reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError();
+      if (cars!==analysisStore.getSnapshot().selectedCars||epoch!==selectionEpochRef.current||manual!==manualSelectionRef.current||reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError();
       const before = analysisStore.getSnapshot();
       added = applyRunMetadata(reuseStoredSessions(before.sessions, added), getRunItemEntry(store, getOpenRunItem(item.folder, item.file) ?? item));
       const { session: main, lapNumber } = pickRunBestLap(added, item);
@@ -1599,7 +1601,7 @@ export const App: React.FC = () => {
         }
       }
     } catch (e) {
-      if (e instanceof StorageChangedError || reads !== getStorageReadRevision()) return;
+      if(e instanceof StorageChangedError||cars!==analysisStore.getSnapshot().selectedCars||epoch!==selectionEpochRef.current||manual!==manualSelectionRef.current||reads!==getStorageReadRevision())return;
       const msg = e instanceof Error ? e.message : String(e);
       // iCloud にだけあって、まだ端末に来ていないログ (大きな動画の取り込み中は、小さなファイルも後回しになる)
       if (msg.includes('not downloaded')) alert(tr('この走行のログを iCloud から取り込んでいます。少し待ってから開き直してください。', 'The log of this run is still downloading from iCloud. Wait a moment and open it again.'));
@@ -1953,6 +1955,13 @@ export const App: React.FC = () => {
     scheduleRunSave();
   };
 
+  const importSyncProjectFile=async(file:File,visible:()=>boolean)=>{
+    const current=engine.beginProjectImport(),view=navStore.getSnapshot(),media=videoSyncManager.getSnapshot(),pins=JSON.stringify(videoViewStore.getAllPins());
+    const text=await file.text();
+    if(!current()||videoSyncManager.getSnapshot()!==media||JSON.stringify(videoViewStore.getAllPins())!==pins||navStore.getSnapshot()!==view||!visible()||videoViewStore.getState().isExporting)return;
+    engine.applySyncProject(text,videoSyncManager,videoViewStore);
+  };
+
   // 同期プロジェクトから戻した動画の照合先を、後から読み込んだログに読み替え、保存したときのログの時計の補正も戻す。
   // 動画のウインドウが隠れていても (Freeze で描き直さない) 戻すよう、ここで行う
   useEffect(() => {
@@ -2279,6 +2288,8 @@ export const App: React.FC = () => {
       isPlaying,
       runBusy,
       openingSaved: () => savedOpeningRef.current,
+      openingRun:()=>runOpeningRef.current,
+      openStoredRun:(item:RunItem,compare=false)=>compare?addRunAsCar2(item):openRun(item),
       sessions: sessions.map(x => ({ id: x.id, fileName: x.fileName, sessionName: x.sessionName, circuitName: x.circuitName, laps: x.laps.length })),
       // G の試験のため: ログの点の時刻と G (と、先頭の時刻)
       pointsOf: (i: number) => { const x = sessions[i]; return x ? { timestamp: x.points[0]?.timestamp, clockOffsetSec: x.clockOffsetSec ?? 0, throttle: x.points.map(q => q.throttle ?? null), pts: x.points.map(q => [q.time, q.accelG, q.corneringG]) } : null; },
@@ -2557,6 +2568,7 @@ export const App: React.FC = () => {
                   onTogglePlay={() => setIsPlaying(!isPlaying)}
                   circuitName={currentCircuitName}
                   targetSessionId={baseSession?.id??null}
+                  onImportProject={importSyncProjectFile}
                   isGraphEmbedded={true}
                   simple
                   isVisible={currentTab === 'analysis'}
@@ -2642,6 +2654,7 @@ export const App: React.FC = () => {
                       onTogglePlay={() => setIsPlaying(!isPlaying)}
                       circuitName={currentCircuitName}
                       targetSessionId={baseSession?.id??null}
+                  onImportProject={importSyncProjectFile}
                       isGraphEmbedded={true}
                       isVisible={currentTab === 'analysis'}
                       playbackSpeed={playbackSpeed}
@@ -2826,6 +2839,7 @@ export const App: React.FC = () => {
                       onTogglePlay={() => setIsPlaying(!isPlaying)}
                       circuitName={currentCircuitName}
                       targetSessionId={baseSession?.id??null}
+                  onImportProject={importSyncProjectFile}
                       isGraphEmbedded={true}
                       isVisible={currentTab === 'analysis'}
                       playbackSpeed={playbackSpeed}
@@ -2864,6 +2878,7 @@ export const App: React.FC = () => {
             onTogglePlay={() => setIsPlaying(!isPlaying)}
             circuitName={currentCircuitName}
             targetSessionId={baseSession?.id??null}
+                  onImportProject={importSyncProjectFile}
             isGraphEmbedded={false}
             isVisible={currentTab === 'video'}
             playbackSpeed={playbackSpeed}
