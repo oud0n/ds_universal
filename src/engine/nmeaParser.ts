@@ -168,7 +168,7 @@ export function parseNmea(nmeaText: string, fileName = '', physicsLevel: GFilter
         fields: ggaFieldsOf(parts)
       };
       lastGga = gga;
-      if (Number.isFinite(gga.latitude) && Number.isFinite(gga.longitude)) ggaFixes.push(gga);
+      if (points.length < 2 && Number.isFinite(gga.latitude) && Number.isFinite(gga.longitude)) ggaFixes.push(gga);
       // RMC → GGA の順で並ぶログでは、同じ時刻の直前の点に付ける
       if (points.length > 0 && sameTime(lastRmcTod, tod)) applyGga(points[points.length - 1], gga);
     } else if (type === 'RMC' && parts.length >= 10) {
@@ -239,6 +239,8 @@ export function parseNmea(nmeaText: string, fileName = '', physicsLevel: GFilter
       const ggaAge = lastGga ? ((tod - lastGga.tod + 86400 + 43200) % 86400) - 43200 : NaN;
       applyGga(point, lastGga && ggaAge > -0.0005 && ggaAge < 1.0005 ? lastGga : null);
       points.push(point);
+      // RMCが2点あればGGAだけの代用は使わない。lastGgaと各点のfieldsは保つ。
+      if (points.length === 2) ggaFixes.length = 0;
       if (absoluteSec !== null && startDate === undefined) startDate = new Date(absoluteSec * 1000);
     }
   }

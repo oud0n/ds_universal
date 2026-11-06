@@ -146,10 +146,10 @@ const MIN_SPAN_M = 0.3;
 // これより遅いとき (停止・ピットでの徐行) は旋回半径を求めない (位置の揺れで小さな円ができるため)
 const MIN_SPEED_KMH = 7.2;
 
-/** 5 個の中央値。中央の値が他の 4 個より小さい (急な頂点) ときはそのまま残す (keepSharpMin) */
+/** 呼出し元の私有一時配列の5個の中央値。急な頂点はkeepSharpMinで残す。 */
 function median5(v: number[], keepSharpMin: boolean): number {
   if (keepSharpMin && v[2] < v[0] && v[2] < v[1] && v[2] < v[3] && v[2] < v[4]) return v[2];
-  return [...v].sort((a, b) => a - b)[2];
+  return v.sort((a, b) => a - b)[2];
 }
 
 /**
@@ -220,7 +220,7 @@ export function applyGFilter(points: TelemetryPoint[], level: GFilterLevel = 'st
   const lowRate = !(dtTypical <= 0.2 + 1e-6); // 5Hz 以下
 
   // 旋回半径をならす
-  let R = rawR.slice();
+  let R: number[];
   if (level !== 'weak' && !lowRate && n >= 5) {
     const highRate = dtTypical <= 0.1 + 1e-6; // 10Hz 以上
     const med = rawR.slice();
@@ -239,6 +239,8 @@ export function applyGFilter(points: TelemetryPoint[], level: GFilterLevel = 'st
         R[i] = (med[i - 1] + med[i] + med[i + 1]) / 3;
       }
     }
+  } else {
+    R = rawR.slice();
   }
 
   // 曲がる向きも前後 2 点を含めた多数決でならす (半径だけをならし、向きを 1 点の値のまま掛けると、

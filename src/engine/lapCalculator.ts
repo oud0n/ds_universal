@@ -153,9 +153,9 @@ const SLOW_CROSSING_KMH = 5;
  * 1 周が 15 秒より短いコース (小さなカートコース・ポケバイコース) では、周の時間の中央値の半分まで縮める (最短 4 秒)。
  * 周の時間は、走っている (15 km/h 以上の) 通過どうしで、間に 50 m 以上走ったものだけから見積もる (止まっている間の揺れを除く)
  */
-function lapMinInterval(points: TelemetryPoint[], gate: Gate): number {
+function lapMinInterval(points: TelemetryPoint[], gate: Gate, direction: number): number {
   // distance は km (0.05 = 50 m)
-  const c = findGateCrossings(points, gate, 4).filter(x => x.interpolatedPoint.speed >= 15);
+  const c = findGateCrossings(points, gate, 4, direction).filter(x => x.interpolatedPoint.speed >= 15);
   const gaps = c.slice(1).map((x, i) => ({ dt: x.time - c[i].time, dd: x.distance - c[i].distance })).filter(g => g.dd >= 0.05).map(g => g.dt).sort((a, b) => a - b);
   if (gaps.length === 0) return 15;
   // 中央値 (偶数個のときは小さい方。遅い周が混ざっても縮められるように)
@@ -165,7 +165,8 @@ function lapMinInterval(points: TelemetryPoint[], gate: Gate): number {
 
 /** 周回の区切りとする計測線の通過。止まっているような遅い通過は数えない */
 function lapCrossings(points: TelemetryPoint[], gate: Gate): CrossingEvent[] {
-  const c = findGateCrossings(points, gate, lapMinInterval(points, gate));
+  const direction = gateDirection(points, gate);
+  const c = findGateCrossings(points, gate, lapMinInterval(points, gate, direction), direction);
   return c.filter(x => x.interpolatedPoint.speed >= SLOW_CROSSING_KMH);
 }
 
@@ -255,22 +256,21 @@ function calculateLapSectors(
     const sectorDuration = Math.max(0.01, splitTime - prevSplitTime);
     const sectorDist = Math.max(0.001, splitDist - prevSplitDist);
 
-    // セクター内ポイントの抽出
-    const secPoints = lapPoints.filter(
-      p => p.time - lapStartTime >= prevSplitTime && p.time - lapStartTime <= splitTime
-    );
-
+    // 同じ点順で集計し、セクターごとの抽出配列は作らない。
+    let pointCount = 0;
     let maxSpd = 0;
     let minSpd = 999;
     let sumSpd = 0;
 
-    if (secPoints.length > 0) {
-      for (const sp of secPoints) {
-        if (sp.speed > maxSpd) maxSpd = sp.speed;
-        if (sp.speed < minSpd) minSpd = sp.speed;
-        sumSpd += sp.speed;
+    lapPoints.forEach(p => {
+      if (p.time - lapStartTime >= prevSplitTime && p.time - lapStartTime <= splitTime) {
+        pointCount++;
+        if (p.speed > maxSpd) maxSpd = p.speed;
+        if (p.speed < minSpd) minSpd = p.speed;
+        sumSpd += p.speed;
       }
-    } else {
+    });
+    if (pointCount === 0) {
       maxSpd = minSpd = sumSpd = 0;
     }
 
@@ -283,7 +283,7 @@ function calculateLapSectors(
       splitDistance: Number(splitDist.toFixed(3)),
       maxSpeed: Number(maxSpd.toFixed(1)),
       minSpeed: Number((minSpd === 999 ? 0 : minSpd).toFixed(1)),
-      avgSpeed: secPoints.length > 0 ? Number((sumSpd / secPoints.length).toFixed(1)) : 0,
+      avgSpeed: pointCount > 0 ? Number((sumSpd / pointCount).toFixed(1)) : 0,
       ...(prevEstimated || !measured ? { isEstimated: true } : {})
     });
 

@@ -132,7 +132,11 @@ export async function parseLogBuffer(fileName: string, buffer: ArrayBuffer, defa
 
   if (!parts) parts = single ? [{ points: single.points, samplingRate: single.samplingRate, startDate: single.startDate }] : [];
   // 位置として正しい点が 2 点に満たない走行は捨てる (違う中身のファイルを生ログなどとして読むと、でたらめな 1 点ができることがあるため)
-  parts = parts.filter(p => p.points.filter(validPos).length >= 2);
+  parts = parts.filter(p => {
+    let validCount = 0;
+    p.points.forEach(point => { if (validPos(point)) validCount++; });
+    return validCount >= 2;
+  });
   if (parts.length === 0 || parts.every(p => p.points.length === 0)) {
     throw fault('logLoader.4', { ja: '有効なGPS位置データが見つかりませんでした', en: 'No valid GPS position data was found' });
   }
