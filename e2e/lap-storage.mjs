@@ -24,7 +24,7 @@ try {
  window.storeFiles = new Map(); window.storeWrites=[]; window.storeReads=[]; window.failWrites=false;
  window.electronAPI={onOpenFiles:callback=>{window.menuOpenFiles=callback;return()=>{window.menuOpenFiles=null}},readFileBuffer:async path=>{if(window.holdMenuRead&&path.endsWith('menu-old.nmea'))await new Promise(resolve=>window.finishMenuRead=resolve);return {success:true,name:path.slice(path.lastIndexOf('/')+1),dataArray:storeFiles.get('sodegaura/demo.nmea')};},laps:{getFolder:async()=>{if(window.holdFolder)await new Promise(resolve=>(window.folderWaiters??=[]).push(resolve));return window.folderRoot??'/synthetic/A'},pickFolder:async()=>null,
  list:async()=>window.failSavedList&&window.__laploupe?.openingSaved?.()?{success:false,error:'synthetic list failure'}:({success:true,files:[...storeFiles].map(([path,b])=>({path,size:b.byteLength,mtimeMs:123,local:true}))}),
- read:async path=>{storeReads.push(path);if(window.holdLegacyRead===path && window.__laploupe?.openingRun?.())await new Promise(resolve=>window.resumeLegacyRead=resolve);if(window.holdIndexRead===path)await new Promise(resolve=>window.resumeIndexRead=resolve);if(window.readDelayMs)await new Promise(r=>setTimeout(r,window.readDelayMs));if(window.holdSavedRead===path && window.__laploupe?.openingSaved?.())await new Promise(resolve=>window.resumeSavedRead=resolve);const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
+ read:async path=>{storeReads.push(path);if(window.holdHistoryRead===path)await new Promise(resolve=>window.resumeHistoryRead=resolve);if(window.holdLegacyRead===path && window.__laploupe?.openingRun?.())await new Promise(resolve=>window.resumeLegacyRead=resolve);if(window.holdIndexRead===path)await new Promise(resolve=>window.resumeIndexRead=resolve);if(window.readDelayMs)await new Promise(r=>setTimeout(r,window.readDelayMs));if(window.holdSavedRead===path && window.__laploupe?.openingSaved?.())await new Promise(resolve=>window.resumeSavedRead=resolve);const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
  readText:async path=>{if(window.failListedRunsMetadata&&path.endsWith('/runs.json'))return {success:false,error:'synthetic listing metadata failure'};if(window.failRunsMetadata&&window.__laploupe?.openingSaved?.()&&path.endsWith('/runs.json'))return {success:false,error:'synthetic metadata failure'};if(window.holdTextRead===path)await new Promise(resolve=>(window.textWaiters??=[]).push(resolve));return {success:true,text:storeFiles.has(path)?new TextDecoder().decode(storeFiles.get(path)):null}},
  writeText:async(path,text)=>{if(path.endsWith('/laptimes.json'))(window.indexWrites??=[]).push(JSON.parse(text));if(window.failWrites)return {success:false,error:'synthetic write failure'};storeWrites.push(path);storeFiles.set(path,new TextEncoder().encode(text));return {success:true}}
  }};
@@ -468,6 +468,28 @@ try {
  assert.equal(await p.ev("window.__laploupe.analysisSnapshot().sessions.find(s=>s.fileName==='cold-metadata.nmea').clockOffsetSec"),6.25,'retry restores the saved log correction');
  await p.ev('testRunOpener.flushOpenRunsStrict()');
  assert.equal(await p.ev("JSON.parse(new TextDecoder().decode(storeFiles.get('sodegaura/runs.json'))).runs['cold-metadata'].parts['1'].clockOffsetSec"),6.25);
+ // 履歴のクリック順と、閉じた履歴からの遅い応答を通す。
+ await p.ev("for(const name of ['history-a.nmea','history-b.nmea'])storeFiles.set('sodegaura/'+name,storeFiles.get('sodegaura/demo.nmea'))");
+ const historyButton=name=>`[...document.querySelectorAll('[data-testid=lap-history-open]')].find(button=>[...button.parentElement.querySelectorAll('span')].some(span=>span.textContent===${JSON.stringify(name)}))`;
+ const openHistory=async()=>{
+  await p.ev("window.__laploupe.go('analysis')");await p.waitFor("document.querySelector('[data-testid=toggle-data-drawer]')");
+  if(!await p.ev("!!document.querySelector('[data-testid=data-drawer]')?.getClientRects().length"))await p.click('toggle-data-drawer');
+  await p.click('open-lap-history');await p.waitFor(historyButton('history-b.nmea'),15000,'two readable history runs');
+ };
+ await openHistory();
+ await p.ev(`window.holdHistoryRead='sodegaura/history-a.nmea';window.resumeHistoryRead=null;${historyButton('history-a.nmea')}.click()`);
+ await p.waitFor('window.resumeHistoryRead');await p.ev(`${historyButton('history-b.nmea')}.click()`);
+ await p.waitFor("!window.__laploupe.openingRun()&&window.__laploupe.sessions.some(s=>s.fileName==='history-b.nmea')",15000,'newer history B accepted');
+ const historyB=await p.ev('JSON.stringify(window.__laploupe.analysisSnapshot())');
+ await p.ev('window.holdHistoryRead=null;window.resumeHistoryRead();new Promise(resolve=>setTimeout(resolve,0))');
+ assert.equal(await p.ev('JSON.stringify(window.__laploupe.analysisSnapshot())'),historyB,'late A cannot replace B');
+ await openHistory();
+ await p.ev(`window.holdHistoryRead='sodegaura/history-a.nmea';window.resumeHistoryRead=null;${historyButton('history-a.nmea')}.click()`);
+ await p.waitFor('window.resumeHistoryRead');
+ await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");
+ const closedHistory=await p.ev('JSON.stringify(window.__laploupe.analysisSnapshot())');
+ await p.ev('window.holdHistoryRead=null;window.resumeHistoryRead();new Promise(resolve=>setTimeout(resolve,0))');
+ assert.equal(await p.ev('JSON.stringify(window.__laploupe.analysisSnapshot())'),closedHistory,'closed history cannot reopen its late read');
  assert.deepEqual(p.errors,[]);
  await p.shot('preserved');console.log(JSON.stringify({result:'PASS interrupted run-list and legacy history scans; repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion; pending metadata, overlapping saved restore, same-source delayed earlier-lap first renders',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
 }catch(error){console.log(await p.ev("({body:document.body.innerText,reads:storeReads.slice(-12),indexes:window.indexWrites?.map(x=>Object.keys(x.files))})"),p.errors);throw error;}finally{await p.close();fs.rmSync(fixtureDir,{recursive:true,force:true});}

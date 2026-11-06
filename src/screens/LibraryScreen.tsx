@@ -3,6 +3,7 @@ import { NO_FILTER, conditionsOf, effectiveFilter, filterOptions, hasValues, mat
 import { ConditionFilters } from '../components/ConditionFilters';
 import { WEATHERS, WEATHER_LABELS, isTempC, isWeather, type Weather } from '../services/runWeather';
 import type { RunMetaPatch } from '../services/runOpener';
+import type {InputRequest} from '../engine/EngineSession';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart2, Bluetooth, ChevronRight, Cloud, EyeOff, FolderOpen, GitCompare, Loader2, Timer, Trash2, Trophy, Video, X } from 'lucide-react';
 import { circuitLabel, useT } from '../utils/i18n';
@@ -51,7 +52,8 @@ interface Props {
   onPickFiles: () => void;
   onPickLaps?: () => void;
   /** ラップタイムの記録から、走行のファイルを解析で開く */
-  onOpenFile: (file: File) => void;
+  onOpenFile: (file: File,request?:InputRequest) => void;
+  onBeginOpen?:()=>InputRequest;
   busy: boolean;
   /** ラップタイマーを使える (アプリ)。初めて開いたときの案内に出す */
   canTime?: boolean;
@@ -78,7 +80,7 @@ const sameRunFile = (a: string, b: string) => {
   return dir(a) === dir(b) && runStem(a) === runStem(b);
 };
 
-export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSession, onOpenVideo, onAddAsCar2, car1Course = null, car1Run = null, openRuns = [], onPickFiles, onPickLaps, onOpenFile, busy, canTime = false }) => {
+export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSession, onOpenVideo, onAddAsCar2, car1Course = null, car1Run = null, openRuns = [], onPickFiles, onPickLaps, onOpenFile,onBeginOpen, busy, canTime = false }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const { store, runs, error, noFolder, reload } = useRuns(active);
@@ -462,11 +464,11 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
           {detail || <p className="text-xs text-slate-500 p-6 text-center">{t('走行を選ぶと、周の一覧と動画が出ます。', 'Select a run to see its laps and videos.')}</p>}
         </div>
       )}
-      {historyOpen && <LapHistoryPanel onClose={() => setHistoryOpen(false)} onOpenRun={(file, run) => {
+      {historyOpen && <LapHistoryPanel onClose={() => setHistoryOpen(false)} onBeginOpen={onBeginOpen} onOpenRun={(file, run,request) => {
         setHistoryOpen(false);
         // 走行の一覧にある走行なら、走行の画面から開くのと同じに開く (Car 1 にする・動画と同期もそろえる)
         const item = runs?.find(r => r.folder === run.folder && sameRunFile(r.file, run.file));
-        if (item) onOpen(item); else onOpenFile(file);
+        if (item) onOpen(item); else onOpenFile(file,request);
       }} />}
       {picking !== false && (
         <VideoRefPicker candidates={picking} onClose={() => setPicking(false)} onPick={f => { setPicking(false); setMarking({ path: f.path, existing: null }); }} />

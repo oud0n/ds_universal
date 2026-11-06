@@ -105,6 +105,7 @@ export function createEngineSession(options:EngineSessionOptions={}){
  };
 }
 export type EngineSession=ReturnType<typeof createEngineSession>;
+export type InputRequest=ReturnType<EngineSession['beginMediaImport']>;
 
 /** Webと他のホストに共通の保存先切替え契約。解除はホストの寿命に合わせる。 */
 export function bindStorageLifecycle(session:EngineSession,controller:{flushOpenRunsStrict():Promise<void>;abandonOpenRuns():void}){

@@ -21,6 +21,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { LapHistoryPanel } from './LapHistoryPanel';
+import type {InputRequest} from '../engine/EngineSession';
 import { formatMinSec } from '../utils/timeFormat';
 import { useCompactLayout } from '../hooks/useCompactLayout';
 import { circuitLabel, useLang, useT } from '../utils/i18n';
@@ -29,7 +30,8 @@ import type { GSource } from '../services/imuG';
 interface DataTabProps {
   sessions: Session[];
   /** ラップタイムの記録から、走行のファイル (.bon4) を解析で開く (デスクトップ版) */
-  onOpenLapRun?: (file: File, run: { folder: string; file: string }) => void;
+  onOpenLapRun?: (file: File, run: { folder: string; file: string },request?:InputRequest) => void;
+  onBeginOpen?:()=>InputRequest;
   selectedCars: SelectedCarSlot[];
   onSelectCarSlot: (slotIndex: number, sessionId: string, lapNumber: number) => void;
   // スロットの割り当てを解除する
@@ -222,6 +224,7 @@ const SessionNameField: React.FC<{ name: string; compact: boolean; onSave: (name
 export const DataTab: React.FC<DataTabProps> = ({
   sessions,
   onOpenLapRun,
+  onBeginOpen,
   selectedCars,
   onSelectCarSlot,
   onClearCarSlot,
@@ -342,7 +345,7 @@ export const DataTab: React.FC<DataTabProps> = ({
           )}
         </div>
       </div>
-      {lapHistoryOpen && <LapHistoryPanel onClose={() => setLapHistoryOpen(false)} onOpenRun={onOpenLapRun && ((f, run) => { setLapHistoryOpen(false); onOpenLapRun(f, run); })} />}
+      {lapHistoryOpen && <LapHistoryPanel onClose={() => setLapHistoryOpen(false)} onBeginOpen={onBeginOpen} onOpenRun={onOpenLapRun && ((f, run,request) => { setLapHistoryOpen(false); onOpenLapRun(f, run,request); })} />}
 
       {/* 比較スロット (Car 1〜4) の選択状態バー */}
       <div className="bg-surface-2 border border-line-2 rounded-xl p-3 shadow-md @container">

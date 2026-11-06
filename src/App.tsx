@@ -1514,8 +1514,8 @@ export const App: React.FC = () => {
   };
 
   /** 保管場所の走行を、道で開く (ラップタイムの記録から)。走行の一覧に無ければ、ファイルとして読み込む */
-  const openRunByPath = async (run: { folder: string; file: string }, file: File) => {
-    const request=beginFileInput(),current=request.isCurrent;
+  const openRunByPath = async (run: { folder: string; file: string }, file: File,request=beginFileInput()) => {
+    const current=request.isCurrent;
     try {
       const store = await getRunStore();
       if (!current()) return;
@@ -2979,7 +2979,8 @@ export const App: React.FC = () => {
           <Freeze active={currentTab === 'data' || dataDrawerOpen}>
           <DataTab
             sessions={sessions}
-            onOpenLapRun={(file, run) => { setDataDrawer(false); void openRunByPath(run, file); }}
+            onBeginOpen={beginFileInput}
+            onOpenLapRun={(file, run,request) => { setDataDrawer(false); void openRunByPath(run,file,request); }}
             selectedCars={selectedCars}
             onSelectCarSlot={handleSelectCarSlot}
             onClearCarSlot={clearCarSlot}
@@ -3090,6 +3091,7 @@ export const App: React.FC = () => {
             openRuns={[...runSessionsRef.current].filter(([, ids]) => ids.some(id => sessions.some(s => s.id === id))).map(([p]) => p)}
             onPickLaps={showLapPicker}
             onPickFiles={() => fileInputRef.current?.click()}
+            onBeginOpen={beginFileInput}
             onOpenFile={file => { void loadFiles([file]).then(() => navStore.go('analysis')); }}
             canTime={plan.available.has('timer') && profile.host === 'native'}
             busy={runBusy}
@@ -3114,14 +3116,13 @@ export const App: React.FC = () => {
             onMeasuringChange={on => navStore.setLocked(on)}
             onClose={() => navStore.back()}
             replayLogs={sessions.map((s): ReplayLog => ({ id: s.id, name: s.sessionName || s.fileName, points: s.points, startDate: s.points[0]?.timestamp ? new Date(s.points[0].timestamp) : undefined }))}
+            onBeginOpen={beginFileInput}
             // ラップタイムの記録から解析で開く (測っている途中でも、これまでどおりタイマーを閉じて開く)
-            onOpenLog={(fileName, text) => {
-              const request=beginFileInput();
-              void loadFileData(fileName,null,parseNmea(text),false,undefined,undefined,request.isCurrent).then(()=>{if(request.isCurrent()){navStore.setLocked(false);navStore.go('analysis');}}).catch(error=>{if(request.isCurrent())alert(error instanceof Error?error.message:String(error));});
+            onOpenLog={(fileName, text,sourceRequest) => {
+              const request=sourceRequest??beginFileInput(),navigation=navStore.getSnapshot();
+              void loadFileData(fileName,null,parseNmea(text),false,undefined,undefined,request.isCurrent).then(()=>{if(request.isCurrent()&&navStore.getSnapshot()===navigation){navStore.setLocked(false);navStore.go('analysis');}}).catch(error=>{if(request.isCurrent())alert(error instanceof Error?error.message:String(error));});
             }}
-            onOpenFile={file => {
-              void loadFiles([file]).then(() => { navStore.setLocked(false); navStore.go('analysis'); });
-            }}
+            onOpenFile={file => { void loadFiles([file]).then(() => { navStore.setLocked(false);navStore.go('analysis'); }); }}
           />
         )}
       </main>

@@ -37,14 +37,16 @@ export interface ReplayLog {
   startDate?: Date;
 }
 
+import type {InputRequest} from '../engine/EngineSession';
 interface Props {
   onClose: () => void;
   /** 再生で試せるログ (読み込んだ走行) */
   replayLogs: ReplayLog[];
   /** 記録した測位を、解析の画面で開く (NMEA の文) */
-  onOpenLog: (fileName: string, nmeaText: string) => void;
+  onOpenLog: (fileName: string, nmeaText: string,request?:InputRequest) => void;
   /** ラップタイムの記録から、走行のファイル (.bon4) を解析で開く */
-  onOpenFile?: (file: File) => void;
+  onOpenFile?: (file: File,request?:InputRequest) => void;
+  onBeginOpen?:()=>InputRequest;
   /**
    * タブの 1 つとして出す (iPhone のアプリ)。閉じるボタンを出さず、測っていない間は画面の中 (タブバーの上) に収める。
    * 測っている間は、これまでどおり画面いっぱい (タブバーも隠す)
@@ -92,7 +94,9 @@ const Pill: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 const verdictWord = (v: Verdict, t: (ja: string, en: string) => string) => v === 'better' ? t('速い', 'FASTER') : v === 'worse' ? t('遅い', 'SLOWER') : '';
 const FLASH_STRONG_MS = 350;
 
-export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog, onOpenFile, embedded = false, onMeasuringChange }) => {
+export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog, onOpenFile,onBeginOpen, embedded = false, onMeasuringChange }) => {
+  const openSequence=useRef(0);
+  useEffect(()=>()=>{openSequence.current++;},[]);
   const t = useT();
   // 画面の文の端末の呼び名 (Android のアプリでは「この端末」)
   const phoneWord = myDeviceWord(isAndroidApp()).ja;
@@ -347,6 +351,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   useEffect(() => { if (menuOpen) void refreshRuns(); }, [menuOpen, refreshRuns]);
   /** 走行を解析で開く・NMEA / bon4 で保存する・消す */
   const runAction = async (run: RunMeta, action: 'open' | 'nmea' | 'bon4' | 'delete') => {
+    const ticket=action==='open'?++openSequence.current:0,request=action==='open'?onBeginOpen?.():undefined;
+    const current=()=>ticket===openSequence.current&&(request?.isCurrent()??true);
     if (action === 'delete') {
       if (!window.confirm(t('この走行の記録を消しますか? (「ファイル」アプリに書いたファイルは残ります)', 'Delete this run? (Files written to the Files app are kept)'))) return;
       rt.forgetRun(run.id);
@@ -354,15 +360,23 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       await refreshRuns();
       return;
     }
+    if(action==='open'){
+      try{
+        await flushRecording();
+        if(!current())return;
+        const fixes=await loadFixes(run.id);
+        if(current()&&fixes.length>=2)onOpenLog(`${runFileBase(run.startedMs)}.nmea`,fixesToNmea(fixes),request);
+      }catch(error){if(current())setSaveError(error instanceof Error?error.message:String(error));}
+      return;
+    }
     await flushRecording();
     // アプリで書いたファイルがあれば、それを渡す (走っている間に書き足したもの)
-    if (action !== 'open' && hasNative() && run.fileBase) {
+    if (hasNative() && run.fileBase) {
       try { await callNative('system.shareFile', { path: `${run.fileBase}.${action}` }); return; } catch { /* 下で作り直す */ }
     }
     const fixes = await loadFixes(run.id);
     if (fixes.length < 2) return;
     const base = runFileBase(run.startedMs);
-    if (action === 'open') { onOpenLog(`${base}.nmea`, fixesToNmea(fixes)); return; }
     const bytes = action === 'nmea' ? new TextEncoder().encode(fixesToNmea(fixes)) : fixesToBon4(fixes);
     if (hasNative()) {
       // アプリでは、データベースの記録からファイルを作って共有の画面で渡す (WKWebView ではダウンロードできないため)
@@ -771,7 +785,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
         </div>
       )}
 
-      {historyOpen && <LapHistoryPanel onClose={() => setHistoryOpen(false)} onOpenRun={onOpenFile} />}
+      {historyOpen && <LapHistoryPanel onClose={() => setHistoryOpen(false)} onBeginOpen={onBeginOpen} onOpenRun={(file,_run,request)=>onOpenFile?.(file,request)} />}
 
       {/* コースを選ぶ */}
       {coursePicker && (
