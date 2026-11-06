@@ -7,6 +7,11 @@
 ## Next build
 
 - The app icon is now a magnifying glass with a tire as its lens. Its light and dark versions are adjusted to appear the same size.
+- Separated the shared engine for logs, laps, playback, video synchronization and saving, keeping one authoritative state across views.
+- Fixed delayed input results returning after newer input, manual edits or closing a view.
+- Failed video or saved-metadata reads preserve existing clocks and sync pins for retry. Fixes also cover same-name video identity, split logs, lap G settings and saved descriptions.
+
+Shared-source review and synthetic checks are complete. iPhone Duo, audio and iCloud verification and distribution remain pending.
 
 ## v1.3.0 (2026-11-06, personal iPhone / iPad TestFlight, build 18)
 
@@ -14,7 +19,7 @@
 - Playback now keeps a single session time across analysis and video views. Video-only playback also works without a GPS log.
 - Pending video synchronization edits are saved before assigning laps from the new picker or choosing storage. Cancelling storage selection preserves the open video's run association.
 
-The next working candidate (not distributed) includes fixes for storage reselection, unconvertible synchronization, stale automatic matching, partial-run saves, and concurrent hidden-lap writes. Independent re-review is not complete. Further candidate fixes wait for in-flight saves, require successful saving at the legacy Library entry, retain original part numbers in saved comparisons, protect failed or superseded restores, and rebind restored pins.
+The next working candidate (not distributed) includes fixes for storage reselection, unconvertible synchronization, stale automatic matching, partial-run saves, and concurrent hidden-lap writes. Shared-source re-review is complete; physical-device checks and distribution remain pending. Further candidate fixes wait for in-flight saves, require successful saving at the legacy Library entry, retain original part numbers in saved comparisons, protect failed or superseded restores, and rebind restored pins.
 
 Known unresolved cases in the distributed build 18 are [BUG-50 and BUG-51](../BUGS.md). Avoid reselecting the current on-device storage and making new video-sync adjustments against a separate log without timestamps. This is not a public release.
 
