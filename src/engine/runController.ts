@@ -15,7 +15,7 @@ import type { Session } from '../types/telemetry';
 import type { createLapHistory } from './lapHistory';
 import { LAP_INDEX_FILE, groupRunsByFolder, isRunVideoName, lapKey, parseLapIndex, runStem, type LapRecord } from './lapIndex';
 import { findRunRow, runKey, RunRowDeletedError, type RunsFileStore, type RunRow, type RunVideo } from './runsFile';
-import { UnpersistableSyncError, rowParts, rowVideoFromTrack, syncPinsFromRow, syncVideoFromRow } from './runSync';
+import { UnpersistableSyncError, rowParts, rowVideoFromTrack, runVideoMatchesTrack, syncPinsFromRow, syncVideoFromRow } from './runSync';
 import type { RunFileInfo, RunRepository as RunStore, SchedulerPort } from './ports';
 import type { VideoMetadata } from './videoMetadataParser';
 import type { RemoteVideo } from './videoTypes';
@@ -251,6 +251,12 @@ function stampRunItem(store:RunStore,item:RunItem):void{
 
 
 function assertVideoOwnership(opts: AttachOptions): void {
+  for(const video of opts.videos){
+    const opened=videoSyncManager.getTracks().find(t=>t.remote?.path===video.path)?.remote;
+    if(opened&&(opened.size>0&&video.size>0&&opened.size!==video.size||opened.lastModified>0&&video.lastModified>0&&opened.lastModified!==video.lastModified)){
+      throw fault('run.video-changed',{ja:'動画ファイルが更新されています。開いている動画を閉じてから読み直してください。',en:'The video file changed. Close the open video and load it again.'});
+    }
+  }
   const wanted = new Set(opts.videos.map(v => v.path));
   for (const run of [...(current ? [current] : []), ...companions.values()]) {
     if (run.store.storageRevision === opts.store.storageRevision && runPath(run.item) === runPath(opts.item)) continue;
@@ -501,7 +507,7 @@ function restoreRowVideos(run: OpenRun, row: RunRow | null, setClockOffset?: (id
   for (const t of videoSyncManager.getTracks()) {
     if (!t.remote || !run.paths.has(t.remote.path) || (onlyTracks && !onlyTracks.has(t.id))) continue;
     const v = row.videos?.find(x => x.name === t.fileName);
-    if (!v) continue;
+    if (!v || !runVideoMatchesTrack(v,t)) continue;
     const vData = syncVideoFromRow(v, runSessions);
     if (vData) restore.push({ trackId: t.id, vData });
     for (const p of syncPinsFromRow(v, t.id, runSessions)) {

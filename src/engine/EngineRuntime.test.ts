@@ -194,6 +194,26 @@ describe('adversarial engine boundary regressions',()=>{
 });
 
 describe('failed IO and concurrent configuration',()=>{
+ it.each([false,true])('rejects changed repository media before reusing a retained owner (companion=%s)',async companion=>{
+  const a=runtime(),s=run(),row=item(),video={name:'clip.mp4',size:8,lastModified:1000,path:'course/clip.mp4',url:'repository:clip'};
+  a.session.assign([s],s.id,1,0);a.controller.registerRunSessions(a.repo.store,row,[s],a.session.analysis.getSessions);
+  const options={store:a.repo.store,item:row,runSessions:[s],videos:[video],fromRuns:true,sessions:a.session.analysis.getSessions,circuitName:'Course'};
+  await a.controller.attachRunVideos(options);const track=a.media.getTracks()[0];a.media.setOffsetIn(track.id,s,5);const before={...track.clock};
+  const attach=companion?a.controller.attachCompanionVideos:a.controller.attachRunVideos;
+  await expect(attach({...options,videos:[{...video,lastModified:2000}]})).rejects.toThrow('video file changed');
+  await expect(attach({...options,videos:[{...video,size:16}]})).rejects.toThrow('video file changed');
+  expect(a.media.getTracks()).toEqual([track]);expect(track.clock).toEqual(before);expect(track.remote).toEqual(video);
+ });
+ it('does not restore or persist another recording’s stored pins, including unopened parts',async()=>{
+  const a=runtime(undefined,{media:{remoteFile:r=>file(r.name),metadata:async f=>({fileName:f.name,fileSize:f.size,creationTime:new Date(2000),durationSec:30,timescale:1000}),gps:async()=>({videoStartUtcMs:[]}),open:()=> 'owned',release:()=>{},nowMs:()=>1000,random:()=>0.5}}),s=run(),row=item();
+  row.entry={updatedAt:'',videos:[{name:'clip.mp4',size:8,recordedAt:new Date(1000).toISOString(),part:1,oldCaptureTag:'discard',clock:{source:'manual',logPart:1,offsetSec:99,utcMs:null},pins:[{name:'old-live',logPart:1,logTimeSec:2,videoTimeSec:1},{name:'old-closed',logPart:2,logTimeSec:3,videoTimeSec:2}]}]};
+  a.repo.text.set('course/runs.json',JSON.stringify({version:2,runs:{run:row.entry}}));
+  a.session.assign([s],s.id,1,0);a.controller.registerRunSessions(a.repo.store,row,[s],a.session.analysis.getSessions);
+  await a.controller.attachRunVideos({store:a.repo.store,item:row,runSessions:[s],videos:[{name:'clip.mp4',size:8,lastModified:2000,path:'course/clip.mp4',url:'repository:clip'}],fromRuns:true,sessions:a.session.analysis.getSessions,circuitName:'Course'});
+  const track=a.media.getTracks()[0];expect(a.pins.getAllPins()).toEqual([]);expect(track.clock.source).not.toBe('manual');
+  a.media.setOffsetIn(track.id,s,3);await a.controller.flushOpenRunsStrict();
+  const saved=JSON.parse(a.repo.text.get('course/runs.json')!).runs.run.videos[0];expect(saved.recordedAt).toBe(new Date(2000).toISOString());expect(saved.pins).toBeUndefined();expect(saved.oldCaptureTag).toBeUndefined();expect(saved.clock.offsetSec).toBe(3);
+ });
  it('keeps separate local GoPro clocks and session owners through project import',async()=>{
   const a=runtime(),b=runtime(),sessions=[run('a'),run('b')];
   sessions[1]={...sessions[1],fileName:'b.nmea',sourceFile:{...sessions[1].sourceFile!,file:'b.nmea'}};

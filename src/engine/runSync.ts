@@ -9,7 +9,7 @@ import { EngineError, defaultText } from './errors';
 
 import { clockOffsetIn, clockStartUtcMs, sessionStartUtcMs, type VideoClock, type ClockSession } from './mediaClock';
 import type { RunClock, RunPin, RunRow, RunVideo } from './runsFile';
-import type { SyncProjectData, VideoTrack } from './videoTypes';
+import {compatibleVideoSource,type SyncProjectData,type VideoTrack} from './videoTypes';
 import type { SyncPin } from './videoSyncPinManager';
 
 
@@ -18,6 +18,11 @@ export class UnpersistableSyncError extends EngineError {
 }
 
 const round3 = (x: number) => Number(x.toFixed(3));
+
+/** 時計・ピン・保存時の未知項目を、別の元動画へ渡さない。 */
+export function runVideoMatchesTrack(video:RunVideo,track:VideoTrack):boolean{
+  return compatibleVideoSource(track,{fileName:video.name,fileSize:video.size,rawRecordedAt:video.recordedAt});
+}
 
 /** 行の動画を、同期を戻す形 (同期プロジェクトの動画の形、今のログの ID) にする。時刻を持たない動画は null */
 export function syncVideoFromRow(v: RunVideo, runSessions: readonly (ClockSession | undefined)[]): SyncProjectData['videos'][number] | null {
@@ -58,6 +63,7 @@ export function syncPinsFromRow(v: RunVideo, trackId: string, runSessions: reado
  * prev はその動画の前の行 (知らない項目を残すため)
  */
 export function rowVideoFromTrack(track: VideoTrack, pins: SyncPin[], runSessions: readonly (ClockSession | undefined)[], allSessions: readonly ClockSession[], prev?: RunVideo): RunVideo {
+  if(prev&&!runVideoMatchesTrack(prev,track))prev=undefined;
   const partOf = (id: string | null | undefined) => {
     const i = id ? runSessions.findIndex(s => s?.id === id) : -1;
     return i >= 0 ? i + 1 : null;
