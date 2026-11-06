@@ -1378,9 +1378,9 @@ export const App: React.FC = () => {
 
   /** 保存したセッションを開く: 指している走行を開いて、Car に割り当てる (見つからない走行は飛ばして知らせる) */
   const openSavedSession = async (saved: LapSession) => {
-    invalidateAssignments();
     // 続けて押したとき・ほかの走行を開いている途中は、何もしない (同じログを 2 回読み込まないように)
     if (runOpeningRef.current || savedOpeningRef.current) return;
+    invalidateAssignments();
     savedOpeningRef.current = true;
     const root = getStorageRevision(), reads = getStorageReadRevision();
     try {
@@ -1394,10 +1394,10 @@ export const App: React.FC = () => {
     }
   };
   const openSavedSessionInner = async (saved: LapSession) => {
-    const revision = getStorageRevision(), reads = getStorageReadRevision();
+    const revision = getStorageRevision(), reads = getStorageReadRevision(),input=engine.operations.mediaImports.current;
     const carsAtStart = analysisStore.getSnapshot().selectedCars, manual = manualSelectionRef.current;
     const current = () => revision === getStorageRevision() && reads === getStorageReadRevision() && !isStorageSelectionPending()
-      && analysisStore.getSnapshot().selectedCars === carsAtStart && manual === manualSelectionRef.current;
+      &&input===engine.operations.mediaImports.current&&analysisStore.getSnapshot().selectedCars === carsAtStart && manual === manualSelectionRef.current;
     const store = await getRunStore();
     if (!store || !current()) return;
     const items = await listRuns(store, undefined, true);

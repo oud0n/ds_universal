@@ -376,6 +376,28 @@ try {
   assert.deepEqual(lapPhysics.actual,lapPhysics.expected,'lap consumers receive the updated physics too');
   await p.ev('window.restorePhysicsList()');
  }
+ // Car選択が同じでも、新しいローカル入力を古い比較復元で落とさない。
+ await p.ev(`(async()=>{
+  const state=window.__laploupe.analysisSnapshot();if(state.selectedCars.length<2)throw Error('requires two selected cars');
+  const cars=state.selectedCars.slice(0,2).map(c=>{const s=state.sessions.find(s=>s.id===c.sessionId),f=s.sourceFile;return {slot:c.slot,run:f.folder+'/'+f.file,part:f.part,lap:c.lapNumber};});
+  storeFiles.set('sessions/input-race.lapsession.json',new TextEncoder().encode(JSON.stringify({version:1,name:'Input race',createdAt:'2025-01-01T00:00:00Z',cars})));
+  window.__laploupe.go('library');
+ })()`);
+ await p.waitFor("[...document.querySelectorAll('[data-testid=library-session-row] button')].some(b=>b.innerText.includes('Input race'))",15000,'saved input comparison');
+ await p.ev(`(()=>{const list=window.electronAPI.laps.list;let calls=0;window.finishInputValidation=null;window.restoreInputList=()=>window.electronAPI.laps.list=list;
+  window.electronAPI.laps.list=async()=>{if(window.__laploupe.openingSaved()&&++calls===6)await new Promise(resolve=>window.finishInputValidation=resolve);return list();};
+  [...document.querySelectorAll('[data-testid=library-session-row] button')].find(b=>b.innerText.includes('Input race')).click();
+ })()`);
+ await p.waitFor('window.finishInputValidation',15000,'final two-car comparison validation');
+ const carsBeforeInput=await p.ev('JSON.stringify(window.__laploupe.cars)');
+ await p.ev("window.newLocalInput=window.__laploupe.loadFiles([new File([storeFiles.get('sodegaura/demo.nmea')],'new-local-input.nmea')]);void 0");
+ await p.waitFor("window.__laploupe.sessions.some(s=>s.fileName==='new-local-input.nmea')||document.querySelector('[data-testid=import-open-only]')",15000,'new local input');
+ if(await p.ev("!!document.querySelector('[data-testid=import-open-only]')"))await p.click('import-open-only');
+ await p.waitFor("window.__laploupe.sessions.some(s=>s.fileName==='new-local-input.nmea')");
+ assert.equal(await p.ev('JSON.stringify(window.__laploupe.cars)'),carsBeforeInput,'new unassigned log leaves existing cars unchanged');
+ await p.ev('window.finishInputValidation()');await p.waitFor('!window.__laploupe.openingSaved()');
+ assert.equal(await p.ev("window.__laploupe.sessions.some(s=>s.fileName==='new-local-input.nmea')"),true,'old comparison cannot discard newer accepted input');
+ await p.ev('window.restoreInputList()');
  // 保存した比較の最終検査中に手動補正しても、古い控えへ戻さない。
  await p.ev(`(async()=>{
   const state=window.__laploupe.analysisSnapshot(),s=state.sessions.find(s=>s.id===state.selectedCars.find(c=>c.slot===0).sessionId),f=s.sourceFile;
@@ -387,7 +409,7 @@ try {
  await p.waitFor("[...document.querySelectorAll('[data-testid=library-session-row] button')].some(b=>b.innerText.includes('Clock race'))",15000,'saved clock comparison');
  await p.ev(`(()=>{const list=window.electronAPI.laps.list;let calls=0;window.finishClockValidation=null;window.restoreClockList=()=>window.electronAPI.laps.list=list;
   window.electronAPI.laps.list=async()=>{if(window.__laploupe.openingSaved()&&++calls===4)await new Promise(resolve=>window.finishClockValidation=resolve);return list();};
-  [...document.querySelectorAll('[data-testid=library-session-row] button')].find(b=>b.innerText.includes('Clock race')).click();
+  const button=[...document.querySelectorAll('[data-testid=library-session-row] button')].find(b=>b.innerText.includes('Clock race'));button.click();button.click();
  })()`);
  await p.waitFor('window.finishClockValidation',15000,'final saved comparison validation');
  await p.ev("window.__laploupe.go('analysis')");
@@ -400,6 +422,7 @@ try {
  await p.waitFor('window.__laploupe.analysisSnapshot().sessions.find(s=>s.id===window.clockRestoreId)?.clockOffsetSec===window.expectedRestoredClock');
  await p.ev('window.finishClockValidation()');await p.waitFor('!window.__laploupe.openingSaved()');
  assert.equal(await p.ev('window.__laploupe.analysisSnapshot().sessions.find(s=>s.id===window.clockRestoreId).clockOffsetSec'),await p.ev('window.expectedRestoredClock'),'late comparison cannot revert a newer clock edit');
+ assert.equal(await p.ev('window.__laploupe.sessions.length'),1,'ignored duplicate click still completes the first comparison');
  await p.ev('window.restoreClockList()');
  assert.deepEqual(p.errors,[]);
  await p.shot('preserved');console.log(JSON.stringify({result:'PASS interrupted run-list and legacy history scans; repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion; pending metadata, overlapping saved restore, same-source delayed earlier-lap first renders',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
