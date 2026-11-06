@@ -22,7 +22,7 @@ export function createEngineSession(options:EngineSessionOptions={}){
  const markClockEdited=(id:string)=>{active();clockRevision++;clockVersions.set(id,(clockVersions.get(id)??0)+1);};
  const storage=options.storage??createStorageContext();
  const operations={
-  projectImports:{current:0},pickerActive:{current:false},slotRequests:{current:[0,0,0,0]},selectionEpoch:{current:0},manualSelection:{current:0},
+  mediaImports:{current:0},projectImports:{current:0},pickerActive:{current:false},slotRequests:{current:[0,0,0,0]},selectionEpoch:{current:0},manualSelection:{current:0},
   pendingParses:{current:new Map<string,{readers:number;parsed?:Promise<Session[]>}>()},savedOpening:{current:false},runOpening:{current:false},
   runSessions:{current:new Map<string,string[]>()},runItems:{current:new Map<string,RunItem>()},attachedRun:{current:null as string|null},openedRun:{current:null as string|null},runDownloadToken:{current:0}
  };
@@ -48,9 +48,14 @@ export function createEngineSession(options:EngineSessionOptions={}){
   if(!Number.isFinite(next.sessionSec)||next.source!==(baseOf(snapshot.analysis)?.sessionId??null))return;
   if(next.source!==snapshot.playhead.source||next.sessionSec!==snapshot.playhead.sessionSec)publish({...snapshot,playhead:next});
  };
- const cancelPending=()=>{operations.projectImports.current++;operations.pickerActive.current=false;operations.selectionEpoch.current++;operations.runDownloadToken.current++;};
+ const cancelPending=()=>{operations.mediaImports.current++;operations.projectImports.current++;operations.pickerActive.current=false;operations.selectionEpoch.current++;operations.runDownloadToken.current++;};
  const resetStorage=()=>{cancelPending();operations.runSessions.current.clear();operations.runItems.current.clear();operations.attachedRun.current=null;operations.openedRun.current=null;};
  return {
+  beginMediaImport(){
+   active();const ticket=++operations.mediaImports.current,root=storage.getStorageRevision(),reads=storage.getStorageReadRevision(),selection=operations.selectionEpoch.current,manual=operations.manualSelection.current;
+   const isCurrent=()=>!snapshot.closed&&!closing&&!storage.isStorageTransitioning()&&ticket===operations.mediaImports.current&&root===storage.getStorageRevision()&&reads===storage.getStorageReadRevision()&&selection===operations.selectionEpoch.current&&manual===operations.manualSelection.current;
+   return {isCurrent,forSession(target:Session){const points=target.points,offset=target.clockOffsetSec??0,version=clockVersions.get(target.id)??0;return()=>{const live=snapshot.analysis.sessions.find(s=>s.id===target.id);return isCurrent()&&live?.points===points&&(live?.clockOffsetSec??0)===offset&&(clockVersions.get(target.id)??0)===version;};}};
+  },
   beginProjectImport(){
    active();const ticket=++operations.projectImports.current,root=storage.getStorageRevision(),reads=storage.getStorageReadRevision(),clocks=clockRevision;
    return()=>!snapshot.closed&&!closing&&!storage.isStorageTransitioning()&&ticket===operations.projectImports.current&&clocks===clockRevision&&root===storage.getStorageRevision()&&reads===storage.getStorageReadRevision();

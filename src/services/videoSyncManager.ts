@@ -6,7 +6,7 @@ import { isRemoteVideo, remoteByteSource, remoteFileLike } from './remoteVideo';
 import { localizeEngineError } from '../adapters/web/engineErrors';
 import type { Session } from '../types/telemetry';
 export * from '../engine/videoSyncManager';
-export { placeTrack, placeTracks, isClockManual } from '../engine/videoTypes';
+export { placeTrack, placeTracks, isClockManual, isLoadedLocalVideo } from '../engine/videoTypes';
 export type { SyncProjectData } from '../engine/videoTypes';
 export type VideoTrack = CoreVideoTrack<File>;
 export type PlacedTrack = CorePlacedTrack<File>;

@@ -1,6 +1,12 @@
 import type { Session } from '../types/telemetry';
 import type { BinaryFile } from './ports';
 import { clockOffsetIn, clockStartUtcMs, type VideoClock } from './mediaClock';
+import type {VideoMetadata} from './videoMetadataParser';
+/** ローカル入力の控えだけと照合する。別の更新日時・撮影日時やRepositoryの動画を名前だけで代用しない。 */
+export function isLoadedLocalVideo<T extends BinaryFile>(track:VideoTrack<T>,file:T,metadata?:Pick<VideoMetadata,'creationTime'>):boolean{
+  return !!track.objectUrl&&!!track.file&&track.fileName===file.name&&track.fileSize===file.size&&track.file.lastModified===file.lastModified
+    &&(metadata===undefined||(track.rawRecordedAt?.getTime()??null)===(metadata.creationTime?.getTime()??null));
+}
 export interface RemoteVideo { name: string; size: number; url: string; path: string; lastModified: number; readRange?: (start: number, end: number) => Promise<ArrayBuffer> }
 export interface VideoTrack<TFile extends BinaryFile = BinaryFile> {
   id: string;

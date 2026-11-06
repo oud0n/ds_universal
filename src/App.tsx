@@ -7,8 +7,8 @@ import { CompareAxis, Lap, Session, TelemetryPoint, SelectedCarSlot, ControlLine
 import { parseNmea } from './services/nmeaParser';
 import { blobByteSource, NoGoproGpsError, parseGoproGps } from './services/gpmfParser';
 import { groupLocalVideoFiles } from './services/videoChapterManager';
-import { parseVideoMetadata } from './services/videoMetadataParser';
-import { sessionStartUtcMs, videoSyncManager, placeTracks, isProxyFileName } from './services/videoSyncManager';
+import { parseVideoMetadata, type VideoMetadata } from './services/videoMetadataParser';
+import { sessionStartUtcMs, videoSyncManager, placeTracks, isProxyFileName, isLoadedLocalVideo } from './services/videoSyncManager';
 import { getAddVideoGpsLog } from './services/videoPrefs';
 import { referenceCandidates } from './services/clockOffsetEstimator';
 import { analyseSessions, isSameRun } from './services/pairAnalysis';
@@ -896,14 +896,19 @@ export const App: React.FC = () => {
       }
       videos.push(file);
     }
-    for (const group of await groupLocalVideoFiles(videos,parseVideoMetadata)) {
+    const request=engine.beginMediaImport(),metadata=new Map<File,VideoMetadata>();
+    const groups=await groupLocalVideoFiles(videos,async file=>{const meta=await parseVideoMetadata(file);metadata.set(file,meta);return meta;});
+    if(!request.isCurrent())return;
+    for (const group of groups) {
       try {
-        await loadGoproVideos(group);
+        await loadGoproVideos(group,metadata,request);
+        if(!request.isCurrent())return;
       } catch (err: any) {
+        if(!request.isCurrent())return;
         alert(tr(`ファイル ${group.map(f => f.name).join('・')} の読み込みに失敗しました: ${err.message}`, `Could not load ${group.map(f => f.name).join(', ')}: ${err.message}`));
       }
     }
-    if (proxies.length > 0) await videoSyncManager.addVideoFiles(proxies, analysisStore.getSnapshot().sessions, false);
+    if (proxies.length > 0)try{await videoSyncManager.addVideoFiles(proxies, analysisStore.getSnapshot().sessions, false,request.isCurrent);}catch(error){if(request.isCurrent())alert(tr('低画質動画を読み込めませんでした: ','Could not load the proxy video: ')+(error instanceof Error?error.message:String(error)));}
   };
 
   /**
@@ -1066,19 +1071,24 @@ export const App: React.FC = () => {
 
   // GoPro の動画 (1 回の撮影のチャプター、順に並べたもの) の GPS を走行ログとして読み込み、同じ動画を動画同期にも登録する。
   // GPS と映像は同じ時計なので、撮影時刻からの照合でなく、GPS の時刻から求めたずれで合わせる
-  const loadGoproVideos = async (files: File[]) => {
+  const loadGoproVideos = async (files: File[],metadata:ReadonlyMap<File,VideoMetadata>,request:ReturnType<typeof engine.beginMediaImport>) => {
+    const current=request.isCurrent;
+    if(!current())return;
+    const loaded=(track:ReturnType<typeof videoSyncManager.getTracks>[number],file:File)=>isLoadedLocalVideo(track,file,metadata.get(file));
     // もう動画同期に登録してある動画なら何もしない (GPS のログを二重に読み込まない。動画同期のタブの「動画追加」から入れ直したときなど)
     const registered = videoSyncManager.getTracks();
-    if (files.every(f => registered.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size))) return;
+    if (files.every(f => registered.some(t => loaded(t,f)))) return;
     let log;
     try {
       log = await parseGoproGps(files.map(blobByteSource));
+      if(!current())return;
     } catch (err) {
       // GPS の記録がない動画 (GoPro 以外の動画など) は、走行ログにはせず、動画同期に登録するだけにする (撮影時刻で照合)
       if (!(err instanceof NoGoproGpsError)) throw err;
+      if(!current())return;
       const existing = videoSyncManager.getTracks();
-      const toAdd = files.filter(f => !existing.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size));
-      if (toAdd.length > 0) await videoSyncManager.addVideoFiles(toAdd, analysisStore.getSnapshot().sessions);
+      const toAdd = files.filter(f => !existing.some(t => loaded(t,f)));
+      if (toAdd.length > 0) await videoSyncManager.addVideoFiles(toAdd, analysisStore.getSnapshot().sessions,true,current);
       return;
     }
     // 同じ走行のログがすでにあるときは、動画の GPS を走行ログとして加えず、GPS の時刻で動画をそのログに合わせるだけにする (LATER-12)。
@@ -1098,7 +1108,12 @@ export const App: React.FC = () => {
       // 時刻が重なるだけでなく、同じ走行 (同じ車) と確かめられたログに付ける (同じ走行枠のチームメイトのログに付けない)
       const gpsAsLog = { id: `gopro-gps:${files[0].name}`, points: log.points } as Session;
       let better: Session | undefined;
-      for (const s of overlapping) if (await isSameRun(s, gpsAsLog)) { better = s; break; }
+      let betterCurrent=()=>false;
+      for (const s of overlapping){
+        const targetCurrent=request.forSession(s),same=await isSameRun(s,gpsAsLog);
+        if(!targetCurrent())return;
+        if(same){better=s;betterCurrent=targetCurrent;break;}
+      }
       const betterStart = sessionStartUtcMs(better);
       // 加える設定のときは、同じ走行のログがあれば聞く (OK なら今までどおり加える)
       if (better && addGps) {
@@ -1115,14 +1130,16 @@ export const App: React.FC = () => {
           ],
           false
         );
+        if(!current()||!betterCurrent())return;
         if (keep) better = undefined;
       }
       if (better && betterStart !== null) {
         const existing = videoSyncManager.getTracks();
-        const toAdd = files.filter(f => !existing.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size));
+        const toAdd = files.filter(f => !existing.some(t => loaded(t,f)));
         if (toAdd.length < files.length) return;
         const before = new Set(existing.map(t => t.id));
-        const tracks = await videoSyncManager.addVideoFiles(toAdd, analysisStore.getSnapshot().sessions, false);
+        const tracks = await videoSyncManager.addVideoFiles(toAdd, analysisStore.getSnapshot().sessions, false,betterCurrent);
+        if(!betterCurrent())return;
         const added = files
           .map((f, i) => ({ track: tracks.find(t => !before.has(t.id) && t.file === f), startMs: log.videoStartUtcMs[i] }))
           .filter((x): x is { track: NonNullable<typeof x.track>; startMs: number } => !!x.track);
@@ -1133,17 +1150,20 @@ export const App: React.FC = () => {
         return;
       }
     }
-    const session = (await loadFileData(files[0].name, null, log))[0];
+    const session = (await loadFileData(files[0].name, null, log,false,getStorageRevision(),undefined,current))[0];
+    if(!current())return;
     if (!session?.points[0]?.timestamp) return;
     const t0 = Date.parse(session.points[0].timestamp);
 
     // 動画同期に登録済みの同じ動画は、もう一度は登録しない (同期を二重にしない)。
     // 同じ撮影のチャプターが一部だけ登録済みのときも登録しない (登録済みのチャプターの同期と食い違うため)
     const existing = videoSyncManager.getTracks();
-    const toAdd = files.filter(f => !existing.some(t => t.objectUrl && t.fileName === f.name && t.fileSize === f.size));
+    const toAdd = files.filter(f => !existing.some(t => loaded(t,f)));
     if (toAdd.length < files.length) return;
     const before = new Set(existing.map(t => t.id));
-    const tracks = await videoSyncManager.addVideoFiles(toAdd, [...analysisStore.getSnapshot().sessions.filter(s => s.id !== session.id), session], false);
+    const sessionCurrent=request.forSession(session);
+    const tracks = await videoSyncManager.addVideoFiles(toAdd, analysisStore.getSnapshot().sessions, false,sessionCurrent);
+    if(!sessionCurrent())return;
     // 新しく加わった動画だけを合わせる (同期プロジェクトから戻した動画は、保存した同期のまま)
     const added = files
       .map((f, i) => ({ track: tracks.find(t => !before.has(t.id) && t.file === f), startMs: log.videoStartUtcMs[i] }))
@@ -1710,7 +1730,8 @@ export const App: React.FC = () => {
     parsedLog?: { points: any[]; samplingRate: number; startDate?: Date },
     staged = false,
     expectedStorageRevision?: number,
-    sourceFile?: Omit<NonNullable<Session['sourceFile']>, 'part' | 'courseHash'>
+    sourceFile?: Omit<NonNullable<Session['sourceFile']>, 'part' | 'courseHash'>,
+    isCurrent?:()=>boolean
   ): Promise<Session[]> => {
     // 1 つのファイルに走行が複数入っているとき (生ログ・空きのある NMEA など) は、走行ごとに別のセッションにする (services/logLoader.ts)
     let parts: { points: any[]; samplingRate: number; startDate?: Date }[];
@@ -1718,6 +1739,7 @@ export const App: React.FC = () => {
     let meta: { vehicleName?: string; driverName?: string; trackName?: string } = {};
     const added: Session[] = [];
     const checkSource = () => {
+      if(isCurrent&&!isCurrent())throw new StorageChangedError();
       if (expectedStorageRevision !== undefined && expectedStorageRevision !== getStorageRevision()) {
         throw new Error(tr('保管場所が変わったため読込みを中断しました', 'Loading stopped because storage changed'));
       }
@@ -2293,6 +2315,7 @@ export const App: React.FC = () => {
       openingSaved: () => savedOpeningRef.current,
       openingRun:()=>runOpeningRef.current,
       openStoredRun:(item:RunItem,compare=false)=>compare?addRunAsCar2(item):openRun(item),
+      loadFiles:(files:File[])=>loadFiles(files),
       sessions: sessions.map(x => ({ id: x.id, fileName: x.fileName, sessionName: x.sessionName, circuitName: x.circuitName, laps: x.laps.length })),
       // G の試験のため: ログの点の時刻と G (と、先頭の時刻)
       pointsOf: (i: number) => { const x = sessions[i]; return x ? { timestamp: x.points[0]?.timestamp, clockOffsetSec: x.clockOffsetSec ?? 0, throttle: x.points.map(q => q.throttle ?? null), pts: x.points.map(q => [q.time, q.accelG, q.corneringG]) } : null; },
