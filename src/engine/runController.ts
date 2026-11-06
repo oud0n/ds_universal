@@ -14,7 +14,7 @@ import { isTempC, isWeather, type Weather } from './runWeather';
 import type { Session } from '../types/telemetry';
 import type { createLapHistory } from './lapHistory';
 import { LAP_INDEX_FILE, groupRunsByFolder, isRunVideoName, lapKey, parseLapIndex, runStem, type LapRecord } from './lapIndex';
-import { findRunRow, runKey, type RunsFileStore, type RunRow, type RunVideo } from './runsFile';
+import { findRunRow, runKey, RunRowDeletedError, type RunsFileStore, type RunRow, type RunVideo } from './runsFile';
 import { UnpersistableSyncError, rowParts, rowVideoFromTrack, syncPinsFromRow, syncVideoFromRow } from './runSync';
 import type { RunFileInfo, RunRepository as RunStore, SchedulerPort } from './ports';
 import type { VideoMetadata } from './videoMetadataParser';
@@ -145,6 +145,7 @@ async function listRuns(store: RunStore, onProgress?: (folder: string) => void, 
         pending: !rec && remoteOnly.has(`${f.folder}/${file}`),
         entry
       };
+      stampRunItem(store,listedItem);
       listedItem.entry=getRunItemEntry(store,listedItem);out.push(listedItem);
     }
   }
@@ -239,8 +240,15 @@ function rejectAlias(store: RunStore, item: RunItem): void {
 }
 
 function assertRunItemCurrent(item: RunItem): void {
+  const owner=itemGenerations.get(item);
+  if(owner&&owner.generation!==host.runs.rowGeneration(owner.store,item.folder,item.file))throw new RunRowDeletedError();
   if (isStorageTransitioning() || isStorageSelectionPending() || item.storageRevision !== undefined && item.storageRevision !== getStorageRevision()) throw new StorageChangedError();
 }
+function stampRunItem(store:RunStore,item:RunItem):void{
+ if(isStorageSelectionPending()||item.storageRevision!==undefined&&item.storageRevision!==getStorageRevision()||store.storageRevision!==undefined&&store.storageRevision!==getStorageRevision())throw new StorageChangedError();
+ itemGenerations.set(item,{store,generation:host.runs.rowGeneration(store,item.folder,item.file)});
+}
+
 
 function assertVideoOwnership(opts: AttachOptions): void {
   const wanted = new Set(opts.videos.map(v => v.path));
@@ -252,7 +260,9 @@ function assertVideoOwnership(opts: AttachOptions): void {
 
 /** 動画を待つ前に、ログの補正を復元し保存担当を用意する。採用直前、待機なしで呼ぶ。 */
 function registerRunSessions(store: RunStore, item: RunItem, incoming: Session[], sessions: () => Session[]): Session[] {
-  rejectAlias(store, item);
+  rejectAlias(store,item);
+  if((itemGenerations.get(item)?.generation??0)!==host.runs.rowGeneration(store,item.folder,item.file))throw new RunRowDeletedError();
+  stampRunItem(store,item);
   const prior = current && runPath(current.item) === runPath(item) ? current : companions.get(runPath(item));
   const liveIds = new Set(sessions().map(s => s.id));
   const restored = incoming.map((s, i) => {
@@ -354,7 +364,8 @@ function saveRun(run: OpenRun, strict = false): Promise<void> {
   // トラックやログを外す前の状態を確保する。同値判定は先行保存の完了後に行う。
   const snap = snapshotOf(run);
   const metadata = new Map(pendingMetadata.get(metadataKeyOf(run.store, run.item)) ?? []);
-  const next = run.saving.then(() => saveRunSnapshot(run, snap, metadata, strict));
+  const generation=host.runs.rowGeneration(run.store,run.item.folder,run.item.file);
+  const next=run.saving.then(()=>generation===host.runs.rowGeneration(run.store,run.item.folder,run.item.file)?saveRunSnapshot(run,snap,metadata,strict):undefined);
   run.saving = next.catch(() => undefined);
   return next;
 }
@@ -388,7 +399,7 @@ async function saveRunSnapshot(run: OpenRun, snap: RunSnapshot, metadata: Map<ke
     // 動画を外した・同期した: 走行の一覧の「同期済み」などをすぐ直す (BUG-39 の 4)
     if (videosChanged) notifyRunsChanged();
   } catch (error) {
-    if (strict) throw error;
+    if(strict&&!(error instanceof RunRowDeletedError))throw error;
     // 書けない (読めない形の runs.json など) ときは、次に変わったときにもう一度試す
   }
 }
@@ -397,7 +408,7 @@ function saveAll(strict = false): Promise<unknown> {
   const runs = [...(current ? [current] : []), ...companions.values()];
   const openKeys=new Set(runs.map(run=>metadataKeyOf(run.store,run.item)));
   const closed=[...metadataOwners].filter(([key])=>!openKeys.has(key));
-  return Promise.all([...runs.map(run=>saveRun(run,strict)),...closed.map(([key,owner])=>persistMetadata(key,owner.store,owner.item).catch(error=>{if(strict)throw error;}))]);
+  return Promise.all([...runs.map(run=>saveRun(run,strict)),...closed.map(([key,owner])=>persistMetadata(key,owner.store,owner.item).catch(error=>{if(strict&&!(error instanceof RunRowDeletedError))throw error;}))]);
 }
 
 function scheduleSave(): void {
@@ -546,8 +557,11 @@ function queued<T>(fn: () => Promise<T>): Promise<T> {
 
 
 function queueAttachment(opts: AttachOptions, attach: (opts: AttachOptions, isCurrent: () => boolean) => Promise<number>) {
-  const generation = attachmentGeneration;
-  const isCurrent = () => generation === attachmentGeneration && (opts.isCurrent?.() ?? true);
+  assertRunItemCurrent(opts.item);
+  const rowGeneration=host.runs.rowGeneration(opts.store,opts.item.folder,opts.item.file);
+  if((itemGenerations.get(opts.item)?.generation??0)!==rowGeneration)throw new RunRowDeletedError();
+  const generation=attachmentGeneration;
+  const isCurrent=()=>generation===attachmentGeneration&&rowGeneration===host.runs.rowGeneration(opts.store,opts.item.folder,opts.item.file)&&(opts.isCurrent?.()??true);
   return queued(() => isCurrent() ? attach(opts, isCurrent) : Promise.resolve(0));
 }
 
@@ -828,6 +842,7 @@ function applyConditions(row: Partial<RunRow>, patch: RunMetaPatch): void {
 }
 
 let metadataSequence = 0;
+const itemGenerations=new WeakMap<RunItem,{store:RunStore;generation:number}>();
 const metadataOwners=new Map<string,{store:RunStore;item:RunItem}>();
 const pendingMetadata = new Map<string, Map<keyof RunMetaPatch, { version: number; value: unknown }>>();
 const metadataStores = new WeakMap<RunStore, number>();
@@ -873,6 +888,9 @@ function getRunItemEntry(store: RunStore, item: RunItem): RunRow | null {
  */
 async function setRunMeta(store: RunStore, item: RunItem, patch: RunMetaPatch): Promise<RunRow> {
   assertRunItemCurrent(item);
+  const generation=host.runs.rowGeneration(store,item.folder,item.file);
+  if((itemGenerations.get(item)?.generation??0)!==generation)throw new RunRowDeletedError();
+  itemGenerations.set(item,{store,generation});
   if(store.storageRevision!==undefined&&store.storageRevision!==getStorageRevision())throw new StorageChangedError();
   editSequence++;
   const version = ++metadataSequence;
@@ -895,6 +913,7 @@ async function setRunLapHidden(store: RunStore, item: RunItem, lap: LapRecord, h
 
 async function persistMetadata(key:string,store:RunStore,item:RunItem,targets=relatedRunItems(store,item)):Promise<RunRow>{
  const requested=new Map(pendingMetadata.get(key)??[]);
+ if(!requested.size)return item.entry??{updatedAt:''};
  let written=new Map<keyof RunMetaPatch,{version:number;value:unknown}>();
  const row=await updateRun(store,item.folder,item.file,prev=>{
   written=new Map([...requested].filter(([field,value])=>pendingMetadata.get(key)?.get(field)?.version===value.version));
@@ -914,8 +933,19 @@ function getOpenRunItem(folder: string, file: string): RunItem | null {
   return current && runPath(current.item) === path ? current.item : companions.get(path)?.item ?? null;
 }
 
+subscriptions.push(host.runs.subscribeRowRemoved(({store,folder,file})=>{
+ const item={folder,file} as RunItem,key=metadataKeyOf(store,item);
+ pendingMetadata.delete(key);metadataOwners.delete(key);editSequence++;
+ const retired=[...(current?[current]:[]),...companions.values()].filter(run=>metadataKeyOf(run.store,run.item)===key);
+ const paths=new Set(retired.flatMap(run=>[...run.paths]));
+ if(current&&retired.includes(current))current=null;
+ for(const [path,run]of companions)if(retired.includes(run))companions.delete(path);
+ const keep=new Set([...(current?[...current.paths]:[]),...[...companions.values()].flatMap(run=>[...run.paths])]);
+ for(const track of videoSyncManager.getTracks())if(track.remote&&paths.has(track.remote.path)&&!keep.has(track.remote.path))videoSyncManager.removeTrack(track.id);
+ for(const listener of openRunListeners)listener();
+}));
 const dispose=()=>{if(disposed)return;disposed=true;for(const unsubscribe of subscriptions.splice(0))unsubscribe();subscribed=false;abandonOpenRuns();openRunListeners.clear();};
-const methods={baseName,startFromName,listRuns,totalBytes,videoCandidates,assertRunItemCurrent,registerRunSessions,scheduleRunSave,companionSessionsOfVideo,flushOpenRunsStrict,flushOpenRuns,closeOpenRun,abandonOpenRuns,attachRunVideos,companionPaths,companionRuns,companionRunMatches,currentRunMatches,releaseClosedRunVideos,attachCompanionVideos,dropCompanion,addVideoToOpenRun,assertRunSyncTarget,getOpenRun,onOpenRun,openRunOverlayLayout,setOpenRunOverlayLayout,getRunItemEntry,setRunMeta,setRunLapHidden,getOpenRunItem};
+const methods={stampRunItem,baseName,startFromName,listRuns,totalBytes,videoCandidates,assertRunItemCurrent,registerRunSessions,scheduleRunSave,companionSessionsOfVideo,flushOpenRunsStrict,flushOpenRuns,closeOpenRun,abandonOpenRuns,attachRunVideos,companionPaths,companionRuns,companionRunMatches,currentRunMatches,releaseClosedRunVideos,attachCompanionVideos,dropCompanion,addVideoToOpenRun,assertRunSyncTarget,getOpenRun,onOpenRun,openRunOverlayLayout,setOpenRunOverlayLayout,getRunItemEntry,setRunMeta,setRunLapHidden,getOpenRunItem};
 return {dispose,...Object.fromEntries(Object.entries(methods).map(([name,method])=>[name,(...args:unknown[])=>{if(disposed)throw new EngineError('controller.closed',{ja:'保存担当は終了しました。',en:'The run controller is closed.'});return (method as (...args:unknown[])=>unknown)(...args); }])) as typeof methods};
 }
 export type RunController = ReturnType<typeof createRunController>;

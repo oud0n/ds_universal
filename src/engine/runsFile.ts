@@ -1,4 +1,4 @@
-import {fault} from './errors';
+import {fault,EngineError} from './errors';
 /**
  * runs.json (走行の情報)。サーキットのフォルダごとに 1 つ。2026-10-20、2 版は 2026-10-24 (docs/run_storage_v2.md)。
  *
@@ -296,11 +296,19 @@ export function findRunRow(file: RunsFile, runFile: string): RunRow | null {
 const isLogName = (file: string) => /\.(nmea|bon4)$/i.test(file);
 
 
+export class RunRowDeletedError extends EngineError {constructor(){super('run.deleted',{ja:'走行は削除されました。一覧を読み直してください。',en:'The run was deleted. Reload the list.'});}}
+export interface RowRemoval {store:RunStore;folder:string;file:string;generation:number}
 export function createRunsFileStore() {
 const parseStrict=parseRunsFileStrict;
 const conflictKey=(folder:string,revision:number)=>JSON.stringify([revision,folder]);
 /** iCloud がぶつかったときに作った写し (runs 2.json など) の道。フォルダごと (一覧を作るときに見つける) */
 const conflictCopies = new Map<string, string[]>();
+const rowGenerations=new Map<string,number>(),removedListeners=new Set<(event:RowRemoval)=>void>();
+const rowKey=(store:Pick<RunStore,'storageRevision'>,folder:string,file:string)=>JSON.stringify([store.storageRevision??0,folder,runKey(file)]);
+const rowGeneration=(store:Pick<RunStore,'storageRevision'>,folder:string,file:string)=>rowGenerations.get(rowKey(store,folder,file))??0;
+const subscribeRowRemoved=(listener:(event:RowRemoval)=>void)=>{removedListeners.add(listener);return()=>{removedListeners.delete(listener);};};
+function removed(store:RunStore,folder:string,file:string){const generation=rowGeneration(store,folder,file)+1;rowGenerations.set(rowKey(store,folder,file),generation);for(const listener of removedListeners)listener({store,folder,file,generation});}
+
 
 /** ぶつかったときの写しか (runs 2.json・runs (2).json など) */
 function isRunsConflictCopy(name: string): boolean {
@@ -329,7 +337,8 @@ const runsWrites = new Map<string, Promise<unknown>>();
  */
 function updateRun(store: RunStore, folder: string, file: string, change: (row: RunRow | undefined) => Partial<RunRow>): Promise<RunRow> {
   const key = conflictKey(folder, store.storageRevision ?? 0);
-  const run = () => updateRunNow(store, folder, file, change);
+  const generation=rowGeneration(store,folder,file);
+  const run=()=>{if(generation!==rowGeneration(store,folder,file))throw new RunRowDeletedError();return updateRunNow(store,folder,file,change);};
   const next = (runsWrites.get(key) ?? Promise.resolve()).then(run, run);
   const tail = next.catch(() => undefined);
   runsWrites.set(key, tail);
@@ -342,7 +351,7 @@ function removeRunRow(store: RunStore, folder: string, file: string): Promise<vo
   const key = conflictKey(folder, store.storageRevision ?? 0);
   const run = async () => {
     const text = await store.readTextStrict(`${folder}/${RUNS_FILE}`);
-    if (text === null) return;
+    if(text===null){removed(store,folder,file);return;}
     if (!isRunsFileText(text)) throw new Error('runs.json could not be read');
     let current = parseRunsFile(text);
     for (const p of conflictCopies.get(conflictKey(folder, store.storageRevision ?? 0)) ?? []) current = mergeRunsFiles(current, parseStrict(await store.readTextStrict(p)));
@@ -350,7 +359,7 @@ function removeRunRow(store: RunStore, folder: string, file: string): Promise<vo
     const short = runStem(file);
     // 名前だけの古い行は、新しい行が無いときだけ (ログだけ)
     const keys = k in current.runs ? [k] : isLogName(file) && short in current.runs ? [short] : [];
-    if (!keys.length) return;
+    if(!keys.length){removed(store,folder,file);return;}
     // ぶつかったときの写しがあると、写しの行が次に読むときに戻るので、消した印 (新しい時刻) を残す
     const tomb = (conflictCopies.get(conflictKey(folder, store.storageRevision ?? 0)) ?? []).length > 0;
     for (const x of keys) {
@@ -358,6 +367,7 @@ function removeRunRow(store: RunStore, folder: string, file: string): Promise<vo
       else delete current.runs[x];
     }
     await store.writeText(`${folder}/${RUNS_FILE}`, JSON.stringify(current, null, 1));
+    removed(store,folder,file);
   };
   const next = (runsWrites.get(key) ?? Promise.resolve()).then(run, run);
   const tail = next.catch(() => undefined);
@@ -387,6 +397,6 @@ async function updateRunNow(store: RunStore, folder: string, file: string, chang
   return row;
 }
 
-return {isRunsConflictCopy,noteRunsConflictCopies,readRunsFile,updateRun,removeRunRow};
+return {rowGeneration,subscribeRowRemoved,isRunsConflictCopy,noteRunsConflictCopies,readRunsFile,updateRun,removeRunRow};
 }
 export type RunsFileStore=ReturnType<typeof createRunsFileStore>;

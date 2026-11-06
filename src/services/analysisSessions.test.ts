@@ -64,3 +64,11 @@ it('does not restore a same-name same-part comparison onto another day',()=>{
  const legacy=cars.map(({rawStartUtcMs,...car})=>car);
  expect(matchFileSession({version:1,name:'test',createdAt:'',source:'files',cars:legacy},[first,second]).picks[0].session.id).toBe('b');
 });
+
+it('prefers the durable stored run ID over a path occupied by a replacement',async()=>{
+ const {matchStoredRun}=await import('./analysisSessions');
+ const original={folder:'course',file:'moved.nmea',entry:{id:'original'}},replacement={folder:'course',file:'old.nmea',entry:{id:'replacement'}};
+ const car={slot:0,run:'course/old.nmea',id:'original',lap:1};
+ expect(matchStoredRun(car,[replacement,original] as any)).toBe(original);expect(matchStoredRun(car,[replacement] as any)).toBeUndefined();
+ expect(matchStoredRun({...car,id:undefined},[replacement,original] as any)).toBe(replacement);
+});

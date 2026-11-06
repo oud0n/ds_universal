@@ -42,3 +42,5 @@ export const getRunItemEntry: typeof runController.getRunItemEntry = withEngineE
 export const setRunMeta: typeof runController.setRunMeta = withEngineErrors(runController.setRunMeta);
 export const setRunLapHidden: typeof runController.setRunLapHidden = withEngineErrors(runController.setRunLapHidden);
 export const getOpenRunItem: typeof runController.getOpenRunItem = withEngineErrors(runController.getOpenRunItem);
+
+export const stampRunItem:typeof runController.stampRunItem=withEngineErrors(runController.stampRunItem);

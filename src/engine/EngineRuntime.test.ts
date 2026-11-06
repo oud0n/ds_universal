@@ -294,3 +294,37 @@ describe('review R3 legacy identity and write ordering',()=>{
   expect(a.formats.currentCsvFormats().map(f=>f.name)).toEqual(['other']);expect(JSON.parse(a.repo.text.get('formats/same.csvformat.json')!).deleted).toBe(true);
  });
 });
+
+describe('review R4 deletion authority',()=>{
+ it('discards failed closed metadata after deletion and rejects a late handler on the old item',async()=>{
+  const a=runtime(),row=item();row.entry=await a.runs.updateRun(a.repo.store,row.folder,row.file,()=>({name:'original'}));
+  a.repo.setFail(true);await expect(a.controller.setRunMeta(a.repo.store,row,{note:'unsaved'})).rejects.toThrow('offline');
+  a.repo.setFail(false);await a.runs.removeRunRow(a.repo.store,row.folder,row.file);await a.controller.flushOpenRunsStrict();
+  expect(JSON.parse(a.repo.text.get('course/runs.json')!).runs.run).toBeUndefined();
+  await expect(a.controller.setRunMeta(a.repo.store,row,{name:'late'})).rejects.toThrow('deleted');
+  const fresh=item();a.controller.stampRunItem(a.repo.store,fresh);await a.controller.setRunMeta(a.repo.store,fresh,{name:'reimport'});
+  expect(JSON.parse(a.repo.text.get('course/runs.json')!).runs.run).toMatchObject({name:'reimport'});expect(JSON.parse(a.repo.text.get('course/runs.json')!).runs.run.note).toBeUndefined();
+ });
+ it('cancels an edit queued behind deletion before it can recreate the row',async()=>{
+  const a=runtime(),row=item();row.entry=await a.runs.updateRun(a.repo.store,row.folder,row.file,()=>({name:'original'}));a.controller.stampRunItem(a.repo.store,row);
+  const entered=deferred<void>(),release=deferred<void>(),write=a.repo.store.writeText;
+  a.repo.store.writeText=async(path,text)=>{entered.resolve();await release.promise;await write(path,text);};
+  const deleting=a.runs.removeRunRow(a.repo.store,row.folder,row.file);await entered.promise;
+  const editing=a.controller.setRunMeta(a.repo.store,row,{note:'late'}),rejected=expect(editing).rejects.toThrow('deleted');
+  release.resolve();await deleting;await rejected;await a.controller.flushOpenRunsStrict();expect(JSON.parse(a.repo.text.get('course/runs.json')!).runs.run).toBeUndefined();
+ });
+ it('retires an active owner if a host removes its row through the shared repository model',async()=>{
+  const a=runtime(),row=item(),s=run();a.session.assign([s],s.id,1,0);a.controller.registerRunSessions(a.repo.store,row,[s],a.session.analysis.getSessions);
+  await a.controller.setRunMeta(a.repo.store,row,{name:'old'});await a.runs.removeRunRow(a.repo.store,row.folder,row.file);await a.controller.flushOpenRunsStrict();
+  expect(a.controller.companionRuns()).toEqual([]);expect(a.controller.getOpenRun()).toBeNull();expect(JSON.parse(a.repo.text.get('course/runs.json')!).runs.run).toBeUndefined();
+ });
+});
+
+it('invalidates pending video attachment when its source row is deleted',async()=>{
+ const entered=deferred<void>(),release=deferred<any>();
+ const a=runtime(undefined,{media:{remoteFile:remote=>file(remote.name),metadata:async()=>{entered.resolve();return release.promise;},gps:async()=>({videoStartUtcMs:[]}),open:()=>{throw Error('must not allocate');},release:()=>{},nowMs:()=>0,random:()=>0.5}}),s=run(),row=item();
+ row.entry=await a.runs.updateRun(a.repo.store,row.folder,row.file,()=>({name:'old'}));a.session.assign([s],s.id,1,0);a.controller.registerRunSessions(a.repo.store,row,[s],a.session.analysis.getSessions);
+ const pending=a.controller.attachCompanionVideos({store:a.repo.store,item:row,runSessions:[s],videos:[{name:'clip.mp4',size:8,lastModified:0,path:'course/clip.mp4',url:'repository:clip'}],fromRuns:true,sessions:a.session.analysis.getSessions,circuitName:'Course'});
+ await entered.promise;await a.runs.removeRunRow(a.repo.store,row.folder,row.file);release.resolve({fileName:'clip.mp4',fileSize:8,creationTime:null,durationSec:30,timescale:1});
+ expect(await pending).toBe(0);expect(a.media.getTracks()).toEqual([]);expect(a.controller.companionRuns()).toEqual([]);await a.controller.flushOpenRunsStrict();expect(JSON.parse(a.repo.text.get('course/runs.json')!).runs.run).toBeUndefined();
+});

@@ -1,3 +1,4 @@
+import {matchStoredRun} from './services/analysisSessions';
 import React, { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect, useSyncExternalStore } from 'react';
 import { currentCsvFormats, csvFormatsReady, loadCsvFormats, useCsvFormats } from './services/csvFormatStore';
 import { matchCsvFormat, mergeSensorRows, readRows, sensorKeyOf } from './services/csvFormats';
@@ -1364,7 +1365,7 @@ export const App: React.FC = () => {
     if (!store || !current()) return;
     const items = await listRuns(store, undefined, true);
     if (!current()) return;
-    const find = (c: LapSessionCar) => items.find(r => `${r.folder}/${r.file}` === c.run) ?? (c.id ? items.find(r => r.entry?.id === c.id) : undefined);
+    const find=(car:LapSessionCar)=>matchStoredRun(car,items);
     const prepared = new Map<string, { item: RunItem; sessions: Session[] }>();
     const missing: string[] = [];
     for (const car of saved.cars) {
@@ -2265,6 +2266,7 @@ export const App: React.FC = () => {
       go: (s: Parameters<typeof navStore.go>[0]) => navStore.go(s),
       // 走行とコースの引き出しの Car の割り当てと同じ (比べるを開いたまま Car を替える試験のため)
       selectCar: (slot: number, sessionId: string, lapNumber: number) => handleSelectCarSlot(slot, sessionId, lapNumber),
+      clearCar:(slot:number)=>clearCarSlot(slot),
       analysisSnapshot: () => analysisStore.getSnapshot(),
       // CSV の形式の定義を読み直す (試験・マニュアルの写真で、あとから保管場所に入れたとき)
       reloadCsvFormats: () => loadCsvFormats(),
@@ -2554,7 +2556,7 @@ export const App: React.FC = () => {
                   onSeekTime={handleSeekSessionTime}
                   onTogglePlay={() => setIsPlaying(!isPlaying)}
                   circuitName={currentCircuitName}
-                  targetSessionId={baseSession?.id}
+                  targetSessionId={baseSession?.id??null}
                   isGraphEmbedded={true}
                   simple
                   isVisible={currentTab === 'analysis'}
@@ -2639,7 +2641,7 @@ export const App: React.FC = () => {
                       onSeekTime={handleSeekSessionTime}
                       onTogglePlay={() => setIsPlaying(!isPlaying)}
                       circuitName={currentCircuitName}
-                      targetSessionId={baseSession?.id}
+                      targetSessionId={baseSession?.id??null}
                       isGraphEmbedded={true}
                       isVisible={currentTab === 'analysis'}
                       playbackSpeed={playbackSpeed}
@@ -2823,7 +2825,7 @@ export const App: React.FC = () => {
                       onSeekTime={handleSeekSessionTime}
                       onTogglePlay={() => setIsPlaying(!isPlaying)}
                       circuitName={currentCircuitName}
-                      targetSessionId={baseSession?.id}
+                      targetSessionId={baseSession?.id??null}
                       isGraphEmbedded={true}
                       isVisible={currentTab === 'analysis'}
                       playbackSpeed={playbackSpeed}
@@ -2861,7 +2863,7 @@ export const App: React.FC = () => {
             onPlaybackRange={setVideoCompareEnd}
             onTogglePlay={() => setIsPlaying(!isPlaying)}
             circuitName={currentCircuitName}
-            targetSessionId={baseSession?.id}
+            targetSessionId={baseSession?.id??null}
             isGraphEmbedded={false}
             isVisible={currentTab === 'video'}
             playbackSpeed={playbackSpeed}

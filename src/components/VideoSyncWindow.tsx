@@ -130,7 +130,7 @@ interface VideoSyncWindowProps {
   onPlaybackRange?: (range: { source: string; start: number; end: number } | null) => void;
   onTogglePlay: () => void;
   circuitName: string;
-  targetSessionId?: string;  // 速度ウィンドウで選択中のセッションID
+  targetSessionId?: string|null;  // 速度ウィンドウで選択中のセッションID
   isGraphEmbedded?: boolean; // グラフ解析画面に埋め込まれているかどうか
   /** 動画を 1 つ見るだけ (スマートフォンの解析の下の欄)。上の道具の段・比べる・マルチカメラは出さない */
   simple?: boolean;
@@ -423,9 +423,9 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
 
   // 速度ウィンドウの選択状態 (Car 1) を最優先で参照
-  const baseSelected = selectedCars.find(c => c.slot === 0);
-  const speedSessionId = targetSessionId || baseSelected?.sessionId;
-  const baseSession = sessions.find(s => s.id === speedSessionId) || sessions[0];
+  const baseSelected=[...selectedCars].sort((a,b)=>a.slot-b.slot).find(c=>sessions.some(s=>s.id===c.sessionId&&s.laps.some(l=>l.lapNumber===c.lapNumber)));
+  const speedSessionId=targetSessionId===undefined?baseSelected?.sessionId:targetSessionId;
+  const baseSession=sessions.find(s=>s.id===speedSessionId);
   // ラップの欄で比べる周: 'best' (そのログのベスト) か、Car の枠 (0〜3) で選んだ周
   // 同じコースの周だけ比べられる (コースの名前が同じ Car の周)
   const sameCourse = (s: Session | undefined) => !!s && !!baseSession && sameCourseName(s.circuitName, baseSession.circuitName);

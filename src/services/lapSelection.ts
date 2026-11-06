@@ -5,7 +5,7 @@ import { extractLaps } from './lapCalculator';
 import { courseForFolder } from './lapHistory';
 import { courseHash, isRunVideoName, LAP_INDEX_FILE, lapKey, parseLapIndex, type LapCourse, type LapRow } from './lapIndex';
 import { findRunRow, isRunsConflictCopy, mergeRunsFiles, parseRunsFileStrict as parseRunsFile, noteRunsConflictCopies, RUNS_FILE } from './runsFile';
-import type { RunItem } from './runOpener';
+import {stampRunItem,type RunItem} from './runOpener';
 import { getStorageRevision } from './storageCourses';
 
 type StoredChoice = Extract<LapPickerChoice, { kind: 'stored' }>;
@@ -117,5 +117,6 @@ export async function prepareStoredLap(choice: StoredChoice, parse: (fileName: s
     folderVideos: [...(dir === row.folder ? [] : videosIn(row.folder)), ...videosIn(dir)],
     synced: !!entry?.videos?.some(v => !!v.clock), entry, pending: false,
   };
+  stampRunItem(store,item);
   return { sessions, session, lap, moved, item, revalidate: async () => { await course(); await list(); check(); } };
 }

@@ -11,16 +11,16 @@
 | 元の走行ログ・動画 | 利用者の保管場所のファイル。直接開いたファイルは利用者の選択した元ファイル | 記録・取り込み。今回のラップ選択は元ログを上書きしない | RunStore が Native / Electron の窓口へ読み出しを依頼。ブラウザの直接読込みは File から解析する |
 | 周の一覧の控え | 保管場所の `laptimes.json`。元ログと計測線から作り直せる控え | lapHistory / lapIndex。ファイルのサイズ・更新時刻とコースの署名を照合 | 走行一覧と LapPicker。現在の保存先のコース読込みを待ってから控えを作る。一覧の周番号だけを最終的な割当てには使わない |
 | 名前・メモ・車種・走行条件 | 保管場所の `runs.json`。保存待ちの編集は共有する RunItem.entry と表示用 Session の RAM | 編集操作が setRunMeta を呼ぶ。再解析時は古い控えより手元の最新行を優先 | 走行一覧・ラップ一覧・解析中の名前。保存前の値を再読込みで戻さない |
-| ログの時計補正・動画の時計とピン | 保管場所の `runs.json`。RAM の現在値と保存担当は runOpener / videoSyncManager | 各調整操作が保存を予約。新しい一覧での割当て・保存先選択の前は保存の完了を待つ | 動画の復元、ログ間の時刻換算、次に開くときの同期 |
+| ログの時計補正・動画の時計とピン | 保管場所の `runs.json`。RAMはEngineSession、VideoSyncManager、SyncPinStore。保存担当はRunController | 各調整操作が保存を予約。新しい一覧での割当て・保存先選択の前は保存の完了を待つ | 動画の復元、ログ間の時刻換算、次に開くときの同期 |
 | 保存した比べ方 | 保管場所の `sessions/*.lapsession.json`、または書き出したファイル | analysisSessions の明示保存・読込み。復元の最後に最新の走行・周の存在を確認 | Library / ファイル読込み。画面内の Car 割当ては明示保存するまで RAM の状態 |
-| 解析中の点列と周 | App ごとの AnalysisStore の `sessions`。RAM のみ | ファイルの解析、コースの再計算、G・追加センサーの適用。選択中の読込みは準備が終わるまで別に持つ | グラフ・地図・動画など。Session.points は走行全体、Lap.points は周の始めを基準とする |
-| Car 1〜4 の割当て | 同じ AnalysisStore の `selectedCars`。点列と同じまとまり | App の選択窓口が assignLap を呼ぶ。LapPicker 自体は直接更新しない | 基準車の決定、比較位置の計算、各表示。割当て対象の走行・周が存在することを採用時に検査 |
+| 解析中の点列と周 | Appが持つ一つのEngineSession.analysisの `sessions`。RAMのみ | ファイルの解析、コースの再計算、G・追加センサーの適用。選択中の読込みは準備が終わるまで別に持つ | グラフ・地図・動画など。Session.points は走行全体、Lap.points は周の始めを基準とする |
+| Car 1〜4 の割当て | 同じEngineSession.analysisの `selectedCars`。点列・基準時計と同じsnapshot | Appが共通の採用・選択コマンドを呼ぶ。LapPicker自体は直接更新しない | 基準車の決定、比較位置の計算、各表示。割当て対象の走行・周が存在することを採用時に検査 |
 | CSV 定義・計算式 | 保管場所の `formats/`。RAM の控えは読込み済みの保存先に結びつける | 定義と計算式を別に準備して一括採用。保存先変更で旧控えを外し、中断した最新要求を再試行 | ログ・sidecar の読込み、値の表示、設定の編集。確認前は編集を受け付けず、旧保存先で開いた編集から別の保存先へ書かない |
 | IMU・追加センサーの値 | 元 CSV と、App の走行 ID ごとの RAM の track / pending | 通常の走行読込みと保存済みラップ選択の両方が同じ sidecar 読込みを呼ぶ。現在の CSV 定義の読込みを待つ。走行ごとの最新の要求だけを残し、取消で中断した読込みは同じ保存先・走行の間だけ再試行。全センサーを準備してから適用 | G の計算・追加の値の結合。閉じた走行の控えは手放す |
-| 再生位置の正本 | App の playhead。対象 Session の ID と、走行全体の秒 `sessionSec` | 再生ループ・シーク・コマ送り・基準車の選択 | playbackPosition が周内の秒・距離・周の内外を計算。画面を移っても別の意味の数へ保存し直さない |
+| 再生位置の正本 | EngineSessionのplayhead。対象SessionのIDと、走行全体の秒 `sessionSec` | Appが再生ループ・シーク・コマ送りを渡し、基準車の変更は共通コマンドが時計も一括変更 | playbackPositionが周内の秒・距離・周の内外を計算。画面を移っても別の意味の数へ保存し直さない |
 | 周内の秒・距離・比較車の位置 | 上の正本と基準周・補正から計算。別の React state に保存しない | playbackPosition と既存の比較補正 | グラフ・地図・G 円・解析の再生バーは周内の秒。動画には走行全体の秒を渡す |
 | 読込み要求・一覧の表示条件 | LapPicker の RAM。Car ごとの要求、キャンセル信号、保管場所の世代 | 一覧を開く・コースを選ぶ・読込み直す・閉じる。App は別の操作やコース再計算でも古い要求を無効にする | 一覧表示と prepareStoredLap。採用の最終判断は App |
-| 動画の一覧・同期設定 | videoSyncManager の RAM。走行の所有関係と保存予約は runOpener | 動画の追加・同期編集・基準車や比較車の変更 | VideoSyncWindow と再生 controller。各 video 要素の実際の再生時刻は制御対象であり、独立した解析位置の正本にはしない |
+| 動画の一覧・同期設定 | 共通VideoSyncManagerのRAM。走行の所有関係と保存予約はRunController。Webの旧入口は同じインスタンスへ委譲 | 動画の追加・同期編集・基準車や比較車の変更 | VideoSyncWindowと再生controller。各video要素の実際の再生時刻は制御対象であり、独立した解析位置の正本にはしない |
 
 割当て・保存先選択前の厳格な保存は、ログ時計・動画同期・ピンに加え、開いている走行の未保存編集も再試行する。保存できなければ新しい一覧での切替えを進めない。名前・メモなどの通常編集には別の書込み経路もあり、開いていない走行の編集全体の失敗表示・自動再試行や、再起動後の未保存値の復元まで今回全面的に整理したとは扱わない。
 
@@ -120,8 +120,8 @@ flowchart TD
 
 ## 所有するコードと回帰の入口
 
-- App.tsx: 窓口の接続、解析中データ、再生の正本、Car ごとの要求と採用。
-- lapAssignmentState.ts: 解析中データの同期的な正本と、一括した割当て・保持範囲。
+- App.tsx: ホスト・GUIの窓口と読込みの組立て。保持する正本と要求はengine/EngineSession.ts、保存担当はengine/runController.ts。
+- engine/EngineSession.ts / lapAssignmentState.ts: 同期的な正本、一括した割当て・時計・保持範囲。付加情報だけの更新でCar選択の参照を作り直さない。
 - LapPicker.tsx / lapPickerRows.ts: 一覧の表示・絞込み・取消と、控えの読込み。
 - lapSelection.ts: 元ファイルとコースの照合、実際の周の再計算・選び直し。画面や動画の状態は更新しない。
 - playbackPosition.ts: 秒の区別と、周内位置の純粋な計算。

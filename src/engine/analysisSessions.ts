@@ -1,3 +1,4 @@
+import type {RunItem} from './runRecords';
 /**
  * 解析用のセッション (複数の走行を Car に割り当てた組み合わせ) の保存と一覧 (PLAN-18。2026-10-25。設計は docs/session_storage_design.md)。
  *
@@ -116,6 +117,12 @@ export function fileSessionCars(selected: Array<{ slot: number; sessionId: strin
     cars.push({slot:c.slot,run:s.fileName,...(rawStartMs(s)!==null?{rawStartUtcMs:rawStartMs(s)!}:{}), ...(part > 0 ? { part } : {}), lap: c.lapNumber, ...(lapStartMs !== undefined ? { lapStartMs } : {}) });
   }
   return cars;
+}
+
+/** 保存IDがある比較は、別の走行が使い直した道へ戻さない。 */
+export function matchStoredRun(car:LapSessionCar,items:readonly RunItem[]):RunItem|undefined{
+ const matches=car.id?items.filter(item=>item.entry?.id===car.id):items.filter(item=>`${item.folder}/${item.file}`===car.run);
+ return matches.length===1?matches[0]:undefined;
 }
 
 /** 書き出したセッションの Car を、開いているログに当てる (見つからないファイルは missing) */
