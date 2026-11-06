@@ -314,6 +314,19 @@ try {
   await p.ev('window.holdLegacyRead=null;window.resumeLegacyRead()');await p.waitFor('!window.__laploupe.runBusy');
   assert.equal(await p.ev('JSON.stringify(window.__laploupe.cars)'),manual,'new manual choice wins over late Library read');assert.equal(await p.ev('window.__laploupe.screen'),'analysis');
  }
+ // 採用自身がCarを替えても、後続の動画処理の失敗を古い要求と誤認しない。
+ const errorNotes=p.notes.length;
+ await p.ev(`(async()=>{
+  storeFiles.set('sodegaura/post-adopt.nmea',storeFiles.get('sodegaura/demo.nmea'));
+  const store=await(await import('/src/services/runStore.ts')).getRunStore();
+  const row=(await testRunOpener.listRuns(store)).find(r=>r.file==='post-adopt.nmea');
+  row.videos=['missing.mp4'];row.folderVideos=[{path:'sodegaura/missing.mp4',size:8,mtimeMs:0,local:false}];
+  window.electronAPI.laps.startDownload=async()=>{throw Error('synthetic post-adoption download failure')};
+  void window.__laploupe.openStoredRun(row,false);
+ })()`);
+ await p.waitFor("[...document.querySelectorAll('[role=dialog] button')].some(b=>!b.disabled&&b.innerText.trim()==='Download')",15000,'post-adoption download choice');
+ await p.ev("[...document.querySelectorAll('[role=dialog] button')].find(b=>!b.disabled&&b.innerText.trim()==='Download').click()");await p.waitFor('!window.__laploupe.runBusy');
+ assert.ok(p.notes.slice(errorNotes).some(note=>note.includes('Could not open the run: synthetic post-adoption')),'current request reports its post-adoption failure');
  assert.deepEqual(p.errors,[]);
  await p.shot('preserved');console.log(JSON.stringify({result:'PASS interrupted run-list and legacy history scans; repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion; pending metadata, overlapping saved restore, same-source delayed earlier-lap first renders',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
 }catch(error){console.log(await p.ev("({body:document.body.innerText,reads:storeReads.slice(-12),indexes:window.indexWrites?.map(x=>Object.keys(x.files))})"),p.errors);throw error;}finally{await p.close();fs.rmSync(fixtureDir,{recursive:true,force:true});}

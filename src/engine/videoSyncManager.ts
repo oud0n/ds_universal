@@ -250,11 +250,6 @@ class VideoSyncManager {
     let relinked=false;
     const claimed=new Set<VideoTrack>();
     try{
-      for(const file of inputs.filter((f):f is TFile=>!isRemoteVideo(f)&&isProxyFileName(f.name))){
-        const key=proxyKey(file.name);if(!key)continue;
-        const track=this.videos.find(v=>proxyKey(v.fileName)===key);
-        if(track){proxy(staged(track),file);pending.delete(key);}else pending.set(key,file);
-      }
       for(const {file,remote,meta,gpsUtcMs}of prepared){
         const placeholder=placeholderFor(file,remote);
         if(placeholder&&claimed.has(placeholder))throw fault('media.duplicate-file',{ja:'同じ動画への複数の読込みはできません。',en:'Multiple inputs refer to the same video.'});
@@ -268,10 +263,19 @@ class VideoSyncManager {
         if(meta.durationSec>0)track.durationSec=meta.durationSec;
         if(!track.rawRecordedAt&&meta.creationTime){track.rawRecordedAt=meta.creationTime;track.recordedAtJst=meta.creationTime;}
         track.notes=undefined;
-        const key=proxyKey(file.name),proxyFile=key?pending.get(key):undefined;
-        if(key&&proxyFile){proxy(track,proxyFile);pending.delete(key);}
         if(placeholder){this.remapTrack(track,sessions);relinked=true;}
         else{const utc=creationUtcMs(track);if(utc!==null)track.clock=clockAtUtc('creation',utc);newTracks.push(track);if(Number.isFinite(gpsUtcMs))gpsClocks.set(track,gpsUtcMs!);}
+      }
+      const proxyInputs=new Set<string>();
+      for(const file of inputs.filter((f):f is TFile=>!isRemoteVideo(f)&&isProxyFileName(f.name))){
+        const key=proxyKey(file.name);if(!key)continue;
+        if(proxyInputs.has(key))throw fault('media.ambiguous-proxy',{ja:'同じ名前の低画質動画を特定できません。対象の動画だけを開いてから読み直してください。',en:'The proxy video is ambiguous. Open only its intended recording and try again.'});
+        proxyInputs.add(key);pending.set(key,file);
+      }
+      for(const [key,file]of pending){
+        const matches=[...this.videos,...newTracks].filter(v=>proxyKey(v.fileName)===key);
+        if(matches.length>1)throw fault('media.ambiguous-proxy',{ja:'同じ名前の低画質動画を特定できません。対象の動画だけを開いてから読み直してください。',en:'The proxy video is ambiguous. Open only its intended recording and try again.'});
+        if(matches.length===1){const track=matches[0];proxy(this.videos.includes(track)?staged(track):track,file);pending.delete(key);}
       }
       if(!isCurrent()){rollback();return this.videos;}
       beforePublish?.();

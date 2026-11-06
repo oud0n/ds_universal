@@ -161,6 +161,18 @@ describe('adversarial engine boundary regressions',()=>{
   fail=true;await expect(media.addVideoFiles([file('GL010001.LRV')],[],false)).rejects.toThrow('open failed');expect(media.getTracks()[0].proxyUrl).toBe(old);expect(leases.has(old!)).toBe(true);
   fail=false;media.dispose();expect(leases.size).toBe(0);
  });
+ it.each(['open','batch','pending'] as const)('rejects ambiguous GoPro proxies without changing tracks or leases (%s)',async mode=>{
+  let next=0;const leases=new Set<string>();
+  const media=createVideoSyncManager<BinaryFile>({remoteFile:remote=>file(remote.name),metadata:async f=>({fileName:f.name,fileSize:f.size,creationTime:null,durationSec:30,timescale:1}),gps:async()=>({videoStartUtcMs:[]}),open:()=>{const handle=String(++next);leases.add(handle);return handle;},release:handle=>{expect(leases.delete(handle)).toBe(true);},nowMs:()=>0,random:()=>0.5});
+  const recordings=['a','b'].map(folder=>({name:'GX010017.MP4',size:8,lastModified:0,url:`repository:${folder}`,path:`${folder}/GX010017.MP4`}));
+  if(mode==='open')await media.addVideoFiles(recordings,[],false);
+  if(mode==='pending')await media.addVideoFiles([file('GL010017.LRV')],[],false);
+  const before=media.getTracks().map(track=>({...track}));
+  await expect(media.addVideoFiles(mode==='open'?[file('GL010017.LRV')]:mode==='batch'?[...recordings,file('GL010017.LRV')]:recordings,[],false)).rejects.toThrow('ambiguous');
+  expect(media.getTracks()).toEqual(before);expect(leases.size).toBe(0);
+  // 保留中のLRVも失敗で消費せず、対象を一つにした再試行で結び付く。
+  if(mode==='pending'){await media.addVideoFiles([recordings[1]],[],false);expect(media.getTracks()[0].proxyFileName).toBe('GL010017.LRV');media.dispose();expect(leases.size).toBe(0);}
+ });
  it('cannot publish a delayed media result or accept new analysis after close',async()=>{
   const gate=deferred<any>();let opens=0;
   const a=runtime(undefined,{media:{remoteFile:remote=>file(remote.name),metadata:()=>gate.promise,gps:async()=>({videoStartUtcMs:[]}),open:()=>{opens++;return 'lease';},release:()=>{},nowMs:()=>0,random:()=>0.5}});

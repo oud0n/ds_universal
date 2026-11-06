@@ -1431,7 +1431,8 @@ export const App: React.FC = () => {
   const addRunAsCar2 = async (item: RunItem) => {
     if (runOpeningRef.current || savedOpeningRef.current) return;
     invalidateAssignments();
-    const epoch=selectionEpochRef.current,manual=manualSelectionRef.current,cars=analysisStore.getSnapshot().selectedCars;
+    const epoch=selectionEpochRef.current,manual=manualSelectionRef.current;
+    let cars=analysisStore.getSnapshot().selectedCars;
     runOpeningRef.current = true; setRunBusy(true);
     const reads = getStorageReadRevision();
     const check = () => { if (cars!==analysisStore.getSnapshot().selectedCars||epoch!==selectionEpochRef.current||manual!==manualSelectionRef.current||reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError(); };
@@ -1448,6 +1449,7 @@ export const App: React.FC = () => {
       item = shareRunItem(item, store);
       added = registerRunSessions(store, item, added, analysisStore.getSessions);
       analysisStore.update(prev => assignLap(prev, added, session.id, lapNumber, 1, false));
+      cars=analysisStore.getSnapshot().selectedCars;
       releaseUnselectedRunVideos();
       item = shareRunItem(item, store);
       runSessionsRef.current.set(path, added.map(s => s.id)); runItemsRef.current.set(path, item);
@@ -1488,7 +1490,8 @@ export const App: React.FC = () => {
     // 続けて押しても 1 回だけ開く
     if (runOpeningRef.current || savedOpeningRef.current) return;
     invalidateAssignments();
-    const epoch=selectionEpochRef.current,manual=manualSelectionRef.current,cars=analysisStore.getSnapshot().selectedCars;
+    const epoch=selectionEpochRef.current,manual=manualSelectionRef.current;
+    let cars=analysisStore.getSnapshot().selectedCars;
     // ほかの走行を開いたら、前の走行の取り込み待ちはやめる
     runDownloadTokenRef.current++;
     setRunDownload(null);
@@ -1521,6 +1524,7 @@ export const App: React.FC = () => {
       added = registerRunSessions(store, item, added, analysisStore.getSessions);
       const committed = selectAvailableCars({ sessions: [...retained.filter(s => !incomingIds.has(s.id)), ...added], selectedCars: [] }, checked.selectedCars);
       engine.replaceAnalysis(committed);
+      cars=analysisStore.getSnapshot().selectedCars;
       runSessionsRef.current.set(runPath, added.map(x => x.id));runItemsRef.current.set(runPath, item);
       for (const id of removedIds) { polylineRequestRef.current.delete(id);imuTracksRef.current.delete(id);imuPendingRef.current.delete(id);sensorPendingRef.current.delete(id); }
       setConvertSessionId(prev => removedIds.has(prev) ? '' : prev);
