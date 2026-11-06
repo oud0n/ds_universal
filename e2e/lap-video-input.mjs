@@ -37,6 +37,15 @@ try{
  const secondBytes=fs.readFileSync(second).toString('base64');
  await p.ev(`window.__laploupe.loadFiles([new File([Uint8Array.from(atob(${JSON.stringify(secondBytes)}),c=>c.charCodeAt(0))],'GX010017.MP4',{lastModified:${epoch+(day+1)*86400000},type:'video/mp4'})])`);
  assert.equal(await p.ev('window.__laploupe.sessions.length'),2,'the same source is still deduplicated');
+ // 動画Aだけを開いた状態で、同名同サイズの撮影BのプロジェクトをUIから戻す。
+ const project=await p.ev(`(async()=>{const m=(await import('/src/services/videoSyncManager.ts')).videoSyncManager;const [a,b]=m.getTracks();window.captureA=a.id;window.captureAClock=JSON.stringify(a.clock);const json=m.exportProjectJson(window.__laploupe.analysisSnapshot().sessions,'course',[],new Set([b.id]));m.removeTrack(b.id);return json;})()`);
+ const projectPath=path.join(dir,'capture-b.dssync.json');fs.writeFileSync(projectPath,project);
+ await p.ev("window.__laploupe.go('video')");await p.waitFor("[...document.querySelectorAll('[data-testid=video-window]')].some(e=>e.offsetParent!==null)");
+ await p.ev("[...document.querySelectorAll('[data-testid=video-window]')].find(e=>e.offsetParent!==null).setAttribute('data-input-test','true')");
+ await p.setFiles('[data-input-test] input[type=file][accept*="dssync"]',[projectPath]);
+ await p.waitFor('window.__laploupe.videos.length===2');
+ assert.equal(await p.ev("import('/src/services/videoSyncManager.ts').then(({videoSyncManager:m})=>JSON.stringify(m.getTracks().find(t=>t.id===window.captureA).clock))"),await p.ev('window.captureAClock'),'project B does not overwrite active capture A');
+ assert.equal(await p.ev("import('/src/services/videoSyncManager.ts').then(({videoSyncManager:m})=>m.getTracks().filter(t=>!t.objectUrl).length)"),1,'capture B remains an unmatched placeholder');
  const notes=p.notes.length;
  await p.ev("window.__laploupe.loadFiles([new File([new Uint8Array(8)],'GL010017.LRV')])");
  assert.ok(p.notes.slice(notes).some(note=>note.includes('Could not load the proxy video:')),'ambiguous proxy is reported instead of an unhandled rejection');

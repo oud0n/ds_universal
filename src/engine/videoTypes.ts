@@ -2,6 +2,14 @@ import type { Session } from '../types/telemetry';
 import type { BinaryFile } from './ports';
 import { clockOffsetIn, clockStartUtcMs, type VideoClock } from './mediaClock';
 import type {VideoMetadata} from './videoMetadataParser';
+interface VideoSourceIdentity {fileName:string;fileSize?:number;rawRecordedAt?:Date|string|null;recordedAtJst?:Date|string|null}
+/** 旧形式の不明な属性は許すが、既知の元ファイル属性が食い違う場合は照合しない。 */
+export function compatibleVideoSource(a:VideoSourceIdentity,b:VideoSourceIdentity):boolean{
+  const recorded=(value:VideoSourceIdentity)=>{const raw=value.rawRecordedAt??value.recordedAtJst;return raw instanceof Date?raw.getTime():raw?Date.parse(raw):null;};
+  const dateA=recorded(a),dateB=recorded(b);
+  if(Number.isNaN(dateA)||Number.isNaN(dateB))return false;
+  return a.fileName===b.fileName&&(!(a.fileSize&&b.fileSize)||a.fileSize===b.fileSize)&&(dateA===null||dateB===null||dateA===dateB);
+}
 /** ローカル入力の控えだけと照合する。別の更新日時・撮影日時やRepositoryの動画を名前だけで代用しない。 */
 export function isLoadedLocalVideo<T extends BinaryFile>(track:VideoTrack<T>,file:T,metadata?:Pick<VideoMetadata,'creationTime'>):boolean{
   return !!track.objectUrl&&!!track.file&&track.fileName===file.name&&track.fileSize===file.size&&track.file.lastModified===file.lastModified

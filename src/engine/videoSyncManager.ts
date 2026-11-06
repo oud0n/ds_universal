@@ -10,6 +10,7 @@ import type { VideoMetadata } from './videoMetadataParser';
 import { pinUtcMs, createSyncPin, type SyncPin } from './videoSyncPinManager';
 import { detectCircuitTimezone, scanBestTimezoneOffset } from './masterTimelineEngine';
 import { groupVideoTracksByChapter, VideoChapterGroup, findChapterGroupForTrack } from './videoChapterManager';
+import {compatibleVideoSource} from './videoTypes';
 import {
   VideoClock, ClockSource, NO_CLOCK, clockAtUtc, clockOnLog, shiftClock, clockOffsetIn, clockStartUtcMs, refreshClockUtc, sessionStartUtcMs
 } from './mediaClock';
@@ -78,7 +79,7 @@ function creationUtcMs(track: CoreVideoTrack): number | null {
   return track.rawRecordedAt.getTime() - getTimezoneOffsetMs(track.videoTimezone || 'JST') + getTimezoneOffsetMs(track.gpsTimezone || 'JST');
 }
 
-const projectKeyOf=(track:CoreVideoTrack):string=>track.projectKey??(track.remote?JSON.stringify(['remote',track.remote.path,track.fileSize]):track.id);
+const projectKeyOf=(track:CoreVideoTrack):string=>track.projectKey??(track.remote?JSON.stringify(['remote',track.remote.path,track.fileSize,track.rawRecordedAt?.getTime()??null]):track.id);
 const SOURCE_RANK: Record<ClockSource, number> = { manual: 2, gps: 1, creation: 0 };
 
 /** GoPro の動画 (GX010015.MP4・GH010015.MP4) と低画質のファイル (GL010015.LRV) を組にする名前。組にならないものは null */
@@ -224,8 +225,9 @@ class VideoSyncManager {
     if(!isCurrent())return this.videos;
     const inputs=[...new Set(Array.from(files))];
     const prepared:Array<{file:TFile;remote?:RemoteVideo;meta:VideoMetadata;gpsUtcMs?:number}>=[];
-    const placeholderFor=(file:TFile,remote?:RemoteVideo)=>{
-      const matches=this.videos.filter(v=>!v.objectUrl&&v.fileName===file.name&&(!v.fileSize||v.fileSize===file.size)&&(!remote||!v.projectSourcePath||v.projectSourcePath===remote.path));
+    const placeholderFor=(file:TFile,meta:VideoMetadata,remote?:RemoteVideo)=>{
+      const identity={fileName:file.name,fileSize:file.size,rawRecordedAt:meta.creationTime};
+      const matches=this.videos.filter(v=>!v.objectUrl&&compatibleVideoSource(v,identity)&&(!remote||v.projectSourcePath===remote.path));
       if(matches.length>1)throw fault('media.ambiguous-file',{ja:'同名の動画を特定できません。プロジェクトの元の場所を確認してください。',en:'The video name is ambiguous. Check the original project source.'});
       return matches[0];
     };
@@ -234,7 +236,7 @@ class VideoSyncManager {
       const remote=isRemoteVideo(input)?input:undefined,file=remote?ports.remoteFile(remote):input as TFile;
       const meta=await ports.metadata(file);if(!isCurrent())return this.videos;
       let gpsUtcMs:number|undefined;
-      if(readGps&&!placeholderFor(file,remote)){
+      if(readGps&&!placeholderFor(file,meta,remote)){
         try{gpsUtcMs=(await ports.gps(file,remote)).videoStartUtcMs[0];}catch{/* GPSのない動画。 */}
         if(!isCurrent())return this.videos;
       }
@@ -251,7 +253,7 @@ class VideoSyncManager {
     const claimed=new Set<VideoTrack>();
     try{
       for(const {file,remote,meta,gpsUtcMs}of prepared){
-        const placeholder=placeholderFor(file,remote);
+        const placeholder=placeholderFor(file,meta,remote);
         if(placeholder&&claimed.has(placeholder))throw fault('media.duplicate-file',{ja:'同じ動画への複数の読込みはできません。',en:'Multiple inputs refer to the same video.'});
         if(placeholder)claimed.add(placeholder);
         const track:VideoTrack=placeholder?staged(placeholder):{
@@ -626,7 +628,7 @@ class VideoSyncManager {
       const ok = !!target && !!c && ['gps', 'manual', 'creation'].includes(c.source) && (c.logId === null || typeof c.logId === 'string') &&
         Number.isFinite(c.offsetSec) && Math.abs(c.offsetSec) <= 366 * 24 * 3600 && (c.utcMs === null || Number.isFinite(c.utcMs)) &&
         (vData.matchedSessionId === null || typeof vData.matchedSessionId === 'string');
-      if (!ok || !target) continue;
+      if (!ok || !target || !compatibleVideoSource(target,vData)) continue;
       this.applyVideoData(target, vData, sessions);
       n++;
     }
@@ -680,9 +682,11 @@ class VideoSyncManager {
       if(vData.key)keys.add(vData.key);
       if(!vData.key&&data.videos.filter(v=>v.fileName===vData.fileName&&v.fileSize===vData.fileSize).length>1)throw ambiguous();
       const compatible=(track:VideoTrack)=>!vData.sourcePath||!(track.remote?.path??track.projectSourcePath)||(track.remote?.path??track.projectSourcePath)===vData.sourcePath;
-      let matches=vData.key?this.videos.filter(v=>projectKeyOf(v)===vData.key&&compatible(v)):[];
-      if(!matches.length&&vData.sourcePath)matches=this.videos.filter(v=>(v.remote?.path??v.projectSourcePath)===vData.sourcePath&&v.fileName===vData.fileName&&v.fileSize===vData.fileSize);
-      if(!matches.length&&!vData.sourcePath)matches=this.videos.filter(v=>v.fileName===vData.fileName&&v.fileSize===vData.fileSize);
+      const keyed=vData.key?this.videos.filter(v=>projectKeyOf(v)===vData.key):[];
+      if(keyed.some(v=>!compatible(v)||!compatibleVideoSource(v,vData)))throw ambiguous();
+      let matches=keyed;
+      if(!matches.length&&vData.sourcePath)matches=this.videos.filter(v=>(v.remote?.path??v.projectSourcePath)===vData.sourcePath&&compatibleVideoSource(v,vData));
+      if(!matches.length&&!vData.sourcePath)matches=this.videos.filter(v=>!v.remote&&!v.projectSourcePath&&compatibleVideoSource(v,vData));
       if(matches.length>1||matches[0]&&used.has(matches[0]))throw ambiguous();
       if(matches[0])used.add(matches[0]);
       return {vData,target:matches[0] as VideoTrack|undefined};
