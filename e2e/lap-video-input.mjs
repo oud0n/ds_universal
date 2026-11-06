@@ -14,12 +14,12 @@ const base=fs.readFileSync(plain),epoch=Date.UTC(2000,0,1),day=9000,count=120;
 const words=(...values)=>{const out=Buffer.alloc(values.length*4);values.forEach((n,i)=>out.writeUInt32BE(n,i*4));return out;};
 const box=(name,...body)=>{const data=Buffer.concat(body);return Buffer.concat([words(data.length+8),Buffer.from(name),data]);};
 const position=t=>[35.39486+0.0005*Math.sin(t*Math.PI/20),140.08803+0.0005*Math.cos(t*Math.PI/20)];
-function gopro(day){
+function gopro(day,hz=1){
  const payload=Buffer.alloc(8+72*count);payload.write('GPS9');payload[4]='d'.charCodeAt(0);payload[5]=72;payload.writeUInt16BE(count,6);
- for(let r=0;r<count;r++)[...position(r),1,12,12,day,r,1,3].forEach((n,i)=>payload.writeDoubleBE(n,8+r*72+i*8));
+ for(let r=0;r<count;r++)[...position(r/hz),1,hz===1?12:12+r%7,12,day,r/hz,1,3].forEach((n,i)=>payload.writeDoubleBE(n,8+r*72+i*8));
  let offset=0;while(offset+8<=base.length&&base.toString('ascii',offset+4,offset+8)!=='moov')offset+=base.readUInt32BE(offset);
  assert.equal(offset+base.readUInt32BE(offset),base.length,'ffmpeg places moov last');
- const trak=where=>box('trak',box('mdia',box('hdlr',words(0,0),Buffer.from('meta')),box('mdhd',words(0,0,0,1000)),box('minf',box('stbl',box('stsd',words(0,1,8),Buffer.from('gpmd')),box('stsz',words(0,payload.length,1)),box('stts',words(0,1,1,count*1000)),box('stco',words(0,1,where))))));
+ const trak=where=>box('trak',box('mdia',box('hdlr',words(0,0),Buffer.from('meta')),box('mdhd',words(0,0,0,1000)),box('minf',box('stbl',box('stsd',words(0,1,8),Buffer.from('gpmd')),box('stsz',words(0,payload.length,1)),box('stts',words(0,1,1,count*1000/hz)),box('stco',words(0,1,where))))));
  return Buffer.concat([base.subarray(0,offset),box('moov',base.subarray(offset+8),trak(base.length+trak(0).length+8)),box('mdat',payload)]);
 }
 const first=path.join(dir,'a','GX010017.MP4'),second=path.join(dir,'b','GX010017.MP4');
@@ -79,5 +79,39 @@ try{
  await p.ev('window.__laploupe.loadFiles([window.retryReadFile])');
  await p.waitFor('window.__laploupe.sessions.length===1&&window.__laploupe.videos.length===1');
  assert.equal(await p.ev("import('/src/services/videoSyncManager.ts').then(({videoSyncManager:m})=>m.getTracks()[0].durationSec)"),4,'retry loads the real duration');
- assert.deepEqual(p.errors,[]);console.log('PASS same-name captures, deduplication, closed GPS, ordinary IO failure and retry');
+ // 古い混合入力のファイル読込みを止め、その間に選び直した動画を準備する。
+ await p.goto(url.href);await p.waitFor('window.__laploupe');
+ const logText=fs.readFileSync(log,'utf8');
+ await p.ev(`(()=>{
+  const log=new File([${JSON.stringify(logText)}],'old.gpx'),original=log.arrayBuffer.bind(log);
+  let held=false;log.arrayBuffer=()=>{if(held)return original();held=true;return new Promise(resolve=>window.finishOldLog=()=>resolve(original()));};
+  const old=new File([Uint8Array.from(atob(${JSON.stringify(videoBytes)}),c=>c.charCodeAt(0))],'older.mp4');
+  window.oldMixed=window.__laploupe.loadFiles([log,old]);
+  const next=new File([Uint8Array.from(atob(${JSON.stringify(videoBytes)}),c=>c.charCodeAt(0))],'newer.mp4'),slice=next.slice.bind(next);let hold=true;
+  next.slice=(start,end,type)=>{const value=slice(start,end,type);if(hold){hold=false;return {arrayBuffer:()=>new Promise(resolve=>window.finishNewVideo=()=>resolve(value.arrayBuffer()))};}return value;};
+  window.newVideo=window.__laploupe.loadFiles([next]);
+ })()`);
+ await p.waitFor('window.finishNewVideo&&window.finishOldLog');
+ await p.ev('window.finishOldLog();window.oldMixed');
+ await p.ev('window.finishNewVideo();window.newVideo');
+ assert.deepEqual(await p.ev('window.__laploupe.videos.map(v=>v.fileName)'),['newer.mp4'],'old mixed input cannot supersede the newer selection');
+ assert.equal(await p.ev('window.__laploupe.sessions.some(s=>s.fileName==="old.gpx")'),false,'old log cannot publish after selection changed');
+ // GPSのrange読込み中と、解析結果の採用待ちで設定が変わっても最新値で公開する。
+ await p.goto(url.href);await p.waitFor('window.__laploupe');
+ await p.ev(`(async()=>{
+  const {setGFilterLevel}=await import('/src/services/physics.ts');setGFilterLevel('strong');
+  const file=new File([Uint8Array.from(atob(${JSON.stringify(gopro(day,10).toString('base64'))}),c=>c.charCodeAt(0))],'filter.mp4'),slice=file.slice.bind(file);let headers=0;
+  file.slice=(start,end,type)=>{const value=slice(start,end,type);if(start===0&&++headers===2)return {arrayBuffer:()=>new Promise(resolve=>window.finishGpsRead=()=>resolve(value.arrayBuffer()))};return value;};
+  window.filterImport=window.__laploupe.loadFiles([file]);
+ })()`);
+ await p.waitFor('window.finishGpsRead');
+ await p.ev("import('/src/services/physics.ts').then(m=>m.setGFilterLevel('weak'))");
+ await p.ev('window.finishGpsRead();window.filterImport');
+ const physics=await p.ev(`import('/src/services/physics.ts').then(({applyGFilter})=>{
+  const pts=window.__laploupe.analysisSnapshot().sessions[0].points,values=p=>p.map(q=>[q.accelG,q.corneringG,q.turningRadius]);
+  return {actual:values(pts),weak:values(applyGFilter(pts.map(p=>({...p})),'weak')),strong:values(applyGFilter(pts.map(p=>({...p})),'strong'))};
+ })`);
+ assert.notDeepEqual(physics.weak,physics.strong,'synthetic GPS distinguishes smoothing levels');
+ assert.deepEqual(physics.actual,physics.weak,'pending import uses the current G smoothing');
+ assert.deepEqual(p.errors,[]);console.log('PASS video identity, stale input, failed IO retry and current physics preferences');
 }finally{await p.close();fs.rmSync(dir,{recursive:true,force:true});}

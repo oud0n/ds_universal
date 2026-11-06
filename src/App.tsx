@@ -880,23 +880,30 @@ export const App: React.FC = () => {
   // 選んだファイルを読み込む。動画は 1 回の撮影ごと (チャプターをまとめて) に 1 つのログにする。失敗したファイルは知らせて続ける
   const loadFiles = async (files: File[]) => {
     invalidateAssignments();
+    const request=engine.beginMediaImport();
     const videos:File[]=[];
     // GoPro の低画質のファイル (.LRV) は、動画同期で元の動画と組にする (ログにはしない)
     const proxies = files.filter(f => isProxyFileName(f.name));
     for (const file of files.filter(f => !isProxyFileName(f.name))) {
+      if(!request.isCurrent())return;
       if (!isVideoFileName(file.name)) {
         try {
+          const buffer=await file.arrayBuffer();
+          if(!request.isCurrent())return;
           // 保管場所があれば、走行ごとに分けて取り込むかを先に聞く (取り込まずに開くこともできる)
-          if (await offerImport(file.name, await file.arrayBuffer(), files.length === 1)) continue;
-          await loadFileData(file.name, await file.arrayBuffer());
+          const offered=await offerImport(file.name,buffer,files.length===1,request.isCurrent);
+          if(!request.isCurrent())return;
+          if(offered)continue;
+          await loadFileData(file.name,buffer,undefined,false,undefined,undefined,request.isCurrent);
         } catch (err: any) {
+          if(!request.isCurrent())return;
           alert(tr(`ファイル ${file.name} の読み込みに失敗しました: ${err.message}`, `Could not load ${file.name}: ${err.message}`));
         }
         continue;
       }
       videos.push(file);
     }
-    const request=engine.beginMediaImport(),metadata=new Map<File,VideoMetadata>();
+    const metadata=new Map<File,VideoMetadata>();
     const unreadable:Array<{file:File;error:unknown}>=[];
     await Promise.all(videos.map(async file=>{try{metadata.set(file,await parseVideoMetadata(file));}catch(error){unreadable.push({file,error});}}));
     if(!request.isCurrent())return;
@@ -920,7 +927,7 @@ export const App: React.FC = () => {
    * 聞かずに false (そのまま開く)。true なら、開くかどうかはシートの中で決まった。
    * 保管場所の走行と時間が重なるとき (測り始めが違ってもよい) も、シートで聞く (PLAN-43)
    */
-  const offerImport = async (name: string, buffer: ArrayBuffer, openExisting = false): Promise<boolean> => {
+  const offerImport = async (name: string, buffer: ArrayBuffer, openExisting = false, isCurrent=()=>true): Promise<boolean> => {
     const ext = name.split('.').pop()?.toLowerCase() ?? '';
     if (!LOG_EXTENSIONS.includes(ext) || !canUseRunStore()) return false;
     let plan: ImportPlan;
@@ -944,17 +951,23 @@ export const App: React.FC = () => {
     } catch {
       return false;
     }
+    if(!isCurrent())return true;
     // 保管場所の走行そのもの (同じ名前のファイル) を 1 つだけ開いたときは、走行の画面から開くのと同じ形で開く
     // (違うコースのログを外す・同じ走行を 2 回読み込まない)。ロガーから落としたとき・名前の違うログは、シートで聞く
     const stem = name.replace(/\.[^./]+$/, '');
     if (openExisting && plan.parts.length === 1 && plan.parts[0].already) {
       const same = findSameRun(existing, plan.parts[0].base, plan.parts[0].startMs);
-      if (same && same.slice(same.lastIndexOf('/') + 1) === stem && (await openStoredRun(same))) return true;
+      if (same && same.slice(same.lastIndexOf('/') + 1) === stem && (await openStoredRun(same,isCurrent))) return true;
     }
     if (plan.parts.length === 0 || plan.parts.every(p => p.already && !p.overlaps?.length)) return false;
     importCountRef.current.queued++;
     setImportTotal(importCountRef.current.queued);
     const shown = importQueueRef.current.then(() => new Promise<void>(resolve => {
+      if(!isCurrent()){
+        importCountRef.current.queued--;
+        if(importCountRef.current.shown>=importCountRef.current.queued)importCountRef.current={queued:0,shown:0};
+        setImportTotal(importCountRef.current.queued);resolve();return;
+      }
       importDoneRef.current = resolve;
       const index = ++importCountRef.current.shown;
       setImporting({ index, plan, name, bytes: new Uint8Array(buffer), phase: 'confirm' });
@@ -965,11 +978,11 @@ export const App: React.FC = () => {
   };
 
   /** 保管場所の走行 (拡張子なしの道) を、走行の画面から開くのと同じ形で開く。見つからなければ false */
-  const openStoredRun = async (base: string): Promise<boolean> => {
+  const openStoredRun = async (base: string, isCurrent=()=>true): Promise<boolean> => {
     const store = await getRunStore().catch(() => null);
     const items = store ? await listRuns(store).catch(() => [] as RunItem[]) : [];
     const item = items.find(r => `${r.folder}/${r.file}`.replace(/\.[^./]+$/, '') === base);
-    if (!item) return false;
+    if (!item||!isCurrent()) return false;
     await openRun(item);
     return true;
   };
@@ -1731,12 +1744,13 @@ export const App: React.FC = () => {
   const loadFileData = async (
     fileName: string,
     buffer: ArrayBuffer | null,
-    parsedLog?: { points: any[]; samplingRate: number; startDate?: Date },
+    parsedLog?: { points: any[]; samplingRate: number; startDate?: Date; physicsLevel?:GFilterLevel },
     staged = false,
     expectedStorageRevision?: number,
     sourceFile?: Omit<NonNullable<Session['sourceFile']>, 'part' | 'courseHash'>,
     isCurrent?:()=>boolean
   ): Promise<Session[]> => {
+    const parsedPhysicsLevel=parsedLog?.physicsLevel??getGFilterLevel();
     // 1 つのファイルに走行が複数入っているとき (生ログ・空きのある NMEA など) は、走行ごとに別のセッションにする (services/logLoader.ts)
     let parts: { points: any[]; samplingRate: number; startDate?: Date }[];
     // ログに記録されている車両名・ドライバー名・コース名 (iRacing の .ibt)
@@ -1773,6 +1787,8 @@ export const App: React.FC = () => {
       // 保存済みのユーザーコースの読み込みが終わってから判定する (起動直後に開いたファイルでも使えるように)
       await userCircuitStorage.ready;
       checkSource();
+      const currentPhysicsLevel=getGFilterLevel();
+      if(parsedPhysicsLevel!==currentPhysicsLevel)rawPoints=applyGFilter(rawPoints.map(p=>({...p})),currentPhysicsLevel);
       let matchedCircuit = findMatchingCircuit(rawPoints[0].latitude, rawPoints[0].longitude, rawPoints);
       // 同じ場所のコースの手がかり: 読み込み済みのセッションのうち、計測線がこのログの近くにあるもの (基準車を優先)。
       // なければ直前に決まったコース (一度に複数のファイルを読み込むときは、まだセッション一覧に入っていないため)
