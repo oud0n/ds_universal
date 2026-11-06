@@ -246,20 +246,31 @@ function sameRunRecord(files: Record<string, LapFileRecord>, name: string): LapF
 /** 非表示の印を、計算し直した周へ引き継ぐ (同じファイルで、始まりの時刻がいちばん近い周。SAME_LAP_MS より離れていれば捨てる) */
 export function carryHidden(hidden: HiddenLap[], files: Record<string, LapFileRecord>, skipped: string[] = []): HiddenLap[] {
   const out: HiddenLap[] = [];
+  const dir=(p:string)=>p.slice(0,Math.max(0,p.lastIndexOf('/')));
+  const match=(paths:string[],file:string)=>{
+    if(paths.includes(file))return file;
+    const same=paths.filter(p=>runStem(p)===runStem(file)&&dir(p)===dir(file));
+    if(same.length)return same.length===1?same[0]:undefined;
+    const legacy=paths.filter(p=>runStem(p)===runStem(file)&&(!dir(file)||!dir(p)));
+    return legacy.length===1?legacy[0]:undefined;
+  };
+  const carried=new Set<HiddenLap>();
   for (const h0 of hidden) {
     // 日付のフォルダへ移したファイル (前はファイルの名前だけ) にも引き継ぐ
     // 日付のフォルダへ移した・.bon4 から .nmea に基準を替えた走行にも引き継ぐ (同じ走行の名前で探す)
-    const moved = files[h0.file] ? h0.file : Object.keys(files).find(k => runStem(k) === runStem(h0.file));
+    const moved = match(Object.keys(files),h0.file);
     const h = moved && moved !== h0.file ? { ...h0, file: moved } : h0;
     const laps = files[h.file]?.laps ?? [];
     let best: LapRecord | null = null;
     for (const l of laps) if (!best || Math.abs(l.startMs - h.startMs) < Math.abs(best.startMs - h.startMs)) best = l;
     if (best && Math.abs(best.startMs - h.startMs) <= SAME_LAP_MS && !out.some(o => o.file === h.file && o.part === best!.part && o.n === best!.n)) {
       out.push({ file: h.file, ...(best.part ? { part: best.part } : {}), n: best.n, startMs: best.startMs });
+      carried.add(h0);
     }
   }
   for (const h of hidden) {
-    const to = skipped.find(k => k === h.file || runStem(k) === runStem(h.file));
+    if(carried.has(h))continue;
+    const to = match(skipped,h.file);
     if (to && !out.some(o => o.file === to && o.part === h.part && o.n === h.n)) out.push({ ...h, file: to });
   }
   return out;

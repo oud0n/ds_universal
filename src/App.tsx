@@ -5,7 +5,9 @@ import { matchCsvFormat, mergeSensorRows, readRows, sensorKeyOf } from './servic
 import { ChevronDown, ChevronRight, FolderOpen, X } from 'lucide-react';
 import { CompareAxis, Lap, Session, TelemetryPoint, SelectedCarSlot, ControlLine, Sector, CircuitPreset, PolylineSource } from './types/telemetry';
 import { parseNmea } from './services/nmeaParser';
-import { blobByteSource, goproRecording, NoGoproGpsError, parseGoproGps } from './services/gpmfParser';
+import { blobByteSource, NoGoproGpsError, parseGoproGps } from './services/gpmfParser';
+import { groupLocalVideoFiles } from './services/videoChapterManager';
+import { parseVideoMetadata } from './services/videoMetadataParser';
 import { sessionStartUtcMs, videoSyncManager, placeTracks, isProxyFileName } from './services/videoSyncManager';
 import { getAddVideoGpsLog } from './services/videoPrefs';
 import { referenceCandidates } from './services/clockOffsetEstimator';
@@ -878,7 +880,7 @@ export const App: React.FC = () => {
   // 選んだファイルを読み込む。動画は 1 回の撮影ごと (チャプターをまとめて) に 1 つのログにする。失敗したファイルは知らせて続ける
   const loadFiles = async (files: File[]) => {
     invalidateAssignments();
-    const groups = new Map<string, File[]>();
+    const videos:File[]=[];
     // GoPro の低画質のファイル (.LRV) は、動画同期で元の動画と組にする (ログにはしない)
     const proxies = files.filter(f => isProxyFileName(f.name));
     for (const file of files.filter(f => !isProxyFileName(f.name))) {
@@ -892,12 +894,9 @@ export const App: React.FC = () => {
         }
         continue;
       }
-      const rec = goproRecording(file.name);
-      const key = rec ? `rec:${rec.id}` : `file:${file.name}`;
-      groups.set(key, [...(groups.get(key) ?? []), file]);
+      videos.push(file);
     }
-    for (const group of groups.values()) {
-      group.sort((a, b) => (goproRecording(a.name)?.chapter ?? 0) - (goproRecording(b.name)?.chapter ?? 0));
+    for (const group of await groupLocalVideoFiles(videos,parseVideoMetadata)) {
       try {
         await loadGoproVideos(group);
       } catch (err: any) {

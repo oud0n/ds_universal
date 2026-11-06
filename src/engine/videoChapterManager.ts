@@ -2,6 +2,19 @@
  * GoPro / DJI / アクションカメラ チャプター分割動画（4GB制限分割）自動管理モジュール
  */
 import type { VideoTrack, PlacedTrack } from './videoTypes';
+import type { BinaryFile } from './ports';
+import type { VideoMetadata } from './videoMetadataParser';
+import { NO_CLOCK } from './mediaClock';
+
+/** GPSを連結する前にも、再生側と同じ撮影の判定を使う。 */
+export async function groupLocalVideoFiles<T extends BinaryFile>(files:T[],metadata:(file:T)=>Promise<VideoMetadata>):Promise<T[][]>{
+  const tracks=await Promise.all(files.map(async(file,i)=>{
+    const meta=await metadata(file);
+    return {id:String(i),file,fileName:file.name,fileSize:file.size,durationSec:meta.durationSec,rawRecordedAt:meta.creationTime,recordedAtJst:meta.creationTime,matchedSessionId:null,clock:NO_CLOCK,videoTimezone:'UTC',gpsTimezone:'UTC',isAutoMatched:false} satisfies VideoTrack<T>;
+  }));
+  const {groups,standaloneTracks}=groupVideoTracksByChapter(tracks);
+  return [...groups.map(group=>group.tracks.map(ct=>ct.track.file)),...standaloneTracks.map(track=>[track.file])];
+}
 
 export interface ChapterInfo {
   brand: 'gopro' | 'dji' | 'generic';

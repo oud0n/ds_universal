@@ -1,5 +1,5 @@
 import {expect,it} from 'vitest';
-import {reconcileFolder,courseHash,lapRows,SPLIT_RULE,type LapIndex} from './lapIndex';
+import {reconcileFolder,courseHash,lapRows,carryHidden,SPLIT_RULE,type LapIndex} from './lapIndex';
 it('retries a first .bon4 scan after transient IO failure instead of caching an empty run',async()=>{
  const file={path:'course/run.bon4',size:123,mtimeMs:456,local:true};
  const course={name:'course',controlLine:{name:'gate',latA:35,lonA:140,latB:35.01,lonB:140.01},sectors:[]};
@@ -8,6 +8,18 @@ it('retries a first .bon4 scan after transient IO failure instead of caching an 
  expect(failed.index.files['run.bon4']).toBeUndefined();expect(computes).toBe(0);
  const recovered=await reconcileFolder('course',[file],course,failed.index,async()=>new Uint8Array(1),compute);
  expect(recovered.index.files['run.bon4'].laps).toHaveLength(1);expect(computes).toBe(1);
+});
+it('does not transfer hidden laps between dates when another same-name run needs retry',()=>{
+ const hidden={file:'20261101/run.nmea',n:1,startMs:1000};
+ const record=(startMs:number)=>({size:1,mtimeMs:1,startMs,laps:[{n:1,time:30,startMs,sectors:[],topSpeed:100}]});
+ const files={'20261101/run.nmea':record(1000),'20261102/run.nmea':{...record(86401000),needsRecompute:true as const}};
+ const carried=carryHidden([hidden],files,['20261102/run.nmea']);expect(carried).toEqual([hidden]);
+ const index:LapIndex={version:1,courseHash:'x',courseName:'x',files,hidden:carried};
+ expect(lapRows('course',index).find(row=>row.file==='20261102/run.nmea')?.hidden).toBe(false);
+ // 消した旧日の印も、別の日の同名へ移さない。
+ expect(carryHidden([hidden],{'20261102/run.nmea':files['20261102/run.nmea']},['20261102/run.nmea'])).toEqual([]);
+ // 同じ日付の形式変更は、開始UTCを確認して引き継ぐ。
+ expect(carryHidden([hidden],{'20261101/run.bon4':record(1001)})).toEqual([{...hidden,file:'20261101/run.bon4',startMs:1001}]);
 });
 it.each(['read','compute'] as const)('does not certify old-course laps after %s failure, and retries identical attributes',async failure=>{
  const file={path:'course/run.nmea',size:123,mtimeMs:456,local:true};
