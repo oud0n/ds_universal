@@ -194,6 +194,18 @@ describe('adversarial engine boundary regressions',()=>{
 });
 
 describe('failed IO and concurrent configuration',()=>{
+ it('keeps separate local GoPro clocks and session owners through project import',async()=>{
+  const a=runtime(),b=runtime(),sessions=[run('a'),run('b')];
+  sessions[1]={...sessions[1],fileName:'b.nmea',sourceFile:{...sessions[1].sourceFile!,file:'b.nmea'}};
+  await a.media.addVideoFiles([file('GX010017.MP4'),{...file('GX010017.MP4'),size:16}],sessions,false);
+  const [first,second]=a.media.getTracks();a.media.setOffsetIn(first.id,sessions[0],3);a.media.setMatchedSession(first.id,'a');
+  a.media.setOffsetIn(second.id,sessions[1],90);a.media.setMatchedSession(second.id,'b');a.media.updateChapterGroupOffsets();
+  expect(a.media.getTracks().map(t=>[t.clock.offsetSec,t.matchedSessionId])).toEqual([[3,'a'],[90,'b']]);expect(a.media.getChapterGroups()).toEqual([]);
+  const json=a.media.exportProjectJson(sessions,'course');b.media.importProjectJson(json,sessions);
+  expect(b.media.getTracks().map(t=>[t.clock.offsetSec,t.matchedSessionId])).toEqual([[3,'a'],[90,'b']]);
+  await b.media.addVideoFiles([file('GX010017.MP4'),{...file('GX010017.MP4'),size:16}],sessions,false);
+  expect(b.media.getTracks().map(t=>[t.clock.offsetSec,t.matchedSessionId])).toEqual([[3,'a'],[90,'b']]);
+ });
  it('keeps a successful new definition when an earlier deletion finishes later',async()=>{
   const a=runtime();await a.formats.loadCsvFormats();
   const fmt:any={version:1,id:'user:A',name:'A',kind:'log',filePattern:'*.csv',header:[],headerRow:0,delimiter:',',time:{column:'t',as:'elapsedSec'},columns:{lat:{target:'lat'},lon:{target:'lon'}}};

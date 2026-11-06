@@ -169,6 +169,15 @@ export function groupVideoTracksByChapter<T extends VideoTrack>(tracks: T[]): {
     // チャプター命名（例: GX010017）がある場合は将来の後続追加に備えてグループとして管理
     gData.tracks.sort((a, b) => a.chapterIndex - b.chapterIndex);
 
+    // 同じ章番号・欠けた章・撮影日時の大きな隔たりは、連続した一撮影とみなさない。
+    // 名前だけで連結すると、独立した動画の手動時計と表示先まで上書きしてしまう。
+    const duration=gData.tracks.reduce((sum,ct)=>sum+ct.durationSec,0);
+    const dates=gData.tracks.map(ct=>ct.track.rawRecordedAt?.getTime()).filter((ms):ms is number=>ms!==undefined&&Number.isFinite(ms));
+    const ambiguous=gData.tracks.some((ct,i)=>ct.chapterIndex<1||i>0&&ct.chapterIndex!==gData.tracks[i-1].chapterIndex+1)
+      ||gData.tracks.length>1&&gData.tracks.some(ct=>!Number.isFinite(ct.durationSec)||ct.durationSec<=0)
+      ||dates.length>1&&Math.max(...dates)-Math.min(...dates)>(duration+1)*1000;
+    if(ambiguous){standaloneTracks.push(...gData.tracks.map(ct=>ct.track));return;}
+
     let cumulativeOffset = 0;
     for (const cTrack of gData.tracks) {
       cTrack.groupOffsetSec = cumulativeOffset;
