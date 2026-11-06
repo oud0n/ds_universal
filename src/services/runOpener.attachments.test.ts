@@ -179,7 +179,7 @@ it.each([true, false])('比較側の通知が先=%s でも、基準から外れ�
   const meta = vi.spyOn(metadata, 'parseVideoMetadata').mockImplementation(async file => ({
     fileName: file.name, fileSize: file.size, creationTime: null, durationSec: 10, timescale: 1000
   }));
-  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new Error('no GPS in synthetic video'));
+  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new gps.NoGoproGpsError({ja:'GPSなし',en:'No GPS'}));
   const a = attachment('A', true), c = attachment('C');
   a.item.entry!.videos![0].clock = { source: 'manual', logPart: null, offsetSec: 0, utcMs: 1000 };
   await attachRunVideos(a);
@@ -199,7 +199,7 @@ it.each([true, false])('比較側の通知が先=%s でも、基準から外れ�
 
 it('既存の未保存動画時計を保ったまま、新しく開けた動画だけ保存行から復元する', async () => {
   vi.spyOn(metadata, 'parseVideoMetadata').mockImplementation(async file => ({ fileName: file.name, fileSize: file.size, creationTime: null, durationSec: 10, timescale: 1000 }));
-  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new Error('no GPS'));
+  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new gps.NoGoproGpsError({ja:'GPSなし',en:'No GPS'}));
   const a = attachment('A', true);
   a.item.entry!.videos![0].clock = { source: 'manual', logPart: null, offsetSec: 0, utcMs: 1000 };
   await attachRunVideos(a);
@@ -326,7 +326,7 @@ it('厳格な保存を待つ間の追加編集も保存し、最初の控えだ�
 
 it('次の動画の準備中、ログを全部手放した担当の古い動画を編集させない', async () => {
   vi.spyOn(metadata, 'parseVideoMetadata').mockImplementation(async file => ({ fileName: file.name, fileSize: file.size, creationTime: null, durationSec: 10, timescale: 1000 }));
-  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new Error('no GPS'));
+  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new gps.NoGoproGpsError({ja:'GPSなし',en:'No GPS'}));
   const session = { id: 'A', points: [], laps: [] } as unknown as Session;
   let live = [session];
   const a = { ...attachment('A', true), runSessions: [session], sessions: () => live };
@@ -377,7 +377,7 @@ it('part 2 だけ付け直しても、保存行の part 2 の補正を復元す�
 
 it('日時の換算不能を strict 保存の成功にせず、元の時計・ピンを保持して修正後に再保存する', async () => {
   vi.spyOn(metadata, 'parseVideoMetadata').mockImplementation(async file => ({ fileName: file.name, fileSize: file.size, creationTime: null, durationSec: 10, timescale: 1000 }));
-  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new Error('no GPS'));
+  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new gps.NoGoproGpsError({ja:'GPSなし',en:'No GPS'}));
   const own = { id: 'own', points: [{ timestamp: '2026-01-01T00:00:00Z' }] } as Session;
   const undated = { id: 'undated', points: [{ time: 0 }] } as Session;
   const a = { ...attachment('guard', true), runSessions: [own], sessions: () => [own, undated] };
@@ -421,7 +421,7 @@ it('通常保存が待機中に補正を baseline へ戻しても、strict 保�
 
 it('再添付で同じ動画のピンを、新しい part ID へ付け直して保存する', async () => {
   vi.spyOn(metadata, 'parseVideoMetadata').mockImplementation(async file => ({ fileName: file.name, fileSize: file.size, creationTime: null, durationSec: 10, timescale: 1000 }));
-  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new Error('no GPS'));
+  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new gps.NoGoproGpsError({ja:'GPSなし',en:'No GPS'}));
   const a = { id: 'first', points: [] } as unknown as Session;
   const b = { id: 'second', points: [] } as unknown as Session;
   let live = [a, b];
@@ -457,7 +457,7 @@ it('動画準備前からログの編集を保存し、準備完了で古い補�
   live = registerRunSessions(opts.store, opts.item, [session], opts.sessions);
   expect(live[0].clockOffsetSec).toBe(3.25);
   const { started, resume } = delayMetadata();
-  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new Error('no GPS'));
+  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new gps.NoGoproGpsError({ja:'GPSなし',en:'No GPS'}));
   const attaching = attachRunVideos({ ...opts, runSessions: live });await started.promise;
   live = live.map(s => ({ ...s, clockOffsetSec: 7.5 }));
   await flushOpenRunsStrict();expect(disk.parts?.['1']?.clockOffsetSec).toBe(7.5);
@@ -468,7 +468,7 @@ it('動画準備前からログの編集を保存し、準備完了で古い補�
 
 it('別コースのピンを保存し、基準のログを閉じても再保存できる', async () => {
   vi.spyOn(metadata, 'parseVideoMetadata').mockImplementation(async file => ({ fileName: file.name, fileSize: file.size, creationTime: null, durationSec: 10, timescale: 1000 }));
-  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new Error('no GPS'));
+  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new gps.NoGoproGpsError({ja:'GPSなし',en:'No GPS'}));
   const a = { id: 'pin-owner', points: [{ timestamp: '2026-01-01T00:00:00Z' }], laps: [] } as unknown as Session;
   const b = { ...a, id: 'pin-foreign', points: [{ timestamp: '2026-01-01T00:01:00Z' }] } as unknown as Session;
   let live = [a, b];const opts = { ...attachment('pin-anchor', true), runSessions: [a], sessions: () => live };
@@ -492,7 +492,7 @@ it('同じ保存行の別形式へ二つ目の担当を作らない', async () =
 
 it('Car から外した動画の保存に失敗しても、小さい同期控えとログの保存担当を残す', async () => {
   vi.spyOn(metadata, 'parseVideoMetadata').mockImplementation(async file => ({ fileName: file.name, fileSize: file.size, creationTime: null, durationSec: 10, timescale: 1000 }));
-  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new Error('no GPS'));
+  vi.spyOn(gps, 'parseGoproGps').mockRejectedValue(new gps.NoGoproGpsError({ja:'GPSなし',en:'No GPS'}));
   const session = { id: 'retired-log', points: [], laps: [] } as unknown as Session;
   const opts = { ...attachment('retired-log', true), runSessions: [session], sessions: () => [session] };
   let disk = structuredClone(opts.item.entry!), fail = true;

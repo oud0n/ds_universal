@@ -180,6 +180,7 @@ export const App: React.FC = () => {
   useEffect(()=>bindStorageLifecycle(engine,runController),[engine]);
   const pendingParsesRef = engine.operations.pendingParses;
   const invalidateAssignments = () => { selectionEpochRef.current++; };
+  const beginFileInput=()=>{invalidateAssignments();return engine.beginMediaImport();};
   const showLapPicker = () => { pickerActiveRef.current = true; setLapPickerOpen(true); };
   const closeLapPicker = () => { pickerActiveRef.current = false; invalidateAssignments(); setLapPickerOpen(false); };
   const seenStorageRevisionRef = useRef(storageRevision);
@@ -793,21 +794,25 @@ export const App: React.FC = () => {
     const unsubscribers: Array<() => void> = [];
     if (nav.electronAPI?.onOpenFiles && nav.electronAPI?.readFileBuffer) {
       const off = nav.electronAPI.onOpenFiles(async (filePaths: string[]) => {
+        const request=beginFileInput();
         for (const fp of filePaths) {
+          if(!request.isCurrent())return;
           if (/\.(mp4|mov)$/i.test(fp)) {
             alert(tr('GoPro の動画は、画面の上の「ファイルを開く」(スマートフォンは「開く」) から開いてください', 'Open GoPro videos with "Open file" in the app window'));
             continue;
           }
           try {
             const res = await nav.electronAPI.readFileBuffer(fp);
+            if(!request.isCurrent())return;
             if (res.success) {
               const buffer = new Uint8Array(res.dataArray).buffer;
               // 最新のコース設定で読み込む (登録時点の関数を使い続けない)
-              await loadFileDataRef.current(res.name, buffer);
+              await loadFileDataRef.current(res.name,buffer,undefined,false,undefined,undefined,request.isCurrent);
             } else {
               alert(`${tr('ファイルの読み込みに失敗しました', 'Could not load the file')}: ${res.error}`);
             }
           } catch (err: any) {
+            if(!request.isCurrent())return;
             console.error('Electron file open error:', err);
             alert(`${tr('ファイルの読み込みに失敗しました', 'Could not load the file')}: ${err?.message || err}`);
           }
@@ -879,9 +884,7 @@ export const App: React.FC = () => {
   const isVideoFileName = (name: string) => /\.(mp4|mov)$/i.test(name);
 
   // 選んだファイルを読み込む。動画は 1 回の撮影ごと (チャプターをまとめて) に 1 つのログにする。失敗したファイルは知らせて続ける
-  const loadFiles = async (files: File[]) => {
-    invalidateAssignments();
-    const request=engine.beginMediaImport();
+  const loadFiles = async (files: File[],request=beginFileInput()) => {
     const videos:File[]=[];
     // GoPro の低画質のファイル (.LRV) は、動画同期で元の動画と組にする (ログにはしない)
     const proxies = files.filter(f => isProxyFileName(f.name));
@@ -1001,19 +1004,23 @@ export const App: React.FC = () => {
 
   /** 取り込みのシートから、保管場所の走行と開いたログを並べて開く (取り込まない) */
   const openStoredAndFile = async (base: string) => {
+    const request=beginFileInput(),current=request.isInputCurrent;
     const cur = importing;
     closeImport();
-    if (!(await openStoredRun(base))) { alert(tr('保管場所の走行が見つかりませんでした。', 'Could not find that run in the storage folder.')); return; }
-    if (!cur) return;
+    if (!(await openStoredRun(base,current))) { if(current())alert(tr('保管場所の走行が見つかりませんでした。', 'Could not find that run in the storage folder.')); return; }
+    if (!cur||!current()) return;
     const b = cur.bytes;
-    await loadFileData(cur.name, b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
-    navStore.go('analysis');
+    const selection=selectionEpochRef.current,ready=()=>current()&&selection===selectionEpochRef.current;
+    try{await loadFileData(cur.name,b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength) as ArrayBuffer,undefined,false,undefined,undefined,ready);}
+    catch(error){if(ready())alert(error instanceof Error?error.message:String(error));return;}
+    if(ready())navStore.go('analysis');
   };
 
   /** 取り込みのシートから、時間の重なる保管場所の走行を開く (取り込まない) */
   const openOverlapRun = async (base: string) => {
+    const request=beginFileInput();
     closeImport();
-    if (!(await openStoredRun(base))) alert(tr('保管場所の走行が見つかりませんでした。', 'Could not find that run in the storage folder.'));
+    if (!(await openStoredRun(base,request.isCurrent))&&request.isCurrent()) alert(tr('保管場所の走行が見つかりませんでした。', 'Could not find that run in the storage folder.'));
   };
 
   const closeImport = () => {
@@ -1026,6 +1033,7 @@ export const App: React.FC = () => {
 
   /** 取り込みのシートから開く (取り込まずに・取り込んだあとに) */
   const openImported = async () => {
+    const request=beginFileInput(),current=request.isCurrent;
     const cur = importing;
     closeImport();
     if (!cur) return;
@@ -1035,12 +1043,15 @@ export const App: React.FC = () => {
     if (done.length === 1) {
       const base = done[0].base;
       const store = await getRunStore().catch(() => null);
+      if(!current())return;
       const items = store ? await listRuns(store).catch(() => [] as RunItem[]) : [];
+      if(!current())return;
       const item = items.find(r => `${r.folder}/${r.file}`.replace(/\.[^./]+$/, '') === base);
       if (item) { await openRun(item); return; }
     }
-    await loadFileData(cur.name, b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
-    navStore.go('analysis');
+    try{await loadFileData(cur.name,b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength) as ArrayBuffer,undefined,false,undefined,undefined,current);}
+    catch(error){if(current())alert(error instanceof Error?error.message:String(error));return;}
+    if(current())navStore.go('analysis');
   };
 
   const applyImport = async () => {
@@ -1503,8 +1514,7 @@ export const App: React.FC = () => {
 
   /** 保管場所の走行を、道で開く (ラップタイムの記録から)。走行の一覧に無ければ、ファイルとして読み込む */
   const openRunByPath = async (run: { folder: string; file: string }, file: File) => {
-    const reads = getStorageReadRevision(),manual=manualSelectionRef.current;
-    const current = () => manual===manualSelectionRef.current&&reads === getStorageReadRevision() && !isStorageSelectionPending();
+    const request=beginFileInput(),current=request.isCurrent;
     try {
       const store = await getRunStore();
       if (!current()) return;
@@ -1513,7 +1523,7 @@ export const App: React.FC = () => {
       const dir = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
       const item = items.find(r => r.folder === run.folder && dir(r.file) === dir(run.file) && runStem(r.file) === runStem(run.file));
       if (item) await openRun(item);
-      else { await loadFiles([file]); if (current()) navStore.go('analysis'); }
+      else { await loadFiles([file],request); if (current()) navStore.go('analysis'); }
     } catch (error) {
       if (current() && !(error instanceof StorageChangedError)) alert(tr('走行を開けませんでした: ', 'Could not open the run: ') + (error instanceof Error ? error.message : String(error)));
     }
@@ -1756,6 +1766,7 @@ export const App: React.FC = () => {
     sourceFile?: Omit<NonNullable<Session['sourceFile']>, 'part' | 'courseHash'>,
     isCurrent?:()=>boolean
   ): Promise<Session[]> => {
+    if(!staged&&!isCurrent)isCurrent=beginFileInput().isCurrent;
     const parsedPhysicsLevel=parsedLog?.physicsLevel??getGFilterLevel();
     // 1 つのファイルに走行が複数入っているとき (生ログ・空きのある NMEA など) は、走行ごとに別のセッションにする (services/logLoader.ts)
     let parts: { points: any[]; samplingRate: number; startDate?: Date }[];
@@ -3044,9 +3055,13 @@ export const App: React.FC = () => {
             <LoggerTab
               // 落としたログも、保管場所があれば走行ごとに分けて取り込むかを聞く (聞いたときは、開く・開かないはシートの中で決まる)
               onLoadSession={async (fileName, buffer) => {
-                if (await offerImport(fileName, buffer)) return false;
-                await loadFileData(fileName, buffer);
-                return true;
+                const request=beginFileInput();
+                try{
+                  const offered=await offerImport(fileName,buffer,false,request.isCurrent);
+                  if(offered||!request.isCurrent())return false;
+                  await loadFileData(fileName,buffer,undefined,false,undefined,undefined,request.isCurrent);
+                  return request.isCurrent();
+                }catch(error){if(!request.isCurrent())return false;throw error;}
               }}
               onNavigateToGraph={() => navStore.go('analysis')}
               active={currentTab === 'logger'}
@@ -3100,7 +3115,8 @@ export const App: React.FC = () => {
             replayLogs={sessions.map((s): ReplayLog => ({ id: s.id, name: s.sessionName || s.fileName, points: s.points, startDate: s.points[0]?.timestamp ? new Date(s.points[0].timestamp) : undefined }))}
             // ラップタイムの記録から解析で開く (測っている途中でも、これまでどおりタイマーを閉じて開く)
             onOpenLog={(fileName, text) => {
-              void loadFileData(fileName, null, parseNmea(text)).then(() => { navStore.setLocked(false); navStore.go('analysis'); });
+              const request=beginFileInput();
+              void loadFileData(fileName,null,parseNmea(text),false,undefined,undefined,request.isCurrent).then(()=>{if(request.isCurrent()){navStore.setLocked(false);navStore.go('analysis');}}).catch(error=>{if(request.isCurrent())alert(error instanceof Error?error.message:String(error));});
             }}
             onOpenFile={file => {
               void loadFiles([file]).then(() => { navStore.setLocked(false); navStore.go('analysis'); });

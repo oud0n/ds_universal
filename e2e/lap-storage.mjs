@@ -22,7 +22,7 @@ try {
  await p.viewport(1280,800,false);
  await p.send('Page.addScriptToEvaluateOnNewDocument',{source:`
  window.storeFiles = new Map(); window.storeWrites=[]; window.storeReads=[]; window.failWrites=false;
- window.electronAPI={laps:{getFolder:async()=>{if(window.holdFolder)await new Promise(resolve=>(window.folderWaiters??=[]).push(resolve));return window.folderRoot??'/synthetic/A'},pickFolder:async()=>null,
+ window.electronAPI={onOpenFiles:callback=>{window.menuOpenFiles=callback;return()=>{window.menuOpenFiles=null}},readFileBuffer:async path=>{if(window.holdMenuRead&&path.endsWith('menu-old.nmea'))await new Promise(resolve=>window.finishMenuRead=resolve);return {success:true,name:path.slice(path.lastIndexOf('/')+1),dataArray:storeFiles.get('sodegaura/demo.nmea')};},laps:{getFolder:async()=>{if(window.holdFolder)await new Promise(resolve=>(window.folderWaiters??=[]).push(resolve));return window.folderRoot??'/synthetic/A'},pickFolder:async()=>null,
  list:async()=>window.failSavedList&&window.__laploupe?.openingSaved?.()?{success:false,error:'synthetic list failure'}:({success:true,files:[...storeFiles].map(([path,b])=>({path,size:b.byteLength,mtimeMs:123,local:true}))}),
  read:async path=>{storeReads.push(path);if(window.holdLegacyRead===path && window.__laploupe?.openingRun?.())await new Promise(resolve=>window.resumeLegacyRead=resolve);if(window.holdIndexRead===path)await new Promise(resolve=>window.resumeIndexRead=resolve);if(window.readDelayMs)await new Promise(r=>setTimeout(r,window.readDelayMs));if(window.holdSavedRead===path && window.__laploupe?.openingSaved?.())await new Promise(resolve=>window.resumeSavedRead=resolve);const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
  readText:async path=>{if(window.failRunsMetadata&&window.__laploupe?.openingSaved?.()&&path.endsWith('/runs.json'))return {success:false,error:'synthetic metadata failure'};if(window.holdTextRead===path)await new Promise(resolve=>(window.textWaiters??=[]).push(resolve));return {success:true,text:storeFiles.has(path)?new TextDecoder().decode(storeFiles.get(path)):null}},
@@ -376,7 +376,8 @@ try {
   assert.deepEqual(lapPhysics.actual,lapPhysics.expected,'lap consumers receive the updated physics too');
   await p.ev('window.restorePhysicsList()');
  }
- // Car選択が同じでも、新しいローカル入力を古い比較復元で落とさない。
+ // Carが同じでも、File入力とElectronメニューの両方を古い復元で落とさない。
+ for(const source of ['local','menu']){
  await p.ev(`(async()=>{
   const state=window.__laploupe.analysisSnapshot();if(state.selectedCars.length<2)throw Error('requires two selected cars');
   const cars=state.selectedCars.slice(0,2).map(c=>{const s=state.sessions.find(s=>s.id===c.sessionId),f=s.sourceFile;return {slot:c.slot,run:f.folder+'/'+f.file,part:f.part,lap:c.lapNumber};});
@@ -390,14 +391,18 @@ try {
  })()`);
  await p.waitFor('window.finishInputValidation',15000,'final two-car comparison validation');
  const carsBeforeInput=await p.ev('JSON.stringify(window.__laploupe.cars)');
- await p.ev("window.newLocalInput=window.__laploupe.loadFiles([new File([storeFiles.get('sodegaura/demo.nmea')],'new-local-input.nmea')]);void 0");
- await p.waitFor("window.__laploupe.sessions.some(s=>s.fileName==='new-local-input.nmea')||document.querySelector('[data-testid=import-open-only]')",15000,'new local input');
- if(await p.ev("!!document.querySelector('[data-testid=import-open-only]')"))await p.click('import-open-only');
- await p.waitFor("window.__laploupe.sessions.some(s=>s.fileName==='new-local-input.nmea')");
+ const inputName=source==='local'?'new-local-input.nmea':'new-menu-input.nmea';
+ if(source==='local'){
+  await p.ev("window.newLocalInput=window.__laploupe.loadFiles([new File([storeFiles.get('sodegaura/demo.nmea')],'new-local-input.nmea')]);void 0");
+  await p.waitFor("window.__laploupe.sessions.some(s=>s.fileName==='new-local-input.nmea')||document.querySelector('[data-testid=import-open-only]')",15000,'new local input');
+  if(await p.ev("!!document.querySelector('[data-testid=import-open-only]')"))await p.click('import-open-only');
+ }else await p.ev("window.menuOpenFiles(['/synthetic/new-menu-input.nmea'])");
+ await p.waitFor(`window.__laploupe.sessions.some(s=>s.fileName===${JSON.stringify(inputName)})`);
  assert.equal(await p.ev('JSON.stringify(window.__laploupe.cars)'),carsBeforeInput,'new unassigned log leaves existing cars unchanged');
  await p.ev('window.finishInputValidation()');await p.waitFor('!window.__laploupe.openingSaved()');
- assert.equal(await p.ev("window.__laploupe.sessions.some(s=>s.fileName==='new-local-input.nmea')"),true,'old comparison cannot discard newer accepted input');
+ assert.equal(await p.ev(`window.__laploupe.sessions.some(s=>s.fileName===${JSON.stringify(inputName)})`),true,'old comparison cannot discard newer accepted input');
  await p.ev('window.restoreInputList()');
+ }
  // 保存した比較の最終検査中に手動補正しても、古い控えへ戻さない。
  await p.ev(`(async()=>{
   const state=window.__laploupe.analysisSnapshot(),s=state.sessions.find(s=>s.id===state.selectedCars.find(c=>c.slot===0).sessionId),f=s.sourceFile;

@@ -195,6 +195,20 @@ describe('adversarial engine boundary regressions',()=>{
 });
 
 describe('failed IO and concurrent configuration',()=>{
+ it('does not publish or save a creation clock after GPS IO fails, and retries with the GPS clock',async()=>{
+  const failure=Error('temporary GPS range failure');let fail=true,opened=0;
+  const a=runtime(undefined,{media:{remoteFile:r=>file(r.name),metadata:async f=>({fileName:f.name,fileSize:f.size,creationTime:new Date(1000),durationSec:30,timescale:1000}),gps:async()=>{if(fail)throw failure;return {videoStartUtcMs:[5000]};},open:()=>{opened++;return 'owned';},release:()=>{},nowMs:()=>1000,random:()=>0.5}}),s=run(),row=item();
+  s.points=[{time:0,timestamp:new Date(0).toISOString()},{time:60,timestamp:new Date(60000).toISOString()}] as any;
+  a.session.assign([s],s.id,1,0);a.controller.registerRunSessions(a.repo.store,row,[s],a.session.analysis.getSessions);
+  await a.controller.attachRunVideos({store:a.repo.store,item:row,runSessions:[s],videos:[],fromRuns:true,sessions:a.session.analysis.getSessions,circuitName:'Course'});
+  await a.controller.flushOpenRunsStrict();const before=a.repo.text.get('course/runs.json');
+  const video={name:'clip.mp4',size:8,lastModified:0,path:'course/clip.mp4',url:'repository:clip'};
+  await expect(a.controller.addVideoToOpenRun(video)).rejects.toBe(failure);await a.controller.flushOpenRunsStrict();
+  expect(a.media.getTracks()).toEqual([]);expect(opened).toBe(0);expect(a.repo.text.get('course/runs.json')).toBe(before);
+  fail=false;expect(await a.controller.addVideoToOpenRun(video)).toBe(true);await a.controller.flushOpenRunsStrict();
+  expect(a.media.getTracks()[0].clock).toMatchObject({source:'gps',utcMs:5000});
+  expect(JSON.parse(a.repo.text.get('course/runs.json')!).runs.run.videos[0].clock).toMatchObject({source:'gps',utcMs:5000});
+ });
  it('preserves stored synchronization on ordinary metadata IO failure and restores it after retry',async()=>{
   let fail=true;const bytes=new Uint8Array(40),view=new DataView(bytes.buffer);
   view.setUint32(0,40);bytes.set([109,111,111,118],4);view.setUint32(8,32);bytes.set([109,118,104,100],12);view.setUint32(20,2082844801);view.setUint32(28,1000);view.setUint32(32,30000);

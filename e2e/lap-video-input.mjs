@@ -113,5 +113,22 @@ try{
  })`);
  assert.notDeepEqual(physics.weak,physics.strong,'synthetic GPS distinguishes smoothing levels');
  assert.deepEqual(physics.actual,physics.weak,'pending import uses the current G smoothing');
+ // metadataだけ成功し、GPSの物理I/Oが失敗してもcreation時計で公開しない。
+ await p.goto(url.href);await p.waitFor('window.__laploupe');
+ const gpsFailure=await p.ev(`(async()=>{
+  const {videoSyncManager:m}=await import('/src/services/videoSyncManager.ts');
+  const file=new File([Uint8Array.from(atob(${JSON.stringify(videoBytes)}),c=>c.charCodeAt(0))],'gps-read.mp4'),slice=file.slice.bind(file);let headers=0;
+  file.slice=(start,end,type)=>{if(start===0&&++headers===2)return {arrayBuffer:async()=>{throw Error('temporary GPS read failure');}};return slice(start,end,type);};
+  let failure='';try{await m.addVideoFiles([file],[],true);}catch(error){failure=error.message;}
+  const failedTracks=m.getTracks().length;await m.addVideoFiles([file],[],true);
+  const core=await import('/src/engine/gpmfParser.ts');let partial='';
+  try{await core.parseGoproGps([{size:40,read:async()=>{throw Error('partial chapter IO');}},core.blobByteSource(file)]);}catch(error){partial=error.message;}
+  const plain=new File([Uint8Array.from(atob(${JSON.stringify(base.toString('base64'))}),c=>c.charCodeAt(0))],'plain.mp4');
+  const mixed=await core.parseGoproGps([core.blobByteSource(plain),core.blobByteSource(file)]);
+  return {failure,failedTracks,source:m.getTracks()[0].clock.source,partial,validPoints:mixed.points.length};
+ })()`);
+ assert.equal(gpsFailure.failure,'temporary GPS read failure');assert.equal(gpsFailure.failedTracks,0);assert.equal(gpsFailure.source,'gps');
+ assert.equal(gpsFailure.partial,'partial chapter IO','a partial IO failure cannot become a successful shortened GPS log');
+ assert.equal(gpsFailure.validPoints,count,'a real absence of GPS can still be combined with a readable chapter');
  assert.deepEqual(p.errors,[]);console.log('PASS video identity, stale input, failed IO retry and current physics preferences');
 }finally{await p.close();fs.rmSync(dir,{recursive:true,force:true});}

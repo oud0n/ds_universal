@@ -23,6 +23,15 @@ it('retires superseded media imports and rejects later target edits, removal and
  const manual=engine.beginMediaImport();engine.operations.manualSelection.current++;expect(manual.isCurrent()).toBe(false);
  const closed=engine.beginMediaImport();await engine.close();expect(closed.isCurrent()).toBe(false);
 });
+it('keeps an input lifetime through its own selection step without surviving newer input or storage cancellation',async()=>{
+ const engine=createEngineSession(),request=engine.beginMediaImport();
+ engine.operations.selectionEpoch.current++;
+ expect(request.isCurrent()).toBe(false);expect(request.isInputCurrent()).toBe(true);
+ engine.beginMediaImport();expect(request.isInputCurrent()).toBe(false);
+ const cancelled=engine.beginMediaImport();await engine.storage.trackStorageSelection(()=>null);expect(cancelled.isInputCurrent()).toBe(false);
+ const manual=engine.beginMediaImport();engine.operations.manualSelection.current++;expect(manual.isInputCurrent()).toBe(false);
+ const closed=engine.beginMediaImport();await engine.close();expect(closed.isInputCurrent()).toBe(false);
+});
 it('does not acquire or publish delayed media for a GPS log closed during metadata IO',async()=>{
  const engine=createEngineSession(),s=session();engine.analysis.update(()=>({sessions:[s],selectedCars:[]}));
  let finish!:(x:any)=>void,opened=0;const held=new Promise<any>(r=>finish=r);

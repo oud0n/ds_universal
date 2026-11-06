@@ -7,6 +7,7 @@ import type { VideoTrack as CoreVideoTrack, PlacedTrack as CorePlacedTrack, Remo
 export { placeTrack, placeTracks, isClockManual } from './videoTypes';
 import { Session } from '../types/telemetry';
 import type { VideoMetadata } from './videoMetadataParser';
+import {NoGoproGpsError} from './gpmfParser';
 import { pinUtcMs, createSyncPin, type SyncPin } from './videoSyncPinManager';
 import { detectCircuitTimezone, scanBestTimezoneOffset } from './masterTimelineEngine';
 import { groupVideoTracksByChapter, VideoChapterGroup, findChapterGroupForTrack } from './videoChapterManager';
@@ -239,7 +240,7 @@ class VideoSyncManager {
       if(!isCurrent())return this.videos;
       let gpsUtcMs:number|undefined;
       if(readGps&&!placeholderFor(file,meta,remote)){
-        try{gpsUtcMs=(await ports.gps(file,remote)).videoStartUtcMs[0];}catch{/* GPSのない動画。 */}
+        try{gpsUtcMs=(await ports.gps(file,remote)).videoStartUtcMs[0];}catch(error){if(!isCurrent())return this.videos;if(!(error instanceof NoGoproGpsError))throw error;}
         if(!isCurrent())return this.videos;
       }
       prepared.push({file,remote,meta,gpsUtcMs});

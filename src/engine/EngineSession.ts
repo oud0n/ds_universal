@@ -53,8 +53,10 @@ export function createEngineSession(options:EngineSessionOptions={}){
  return {
   beginMediaImport(){
    active();const ticket=++operations.mediaImports.current,root=storage.getStorageRevision(),reads=storage.getStorageReadRevision(),selection=operations.selectionEpoch.current,manual=operations.manualSelection.current;
-   const isCurrent=()=>!snapshot.closed&&!closing&&!storage.isStorageTransitioning()&&ticket===operations.mediaImports.current&&root===storage.getStorageRevision()&&reads===storage.getStorageReadRevision()&&selection===operations.selectionEpoch.current&&manual===operations.manualSelection.current;
-   return {isCurrent,forSession(target:Session){const points=target.points,offset=target.clockOffsetSec??0,version=clockVersions.get(target.id)??0;return()=>{const live=snapshot.analysis.sessions.find(s=>s.id===target.id);return isCurrent()&&live?.points===points&&(live?.clockOffsetSec??0)===offset&&(clockVersions.get(target.id)??0)===version;};}};
+   // 同じ入力内で保存ログの選択を挟む場合の外側の寿命。公開前には選択の世代も検査する。
+   const isInputCurrent=()=>!snapshot.closed&&!closing&&!storage.isStorageTransitioning()&&ticket===operations.mediaImports.current&&root===storage.getStorageRevision()&&reads===storage.getStorageReadRevision()&&manual===operations.manualSelection.current;
+   const isCurrent=()=>isInputCurrent()&&selection===operations.selectionEpoch.current;
+   return {isCurrent,isInputCurrent,forSession(target:Session){const points=target.points,offset=target.clockOffsetSec??0,version=clockVersions.get(target.id)??0;return()=>{const live=snapshot.analysis.sessions.find(s=>s.id===target.id);return isCurrent()&&live?.points===points&&(live?.clockOffsetSec??0)===offset&&(clockVersions.get(target.id)??0)===version;};}};
   },
   beginProjectImport(){
    active();const ticket=++operations.projectImports.current,root=storage.getStorageRevision(),reads=storage.getStorageReadRevision(),clocks=clockRevision;

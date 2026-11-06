@@ -353,13 +353,15 @@ async function readGpsFixes(src: ByteSource): Promise<{ fixes: GpsFix[]; formats
  * 1 回の撮影が複数のファイル (チャプター) に分かれているときは、まとめて渡すと 1 つのログにつなげる
  */
 export async function parseGoproGps(sources: ByteSource[], physicsLevel: GFilterLevel = 'strong'): Promise<GoproLog> {
-  // 読めないチャプター (撮影中に電池が切れた最後のファイルなど) があっても、読めたものでログを作る
+  // GPSのない・構造が壊れたチャプターは、読めたものだけでログを作る。物理I/O失敗は中断する。
   const perVideo: { fixes: GpsFix[]; formats: Set<string> }[] = [];
   let firstError: unknown = null;
   for (const src of sources) {
+    let readFailed=false;
     try {
-      perVideo.push(await readGpsFixes(src));
+      perVideo.push(await readGpsFixes({size:src.size,read:async(offset,length)=>{try{return await src.read(offset,length);}catch(error){readFailed=true;throw error;}}}));
     } catch (err) {
+      if(readFailed)throw err;
       firstError ??= err;
       perVideo.push({ fixes: [], formats: new Set() });
     }
