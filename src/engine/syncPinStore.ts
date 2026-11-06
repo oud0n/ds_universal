@@ -59,7 +59,7 @@ class SyncPinStore {
 
   remapPinSessions(ids: ReadonlyMap<string, string>): void {
     for (const [key, pins] of this.pinCache) {
-      const next = pins.map(p => p.sessionId && ids.has(p.sessionId) ? { ...p, sessionId: ids.get(p.sessionId)! } : p);
+      const next = pins.map(p => p.sessionId && ids.has(p.sessionId) && ids.get(p.sessionId)!==p.sessionId ? { ...p, sessionId: ids.get(p.sessionId)! } : p);
       if (next.some((p, i) => p !== pins[i])) this.setPins(key, next);
     }
   }

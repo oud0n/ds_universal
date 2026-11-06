@@ -86,6 +86,10 @@ export interface SyncProjectData {
     fileName: string;
     sessionName: string;
     startDateJst: string;
+    sourcePath?:string;
+    rawStartUtcMs?:number;
+    sourceSize?:number;
+    sourceMtimeMs?:number;
     totalLaps: number;
     samplingRate: number;
     /** ログの時計の補正 (秒) */

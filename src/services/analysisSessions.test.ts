@@ -55,3 +55,12 @@ describe('ブラウザ版: 比べ方をファイルに書き出して、読み�
     expect(r.picks.map(p => [p.slot, p.session.id, p.lapNumber])).toEqual([[1, 'x2', 2]]);
   });
 });
+
+it('does not restore a same-name same-part comparison onto another day',()=>{
+ const first={...sess([0,100]),id:'a',fileName:'run.nmea',filePart:1} as Session;
+ const second={...sess([0,100]),id:'b',fileName:'run.nmea',filePart:1,points:[{timestamp:new Date(T0+86400000).toISOString()}]} as Session;
+ const cars=fileSessionCars([{slot:0,sessionId:'b',lapNumber:2}],[first,second]);
+ expect(matchFileSession({version:1,name:'test',createdAt:'',source:'files',cars},[first,second]).picks[0].session.id).toBe('b');
+ const legacy=cars.map(({rawStartUtcMs,...car})=>car);
+ expect(matchFileSession({version:1,name:'test',createdAt:'',source:'files',cars:legacy},[first,second]).picks[0].session.id).toBe('b');
+});

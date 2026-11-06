@@ -179,7 +179,7 @@ function saved(): void {
   publish();
 }
 
-async function saveCsvFormat(f: CsvFormat, overwriteId?: string, root = getStorageRevision()): Promise<CsvFormat> {
+async function saveCsvFormatNow(f: CsvFormat, overwriteId?: string, root = getStorageRevision()): Promise<CsvFormat> {
   requireLoaded(root);
   const reads = getStorageReadRevision();
   const check = () => { checkRoot(root); if (reads !== getStorageReadRevision()) throw new StorageChangedError(); };
@@ -191,7 +191,7 @@ async function saveCsvFormat(f: CsvFormat, overwriteId?: string, root = getStora
   check(); formats = [...formats.filter(x => x.id !== value.id), value].sort((a, b) => a.name.localeCompare(b.name)); saved();
   return value;
 }
-async function deleteCsvFormat(id: string, root = getStorageRevision()): Promise<void> {
+async function deleteCsvFormatNow(id: string, root = getStorageRevision()): Promise<void> {
   if (!id.startsWith('user:')) return;
   requireLoaded(root);
   const reads = getStorageReadRevision();
@@ -202,7 +202,7 @@ async function deleteCsvFormat(id: string, root = getStorageRevision()): Promise
   else await s.writeText(`${FORMATS_DIR}/${id.slice(5)}.csvformat.json`, JSON.stringify({ version: 1, deleted: true }));
   check(); formats = formats.filter(x => x.id !== id); saved();
 }
-async function saveCalcChannels(list: CalcChannel[], root = getStorageRevision()): Promise<void> {
+async function saveCalcChannelsNow(list: CalcChannel[], root = getStorageRevision()): Promise<void> {
   requireLoaded(root);
   const reads = getStorageReadRevision();
   const check = () => { checkRoot(root); if (reads !== getStorageReadRevision()) throw new StorageChangedError(); };
@@ -210,6 +210,25 @@ async function saveCalcChannels(list: CalcChannel[], root = getStorageRevision()
   if (!s) writeLocal(LOCAL_CALC, list);
   else await s.writeText(CALC_FILE, JSON.stringify({ version: 1, channels: list }, null, 1));
   check(); calc = list; saved();
+}
+
+const writes=new Map<string,Promise<unknown>>();
+function writeInOrder<T>(path:string,root:number,work:()=>Promise<T>):Promise<T>{
+ const reads=getStorageReadRevision(),key=JSON.stringify([root,path]);
+ const next=(writes.get(key)??Promise.resolve()).then(()=>{checkRoot(root);if(reads!==getStorageReadRevision())throw new StorageChangedError();return work();});
+ const tail=next.catch(()=>undefined);writes.set(key,tail);void tail.then(()=>{if(writes.get(key)===tail)writes.delete(key);});return next;
+}
+function saveCsvFormat(format:CsvFormat,overwriteId?:string,root=getStorageRevision()):Promise<CsvFormat>{
+ const copy:CsvFormat=JSON.parse(JSON.stringify(format));
+ const stem=overwriteId?.startsWith('user:')?overwriteId.slice(5):safeName(copy.name);
+ return writeInOrder(`${FORMATS_DIR}/${stem}.csvformat.json`,root,()=>saveCsvFormatNow(copy,overwriteId,root));
+}
+function deleteCsvFormat(id:string,root=getStorageRevision()):Promise<void>{
+ return writeInOrder(`${FORMATS_DIR}/${id.slice(5)}.csvformat.json`,root,()=>deleteCsvFormatNow(id,root));
+}
+function saveCalcChannels(list:CalcChannel[],root=getStorageRevision()):Promise<void>{
+ const copy=list.map(channel=>({...channel}));
+ return writeInOrder(CALC_FILE,root,()=>saveCalcChannelsNow(copy,root));
 }
 
 return {currentCsvFormats,csvFormatsReady,loadCsvFormats,saveCsvFormat,deleteCsvFormat,saveCalcChannels,getSnapshot:()=>snapshot,subscribe:(listener:()=>void)=>{listeners.add(listener);return ()=>{listeners.delete(listener);};},dispose(){disposed=true;unsubscribe();sequence++;attempt=null;retryNeeded=false;if(retryTimer!==null)host.scheduler.cancel(retryTimer);retryTimer=null;formats=[];calc=[];dataRoot=null;formatsReadable=false;calcReadable=false;listeners.clear();publish();}};

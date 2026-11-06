@@ -125,20 +125,30 @@ class VideoSyncManager {
   // 同期プロジェクトに保存されていたセッション。セッションの ID は読み込むたびに変わるので、ファイル名と開始日時で今のセッションに読み替える
   private importedSessions: SyncProjectData['sessions'] = [];
 
-  private remapSessionId(savedId: string | null, sessions: Session[]): string | null {
-    if (!savedId) return null;
-    if (sessions.some(s => s.id === savedId)) return savedId;
-    const saved = this.importedSessions.find(s => s.id === savedId);
-    if (!saved) return savedId;
-    // 名前は拡張子を除いてくらべる (.bon4 で保存した同期を、.nmea で開いた同じ走行に戻すため。2026-10-21)
-    const stem = (n: string) => n.replace(/\.(nmea|bon4|bnx4|bon|binx)$/i, '');
-    const candidates = sessions.filter(s => s.fileName === saved.fileName || stem(s.fileName) === stem(saved.fileName));
-    // 1 つのログが 2 つ以上の走行に分かれるとき (_1・_2) は、走行の名前で選ぶ
-    const dated = candidates.filter(s => s.date === saved.startDateJst);
-    const hit = (saved.filePart ? candidates.find(s => (s.sourceFile?.part ?? s.filePart) === saved.filePart) : undefined)
-      ?? candidates.find(s => s.sessionName === saved.sessionName)
-      ?? (dated.length === 1 ? dated[0] : undefined) ?? (candidates.length === 1 ? candidates[0] : undefined);
-    return hit ? hit.id : savedId;
+  private sessionAliases=new Map<string,string>();
+  private remapSessionId(input:string|null,sessions:Session[]):string|null{
+    if(!input)return null;
+    const direct=this.importedSessions.find(s=>s.id===input);
+    const savedId=direct?input:this.sessionAliases.get(input)??input;
+    const saved=direct??this.importedSessions.find(s=>s.id===savedId);
+    if(!saved)return input;
+    const stem=(name:string)=>name.replace(/\.(nmea|bon4|bnx4|bon|binx)$/i,'');
+    let candidates=sessions.filter(s=>stem(s.fileName)===stem(saved.fileName));
+    if(saved.sourcePath)candidates=candidates.filter(s=>s.sourceFile&&stem(`${s.sourceFile.folder}/${s.sourceFile.file}`)===stem(saved.sourcePath!));
+    if(saved.rawStartUtcMs!==undefined)candidates=candidates.filter(s=>Date.parse(s.points[0]?.timestamp??'')===saved.rawStartUtcMs);
+    else if(saved.startDateJst)candidates=candidates.filter(s=>s.date===saved.startDateJst);
+    if(saved.filePart!==undefined)candidates=candidates.filter(s=>(s.sourceFile?.part??s.filePart??1)===saved.filePart);
+    if(saved.sourcePath)candidates=candidates.filter(s=>{
+      const source=s.sourceFile!;
+      if(`${source.folder}/${source.file}`!==saved.sourcePath)return true; // 同じログの別形式。
+      return (saved.sourceSize===undefined||source.size===saved.sourceSize)&&(saved.sourceMtimeMs===undefined||source.mtimeMs===saved.sourceMtimeMs);
+    });
+    if(candidates.length===1){this.sessionAliases.set(candidates[0].id,savedId);return candidates[0].id;}
+    // 未解決の保存IDと、無関係な現在のIDが同じでも補正を渡さない。
+    if(!sessions.some(s=>s.id===savedId))return savedId;
+    let alias=[...this.sessionAliases].find(([key,value])=>key.startsWith('pending_project_')&&value===savedId)?.[0];
+    if(!alias){alias=`pending_project_${++this.identitySequence}_${ports.nowMs()}_${ports.random()}`;this.sessionAliases.set(alias,savedId);}
+    return alias;
   }
 
   /** 動画の、表示のログと時刻を付けたログの ID を、今読み込んでいるログに読み替える */
@@ -179,7 +189,7 @@ class VideoSyncManager {
     const ids = new Map<string, string>();
     for (const saved of this.importedSessions) {
       const live = this.remapSessionId(saved.id, sessions);
-      if (live && live !== saved.id && sessions.some(s => s.id === live)) ids.set(saved.id, live);
+      if(live&&sessions.some(s=>s.id===live)){ids.set(saved.id,live);for(const [alias,source]of this.sessionAliases)if(source===saved.id)ids.set(alias,live);}
     }
     return ids;
   }
@@ -204,7 +214,7 @@ class VideoSyncManager {
   public dispose():void{
     this.closed=true;this.cancelPending();
     for(const handle of [...this.ownedHandles])this.releaseOwned(handle);
-    this.pendingProxies.clear();this.videos=[];this.importedSessions=[];this.pendingClockOffsets.clear();this.notify();this.listeners.clear();
+    this.pendingProxies.clear();this.videos=[];this.importedSessions=[];this.sessionAliases.clear();this.pendingClockOffsets.clear();this.notify();this.listeners.clear();
   }
 
   /** メタデータと資源を全て準備してから公開する。失敗・取消では旧状態を残す。 */
@@ -553,6 +563,8 @@ class VideoSyncManager {
         fileName: s.fileName,
         sessionName: s.sessionName,
         startDateJst: s.date,
+        ...(s.sourceFile?{sourcePath:`${s.sourceFile.folder}/${s.sourceFile.file}`,sourceSize:s.sourceFile.size,sourceMtimeMs:s.sourceFile.mtimeMs}:{}),
+        ...(Number.isFinite(Date.parse(s.points[0]?.timestamp??''))?{rawStartUtcMs:Date.parse(s.points[0].timestamp!)}:{}),
         totalLaps: s.laps.length,
         samplingRate: s.samplingRate,
         clockOffsetSec: s.clockOffsetSec ?? 0,
@@ -675,6 +687,10 @@ class VideoSyncManager {
       const matches=pin.trackKey?plans.filter(p=>p.vData.key===pin.trackKey):pin.trackFileName?plans.filter(p=>p.vData.fileName===pin.trackFileName):[];
       if((pin.trackKey||pin.trackFileName)&&matches.length!==1)throw ambiguous();
     }
+    for(const sd of Array.isArray(data.sessions)?data.sessions:[]){
+      if(!sd||typeof sd.id!=='string'||typeof sd.fileName!=='string')continue;
+      if(sd.sourcePath!==undefined&&typeof sd.sourcePath!=='string'||sd.rawStartUtcMs!==undefined&&!Number.isFinite(sd.rawStartUtcMs)||sd.sourceSize!==undefined&&(!Number.isFinite(sd.sourceSize)||sd.sourceSize<0)||sd.sourceMtimeMs!==undefined&&!Number.isFinite(sd.sourceMtimeMs))throw fault('project.session-identity',{ja:'同期プロジェクトのログ識別が不正です。',en:'Invalid log identity in the synchronization project.'});
+    }
     if (Array.isArray(data.sessions)) {
       for (const sd of data.sessions) {
         if (!sd || typeof sd.id !== 'string' || typeof sd.fileName !== 'string') continue;
@@ -717,7 +733,7 @@ class VideoSyncManager {
     const clockOffsets=this.remapImportedSessions(sessions),ids=this.importedSessionIds(sessions);
     const pins=(data.pins??[]).map(p=>{
       const plan=p.trackKey?plans.find(v=>v.vData.key===p.trackKey):plans.find(v=>v.vData.fileName===p.trackFileName);
-      return {...createSyncPin(p.name,p.sessionTimeSec,p.videoTimeSec,plan?.target?.id??''),...(p.sessionId?{sessionId:ids.get(p.sessionId)??p.sessionId}:{}),...(p.utcMs!==undefined?{utcMs:p.utcMs}:{}),...(p.createdAt?{createdAt:p.createdAt}:{})};
+      return {...createSyncPin(p.name,p.sessionTimeSec,p.videoTimeSec,plan?.target?.id??''),...(p.sessionId?{sessionId:this.remapSessionId(p.sessionId,sessions)??p.sessionId}:{}),...(p.utcMs!==undefined?{utcMs:p.utcMs}:{}),...(p.createdAt?{createdAt:p.createdAt}:{})};
     });
     return {data,clockOffsets,pins};
   }

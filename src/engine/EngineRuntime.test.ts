@@ -253,3 +253,44 @@ describe('review R2 ownership regressions',()=>{
   request=a.session.beginClockEstimate(target.id);owns=request.forReference(liveRef());a.session.analysis.update(state=>({...state,sessions:state.sessions.filter(s=>s.id!==reference.id)}));expect(owns()).toBe(false);
  });
 });
+
+describe('review R3 legacy identity and write ordering',()=>{
+ it('restores the dated run rather than the first same-name part, including legacy projects',async()=>{
+  const host=runtime(),savedRun=run('saved-b');savedRun.date='2026-01-02';savedRun.clockOffsetSec=7;savedRun.points=[{timestamp:'2026-01-02T12:00:00Z'}] as any;
+  await host.media.addVideoFiles([file()],[savedRun],false);const track=host.media.getTracks()[0];host.media.setMatchedSession(track.id,savedRun.id);host.media.setOffsetIn(track.id,savedRun,3);
+  const first=run('day-a'),second={...savedRun,id:'day-b',clockOffsetSec:0};first.date='2026-01-01';first.points=[{timestamp:'2026-01-01T12:00:00Z'}] as any;
+  const project=JSON.parse(host.media.exportProjectJson([savedRun],'course',[{id:'pin',name:'p',sessionTimeSec:1,videoTimeSec:2,calculatedOffsetSec:-1,trackId:track.id,sessionId:savedRun.id,createdAt:''}]));
+  // An old project has date/part but no new source/UTC identity fields.
+  for(const descriptor of project.sessions){delete descriptor.sourcePath;delete descriptor.rawStartUtcMs;delete descriptor.sourceSize;delete descriptor.sourceMtimeMs;}
+  const restored=runtime();const result=restored.media.importProjectJson(JSON.stringify(project),[first,second]);
+  expect(restored.media.getTracks()[0].matchedSessionId).toBe(second.id);expect(restored.media.getTracks()[0].clock.logId).toBe(second.id);expect(result.clockOffsets).toEqual([[second.id,7]]);expect(result.pins[0].sessionId).toBe(second.id);
+ });
+ it('uses raw UTC and source identity to distinguish same-name same-day parts and guards colliding old IDs',async()=>{
+  const host=runtime(),saved=run('old');saved.date='2026-01-01';saved.clockOffsetSec=9;saved.points=[{timestamp:'2026-01-01T12:00:00Z'}] as any;
+  await host.media.addVideoFiles([file()],[saved],false);const track=host.media.getTracks()[0];host.media.setMatchedSession(track.id,saved.id);host.media.setOffsetIn(track.id,saved,4);
+  const json=host.media.exportProjectJson([saved],'course');
+  const wrong={...run('old'),points:[{timestamp:'2026-01-01T08:00:00Z'}] as any},right={...saved,id:'correct',clockOffsetSec:0};
+  const restored=runtime(),first=restored.media.importProjectJson(json,[wrong]);expect(first.clockOffsets).toEqual([]);expect(restored.media.getTracks()[0].clock.logId).not.toBe(wrong.id);
+  expect(restored.media.remapImportedSessions([wrong,right])).toEqual([[right.id,9]]);expect(restored.media.getTracks()[0].clock.logId).toBe(right.id);
+ });
+ it('keeps ambiguous legacy sessions unresolved instead of applying a correction to the first part',()=>{
+  const host=runtime(),one=run('one'),two=run('two');
+  const result=host.media.importProjectJson(JSON.stringify({version:'2.0',savedAt:'',circuitName:'',videos:[],sessions:[{id:'old',fileName:'run.nmea',sessionName:'one',startDateJst:'2026-01-01',filePart:1,clockOffsetSec:8}]}),[one,two]);expect(result.clockOffsets).toEqual([]);
+ });
+ it('serializes repeated formula saves and publishes the last requested value',async()=>{
+  const a=runtime();await a.formats.loadCsvFormats();const entered=deferred<void>(),release=deferred<void>(),write=a.repo.store.writeText;let starts=0;
+  a.repo.store.writeText=async(path,text)=>{if(++starts===1){entered.resolve();await release.promise;}await write(path,text);};
+  const first=a.formats.saveCalcChannels([{key:'test',label:'A',expr:'speed'}]);await entered.promise;
+  const second=a.formats.saveCalcChannels([{key:'test',label:'B',expr:'speed*2'}]);await Promise.resolve();await Promise.resolve();expect(starts).toBe(1);
+  release.resolve();await Promise.all([first,second]);expect(a.formats.getSnapshot().calc[0].label).toBe('B');expect(JSON.parse(a.repo.text.get('formats/calc.json')!).channels[0].label).toBe('B');
+ });
+ it('serializes save, overwrite and delete of the same format without blocking a different format',async()=>{
+  const a=runtime();await a.formats.loadCsvFormats();const entered=deferred<void>(),release=deferred<void>(),write=a.repo.store.writeText;
+  const format:any={version:1,id:'user:same',name:'same',kind:'log',filePattern:'*.csv',header:[],headerRow:0,delimiter:',',time:{column:'t',as:'elapsedSec'},columns:{lat:{target:'lat'},lon:{target:'lon'}}};
+  let sameStarts=0;a.repo.store.writeText=async(path,text)=>{if(path==='formats/same.csvformat.json'&&++sameStarts===1){entered.resolve();await release.promise;}await write(path,text);};
+  const first=a.formats.saveCsvFormat(format,'user:same');await entered.promise;
+  const second=a.formats.saveCsvFormat({...format,name:'new label'},'user:same'),deleting=a.formats.deleteCsvFormat('user:same');
+  await a.formats.saveCsvFormat({...format,name:'other'});expect(sameStarts).toBe(1);release.resolve();await Promise.all([first,second,deleting]);
+  expect(a.formats.currentCsvFormats().map(f=>f.name)).toEqual(['other']);expect(JSON.parse(a.repo.text.get('formats/same.csvformat.json')!).deleted).toBe(true);
+ });
+});

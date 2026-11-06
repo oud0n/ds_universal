@@ -58,6 +58,8 @@ export interface LapSessionCar {
    * その周が始まった時刻 (ログの時刻のまま、ミリ秒。時計の補正は入れない。ログに時刻があるとき)。計測線を直して周の番号が変わっても、開くときにこの時刻で周を選び直す
    */
   lapStartMs?: number;
+  /** 元ログの先頭UTC。ファイル名が重なるときの識別に使う。 */
+  rawStartUtcMs?:number;
 }
 
 export interface LapSession {
@@ -111,7 +113,7 @@ export function fileSessionCars(selected: Array<{ slot: number; sessionId: strin
     const originalPart = s.sourceFile?.part ?? s.filePart ?? same.indexOf(s) + 1;
     const part = same.length > 1 || originalPart > 1 ? originalPart : 0;
     const lapStartMs = lapStartUtcMs(s, c.lapNumber);
-    cars.push({ slot: c.slot, run: s.fileName, ...(part > 0 ? { part } : {}), lap: c.lapNumber, ...(lapStartMs !== undefined ? { lapStartMs } : {}) });
+    cars.push({slot:c.slot,run:s.fileName,...(rawStartMs(s)!==null?{rawStartUtcMs:rawStartMs(s)!}:{}), ...(part > 0 ? { part } : {}), lap: c.lapNumber, ...(lapStartMs !== undefined ? { lapStartMs } : {}) });
   }
   return cars;
 }
@@ -125,7 +127,14 @@ export function matchFileSession(data: LapSession, sessions: Session[]): {
   let moved = 0;
   for (const c of [...data.cars].sort((a, b) => a.slot - b.slot)) {
     const same = sessions.filter(x => x.fileName === c.run);
-    const s = same.find((s, i) => (s.sourceFile?.part ?? s.filePart ?? i + 1) === (c.part ?? 1));
+    let candidates=same.filter((s,i)=>(s.sourceFile?.part??s.filePart??i+1)===(c.part??1));
+    if(c.rawStartUtcMs!==undefined)candidates=candidates.filter(s=>rawStartMs(s)===c.rawStartUtcMs);
+    else if(c.lapStartMs!==undefined){
+      const measured=candidates.filter(s=>s.laps.some(l=>{const start=lapStartUtcMs(s,l.lapNumber);return start!==undefined&&Math.abs(start-c.lapStartMs!)<=5000;}));
+      if(measured.length)candidates=measured;
+      else candidates=candidates.filter(s=>{const start=rawStartMs(s);const end=start===null?null:start+Math.max(s.points[s.points.length-1]?.time??0,...s.laps.map(l=>l.endTime??l.startTime))*1000;return start!==null&&end!==null&&c.lapStartMs!>=start&&c.lapStartMs!<=end;});
+    }
+    const s=candidates.length===1?candidates[0]:undefined;
     if (!s) { missing.push(c.run); continue; }
     const r = resolveSessionLap(s, c);
     if (!Number.isInteger(c.slot) || c.slot < 0 || c.slot > 3 || !s.laps.some(l => l.lapNumber === r.lap)) { missing.push(c.run); continue; }
