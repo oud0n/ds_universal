@@ -66,5 +66,18 @@ try{
  await p.waitFor('window.__laploupe.sessions.length===0');
  await p.ev('window.finishVideoMetadata();window.videoInputPromise');
  assert.equal(await p.ev("import('/src/services/videoSyncManager.ts').then(({videoSyncManager:m})=>m.getTracks().length)"),0,'no media points at the removed source');
- assert.deepEqual(p.errors,[]);console.log('PASS same-name same-size captures; repeated source deduplication; closed GPS during matched media IO');
+ // 通常の一時I/O失敗を正常な動画にせず、同じ入力を読み直せる。
+ const failedNotes=p.notes.length;
+ await p.ev(`(()=>{
+  const file=new File([Uint8Array.from(atob(${JSON.stringify(videoBytes)}),c=>c.charCodeAt(0))],'broken-read.mp4',{type:'video/mp4'}),slice=file.slice.bind(file);let fail=true;
+  file.slice=(start,end,type)=>{if(fail){fail=false;return {arrayBuffer:async()=>{throw new Error('temporary read failure');}};}return slice(start,end,type);};
+  window.retryReadFile=file;return window.__laploupe.loadFiles([file]);
+ })()`);
+ assert.ok(p.notes.slice(failedNotes).some(note=>note.includes('Could not load broken-read.mp4:')),'ordinary read failure is shown');
+ assert.equal(await p.ev('window.__laploupe.sessions.length'),0,'failed input does not publish an empty run');
+ assert.equal(await p.ev('window.__laploupe.videos.length'),0,'failed input does not publish fallback metadata');
+ await p.ev('window.__laploupe.loadFiles([window.retryReadFile])');
+ await p.waitFor('window.__laploupe.sessions.length===1&&window.__laploupe.videos.length===1');
+ assert.equal(await p.ev("import('/src/services/videoSyncManager.ts').then(({videoSyncManager:m})=>m.getTracks()[0].durationSec)"),4,'retry loads the real duration');
+ assert.deepEqual(p.errors,[]);console.log('PASS same-name captures, deduplication, closed GPS, ordinary IO failure and retry');
 }finally{await p.close();fs.rmSync(dir,{recursive:true,force:true});}

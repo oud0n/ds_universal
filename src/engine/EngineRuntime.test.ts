@@ -195,6 +195,19 @@ describe('adversarial engine boundary regressions',()=>{
 });
 
 describe('failed IO and concurrent configuration',()=>{
+ it('preserves stored synchronization on ordinary metadata IO failure and restores it after retry',async()=>{
+  let fail=true;const bytes=new Uint8Array(40),view=new DataView(bytes.buffer);
+  view.setUint32(0,40);bytes.set([109,111,111,118],4);view.setUint32(8,32);bytes.set([109,118,104,100],12);view.setUint32(20,2082844801);view.setUint32(28,1000);view.setUint32(32,30000);
+  const movie:BinaryFile={name:'clip.mp4',size:40,lastModified:2000,arrayBuffer:async()=>bytes.slice().buffer,slice:(start=0,end=40)=>({arrayBuffer:async()=>{if(fail)throw Error('temporary IO');return bytes.slice(start,end).buffer;}})};
+  const a=runtime(undefined,{media:{remoteFile:()=>movie,metadata:parseVideoMetadata,gps:async()=>({videoStartUtcMs:[]}),open:()=> 'owned',release:()=>{},nowMs:()=>1000,random:()=>0.5}}),s=run(),row=item();
+  row.entry={updatedAt:'',videos:[{name:'clip.mp4',size:40,recordedAt:new Date(1000).toISOString(),part:1,clock:{source:'manual',logPart:1,offsetSec:99,utcMs:null},pins:[{name:'keep',logPart:1,logTimeSec:2,videoTimeSec:1}]}]};
+  const initial=JSON.stringify({version:2,runs:{run:row.entry}});a.repo.text.set('course/runs.json',initial);
+  a.session.assign([s],s.id,1,0);a.controller.registerRunSessions(a.repo.store,row,[s],a.session.analysis.getSessions);
+  const options={store:a.repo.store,item:row,runSessions:[s],videos:[{name:'clip.mp4',size:40,lastModified:2000,path:'course/clip.mp4',url:'repository:clip'}],fromRuns:true,sessions:a.session.analysis.getSessions,circuitName:'Course'};
+  await expect(a.controller.attachRunVideos(options)).rejects.toMatchObject({code:'video.metadata-read'});await a.controller.flushOpenRunsStrict();
+  expect(a.media.getTracks()).toEqual([]);expect(a.repo.text.get('course/runs.json')).toBe(initial);
+  fail=false;await a.controller.attachRunVideos(options);expect(a.media.getTracks()[0].durationSec).toBe(30);expect(a.media.getTracks()[0].clock.offsetSec).toBe(99);expect(a.pins.getAllPins().map(p=>p.name)).toEqual(['keep']);
+ });
  it('does not publish fallback metadata after cancelling storage selection during folder-video addition',async()=>{
   const entered=deferred<void>(),release=deferred<void>();let a!:ReturnType<typeof runtime>,calls=0;
   a=runtime(undefined,{media:{remoteFile:r=>({...file(r.name),lastModified:r.lastModified,slice:()=>({arrayBuffer:async()=>{const reads=a.storage.getStorageReadRevision();entered.resolve();await release.promise;if(reads!==a.storage.getStorageReadRevision())throw new StorageChangedError();return new ArrayBuffer(8);}})}),metadata:async f=>++calls===1?parseVideoMetadata(f):{fileName:f.name,fileSize:f.size,creationTime:new Date(1000),durationSec:30,timescale:1000},gps:async()=>({videoStartUtcMs:[]}),open:()=> 'owned',release:()=>{},nowMs:()=>1000,random:()=>0.5}});

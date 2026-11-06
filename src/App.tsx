@@ -897,7 +897,11 @@ export const App: React.FC = () => {
       videos.push(file);
     }
     const request=engine.beginMediaImport(),metadata=new Map<File,VideoMetadata>();
-    const groups=await groupLocalVideoFiles(videos,async file=>{const meta=await parseVideoMetadata(file);metadata.set(file,meta);return meta;});
+    const unreadable:Array<{file:File;error:unknown}>=[];
+    await Promise.all(videos.map(async file=>{try{metadata.set(file,await parseVideoMetadata(file));}catch(error){unreadable.push({file,error});}}));
+    if(!request.isCurrent())return;
+    for(const {file,error}of unreadable)alert(tr(`ファイル ${file.name} の読み込みに失敗しました: `,`Could not load ${file.name}: `)+(error instanceof Error?error.message:String(error)));
+    const groups=await groupLocalVideoFiles(videos.filter(file=>metadata.has(file)),async file=>metadata.get(file)!);
     if(!request.isCurrent())return;
     for (const group of groups) {
       try {

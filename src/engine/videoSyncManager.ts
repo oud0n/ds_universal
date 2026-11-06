@@ -234,7 +234,9 @@ class VideoSyncManager {
     for(const input of inputs.filter(f=>!isProxyFileName(f.name))){
       if(!isCurrent())return this.videos;
       const remote=isRemoteVideo(input)?input:undefined,file=remote?ports.remoteFile(remote):input as TFile;
-      const meta=await ports.metadata(file);if(!isCurrent())return this.videos;
+      let meta:VideoMetadata;
+      try{meta=await ports.metadata(file);}catch(error){if(!isCurrent())return this.videos;throw error;}
+      if(!isCurrent())return this.videos;
       let gpsUtcMs:number|undefined;
       if(readGps&&!placeholderFor(file,meta,remote)){
         try{gpsUtcMs=(await ports.gps(file,remote)).videoStartUtcMs[0];}catch{/* GPSのない動画。 */}

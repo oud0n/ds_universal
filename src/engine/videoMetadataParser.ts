@@ -1,4 +1,5 @@
 import type { BinaryFile } from './ports';
+import {EngineError,fault} from './errors';
 /**
  * MP4 / QuickTime (MOV) メタデータ抽出ユーティリティ
  * ISO Base Media BinaryFile Format (ISOBMFF) の moov -> mvhd ボックスを解析し、
@@ -40,7 +41,8 @@ export async function parseVideoMetadata(file: BinaryFile): Promise<VideoMetadat
       }
     }
   } catch (err) {
-
+    if(err instanceof EngineError)throw err;
+    throw fault('video.metadata-read',{ja:'動画の情報を読み込めませんでした。ファイルを読み直してください。',en:'Could not read video metadata. Please try loading the file again.'});
   }
 
   // ファイルの最終更新日時によるフォールバック (コピーした日時のことがある。照合は 4 時間以内に収まらなければ失敗として扱われる)
