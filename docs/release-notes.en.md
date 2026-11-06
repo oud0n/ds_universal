@@ -4,6 +4,10 @@
 
 [Back to the README](../README.en.md)
 
+## Next build (not distributed)
+
+- Reduced repeated gate-direction calculations, temporary analysis arrays and unused GPS fallback records.
+
 ## v1.3.0 (2026-11-06, personal iPhone / iPad TestFlight, build 19)
 
 - The app icon is now a magnifying glass with a tire as its lens. Its light and dark versions are adjusted to appear the same size.

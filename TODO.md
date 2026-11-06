@@ -94,6 +94,7 @@ ID の付け方: 不具合 `BUG-NN` (細かくは [BUGS.md](BUGS.md))、直す�
 | WISH-01 | AiM Solo 2 DL から Wi-Fi で吸い出す (デスクトップ版・スマホのアプリ) | 機器待ち |
 | CLEAN-01 | 通信の解析の道具 (`digspice_cli.ps1`・`extract_pcap.py`) を消すか移すか (古い `main.js`・`preload.js`・`renderer.js`・`styles.css` は 2026-10-28 に消した) | 持ち主の判断待ち |
 | CLEAN-02 | `mobile/README.md` の「状態」の表 (BLE まで、など) が古い | 未着手 |
+| CLEAN-03 | 計測線の方向計算と解析の一時配列・不要な控えを整理する | 84f6f0bで実装。旧新1,464ケース一致・型/543成功・9skip・局所レビュー済み。通常操作の差は小さい。未配信 |
 
 ### PLAN-57・58: アイコンの自動切替
 
