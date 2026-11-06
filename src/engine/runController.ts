@@ -146,6 +146,7 @@ async function listRuns(store: RunStore, onProgress?: (folder: string) => void, 
         entry
       };
       stampRunItem(store,listedItem);
+      if(!strict)unpreparedItems.add(listedItem);
       listedItem.entry=getRunItemEntry(store,listedItem);out.push(listedItem);
     }
   }
@@ -267,6 +268,7 @@ function assertVideoOwnership(opts: AttachOptions): void {
 /** 動画を待つ前に、ログの補正を復元し保存担当を用意する。採用直前、待機なしで呼ぶ。 */
 function registerRunSessions(store: RunStore, item: RunItem, incoming: Session[], sessions: () => Session[]): Session[] {
   rejectAlias(store,item);
+  assertMetadataPrepared(item);
   if((itemGenerations.get(item)?.generation??0)!==host.runs.rowGeneration(store,item.folder,item.file))throw new RunRowDeletedError();
   stampRunItem(store,item);
   const prior = current && runPath(current.item) === runPath(item) ? current : companions.get(runPath(item));
@@ -564,6 +566,7 @@ function queued<T>(fn: () => Promise<T>): Promise<T> {
 
 function queueAttachment(opts: AttachOptions, attach: (opts: AttachOptions, isCurrent: () => boolean) => Promise<number>) {
   assertRunItemCurrent(opts.item);
+  assertMetadataPrepared(opts.item);
   const rowGeneration=host.runs.rowGeneration(opts.store,opts.item.folder,opts.item.file);
   if((itemGenerations.get(opts.item)?.generation??0)!==rowGeneration)throw new RunRowDeletedError();
   const generation=attachmentGeneration;
@@ -847,6 +850,7 @@ function applyConditions(row: Partial<RunRow>, patch: RunMetaPatch): void {
 
 let metadataSequence = 0;
 const itemGenerations=new WeakMap<RunItem,{store:RunStore;generation:number}>();
+const unpreparedItems=new WeakSet<RunItem>();
 const metadataOwners=new Map<string,{store:RunStore;item:RunItem}>();
 const pendingMetadata = new Map<string, Map<keyof RunMetaPatch, { version: number; value: unknown }>>();
 const metadataStores = new WeakMap<RunStore, number>();
@@ -884,6 +888,28 @@ function relatedRunItems(store: RunStore, item: RunItem): Set<RunItem> {
 function getRunItemEntry(store: RunStore, item: RunItem): RunRow | null {
   return pendingMetadata.get(metadataKeyOf(store, item))?.size
     ? withPendingMetadata(store, item, item.entry ?? { updatedAt: '' }) : item.entry;
+}
+
+function assertMetadataPrepared(item:RunItem){
+ if(unpreparedItems.has(item))throw fault('run.metadata-unprepared',{ja:'走行の保存情報を読み直してから開いてください。',en:'Reload the saved run metadata before opening this run.'});
+}
+
+/** 一覧は読めなくても出すが、保存担当を作る前は失敗を欠落扱いにしない。 */
+async function prepareRunItemMetadata(store:RunStore,item:RunItem):Promise<void>{
+ assertRunItemCurrent(item);
+ unpreparedItems.add(item);
+ const generation=host.runs.rowGeneration(store,item.folder,item.file),reads=host.storage.getStorageReadRevision();
+ if((itemGenerations.get(item)?.generation??0)!==generation)throw new RunRowDeletedError();
+ const key=metadataKeyOf(store,item);
+ const prior=[current,...companions.values()].find(run=>run&&metadataKeyOf(run.store,run.item)===key)?.item;
+ const row=prior?getRunItemEntry(store,prior):findRunRow(await readRunsFile(store,item.folder,true),item.file);
+ if(disposed||reads!==host.storage.getStorageReadRevision())throw new StorageChangedError();
+ assertRunItemCurrent(item);
+ if(generation!==host.runs.rowGeneration(store,item.folder,item.file))throw new RunRowDeletedError();
+ item.entry=row?withPendingMetadata(store,item,row):getRunItemEntry(store,{...item,entry:null});
+ item.videos=item.entry?.videos?.map(video=>video.name)??item.videos;
+ item.synced=!!item.entry?.videos?.some(video=>!!video.clock);
+ unpreparedItems.delete(item);
 }
 
 /**
@@ -949,7 +975,7 @@ subscriptions.push(host.runs.subscribeRowRemoved(({store,folder,file})=>{
  for(const listener of openRunListeners)listener();
 }));
 const dispose=()=>{if(disposed)return;disposed=true;for(const unsubscribe of subscriptions.splice(0))unsubscribe();subscribed=false;abandonOpenRuns();openRunListeners.clear();};
-const methods={stampRunItem,baseName,startFromName,listRuns,totalBytes,videoCandidates,assertRunItemCurrent,registerRunSessions,scheduleRunSave,companionSessionsOfVideo,flushOpenRunsStrict,flushOpenRuns,closeOpenRun,abandonOpenRuns,attachRunVideos,companionPaths,companionRuns,companionRunMatches,currentRunMatches,releaseClosedRunVideos,attachCompanionVideos,dropCompanion,addVideoToOpenRun,assertRunSyncTarget,getOpenRun,onOpenRun,openRunOverlayLayout,setOpenRunOverlayLayout,getRunItemEntry,setRunMeta,setRunLapHidden,getOpenRunItem};
+const methods={stampRunItem,baseName,startFromName,listRuns,totalBytes,videoCandidates,assertRunItemCurrent,prepareRunItemMetadata,registerRunSessions,scheduleRunSave,companionSessionsOfVideo,flushOpenRunsStrict,flushOpenRuns,closeOpenRun,abandonOpenRuns,attachRunVideos,companionPaths,companionRuns,companionRunMatches,currentRunMatches,releaseClosedRunVideos,attachCompanionVideos,dropCompanion,addVideoToOpenRun,assertRunSyncTarget,getOpenRun,onOpenRun,openRunOverlayLayout,setOpenRunOverlayLayout,getRunItemEntry,setRunMeta,setRunLapHidden,getOpenRunItem};
 return {dispose,...Object.fromEntries(Object.entries(methods).map(([name,method])=>[name,(...args:unknown[])=>{if(disposed)throw new EngineError('controller.closed',{ja:'保存担当は終了しました。',en:'The run controller is closed.'});return (method as (...args:unknown[])=>unknown)(...args); }])) as typeof methods};
 }
 export type RunController = ReturnType<typeof createRunController>;

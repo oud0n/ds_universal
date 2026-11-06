@@ -195,6 +195,23 @@ describe('adversarial engine boundary regressions',()=>{
 });
 
 describe('failed IO and concurrent configuration',()=>{
+ it('strictly restores a cold row before ownership and preserves its clocks and pins after a listing IO failure',async()=>{
+  const a=runtime(undefined,{media:{remoteFile:r=>file(r.name),metadata:async f=>({fileName:f.name,fileSize:f.size,creationTime:new Date(1000),durationSec:30,timescale:1000}),gps:async()=>({videoStartUtcMs:[]}),open:()=> 'owned',release:()=>{},nowMs:()=>1000,random:()=>0.5}}),s=run(),row=item();
+  s.points=[{time:0,timestamp:new Date(1000).toISOString()},{time:30,timestamp:new Date(31000).toISOString()}] as any;
+  const saved={updatedAt:'',parts:{'1':{clockOffsetSec:7}},videos:[{name:'clip.mp4',size:8,recordedAt:new Date(1000).toISOString(),part:1,clock:{source:'manual',logPart:1,offsetSec:99,utcMs:null},pins:[{name:'keep',logPart:1,logTimeSec:2,videoTimeSec:1}]}]};
+  const initial=JSON.stringify({version:2,runs:{run:saved}});a.repo.text.set('course/runs.json',initial);
+  let fail=true;a.repo.store.readTextStrict=async path=>{if(fail&&path.endsWith('/runs.json'))throw Error('metadata offline');return a.repo.text.get(path)??null;};
+  await expect(a.controller.prepareRunItemMetadata(a.repo.store,row)).rejects.toThrow('metadata offline');
+  expect(()=>a.controller.registerRunSessions(a.repo.store,row,[s],a.session.analysis.getSessions)).toThrow('metadata');
+  expect(a.controller.companionRuns()).toEqual([]);expect(a.repo.text.get('course/runs.json')).toBe(initial);
+  fail=false;await a.controller.prepareRunItemMetadata(a.repo.store,row);
+  const restored=a.controller.registerRunSessions(a.repo.store,row,[s],a.session.analysis.getSessions);
+  expect(restored[0].clockOffsetSec).toBe(7);a.session.assign(restored,s.id,1,0);
+  await a.controller.attachRunVideos({store:a.repo.store,item:row,runSessions:restored,videos:[{name:'clip.mp4',size:8,lastModified:0,path:'course/clip.mp4',url:'repository:clip'}],fromRuns:true,sessions:a.session.analysis.getSessions,circuitName:'Course'});
+  await a.controller.flushOpenRunsStrict();
+  const actual=JSON.parse(a.repo.text.get('course/runs.json')!).runs.run;
+  expect(actual.parts['1'].clockOffsetSec).toBe(7);expect(actual.videos[0].clock.offsetSec).toBe(99);expect(actual.videos[0].pins[0].name).toBe('keep');
+ });
  it('does not publish or save a creation clock after GPS IO fails, and retries with the GPS clock',async()=>{
   const failure=Error('temporary GPS range failure');let fail=true,opened=0;
   const a=runtime(undefined,{media:{remoteFile:r=>file(r.name),metadata:async f=>({fileName:f.name,fileSize:f.size,creationTime:new Date(1000),durationSec:30,timescale:1000}),gps:async()=>{if(fail)throw failure;return {videoStartUtcMs:[5000]};},open:()=>{opened++;return 'owned';},release:()=>{},nowMs:()=>1000,random:()=>0.5}}),s=run(),row=item();

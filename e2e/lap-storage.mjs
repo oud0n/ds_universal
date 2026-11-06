@@ -25,7 +25,7 @@ try {
  window.electronAPI={onOpenFiles:callback=>{window.menuOpenFiles=callback;return()=>{window.menuOpenFiles=null}},readFileBuffer:async path=>{if(window.holdMenuRead&&path.endsWith('menu-old.nmea'))await new Promise(resolve=>window.finishMenuRead=resolve);return {success:true,name:path.slice(path.lastIndexOf('/')+1),dataArray:storeFiles.get('sodegaura/demo.nmea')};},laps:{getFolder:async()=>{if(window.holdFolder)await new Promise(resolve=>(window.folderWaiters??=[]).push(resolve));return window.folderRoot??'/synthetic/A'},pickFolder:async()=>null,
  list:async()=>window.failSavedList&&window.__laploupe?.openingSaved?.()?{success:false,error:'synthetic list failure'}:({success:true,files:[...storeFiles].map(([path,b])=>({path,size:b.byteLength,mtimeMs:123,local:true}))}),
  read:async path=>{storeReads.push(path);if(window.holdLegacyRead===path && window.__laploupe?.openingRun?.())await new Promise(resolve=>window.resumeLegacyRead=resolve);if(window.holdIndexRead===path)await new Promise(resolve=>window.resumeIndexRead=resolve);if(window.readDelayMs)await new Promise(r=>setTimeout(r,window.readDelayMs));if(window.holdSavedRead===path && window.__laploupe?.openingSaved?.())await new Promise(resolve=>window.resumeSavedRead=resolve);const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
- readText:async path=>{if(window.failRunsMetadata&&window.__laploupe?.openingSaved?.()&&path.endsWith('/runs.json'))return {success:false,error:'synthetic metadata failure'};if(window.holdTextRead===path)await new Promise(resolve=>(window.textWaiters??=[]).push(resolve));return {success:true,text:storeFiles.has(path)?new TextDecoder().decode(storeFiles.get(path)):null}},
+ readText:async path=>{if(window.failListedRunsMetadata&&path.endsWith('/runs.json'))return {success:false,error:'synthetic listing metadata failure'};if(window.failRunsMetadata&&window.__laploupe?.openingSaved?.()&&path.endsWith('/runs.json'))return {success:false,error:'synthetic metadata failure'};if(window.holdTextRead===path)await new Promise(resolve=>(window.textWaiters??=[]).push(resolve));return {success:true,text:storeFiles.has(path)?new TextDecoder().decode(storeFiles.get(path)):null}},
  writeText:async(path,text)=>{if(path.endsWith('/laptimes.json'))(window.indexWrites??=[]).push(JSON.parse(text));if(window.failWrites)return {success:false,error:'synthetic write failure'};storeWrites.push(path);storeFiles.set(path,new TextEncoder().encode(text));return {success:true}}
  }};
  `});
@@ -288,12 +288,12 @@ try {
   const storage=await import('/src/services/storageRevision.ts');window.csvOldRoot=storage.getStorageRevision();
   setCsvRoot('B formats');window.holdTextRead='formats/sample.csvformat.json';window.textWaiters=[];
   await storage.trackStorageSelection(()=>{window.folderRoot='/synthetic/B';return '/synthetic/B'});
-  void(await import('/src/services/storageCourses.ts')).storageFolderChanged();
+  window.csvStorageChange=(await import('/src/services/storageCourses.ts')).storageFolderChanged();
  })()`);
  await p.waitFor("!document.querySelector('[data-testid=calc-editor]') && document.querySelector('[data-testid=calc-open]').disabled && window.textWaiters.length>0",10000,'old editor closed and new definitions pending');
  assert.equal(await p.ev("csvStore.saveCalcChannels([{key:'old_value',label:'old',expr:'speed'}],csvOldRoot).then(()=>false,()=>true)"),true,'old editor context cannot write to new root');
  assert.ok(await p.ev("new TextDecoder().decode(storeFiles.get('formats/calc.json')).includes('B formats')"));
- await p.ev('window.holdTextRead=null;window.textWaiters.splice(0).forEach(resolve=>resolve())');
+ await p.ev('window.holdTextRead=null;window.textWaiters.splice(0).forEach(resolve=>resolve());window.csvStorageChange');
  await p.waitFor("!document.querySelector('[data-testid=calc-open]').disabled && document.querySelector('[data-testid=csv-format-row]').innerText.includes('B formats')",15000,'new root definitions recovered');
  await p.waitFor("document.querySelector('[data-testid=storage-settings]').innerText.includes('/synthetic/B')",10000,'storage label follows current root');
  await p.click('calc-open');
@@ -429,6 +429,45 @@ try {
  assert.equal(await p.ev('window.__laploupe.analysisSnapshot().sessions.find(s=>s.id===window.clockRestoreId).clockOffsetSec'),await p.ev('window.expectedRestoredClock'),'late comparison cannot revert a newer clock edit');
  assert.equal(await p.ev('window.__laploupe.sessions.length'),1,'ignored duplicate click still completes the first comparison');
  await p.ev('window.restoreClockList()');
+ // 公開の差し込み口に小さなボタンを置き、両方開くの実コールバックを通す。
+ await p.ev(`(async()=>{
+  await testRunOpener.flushOpenRunsStrict();
+  const {addons}=await import('/src/addons/index.ts'),React=(await import('/node_modules/.vite/deps/react.js')).default;
+  addons.sameRunViews=[{id:'fixture',label:['確認','Inspect'],Component:({onOpenBoth})=>React.createElement('button',{'data-testid':'fixture-open-both',onClick:()=>{window.openBothPromise=onOpenBoth();}},'Open both')}];
+  storeFiles.set('sodegaura/20260815/20260815092455.nmea',storeFiles.get('sodegaura/demo.nmea'));
+  window.bothFileInput=window.__laploupe.loadFiles([new File([storeFiles.get('sodegaura/demo.nmea')],'open-both-input.nmea')]);
+ })()`);
+ await p.waitFor("document.querySelector('[data-testid=import-view-fixture]')",15000,'input comparison fixture');
+ await p.click('import-view-fixture');await p.waitFor("document.querySelector('[data-testid=fixture-open-both]')");
+ await p.ev("window.folderWaiters=[];window.holdFolder=true;document.querySelector('[data-testid=fixture-open-both]').click()");
+ await p.waitFor('window.folderWaiters.length>0',10000,'open both before stored selection');
+ await p.click('open-lap-picker');
+ await p.waitFor("document.querySelector('[data-testid=lap-picker-row] [data-slot=\"0\"]')");
+ await p.ev("[...document.querySelectorAll('[data-testid=lap-picker-row] [data-slot=\"0\"]')].find(b=>!b.className.includes('border-cyan')).click()");
+ await assigned(0);await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");
+ const pickedAfterBoth=await p.ev('JSON.stringify(window.__laploupe.cars)');
+ await p.ev('window.holdFolder=false;window.folderWaiters.splice(0).forEach(resolve=>resolve());window.openBothPromise');
+ assert.equal(await p.ev('JSON.stringify(window.__laploupe.cars)'),pickedAfterBoth,'old OpenBoth cannot replace a newer Picker selection');
+ assert.equal(await p.ev("window.__laploupe.sessions.some(s=>s.fileName==='open-both-input.nmea')"),false);
+ // 一覧のmetadata I/O失敗がcoldな走行の同期時計を消すことはない。
+ await p.ev(`(async()=>{
+  await testRunOpener.flushOpenRunsStrict();
+  storeFiles.set('sodegaura/cold-metadata.nmea',storeFiles.get('sodegaura/demo.nmea'));
+  const path='sodegaura/runs.json',saved=JSON.parse(new TextDecoder().decode(storeFiles.get(path)));
+  saved.runs['cold-metadata']={updatedAt:'',parts:{'1':{clockOffsetSec:6.25}}};storeFiles.set(path,new TextEncoder().encode(JSON.stringify(saved)));
+  window.coldMetadataOriginal=new TextDecoder().decode(storeFiles.get(path));window.failListedRunsMetadata=true;
+  const store=await(await import('/src/services/runStore.ts')).getRunStore();
+  window.coldMetadataRow=(await testRunOpener.listRuns(store)).find(row=>row.file==='cold-metadata.nmea');
+ })()`);
+ assert.equal(await p.ev('window.coldMetadataRow.entry'),null,'tolerant listing could not read the row');
+ await p.ev('window.__laploupe.openStoredRun(window.coldMetadataRow,false)');
+ assert.equal(await p.ev("window.__laploupe.sessions.some(s=>s.fileName==='cold-metadata.nmea')"),false,'unread metadata cannot acquire a save owner');
+ assert.equal(await p.ev("new TextDecoder().decode(storeFiles.get('sodegaura/runs.json'))"),await p.ev('window.coldMetadataOriginal'));
+ await p.ev('window.failListedRunsMetadata=false;window.__laploupe.openStoredRun(window.coldMetadataRow,false)');
+ await p.waitFor("window.__laploupe.sessions.some(s=>s.fileName==='cold-metadata.nmea')");
+ assert.equal(await p.ev("window.__laploupe.analysisSnapshot().sessions.find(s=>s.fileName==='cold-metadata.nmea').clockOffsetSec"),6.25,'retry restores the saved log correction');
+ await p.ev('testRunOpener.flushOpenRunsStrict()');
+ assert.equal(await p.ev("JSON.parse(new TextDecoder().decode(storeFiles.get('sodegaura/runs.json'))).runs['cold-metadata'].parts['1'].clockOffsetSec"),6.25);
  assert.deepEqual(p.errors,[]);
  await p.shot('preserved');console.log(JSON.stringify({result:'PASS interrupted run-list and legacy history scans; repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion; pending metadata, overlapping saved restore, same-source delayed earlier-lap first renders',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
 }catch(error){console.log(await p.ev("({body:document.body.innerText,reads:storeReads.slice(-12),indexes:window.indexWrites?.map(x=>Object.keys(x.files))})"),p.errors);throw error;}finally{await p.close();fs.rmSync(fixtureDir,{recursive:true,force:true});}

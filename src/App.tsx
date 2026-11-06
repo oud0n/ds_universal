@@ -56,7 +56,7 @@ import { ChoiceDialogHost, askChoice } from './components/ChoiceDialog';
 import { EmptyLoadPrompt } from './components/EmptyLoadPrompt';
 import { RecentRunsList, RunsSheet, notifyRunsChanged } from './components/RecentRuns';
 import { canUseRunStore, getRunStore } from './services/runStore';
-import { abandonOpenRuns, assertRunItemCurrent, attachCompanionVideos, attachRunVideos, closeOpenRun, companionRunMatches, companionRuns, currentRunMatches, dropCompanion, flushOpenRuns, flushOpenRunsStrict, getOpenRun, getOpenRunItem, getRunItemEntry, listRuns, registerRunSessions, releaseClosedRunVideos, scheduleRunSave, setRunMeta, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
+import { abandonOpenRuns, assertRunItemCurrent, prepareRunItemMetadata, attachCompanionVideos, attachRunVideos, closeOpenRun, companionRunMatches, companionRuns, currentRunMatches, dropCompanion, flushOpenRuns, flushOpenRunsStrict, getOpenRun, getOpenRunItem, getRunItemEntry, listRuns, registerRunSessions, releaseClosedRunVideos, scheduleRunSave, setRunMeta, totalBytes, videoCandidates, type RunItem } from './services/runOpener';
 import { runStem, courseHash } from './services/lapIndex';
 import { useResizableSplit } from './hooks/useResizableSplit';
 import { canUseLapTimer, canUseLogger, canUseLoggerBle, fileAccept, isWebKitBrowser, redrawIntervalOverride } from './utils/device';
@@ -1007,7 +1007,7 @@ export const App: React.FC = () => {
     const request=beginFileInput(),current=request.isInputCurrent;
     const cur = importing;
     closeImport();
-    if (!(await openStoredRun(base,current))) { if(current())alert(tr('保管場所の走行が見つかりませんでした。', 'Could not find that run in the storage folder.')); return; }
+    if (!(await openStoredRun(base,request.isCurrent))) { if(request.isCurrent())alert(tr('保管場所の走行が見つかりませんでした。', 'Could not find that run in the storage folder.')); return; }
     if (!cur||!current()) return;
     const b = cur.bytes;
     const selection=selectionEpochRef.current,ready=()=>current()&&selection===selectionEpochRef.current;
@@ -1313,6 +1313,7 @@ export const App: React.FC = () => {
 
   const loadStoredFileData = async (store: NonNullable<Awaited<ReturnType<typeof getRunStore>>>, item: RunItem) => {
     assertRunItemCurrent(item);
+    await prepareRunItemMetadata(store,item);
     const path = `${item.folder}/${item.file}`;
     const file = (await store.listAll()).find(f => f.path === path);
     if (!file) throw new Error(tr('元ファイルが見つかりません', 'The source file was not found'));

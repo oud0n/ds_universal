@@ -17,6 +17,7 @@ export const listRuns: typeof runController.listRuns = withEngineErrors(runContr
 export const totalBytes: typeof runController.totalBytes = withEngineErrors(runController.totalBytes);
 export const videoCandidates: typeof runController.videoCandidates = withEngineErrors(runController.videoCandidates);
 export const assertRunItemCurrent: typeof runController.assertRunItemCurrent = withEngineErrors(runController.assertRunItemCurrent);
+export const prepareRunItemMetadata: typeof runController.prepareRunItemMetadata = withEngineErrors(runController.prepareRunItemMetadata);
 export const registerRunSessions: typeof runController.registerRunSessions = withEngineErrors(runController.registerRunSessions);
 export const scheduleRunSave: typeof runController.scheduleRunSave = withEngineErrors(runController.scheduleRunSave);
 export const companionSessionsOfVideo: typeof runController.companionSessionsOfVideo = withEngineErrors(runController.companionSessionsOfVideo);
