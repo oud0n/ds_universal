@@ -369,8 +369,38 @@ try {
    return {actual:values(pts),expected:values(applyGFilter(pts.map(p=>({...p})),'weak'))};
   })`);
   assert.deepEqual(physics.actual,physics.expected,'staged adoption uses latest G settings');
+  const lapPhysics=await p.ev(`import('/src/engine/lapCalculator.ts').then(({extractLaps})=>{
+   const s=window.__laploupe.analysisSnapshot().sessions.find(s=>s.fileName===window.physicsRunName),expected=extractLaps(s.points,s.controlLine,s.sectors,s.finishLine).laps;
+   return {actual:s.laps.map(l=>l.points.map(p=>[p.accelG,p.corneringG])),expected:expected.map(l=>l.points.map(p=>[p.accelG,p.corneringG]))};
+  })`);
+  assert.deepEqual(lapPhysics.actual,lapPhysics.expected,'lap consumers receive the updated physics too');
   await p.ev('window.restorePhysicsList()');
  }
+ // 保存した比較の最終検査中に手動補正しても、古い控えへ戻さない。
+ await p.ev(`(async()=>{
+  const state=window.__laploupe.analysisSnapshot(),s=state.sessions.find(s=>s.id===state.selectedCars.find(c=>c.slot===0).sessionId),f=s.sourceFile;
+  window.clockRestoreId=s.id;window.clockBeforeRestore=s.clockOffsetSec??0;
+  const saved={version:1,name:'Clock race',createdAt:'2025-01-01T00:00:00Z',cars:[{slot:0,run:f.folder+'/'+f.file,part:f.part,lap:s.laps[0].lapNumber}]};
+  storeFiles.set('sessions/clock-race.lapsession.json',new TextEncoder().encode(JSON.stringify(saved)));
+  window.__laploupe.go('library');
+ })()`);
+ await p.waitFor("[...document.querySelectorAll('[data-testid=library-session-row] button')].some(b=>b.innerText.includes('Clock race'))",15000,'saved clock comparison');
+ await p.ev(`(()=>{const list=window.electronAPI.laps.list;let calls=0;window.finishClockValidation=null;window.restoreClockList=()=>window.electronAPI.laps.list=list;
+  window.electronAPI.laps.list=async()=>{if(window.__laploupe.openingSaved()&&++calls===4)await new Promise(resolve=>window.finishClockValidation=resolve);return list();};
+  [...document.querySelectorAll('[data-testid=library-session-row] button')].find(b=>b.innerText.includes('Clock race')).click();
+ })()`);
+ await p.waitFor('window.finishClockValidation',15000,'final saved comparison validation');
+ await p.ev("window.__laploupe.go('analysis')");
+ await p.waitFor("document.querySelector('[data-testid=toggle-data-drawer]')",10000,'analysis drawer toggle');
+ if(!await p.ev("!!document.querySelector('[data-testid=data-drawer]')?.getClientRects().length"))await p.click('toggle-data-drawer');
+ await p.waitFor("document.querySelector('[data-testid=data-drawer]')",10000,'clock edit drawer');
+ await p.ev(`(()=>{const i=window.__laploupe.sessions.findIndex(s=>s.id===window.clockRestoreId),card=document.querySelectorAll('[data-testid=session-card]')[i],e=card.querySelector('input[type=number][step="0.01"]');
+  window.expectedRestoredClock=window.clockBeforeRestore+2.125;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,String(window.expectedRestoredClock));e.dispatchEvent(new Event('input',{bubbles:true}));
+ })()`);
+ await p.waitFor('window.__laploupe.analysisSnapshot().sessions.find(s=>s.id===window.clockRestoreId)?.clockOffsetSec===window.expectedRestoredClock');
+ await p.ev('window.finishClockValidation()');await p.waitFor('!window.__laploupe.openingSaved()');
+ assert.equal(await p.ev('window.__laploupe.analysisSnapshot().sessions.find(s=>s.id===window.clockRestoreId).clockOffsetSec'),await p.ev('window.expectedRestoredClock'),'late comparison cannot revert a newer clock edit');
+ await p.ev('window.restoreClockList()');
  assert.deepEqual(p.errors,[]);
  await p.shot('preserved');console.log(JSON.stringify({result:'PASS interrupted run-list and legacy history scans; repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion; pending metadata, overlapping saved restore, same-source delayed earlier-lap first renders',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
 }catch(error){console.log(await p.ev("({body:document.body.innerText,reads:storeReads.slice(-12),indexes:window.indexWrites?.map(x=>Object.keys(x.files))})"),p.errors);throw error;}finally{await p.close();fs.rmSync(fixtureDir,{recursive:true,force:true});}

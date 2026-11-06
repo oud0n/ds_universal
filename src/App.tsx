@@ -1447,6 +1447,8 @@ export const App: React.FC = () => {
     await validateStoredFiles(store, entries.flatMap(e => e.sessions));
     if (!current()) return;
     for (const entry of entries) {
+      const owned=getOpenRunItem(entry.item.folder,entry.item.file);
+      entry.sessions=applyRunMetadata(reuseStoredSessions(analysisStore.getSnapshot().sessions,entry.sessions),getRunItemEntry(store,owned??entry.item));
       entry.sessions=refreshParsedPhysics(entry.sessions);
       entry.item = shareRunItem(entry.item, store);
       entry.sessions = registerRunSessions(store, entry.item, entry.sessions, analysisStore.getSessions);
