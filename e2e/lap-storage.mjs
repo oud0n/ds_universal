@@ -349,6 +349,28 @@ try {
  await p.waitFor('window.__laploupe.videos.length>0',10000,'folder video retry');
  const duration=await p.ev("import('/src/services/videoSyncManager.ts').then(({videoSyncManager:m})=>m.getTracks().find(t=>t.remote?.path===folderVideoPath)?.durationSec)");
  assert.ok(duration>3.5&&duration<4.5,'retry reads the real duration');await p.ev('window.restoreFolderFetch()');
+ // 解析準備後の再検査を待つ間に設定を変え、旧Gを公開しない。
+ for(const compare of [false,true]){
+  await p.ev(`(async()=>{
+   const physics=await import('/src/services/physics.ts');physics.setGFilterLevel('strong');
+   const name=${JSON.stringify('prepared-physics-')}+${compare}+'.nmea';storeFiles.set('sodegaura/'+name,storeFiles.get('sodegaura/demo.nmea'));
+   const store=await(await import('/src/services/runStore.ts')).getRunStore();
+   const row=(await testRunOpener.listRuns(store)).find(r=>r.file===name);
+   const list=window.electronAPI.laps.list;let calls=0;
+   window.restorePhysicsList=()=>window.electronAPI.laps.list=list;window.finishPhysicsList=null;
+   window.electronAPI.laps.list=async()=>{if(window.__laploupe.openingRun()&&++calls===3)await new Promise(resolve=>window.finishPhysicsList=resolve);return list();};
+   window.physicsRunName=name;window.openPhysicsRun=window.__laploupe.openStoredRun(row,${compare});
+  })()`);
+  await p.waitFor('window.finishPhysicsList',15000,'prepared log awaiting final source validation');
+  await p.ev("import('/src/services/physics.ts').then(m=>m.setGFilterLevel('weak'))");
+  await p.ev('window.finishPhysicsList();window.openPhysicsRun');
+  const physics=await p.ev(`import('/src/services/physics.ts').then(({applyGFilter})=>{
+   const pts=window.__laploupe.analysisSnapshot().sessions.find(s=>s.fileName===window.physicsRunName).points,values=p=>p.map(q=>[q.accelG,q.corneringG]);
+   return {actual:values(pts),expected:values(applyGFilter(pts.map(p=>({...p})),'weak'))};
+  })`);
+  assert.deepEqual(physics.actual,physics.expected,'staged adoption uses latest G settings');
+  await p.ev('window.restorePhysicsList()');
+ }
  assert.deepEqual(p.errors,[]);
  await p.shot('preserved');console.log(JSON.stringify({result:'PASS interrupted run-list and legacy history scans; repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion; pending metadata, overlapping saved restore, same-source delayed earlier-lap first renders',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
 }catch(error){console.log(await p.ev("({body:document.body.innerText,reads:storeReads.slice(-12),indexes:window.indexWrites?.map(x=>Object.keys(x.files))})"),p.errors);throw error;}finally{await p.close();fs.rmSync(fixtureDir,{recursive:true,force:true});}

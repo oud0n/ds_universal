@@ -67,6 +67,7 @@ import { readClockMaster } from './services/clockMaster';
 import { useCompactLayout, useLandscape, useMediumLayout, useTierChange } from './hooks/useCompactLayout';
 import { Freeze } from './components/Freeze';
 import { GFilterLevel, applyGFilter, getGFilterLevel, setGFilterLevel } from './services/physics';
+import {noteParsedPhysics,refreshParsedPhysics} from './adapters/web/parsedPhysics';
 import { BottomTabBar } from './components/MobileNav';
 import { Sidebar } from './components/shell/Sidebar';
 import { LibraryScreen } from './screens/LibraryScreen';
@@ -1446,6 +1447,7 @@ export const App: React.FC = () => {
     await validateStoredFiles(store, entries.flatMap(e => e.sessions));
     if (!current()) return;
     for (const entry of entries) {
+      entry.sessions=refreshParsedPhysics(entry.sessions);
       entry.item = shareRunItem(entry.item, store);
       entry.sessions = registerRunSessions(store, entry.item, entry.sessions, analysisStore.getSessions);
     }
@@ -1479,6 +1481,7 @@ export const App: React.FC = () => {
       let added = await loadStoredFileData(store, item); check();
       await flushOpenRunsStrict(); check();
       await validateStoredFiles(store, added); check();
+      added=refreshParsedPhysics(added);
       added = reuseStoredSessions(analysisStore.getSnapshot().sessions, added);
       const { session, lapNumber } = pickRunBestLap(added, item);
       assignLap(analysisStore.getSnapshot(), added, session.id, lapNumber, 1, false);
@@ -1544,6 +1547,7 @@ export const App: React.FC = () => {
       if (cars!==analysisStore.getSnapshot().selectedCars||epoch!==selectionEpochRef.current||manual!==manualSelectionRef.current||reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError();
       await validateStoredFiles(store, added);
       if (cars!==analysisStore.getSnapshot().selectedCars||epoch!==selectionEpochRef.current||manual!==manualSelectionRef.current||reads !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError();
+      added=refreshParsedPhysics(added);
       const before = analysisStore.getSnapshot();
       added = applyRunMetadata(reuseStoredSessions(before.sessions, added), getRunItemEntry(store, getOpenRunItem(item.folder, item.file) ?? item));
       const { session: main, lapNumber } = pickRunBestLap(added, item);
@@ -1789,6 +1793,7 @@ export const App: React.FC = () => {
       checkSource();
       const currentPhysicsLevel=getGFilterLevel();
       if(parsedPhysicsLevel!==currentPhysicsLevel)rawPoints=applyGFilter(rawPoints.map(p=>({...p})),currentPhysicsLevel);
+      noteParsedPhysics(rawPoints,currentPhysicsLevel);
       let matchedCircuit = findMatchingCircuit(rawPoints[0].latitude, rawPoints[0].longitude, rawPoints);
       // 同じ場所のコースの手がかり: 読み込み済みのセッションのうち、計測線がこのログの近くにあるもの (基準車を優先)。
       // なければ直前に決まったコース (一度に複数のファイルを読み込むときは、まだセッション一覧に入っていないため)
@@ -2195,6 +2200,7 @@ export const App: React.FC = () => {
     if (revalidate) { await revalidate(); check(); }
     if (incoming.length) {
       const targetIndex = incoming.findIndex(s => s.id === selected.id), targetLap = lap.lapNumber;
+      incoming=refreshParsedPhysics(incoming);
       incoming = reuseStoredSessions(analysisStore.getSnapshot().sessions, incoming);
       selected = incoming[targetIndex];
       lap = selected.laps.find(l => l.lapNumber === targetLap)!;
