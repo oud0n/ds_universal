@@ -207,3 +207,49 @@ describe('failed IO and concurrent configuration',()=>{
   expect(a.formats.csvFormatsReady()).toBe(false);expect(a.channels.allChannels().some(c=>c.id==='custom:water')).toBe(false);
  });
 });
+
+describe('review R2 ownership regressions',()=>{
+ it('does not match a project to the only open same-name video from a conflicting known path',async()=>{
+  const a=runtime(),b=runtime(),s=run();
+  const remote=(path:string)=>({name:'same.mp4',size:8,lastModified:0,url:'repository:'+path,path});
+  await a.media.addVideoFiles([remote('A/same.mp4')],[s],false);a.media.setOffsetIn(a.media.getTracks()[0].id,s,3);
+  await b.media.addVideoFiles([remote('B/same.mp4')],[s],false);const original=b.media.getTracks()[0];b.media.setOffsetIn(original.id,s,22);
+  b.media.importProjectJson(a.media.exportProjectJson([s],'course'),[s]);
+  expect(original.clock.offsetSec).toBe(22);expect(original.remote?.path).toBe('B/same.mp4');expect(b.media.getTracks()).toHaveLength(2);
+  expect(b.media.getTracks().find(t=>t.projectSourcePath==='A/same.mp4')?.clock.offsetSec).toBe(3);
+ });
+ it.each([false,true])('preserves the selection identity during background enrichment (selected=%s)',selected=>{
+  const a=runtime(),s=run();a.session.analysis.update(()=>({sessions:[s],selectedCars:[]}));if(selected)a.session.selectLap(s.id,1,0);
+  const before=a.session.analysis.getSnapshot().selectedCars;
+  a.session.analysis.update(state=>({...state,sessions:state.sessions.map(s=>({...s,pathPolylines:[]}))}));
+  expect(a.session.analysis.getSnapshot().selectedCars).toBe(before);
+ });
+ it('rejects late metadata during selection before retaining any failed owner',async()=>{
+  const a=runtime(),old=a.storage.revisionBoundStore(a.repo.store),entered=deferred<void>(),pick=deferred<boolean>(),row=item();
+  const selection=a.storage.trackStorageSelection(async()=>{entered.resolve();return pick.promise;});await entered.promise;
+  await expect(a.controller.setRunMeta(old,row,{note:'too late'})).rejects.toBeInstanceOf(StorageChangedError);expect(row.entry).toBeNull();
+  pick.resolve(true);await selection;await expect(a.controller.flushOpenRunsStrict()).resolves.toBeUndefined();await expect(a.close()).resolves.toBeUndefined();
+ });
+ it('rejects edits while another preselection task delays the picker without blocking strict save IO',async()=>{
+  const a=runtime(),old=a.storage.revisionBoundStore(a.repo.store),waiting=deferred<void>(),release=deferred<void>();
+  a.storage.subscribeBeforeStorageSelection(async()=>{waiting.resolve();await release.promise;});
+  const selecting=a.storage.trackStorageSelection(()=>true);await waiting.promise;expect(a.storage.isStorageSelectionPending()).toBe(false);
+  await expect(a.controller.setRunMeta(old,item(),{note:'during preflush'})).rejects.toBeInstanceOf(StorageChangedError);
+  release.resolve();await selecting;await expect(a.controller.flushOpenRunsStrict()).resolves.toBeUndefined();
+ });
+ it('invalidates automatic clock work after manual edits, input replacement, reference removal or root cancellation',async()=>{
+  const a=runtime(),target=run('target'),reference=run('reference');reference.sourceFile={...reference.sourceFile!,file:'reference.nmea'};
+  a.session.analysis.update(()=>({sessions:[target,reference],selectedCars:[]}));
+  let request=a.session.beginClockEstimate(target.id),owns=request.forReference(reference);expect(owns()).toBe(true);
+  // Even selecting the current numeric value is an explicit manual choice.
+  a.session.markClockEdited(target.id);expect(owns()).toBe(false);
+  request=a.session.beginClockEstimate(target.id);owns=request.forReference(reference);
+  a.session.analysis.update(state=>({...state,sessions:state.sessions.map(s=>s.id===reference.id?{...s,clockOffsetSec:2}:s)}));expect(owns()).toBe(false);
+  const liveRef=()=>a.session.analysis.getSessions().find(s=>s.id===reference.id)!;
+  request=a.session.beginClockEstimate(target.id);owns=request.forReference(liveRef());
+  a.session.analysis.update(state=>({...state,sessions:state.sessions.map(s=>({...s,sessionName:'enriched'}))}));expect(owns()).toBe(true);
+  a.session.analysis.update(state=>({...state,sessions:state.sessions.map(s=>s.id===target.id?{...s,points:[...s.points]}:s)}));expect(owns()).toBe(false);
+  request=a.session.beginClockEstimate(target.id);owns=request.forReference(liveRef());await a.storage.trackStorageSelection(()=>null);expect(owns()).toBe(false);
+  request=a.session.beginClockEstimate(target.id);owns=request.forReference(liveRef());a.session.analysis.update(state=>({...state,sessions:state.sessions.filter(s=>s.id!==reference.id)}));expect(owns()).toBe(false);
+ });
+});

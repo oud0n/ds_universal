@@ -64,7 +64,7 @@ export interface RunControllerPorts {
 }
 export function createRunController(host: RunControllerPorts) {
 let disposed=false;
-const {getStorageRevision,isStorageSelectionPending} = host.storage;
+const {getStorageRevision,isStorageSelectionPending,isStorageTransitioning} = host.storage;
 const videoSyncManager=host.media, videoViewStore=host.pins;
 const {loadLapHistory,updateLapHidden}=host.history;
 const {updateRun,readRunsFile,noteRunsConflictCopies,isRunsConflictCopy}=host.runs;
@@ -190,8 +190,6 @@ async function videoCandidates(store: RunStore, item: RunItem, isCurrent = () =>
 interface OpenRun {
   store: RunStore;
   item: RunItem;
-  /** 最後に覚えるよう頼んだメーターの並び (書き終わる前に続けて選んでも、最後の選びで書くため) */
-  requestedLayout?: string;
   /** その走行のログ (読み込んだ順。何番目 = 分かれた走行の番号) */
   sessionIds: string[];
   /** 元の part 番号と時計だけを保持。閉じた点列は持たない。 */
@@ -241,7 +239,7 @@ function rejectAlias(store: RunStore, item: RunItem): void {
 }
 
 function assertRunItemCurrent(item: RunItem): void {
-  if (isStorageSelectionPending() || item.storageRevision !== undefined && item.storageRevision !== getStorageRevision()) throw new StorageChangedError();
+  if (isStorageTransitioning() || isStorageSelectionPending() || item.storageRevision !== undefined && item.storageRevision !== getStorageRevision()) throw new StorageChangedError();
 }
 
 function assertVideoOwnership(opts: AttachOptions): void {
@@ -813,7 +811,6 @@ async function setOpenRunOverlayLayout(sessionId: string | undefined, id: string
   const run = current;
   if (!run || !sessionId || !run.sessionIds.includes(sessionId)) return;
   if(run.item.entry?.overlayLayout===id && !pendingMetadata.get(metadataKeyOf(run.store,run.item))?.has('overlayLayout'))return;
-  run.requestedLayout=id;
   await setRunMeta(run.store,run.item,{overlayLayout:id});
 }
 
@@ -875,6 +872,8 @@ function getRunItemEntry(store: RunStore, item: RunItem): RunRow | null {
  * 空にしたら消す。開いている走行の行も、書いた中身にそろえる
  */
 async function setRunMeta(store: RunStore, item: RunItem, patch: RunMetaPatch): Promise<RunRow> {
+  assertRunItemCurrent(item);
+  if(store.storageRevision!==undefined&&store.storageRevision!==getStorageRevision())throw new StorageChangedError();
   editSequence++;
   const version = ++metadataSequence;
   const targets = relatedRunItems(store, item);

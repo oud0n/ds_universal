@@ -15,6 +15,8 @@ export function createEngineSession(options:EngineSessionOptions={}){
  let snapshot:EngineSnapshot={analysis:{sessions:[],selectedCars:[]},playhead:{source:null,sessionSec:asSessionSec(0)},isPlaying:false,playbackSpeed:1,closed:false};
  let closing:Promise<void>|null=null;
  const listeners=new Set<()=>void>();
+ const clockVersions=new Map<string,number>(),clockRequests=new Map<string,number>();
+ const markClockEdited=(id:string)=>{active();clockVersions.set(id,(clockVersions.get(id)??0)+1);};
  const storage=options.storage??createStorageContext();
  const operations={
   pickerActive:{current:false},slotRequests:{current:[0,0,0,0]},selectionEpoch:{current:0},manualSelection:{current:0},
@@ -27,7 +29,9 @@ export function createEngineSession(options:EngineSessionOptions={}){
  const baseOf=(state:AnalysisState)=>[...state.selectedCars].sort((a,b)=>a.slot-b.slot).find(car=>state.sessions.some(s=>s.id===car.sessionId&&s.laps.some(l=>l.lapNumber===car.lapNumber)));
  const adopt=(state:AnalysisState,restart=false)=>{
   active();
-  const next=selectAvailableCars(state,state.selectedCars),before=baseOf(snapshot.analysis),base=baseOf(next);
+  const valid=state.selectedCars.every((car,i)=>Number.isInteger(car.slot)&&car.slot>=0&&car.slot<=3&&(i===0||state.selectedCars[i-1].slot<car.slot)&&state.sessions.some(s=>s.id===car.sessionId&&s.laps.some(l=>l.lapNumber===car.lapNumber)));
+  const next=valid?state:selectAvailableCars(state,state.selectedCars),before=baseOf(snapshot.analysis),base=baseOf(next);
+  for(const prior of snapshot.analysis.sessions){const live=next.sessions.find(s=>s.id===prior.id);if(!live||live.points!==prior.points||(live.clockOffsetSec??0)!==(prior.clockOffsetSec??0))clockVersions.set(prior.id,(clockVersions.get(prior.id)??0)+1);}
   const changed=before?.sessionId!==base?.sessionId||before?.lapNumber!==base?.lapNumber;
   const reset=restart||changed;
   const lap=base&&next.sessions.find(s=>s.id===base.sessionId)?.laps.find(l=>l.lapNumber===base.lapNumber);
@@ -44,6 +48,15 @@ export function createEngineSession(options:EngineSessionOptions={}){
  const cancelPending=()=>{operations.pickerActive.current=false;operations.selectionEpoch.current++;operations.runDownloadToken.current++;};
  const resetStorage=()=>{cancelPending();operations.runSessions.current.clear();operations.runItems.current.clear();operations.attachedRun.current=null;operations.openedRun.current=null;};
  return {
+  markClockEdited,
+  beginClockEstimate(id:string){
+   active();const target=snapshot.analysis.sessions.find(s=>s.id===id);
+   const ticket=(clockRequests.get(id)??0)+1;clockRequests.set(id,ticket);
+   const version=clockVersions.get(id)??0,root=storage.getStorageRevision(),reads=storage.getStorageReadRevision(),selection=operations.selectionEpoch.current;
+   const targetOffset=target?.clockOffsetSec??0;
+   const current=()=>{const live=snapshot.analysis.sessions.find(s=>s.id===id);return !snapshot.closed&&!closing&&!storage.isStorageTransitioning()&&root===storage.getStorageRevision()&&reads===storage.getStorageReadRevision()&&selection===operations.selectionEpoch.current&&clockRequests.get(id)===ticket&&!!target&&live?.points===target.points&&(live?.clockOffsetSec??0)===targetOffset&&(clockVersions.get(id)??0)===version;};
+   return {isCurrent:current,forReference(reference:Session){const points=reference.points,offset=reference.clockOffsetSec??0,version=clockVersions.get(reference.id)??0;return()=>{const live=snapshot.analysis.sessions.find(s=>s.id===reference.id);return current()&&live?.points===points&&(live?.clockOffsetSec??0)===offset&&(clockVersions.get(reference.id)??0)===version;};}};
+  },
   storage,operations,analysis,getSnapshot:()=>snapshot,subscribe,setPlayhead,cancelPending,resetStorage,
   replaceAnalysis:(state:AnalysisState,restart=true)=>adopt(state,restart),
   selectCarsAtLapStart:(cars:SelectedCarSlot[])=>adopt(selectAvailableCars(snapshot.analysis,cars),true),
@@ -61,7 +74,7 @@ export function createEngineSession(options:EngineSessionOptions={}){
   close():Promise<void>{
    if(snapshot.closed)return Promise.resolve();if(closing)return closing;
    cancelPending();options.onClosing?.();
-   closing=(async()=>{await options.flush?.();options.onClose?.();resetStorage();operations.pendingParses.current.clear();publish({...snapshot,analysis:{sessions:[],selectedCars:[]},playhead:{source:null,sessionSec:asSessionSec(0)},isPlaying:false,closed:true});listeners.clear();})().finally(()=>{closing=null;});
+   closing=(async()=>{await options.flush?.();options.onClose?.();resetStorage();operations.pendingParses.current.clear();clockRequests.clear();clockVersions.clear();publish({...snapshot,analysis:{sessions:[],selectedCars:[]},playhead:{source:null,sessionSec:asSessionSec(0)},isPlaying:false,closed:true});listeners.clear();})().finally(()=>{closing=null;});
    return closing;
   }
  };

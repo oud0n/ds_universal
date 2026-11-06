@@ -12,4 +12,4 @@ export const storageContext={...context,
   return store;
  }
 };
-export const {getStorageRevision,getStorageReadRevision,isStorageSelectionPending,subscribeStorageRevision,subscribeBeforeStorageSelection,invalidateStorageReads,invalidateStorageRevision,trackStorageSelection,pickDesktopStorage,revisionBoundStore}=storageContext;
+export const {isStorageTransitioning,getStorageRevision,getStorageReadRevision,isStorageSelectionPending,subscribeStorageRevision,subscribeBeforeStorageSelection,invalidateStorageReads,invalidateStorageRevision,trackStorageSelection,pickDesktopStorage,revisionBoundStore}=storageContext;

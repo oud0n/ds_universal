@@ -21,6 +21,7 @@ const beforeSelection = new Set<() => Promise<void>>();
 const getStorageRevision = () => revision;
 const getStorageReadRevision = () => readRevision;
 const isStorageSelectionPending = () => selecting;
+const isStorageTransitioning=()=>selectionLocked;
 function subscribeStorageRevision(listener: () => void): () => void {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
@@ -108,6 +109,6 @@ function revisionBoundStore(store: RunStore, bound = getStorageRevision()): RunS
   };
 }
 
-return { getStorageRevision, getStorageReadRevision, isStorageSelectionPending, subscribeStorageRevision, subscribeBeforeStorageSelection, invalidateStorageReads, invalidateStorageRevision, trackStorageSelection, pickDesktopStorage, revisionBoundStore };
+return {isStorageTransitioning, getStorageRevision, getStorageReadRevision, isStorageSelectionPending, subscribeStorageRevision, subscribeBeforeStorageSelection, invalidateStorageReads, invalidateStorageRevision, trackStorageSelection, pickDesktopStorage, revisionBoundStore };
 }
 export type StorageContext = ReturnType<typeof createStorageContext>;

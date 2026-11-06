@@ -1943,6 +1943,7 @@ export const App: React.FC = () => {
   const setSessionClockOffset = (sessionId: string, sec: number) => {
     if (!Number.isFinite(sec)) return;
     const value = Number(sec.toFixed(3));
+    engine.markClockEdited(sessionId);
     const s = analysisStore.getSnapshot().sessions.find(x => x.id === sessionId);
     if (s && value === (s.clockOffsetSec ?? 0)) return;
     // 読み込んだばかりで、まだ画面の状態に入っていないログ (走行を開いた直後に runs.json から戻すとき) にも入れる
@@ -1964,11 +1965,14 @@ export const App: React.FC = () => {
     const list = analysisStore.getSnapshot().sessions;
     const s = list.find(x => x.id === sessionId);
     if (!s) return tr('ログが見つかりません', 'Log not found');
+    const request=engine.beginClockEstimate(sessionId);
     const candidates = referenceCandidates(s, list, baseSession?.id);
     if (candidates.length === 0) return tr('同じ時間に記録したほかのログがありません (1 分以上重なるログが要ります)', 'No other log covers the same time (at least 1 minute of overlap is needed)');
     let shortOnly = true;
     for (const ref of candidates) {
-      const r = await analyseSessions(ref, s);
+      const owns=request.forReference(ref);
+      const r=await analyseSessions(ref,s);
+      if(!owns())return tr('補正の条件が変わりました。もう一度見積もってください。', 'The clock inputs changed. Estimate again.');
       if (r && r.reason !== 'short') shortOnly = false;
       if (!r || !r.sameRun || r.quality === 'reject') continue;
       // 見積もりは 2 つのログの時刻 (補正前) どうしの差。基準のログの補正を足すと、このログの補正になる

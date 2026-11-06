@@ -78,6 +78,7 @@ function creationUtcMs(track: CoreVideoTrack): number | null {
   return track.rawRecordedAt.getTime() - getTimezoneOffsetMs(track.videoTimezone || 'JST') + getTimezoneOffsetMs(track.gpsTimezone || 'JST');
 }
 
+const projectKeyOf=(track:CoreVideoTrack):string=>track.projectKey??(track.remote?JSON.stringify(['remote',track.remote.path,track.fileSize]):track.id);
 const SOURCE_RANK: Record<ClockSource, number> = { manual: 2, gps: 1, creation: 0 };
 
 /** GoPro の動画 (GX010015.MP4・GH010015.MP4) と低画質のファイル (GL010015.LRV) を組にする名前。組にならないものは null */
@@ -534,7 +535,7 @@ class VideoSyncManager {
       savedAt: new Date(ports.nowMs()).toISOString(),
       circuitName,
       videos: this.videos.filter(v => !onlyTracks || onlyTracks.has(v.id)).map(v => ({
-        key:v.projectKey??v.id,sourcePath:v.remote?.path??v.projectSourcePath,
+        key:projectKeyOf(v),sourcePath:v.remote?.path??v.projectSourcePath,
         fileName: v.fileName,
         fileSize: v.fileSize,
         durationSec: v.durationSec,
@@ -558,7 +559,7 @@ class VideoSyncManager {
         filePart: s.sourceFile?.part ?? s.filePart
       })),
       pins: pins.filter(p=>!onlyTracks||onlyTracks.has(p.trackId)).map(p => ({
-        trackKey:this.videos.find(v=>v.id===p.trackId)?.projectKey??this.videos.find(v=>v.id===p.trackId)?.id??null,
+        trackKey:(()=>{const track=this.videos.find(v=>v.id===p.trackId);return track?projectKeyOf(track):null;})(),
         name: p.name,
         sessionTimeSec: p.sessionTimeSec,
         videoTimeSec: p.videoTimeSec,
@@ -662,9 +663,10 @@ class VideoSyncManager {
       if(vData.sourcePath!==undefined&&typeof vData.sourcePath!=='string')throw ambiguous();
       if(vData.key)keys.add(vData.key);
       if(!vData.key&&data.videos.filter(v=>v.fileName===vData.fileName&&v.fileSize===vData.fileSize).length>1)throw ambiguous();
-      let matches=vData.key?this.videos.filter(v=>(v.projectKey??v.id)===vData.key):[];
+      const compatible=(track:VideoTrack)=>!vData.sourcePath||!(track.remote?.path??track.projectSourcePath)||(track.remote?.path??track.projectSourcePath)===vData.sourcePath;
+      let matches=vData.key?this.videos.filter(v=>projectKeyOf(v)===vData.key&&compatible(v)):[];
       if(!matches.length&&vData.sourcePath)matches=this.videos.filter(v=>(v.remote?.path??v.projectSourcePath)===vData.sourcePath&&v.fileName===vData.fileName&&v.fileSize===vData.fileSize);
-      if(!matches.length)matches=this.videos.filter(v=>v.fileName===vData.fileName&&v.fileSize===vData.fileSize);
+      if(!matches.length&&!vData.sourcePath)matches=this.videos.filter(v=>v.fileName===vData.fileName&&v.fileSize===vData.fileSize);
       if(matches.length>1||matches[0]&&used.has(matches[0]))throw ambiguous();
       if(matches[0])used.add(matches[0]);
       return {vData,target:matches[0] as VideoTrack|undefined};
