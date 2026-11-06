@@ -7,6 +7,7 @@ import type {BinaryFile,RunRepository} from './ports';
 import type {Lap,Session} from '../types/telemetry';
 import type {RunItem} from './runRecords';
 import {StorageChangedError} from './storageContext';
+import {parseVideoMetadata} from './videoMetadataParser';
 
 const deferred=<T>()=>{let resolve!:(x:T)=>void;const promise=new Promise<T>(done=>resolve=done);return {promise,resolve};};
 const file=(name='clip.mp4'):BinaryFile=>({name,size:8,lastModified:0,arrayBuffer:async()=>new ArrayBuffer(8),slice:()=>({arrayBuffer:async()=>new ArrayBuffer(0)})});
@@ -194,6 +195,25 @@ describe('adversarial engine boundary regressions',()=>{
 });
 
 describe('failed IO and concurrent configuration',()=>{
+ it('does not publish fallback metadata after cancelling storage selection during folder-video addition',async()=>{
+  const entered=deferred<void>(),release=deferred<void>();let a!:ReturnType<typeof runtime>,calls=0;
+  a=runtime(undefined,{media:{remoteFile:r=>({...file(r.name),lastModified:r.lastModified,slice:()=>({arrayBuffer:async()=>{const reads=a.storage.getStorageReadRevision();entered.resolve();await release.promise;if(reads!==a.storage.getStorageReadRevision())throw new StorageChangedError();return new ArrayBuffer(8);}})}),metadata:async f=>++calls===1?parseVideoMetadata(f):{fileName:f.name,fileSize:f.size,creationTime:new Date(1000),durationSec:30,timescale:1000},gps:async()=>({videoStartUtcMs:[]}),open:()=> 'owned',release:()=>{},nowMs:()=>1000,random:()=>0.5}});
+  const s=run(),row=item(),video={name:'clip.mp4',size:8,lastModified:1000,path:'course/clip.mp4',url:'repository:clip'};
+  a.session.assign([s],s.id,1,0);a.controller.registerRunSessions(a.repo.store,row,[s],a.session.analysis.getSessions);
+  await a.controller.attachRunVideos({store:a.repo.store,item:row,runSessions:[s],videos:[],fromRuns:true,sessions:a.session.analysis.getSessions,circuitName:'Course'});
+  const opening=a.controller.addVideoToOpenRun(video);await entered.promise;await a.storage.trackStorageSelection(()=>null);release.resolve();
+  expect(await opening).toBe(false);expect(a.media.getTracks()).toEqual([]);expect(a.controller.getOpenRun()?.item.file).toBe(row.file);
+  expect(await a.controller.addVideoToOpenRun(video)).toBe(true);await a.controller.flushOpenRunsStrict();
+  expect(a.media.getTracks()[0].durationSec).toBe(30);expect(JSON.parse(a.repo.text.get('course/runs.json')!).runs.run.videos[0].durationSec).toBe(30);
+ });
+ it('serializes overlapping folder-video additions and acquires the recording only once',async()=>{
+  const entered=deferred<void>(),release=deferred<void>();let calls=0;
+  const a=runtime(undefined,{media:{remoteFile:r=>file(r.name),metadata:async f=>{calls++;entered.resolve();await release.promise;return {fileName:f.name,fileSize:f.size,creationTime:null,durationSec:30,timescale:1000};},gps:async()=>({videoStartUtcMs:[]}),open:()=> 'owned',release:()=>{},nowMs:()=>1000,random:()=>0.5}}),s=run(),row=item(),video={name:'clip.mp4',size:8,lastModified:1000,path:'course/clip.mp4',url:'repository:clip'};
+  a.session.assign([s],s.id,1,0);a.controller.registerRunSessions(a.repo.store,row,[s],a.session.analysis.getSessions);
+  await a.controller.attachRunVideos({store:a.repo.store,item:row,runSessions:[s],videos:[],fromRuns:true,sessions:a.session.analysis.getSessions,circuitName:'Course'});
+  const first=a.controller.addVideoToOpenRun(video);await entered.promise;const second=a.controller.addVideoToOpenRun(video);release.resolve();
+  expect(await Promise.all([first,second])).toEqual([true,true]);expect(calls).toBe(1);expect(a.media.getTracks()).toHaveLength(1);
+ });
  it.each([false,true])('rejects changed repository media before reusing a retained owner (companion=%s)',async companion=>{
   const a=runtime(),s=run(),row=item(),video={name:'clip.mp4',size:8,lastModified:1000,path:'course/clip.mp4',url:'repository:clip'};
   a.session.assign([s],s.id,1,0);a.controller.registerRunSessions(a.repo.store,row,[s],a.session.analysis.getSessions);

@@ -6,6 +6,7 @@ import React, { useState } from 'react';
 import { Video } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { addVideoToOpenRun, baseName, getOpenRun } from '../services/runOpener';
+import {StorageChangedError} from '../services/storageRevision';
 
 export const RunFolderVideos: React.FC = () => {
   const t = useT();
@@ -25,6 +26,8 @@ export const RunFolderVideos: React.FC = () => {
         return;
       }
       await addVideoToOpenRun({ name: name(path), size, url: run.store.videoUrl(path), path, lastModified: mtimeMs, readRange: run.store.rangeReader?.(path) });
+    } catch(error) {
+      if(!(error instanceof StorageChangedError))alert(t('動画を読み込めませんでした: ','Could not load the video: ')+(error instanceof Error?error.message:String(error)));
     } finally {
       setBusy(null);
     }

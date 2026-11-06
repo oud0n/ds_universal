@@ -327,6 +327,28 @@ try {
  await p.waitFor("[...document.querySelectorAll('[role=dialog] button')].some(b=>!b.disabled&&b.innerText.trim()==='Download')",15000,'post-adoption download choice');
  await p.ev("[...document.querySelectorAll('[role=dialog] button')].find(b=>!b.disabled&&b.innerText.trim()==='Download').click()");await p.waitFor('!window.__laploupe.runBusy');
  assert.ok(p.notes.slice(errorNotes).some(note=>note.includes('Could not open the run: synthetic post-adoption')),'current request reports its post-adoption failure');
+ // フォルダの動画ボタンも、保存先選択の取消しで失効したmetadataを公開しない。
+ await p.ev(`(async()=>{
+  const m=(await import('/src/services/videoSyncManager.ts')).videoSyncManager;for(const t of [...m.getTracks()])m.removeTrack(t.id);
+  const owner=testRunOpener.getOpenRun(),bytes=Uint8Array.from(atob(${JSON.stringify(video)}),x=>x.charCodeAt(0));
+  window.folderVideoPath=owner.item.folder+'/folder-late.mp4';window.folderVideoUrl=URL.createObjectURL(new Blob([bytes],{type:'video/mp4'}));
+  const s=window.__laploupe.analysisSnapshot().sessions.find(s=>s.sourceFile?.file===owner.item.file),mtimeMs=Date.parse(s.points[0].timestamp);
+  owner.item.folderVideos=[{path:folderVideoPath,size:bytes.length,mtimeMs,local:true}];owner.store.videoUrl=()=>folderVideoUrl;
+  const original=window.fetch.bind(window),Changed=(await import('/src/services/storageRevision.ts')).StorageChangedError;
+  window.restoreFolderFetch=()=>window.fetch=original;window.holdFolderVideo=true;
+  window.fetch=async(input,options)=>{if(String(input)===folderVideoUrl&&window.holdFolderVideo){window.holdFolderVideo=false;await new Promise(resolve=>window.releaseFolderVideoRead=resolve);throw new Changed();}return original(input,options);};
+  window.__laploupe.go('video');
+ })()`);
+ const folderButton="[...document.querySelectorAll('[data-testid=run-folder-videos] button')].find(b=>b.getClientRects().length>0)";
+ await p.waitFor(folderButton,10000,'folder video button');await p.ev(`${folderButton}.click()`);
+ await p.waitFor('window.releaseFolderVideoRead',10000,'held folder metadata');
+ await p.ev("import('/src/services/storageRevision.ts').then(m=>m.trackStorageSelection(()=>null))");
+ await p.ev('window.releaseFolderVideoRead()');await p.waitFor(`!${folderButton}.disabled`,10000,'cancelled folder button becomes available');
+ assert.equal(await p.ev("import('/src/services/videoSyncManager.ts').then(({videoSyncManager:m})=>m.getTracks().some(t=>t.remote?.path===folderVideoPath))"),false,'cancelled metadata is not published');
+ await p.ev(`${folderButton}.click()`);
+ await p.waitFor('window.__laploupe.videos.length>0',10000,'folder video retry');
+ const duration=await p.ev("import('/src/services/videoSyncManager.ts').then(({videoSyncManager:m})=>m.getTracks().find(t=>t.remote?.path===folderVideoPath)?.durationSec)");
+ assert.ok(duration>3.5&&duration<4.5,'retry reads the real duration');await p.ev('window.restoreFolderFetch()');
  assert.deepEqual(p.errors,[]);
  await p.shot('preserved');console.log(JSON.stringify({result:'PASS interrupted run-list and legacy history scans; repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion; pending metadata, overlapping saved restore, same-source delayed earlier-lap first renders',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
 }catch(error){console.log(await p.ev("({body:document.body.innerText,reads:storeReads.slice(-12),indexes:window.indexWrites?.map(x=>Object.keys(x.files))})"),p.errors);throw error;}finally{await p.close();fs.rmSync(fixtureDir,{recursive:true,force:true});}

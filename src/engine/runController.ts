@@ -567,7 +567,8 @@ function queueAttachment(opts: AttachOptions, attach: (opts: AttachOptions, isCu
   const rowGeneration=host.runs.rowGeneration(opts.store,opts.item.folder,opts.item.file);
   if((itemGenerations.get(opts.item)?.generation??0)!==rowGeneration)throw new RunRowDeletedError();
   const generation=attachmentGeneration;
-  const isCurrent=()=>generation===attachmentGeneration&&rowGeneration===host.runs.rowGeneration(opts.store,opts.item.folder,opts.item.file)&&(opts.isCurrent?.()??true);
+  const root=getStorageRevision(),reads=host.storage.getStorageReadRevision();
+  const isCurrent=()=>!isStorageTransitioning()&&!isStorageSelectionPending()&&root===getStorageRevision()&&reads===host.storage.getStorageReadRevision()&&generation===attachmentGeneration&&rowGeneration===host.runs.rowGeneration(opts.store,opts.item.folder,opts.item.file)&&(opts.isCurrent?.()??true);
   return queued(() => isCurrent() ? attach(opts, isCurrent) : Promise.resolve(0));
 }
 
@@ -776,20 +777,17 @@ function dropCompanion(path: string): void {
 async function addVideoToOpenRun(video: RemoteVideo): Promise<boolean> {
   const run = current;
   if (!run) return false;
-  await videoSyncManager.addVideoFiles([video], run.sessions(), true, () => current === run);
-  if (current !== run) return false;
-  run.paths.add(video.path);
-  run.known.add(video.name);
-  // runs.json に同期を覚えていた動画 (開いたときは iCloud にだけあったもの) は、その同期を戻す
-  const saved = run.kept.find(v => v.name === video.name);
-  if (saved) {
-    run.kept = run.kept.filter(v => v !== saved);
-    const only: RunRow = { updatedAt: '', videos: [saved] };
-    const tmp: OpenRun = { ...run, paths: new Set([video.path]), pendingOffsets: run.pendingOffsets };
-    restoreRowVideos(tmp, only);
-  }
-  scheduleSave();
-  return true;
+  const opts:AttachOptions={store:run.store,item:run.item,runSessions:run.sessions().filter(s=>run.sessionIds.includes(s.id)),videos:[video],fromRuns:true,sessions:run.sessions,circuitName:run.circuitName,isCurrent:()=>current===run};
+  return (await queueAttachment(opts,async(_,isCurrent)=>{
+    assertVideoOwnership(opts);
+    if(!videoSyncManager.getTracks().some(t=>t.remote?.path===video.path))await videoSyncManager.addVideoFiles([video],run.sessions(),true,isCurrent);
+    if(!isCurrent())return 0;
+    run.paths.add(video.path);run.known.add(video.name);
+    // 保存した同期の復元も、公開と同じ要求・保存先の寿命内だけで行う。
+    const saved=run.kept.find(v=>v.name===video.name);
+    if(saved){run.kept=run.kept.filter(v=>v!==saved);restoreRowVideos({...run,paths:new Set([video.path]),pendingOffsets:run.pendingOffsets},{updatedAt:'',videos:[saved]});}
+    scheduleSave();return 1;
+  }))>0;
 }
 
 /** 保存元へ換算できない調整は、時計やピンを変える前に止める。 */
