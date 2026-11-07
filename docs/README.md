@@ -46,7 +46,7 @@
 | [csv_format_design.md](csv_format_design.md) | PLAN-36 CSV の形式・計算式 | 実装済み (残り 2 つは TODO) |
 | [duo_layout_design.md](duo_layout_design.md) | PLAN-30・41 Duo・中くらいの配置 | 実装済み。Duo の実機での見直し (PLAN-41) は残り |
 | [ux_flow_design.md](ux_flow_design.md) | PLAN-47〜54 入り口と画面の見直し (使う人の入り方・ラップを選ぶ・解析の配置) | 計画 (版 1〜3) |
-| [desktop_ui.md](desktop_ui.md) | PLAN-61 PC共通外観の範囲・検証 | 独立ブランチで検証中 |
+| [desktop_ui.md](desktop_ui.md) | PLAN-61 PC共通外観の範囲・検証 | 実装・Chrome/WebKit/Mac版確認済み、未マージ |
 | [manual_plan.md](manual_plan.md) | PLAN-39 使い方のページと動画 | 実装済み |
 | [ai_coach_design.md](ai_coach_design.md) | PLAN-02 AI のコーチ | 検討のみ |
 | [carplay_study.md](carplay_study.md) | PLAN-34 CarPlay | 見送り |

@@ -40,3 +40,14 @@ PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs E2E_URL=http://127.0.0.1:<開発
 `E2E_BROWSERS=firefox` または `webkit` で実行対象を選べる。テスト用の依存とブラウザは製品の依存関係に追加しない。
 
 検証画像は `e2e/out/desktop-ui/` と `e2e/out/desktop-ui-browsers/`。実際のWindowsアプリ・Safari本体での成功は、ChromeやPlaywrightの結果からは判断しない。
+
+## 今回の結果 (2026-11-08)
+
+- 製品コード `5d72c10`。単体533成功/14skip、型・共通エンジン境界・ビルド成功。
+- Chrome 156: 1024×700/1440×900 × 日英 × 3テーマ、4台比較、選択・画面切替え・再生・キーボード・分割・サイドバーの操作を確認。
+- Playwright 1.65.0のWebKit 27.2: 日英・3テーマ、1024/1440幅、選択・画面切替え・再生・フォーカスを確認。
+- Mac版Electron: 専用プロファイル・保管場所未設定で、ライブラリ/設定/解析とライト/ダークの表示を確認。
+- 既存の合成ログによる `lap-playback.mjs` (3サイズ) と `lap-menu-input.mjs` に成功。
+- Windows実機は未確認。Safari本体の自動テスト接続は時間切れ。Firefoxは試験用プロファイルを開けず、製品を読み込む前に終了したため未確認。
+
+解析・保存・ネイティブ契約のソース変更、高速化の実装はない。独立ブランチに保持し、マージ・配布は行っていない。
