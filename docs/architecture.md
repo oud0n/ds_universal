@@ -11,7 +11,7 @@ LapLoupe は、1 つの Web アプリ (React + TypeScript、`src/`) を 4 つの
 | ブラウザ版 | `src/` を Vite でビルドし GitHub Pages に置く | https://oud0n.github.io/ds_universal/ | Web Serial (USB)・Web Bluetooth (Chrome)。保管場所なし |
 | デスクトップ版 (Mac・Windows) | Electron (`electron/main.cjs`・`preload.cjs`、更新は `updater.cjs`) が `dist/` を開く | アプリに入れた `dist/` | `window.electronAPI` (保管場所のフォルダ・保存の画面・USB) |
 | iPhone / iPad のアプリ | WKWebView (ホストは別管理) | アプリに入れた `dist/` を `laploupe://app/` で返す (BundledWeb.swift) | ネイティブの窓口 (下の 3) |
-| Android のアプリ (友人向けの試験版) | WebView (`mobile/android/…/laploupe/*.kt`) | アプリに入れた `dist/` | ネイティブの窓口 (iPhone と同じ約束) |
+| Android のアプリ (友人向けの試験版) | WebView (ホストは別管理) | アプリに入れた `dist/` | ネイティブの窓口 (iPhone と同じ約束) |
 
 画面・解析・書き出しは全部 Web の側にあり、ネイティブの側は「Web ではできないこと」だけを受け持つ (Bluetooth・カメラ・G センサー・保管場所のファイル・画面の向き・アプリ内課金)。iOS ホストのソース・専用試験・ビルド手順は、このリポジトリでは管理しない。
 

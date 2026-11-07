@@ -28,7 +28,7 @@
 | 文書 | 中身 |
 |---|---|
 | [development.md](development.md) (英語 [development.en.md](development.en.md)) | 開発の始め方 (npm の命令) |
-| [../mobile/README.md](../mobile/README.md) | Android のネイティブ部分、共通の契約 |
+| [../mobile/README.md](../mobile/README.md) | スマートフォン向けの共通窓口 |
 | [device_check_2026-10-25.md](device_check_2026-10-25.md) | 実機で確かめた記録 (1.1.0 の前) |
 
 ## 設計書 (状態つき)
