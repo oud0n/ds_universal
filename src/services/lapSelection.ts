@@ -13,8 +13,8 @@ type StoredChoice = Extract<LapPickerChoice, { kind: 'stored' }>;
 function onFolderCourse(session: Session, course: LapCourse) {
   const sameCourse = session.circuitName === course.name;
   return {
-    ...session, ...extractLaps(session.points, course.controlLine, course.sectors),
-    circuitName: course.name, controlLine: course.controlLine, finishLine: undefined,
+    ...session, ...extractLaps(session.points, course.controlLine, course.sectors, course.finishLine),
+    circuitName: course.name, controlLine: course.controlLine, finishLine: course.finishLine,
     pathPolylines: sameCourse ? session.pathPolylines : undefined,
     pathPolylinesSource: sameCourse ? session.pathPolylinesSource : undefined,
   };

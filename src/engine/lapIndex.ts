@@ -18,6 +18,8 @@ import { parseNmea } from './nmeaParser';
 import { extractLaps } from './lapCalculator';
 import { StorageChangedError } from './storageContext';
 import { decodeUtf8 } from './codecs';
+import { parseLogBuffer } from './logLoader';
+import { sensorKeyOf, type CsvFormat } from './csvFormats';
 
 /** 記録のフォルダのファイル (path は保管場所からの道。例: sodegaura/20261024100000.bon4) */
 export interface LapFileInfo {
@@ -53,6 +55,8 @@ export interface LapRecord {
   startMs: number;
   /** セクタータイム (秒。セクター線の順) */
   sectors: number[];
+  /** 推定した区間。省略時はすべて実測。 */
+  estimated?: boolean[];
   topSpeed: number;
 }
 
@@ -77,7 +81,7 @@ export interface LapFileRecord {
 }
 
 /** 記録の空きで分けた走行の残し方の版 (LapFileRecord.split) */
-export const SPLIT_RULE = 2;
+export const SPLIT_RULE = 3;
 
 /** 非表示にした周 (ファイルと時刻で見分ける。計算し直して周の番号が変わっても引き継ぐため) */
 export interface HiddenLap {
@@ -95,6 +99,7 @@ export interface LapIndex {
   version: 1;
   /** 計算に使ったコースのハッシュ (計測線とセクター線) */
   courseHash: string;
+  parserKey?: string;
   courseName: string;
   files: Record<string, LapFileRecord>;
   hidden: HiddenLap[];
@@ -126,6 +131,7 @@ const SAME_LAP_MS = 5000;
 export interface LapCourse {
   name: string;
   controlLine: ControlLine;
+  finishLine?: ControlLine;
   sectors: Sector[];
 }
 
@@ -133,10 +139,10 @@ export interface LapCourse {
  * コースのハッシュ: 計測線とセクター線の位置から求める (コース図はラップタイムに効かないので入れない)。
  * 位置は 1/10,000,000 度に丸めるので、同じ線なら同じハッシュになる
  */
-export function courseHash(course: Pick<LapCourse, 'controlLine' | 'sectors'>): string {
+export function courseHash(course: Pick<LapCourse, 'controlLine' | 'sectors' | 'finishLine'>): string {
   const q = (v: number) => Math.round(v * 1e7);
   const line = (l: { latA: number; lonA: number; latB: number; lonB: number }) => [q(l.latA), q(l.lonA), q(l.latB), q(l.lonB)].join(',');
-  const text = [line(course.controlLine), ...course.sectors.map(line)].join('|');
+  const text = [line(course.controlLine), ...course.sectors.map(line), ...(course.finishLine ? ['finish', line(course.finishLine)] : [])].join('|');
   // FNV-1a (32 ビット) を 2 つ、違う初めの値で求めてつなぐ (偶然の一致を減らす)
   const fnv = (seed: number) => {
     let h = seed >>> 0;
@@ -186,7 +192,7 @@ export function lapsFromFile(name: string, bytes: Uint8Array, course: LapCourse,
 export function lapPointsFromFile(name: string, bytes: Uint8Array, course: LapCourse, part: number | undefined, n: number, physicsLevel: GFilterLevel = 'strong'): TelemetryPoint[] | null {
   const points = partsFromFile(name, bytes, physicsLevel)[(part ?? 1) - 1];
   if (!points) return null;
-  const laps = extractLaps(points, course.controlLine, course.sectors).laps.filter(l => !l.isWholeSession && !l.isPartialLap);
+  const laps = extractLaps(points, course.controlLine, course.sectors, course.finishLine).laps.filter(l => !l.isWholeSession && !l.isPartialLap);
   return laps[n - 1]?.points ?? null;
 }
 
@@ -205,7 +211,7 @@ function lapsFromParts(pointParts: TelemetryPoint[][], course: LapCourse): { sta
     if (startMs === null && Number.isFinite(first)) startMs = first;
     const t0 = points[0]?.time ?? 0;
     let n = 0;
-    for (const lap of extractLaps(points, course.controlLine, course.sectors).laps) {
+    for (const lap of extractLaps(points, course.controlLine, course.sectors, course.finishLine).laps) {
       if (lap.isWholeSession || lap.isPartialLap) continue;
       n++;
       laps.push({
@@ -215,11 +221,27 @@ function lapsFromParts(pointParts: TelemetryPoint[][], course: LapCourse): { sta
         // 時刻の無いログでも、周ごとに違う値になるよう、ファイルの頭からの時間にする (隠した周の引き継ぎに使う)
         startMs: Math.round((Number.isFinite(first) ? first : pi * 1e9) + (lap.startTime - t0) * 1000),
         sectors: lap.sectors.map(s => Number(s.time.toFixed(3))),
+        ...(lap.sectors.some(s => s.isEstimated) ? { estimated: lap.sectors.map(s => s.isEstimated ?? false) } : {}),
         topSpeed: Number(lap.topSpeed.toFixed(1))
       });
     }
   });
   return { startMs, laps };
+}
+
+/** 既存の読込み器で対応形式を読み、同じ周の控えへ投影する。 */
+export async function lapsFromAnyFile(name: string, bytes: Uint8Array, course: LapCourse, formats: readonly CsvFormat[] = [], physicsLevel: GFilterLevel = 'strong'): Promise<{ startMs: number | null; laps: LapRecord[] }> {
+  if (/\.(nmea|bon4)$/i.test(name)) return lapsFromFile(name, bytes, course, physicsLevel);
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const parsed = await parseLogBuffer(name, buffer, undefined, formats, physicsLevel);
+  return lapsFromParts(parsed.parts.map(part => part.points), course);
+}
+export async function lapPointsFromAnyFile(name: string, bytes: Uint8Array, course: LapCourse, part: number | undefined, n: number, formats: readonly CsvFormat[] = [], physicsLevel: GFilterLevel = 'strong'): Promise<TelemetryPoint[] | null> {
+  if (/\.(nmea|bon4)$/i.test(name)) return lapPointsFromFile(name, bytes, course, part, n, physicsLevel);
+  const parsed = await parseLogBuffer(name, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, undefined, formats, physicsLevel);
+  const points = parsed.parts[(part ?? 1) - 1]?.points;
+  if (!points) return null;
+  return extractLaps(points, course.controlLine, course.sectors, course.finishLine).laps.filter(lap => !lap.isWholeSession && !lap.isPartialLap)[n - 1]?.points ?? null;
 }
 
 /** 控えを読む (無い・壊れている・形が違うときは null) */
@@ -286,12 +308,13 @@ export async function reconcileFolder(
   course: LapCourse,
   prev: LapIndex | null,
   read: (path: string) => Promise<Uint8Array>,
-  compute: (name: string, bytes: Uint8Array, course: LapCourse) => { startMs: number | null; laps: LapRecord[] } = lapsFromFile,
+  compute: (name: string, bytes: Uint8Array, course: LapCourse) => { startMs: number | null; laps: LapRecord[] } | Promise<{ startMs: number | null; laps: LapRecord[] }> = lapsFromAnyFile,
   /** 途中までの控え (LAP_INDEX_CHECKPOINT 本読むごと)。書いておけば、途中で閉じても次はその続きから読む */
-  onCheckpoint?: (partial: LapIndex) => Promise<void>
+  onCheckpoint?: (partial: LapIndex) => Promise<void>,
+  parserKey = ''
 ): Promise<{ index: LapIndex; changed: boolean; computed: number }> {
   const hash = courseHash(course);
-  const sameCourse = prev?.courseHash === hash;
+  const sameCourse = prev?.courseHash === hash && (prev.parserKey ?? '') === parserKey;
   const next: Record<string, LapFileRecord> = {};
   let changed = !prev || !sameCourse || prev.courseName !== course.name;
   let computed = 0;
@@ -304,8 +327,8 @@ export async function reconcileFolder(
     // 前の控えは、同じ道 → 日付のフォルダへ移す前の名前 → 同じ走行のもう一方の形式 (.bon4 で数えていた走行を .nmea で数え直すとき) の順に探す
     const prevRec = prev?.files[name] ?? prev?.files[name.slice(name.lastIndexOf('/') + 1)] ?? (prev ? sameRunRecord(prev.files, name) : undefined);
     const old = sameCourse ? prevRec : undefined;
-    // .nmea を前の分け方で数えた控えは数え直す (隠した周の印は、始まりの時刻で引き継ぐ)
-    const sameSplit = !/\.nmea$/i.test(name) || old?.split === SPLIT_RULE;
+    // 前の分け方・推定値形式の控えは数え直す (隠した周の印は、始まりの時刻で引き継ぐ)
+    const sameSplit = old?.split === SPLIT_RULE;
     if (old && !old.needsRecompute && old.size === f.size && old.mtimeMs === f.mtimeMs && sameSplit) {
       next[name] = old;
       continue;
@@ -328,7 +351,7 @@ export async function reconcileFolder(
       skipped.push(name);changed=true;continue;
     }
     try {
-      const { startMs, laps } = compute(name, bytes, course);
+      const { startMs, laps } = await compute(name, bytes, course);
       next[name] = { size: f.size, mtimeMs: f.mtimeMs, startMs, laps, ...keep, split: SPLIT_RULE };
     } catch (error) {
       if (error instanceof StorageChangedError) throw error;
@@ -344,7 +367,7 @@ export async function reconcileFolder(
       // 前の控えは、今あるファイルの分だけ (消したファイルを途中の控えに戻さない)
       const partial: Record<string, LapFileRecord> = {};
       if (sameCourse && prev) for (const [k, v] of Object.entries(prev.files)) if (names.has(k)) partial[k] = v;
-      await onCheckpoint({ version: 1, courseHash: hash, courseName: course.name, files: { ...partial, ...next }, hidden: prev?.hidden ?? [] }).catch(error => {
+      await onCheckpoint({ version: 1, courseHash: hash, ...(parserKey ? { parserKey } : {}), courseName: course.name, files: { ...partial, ...next }, hidden: prev?.hidden ?? [] }).catch(error => {
         if (error instanceof StorageChangedError) throw error;
       });
     }
@@ -352,7 +375,7 @@ export async function reconcileFolder(
   if (prev && Object.keys(prev.files).some(k => !(k in next))) changed = true;
   const hidden = carryHidden(prev?.hidden ?? [], next, skipped);
   if (prev && hidden.length !== prev.hidden.length) changed = true;
-  return { index: { version: 1, courseHash: hash, courseName: course.name, files: next, hidden }, changed, computed };
+  return { index: { version: 1, courseHash: hash, ...(parserKey ? { parserKey } : {}), courseName: course.name, files: next, hidden }, changed, computed };
 }
 
 /** 一覧に出す 1 周 */
@@ -404,14 +427,21 @@ export function videosInFolder(files: LapFileInfo[], folder: string): string[] {
 /** 走行を置かないフォルダ (保管場所の直下) */
 export const NON_RUN_FOLDERS: ReadonlySet<string> = new Set(['取り込み元', 'exports']);
 
-export function groupRunsByFolder(files: LapFileInfo[]): Map<string, LapFileInfo[]> {
+export function groupRunsByFolder(files: LapFileInfo[], formats: readonly CsvFormat[] = []): Map<string, LapFileInfo[]> {
   const out = new Map<string, LapFileInfo[]>();
   const chosen = new Map<string, LapFileInfo>();
+  const paths = new Set(files.map(f => f.path.toLowerCase()));
+  const sensorKeys = new Set(formats.filter(f => f.kind === 'sensor').map(f => f.sensorKey));
   for (const f of files) {
-    const m = /^([^/]+)\/((?:\d{8}\/)?[^/]+)\.(nmea|bon4)$/i.exec(f.path);
+    const sensor = sensorKeyOf(f.path);
+    if (sensor) {
+      const parent = f.path.slice(0, -(sensor.length + 5)).toLowerCase();
+      if (sensor === 'iphone_imu' || sensorKeys.has(sensor) || ['nmea','bon4','bnx4','binx','bon','dtb','xrk','xrz','fit','ibt','vbo','csv','txt','gpx','tcx','log'].some(ext => paths.has(parent + '.' + ext))) continue;
+    }
+    const m = /^([^/]+)\/((?:\d{8}\/)?[^/]+)\.(nmea|bon4|bnx4|binx|bon|dtb|xrk|xrz|fit|ibt|vbo|csv|txt|gpx|tcx|log)$/i.exec(f.path);
     // 取り込んだ元のログ (取り込み元/)・共有のための書き出し (exports/) は走行ではない
     if (!m || NON_RUN_FOLDERS.has(m[1])) continue;
-    const key = `${m[1]}/${m[2]}`;
+    const key = /\.(nmea|bon4)$/i.test(f.path) ? `${m[1]}/${m[2]}` : f.path;
     const cur = chosen.get(key);
     // .nmea を選ぶ。ただし .nmea が iCloud にだけあり .bon4 がこの端末にあるときは、落とさずに数えられる .bon4 を選ぶ
     const better = (a: LapFileInfo, b: LapFileInfo) => {

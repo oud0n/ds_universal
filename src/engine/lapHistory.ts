@@ -1,4 +1,6 @@
 import { fault, defaultText } from './errors';
+import type { CsvFormat } from './csvFormats';
+import type { GFilterLevel } from './physics';
 /**
  * ラップタイムの一覧を、保管場所から読み込む (2026-10-20、PLAN-19)。iPhone のアプリとデスクトップ版で共通。
  * 保管場所/<サーキットのフォルダ>/ ごとに、コースを見つけて控え (laptimes.json) を作り直し、一覧の行にする
@@ -9,7 +11,7 @@ import { findRunRow, type RunsFileStore } from './runsFile';
 import { StorageChangedError, type StorageContext } from './storageContext';
 import {
   LAP_INDEX_FILE, carryHidden, groupBon4ByFolder, lapRows, parseLapIndex, createLapIndexQueue, reconcileFolder, setHidden,
-  type LapCourse, type LapFileStore, type LapIndex, type LapRow, type LapRecord
+  lapsFromAnyFile, type LapCourse, type LapFileStore, type LapIndex, type LapRow, type LapRecord
 } from './lapIndex';
 
 export interface LapFolder {
@@ -27,7 +29,7 @@ export interface LapFolder {
   /** 車種・タイヤ・天候 (走行のファイル名 → 値。書いた走行だけ。PLAN-37) */
   conditions?: Record<string, RunConditions>;
 }
-export function createLapHistory(context: StorageContext, courseForFolder: (folder: string) => Promise<LapCourse | null>, loadStorageCourses: () => Promise<unknown>, runs: RunsFileStore, queueLapIndexWrite: ReturnType<typeof createLapIndexQueue>) {
+export function createLapHistory(context: StorageContext, courseForFolder: (folder: string) => Promise<LapCourse | null>, loadStorageCourses: () => Promise<unknown>, runs: RunsFileStore, queueLapIndexWrite: ReturnType<typeof createLapIndexQueue>, parsing: () => { formats?: readonly CsvFormat[]; physicsLevel?: GFilterLevel } = () => ({})) {
 const {getStorageReadRevision,isStorageSelectionPending} = context;
 const {readRunsFile}=runs;
 /** 1 つのサーキットのフォルダの一覧 */
@@ -43,7 +45,9 @@ async function loadLapHistory(store: LapFileStore, onProgress?: (folder: string)
   // 同じ名前のフォルダでも、前の保存先の計測線で控えを作らない。
   await loadStorageCourses();
   check();
-  const groups = groupBon4ByFolder(await store.list());
+  const options = parsing(), formats = options.formats ?? [], level = options.physicsLevel ?? 'strong';
+  const parserKey = formats.length || level !== 'strong' ? JSON.stringify([formats, level]) : '';
+  const groups = groupBon4ByFolder(await store.list(), formats);
   check();
   const out: LapFolder[] = [];
   for (const [folder, files] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
@@ -68,7 +72,7 @@ async function loadLapHistory(store: LapFileStore, onProgress?: (folder: string)
       written = { ...ix, hidden: final ? carryHidden(hidden, ix.files, skipped) : hidden };
       await store.writeText(indexPath, JSON.stringify(written));
     });
-    const result = await reconcileFolder(folder, files, course, prev, p => store.read(p), undefined, writeIndex);
+    const result = await reconcileFolder(folder, files, course, prev, p => store.read(p), (name, bytes, definition) => lapsFromAnyFile(name, bytes, definition, formats, level), writeIndex, parserKey);
     check();
     // 控えを書けなくても、一覧は出す (次に開いたときにもう一度計算する)
     if (result.changed) await writeIndex(result.index, true).catch(error => {

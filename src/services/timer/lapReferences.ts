@@ -1,8 +1,10 @@
+import { currentCsvFormats } from '../csvFormatStore';
+import { getGFilterLevel } from '../physics';
 /**
  * ラップタイマーの差の基準にする、保管場所の過去の周 (比べる相手)。
  * 既定は「この車のベスト」(このコースの、選んだ車の自分の走行のベストの周)
  */
-import { lapKey, lapPointsFromFile, type LapCourse, type LapIndex } from '../lapIndex';
+import { lapKey, lapPointsFromAnyFile, type LapCourse, type LapIndex } from '../lapIndex';
 import { findRunRow, type RunsFile } from '../runsFile';
 import type { PastReference } from '../liveLapTimer';
 import type { TelemetryPoint } from '../../types/telemetry';
@@ -94,7 +96,7 @@ export function makeReferenceContext(store: RunStore, folder: string, course: La
       let bytes = files.get(lap.file);
       if (!bytes) { bytes = store.read(`${folder}/${lap.file}`).catch(() => null); files.set(lap.file, bytes); }
       const b = await bytes;
-      return b ? lapPointsFromFile(lap.file, b, course, lap.part, lap.n) : null;
+      return b ? lapPointsFromAnyFile(lap.file, b, course, lap.part, lap.n, currentCsvFormats(), getGFilterLevel()) : null;
     }
   };
 }

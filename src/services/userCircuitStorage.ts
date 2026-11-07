@@ -1,3 +1,4 @@
+import { exportSci as formatSci } from '../engine/courseFiles';
 /**
  * ユーザーが設置した公式または独自コースデータ (.pth / .cln / .sci) の管理サービス
  *
@@ -132,15 +133,7 @@ export function normalizeCourseName(path: string): string {
  * セクターを .sci (公式と同じ形: 1 行 1 本「緯度A,経度A,緯度B,経度B,1」、小数 6 桁、改行は CRLF) にする。
  * 公式の .sci はフィニッシュ (計測線) を含まないので、計測線と同じ線は書かない
  */
-export function exportSci(sectors: Sector[], controlLine?: ControlLine): string {
-  const same = (s: Sector) => !!controlLine &&
-    Math.abs(s.latA - controlLine.latA) < 1e-7 && Math.abs(s.lonA - controlLine.lonA) < 1e-7 &&
-    Math.abs(s.latB - controlLine.latB) < 1e-7 && Math.abs(s.lonB - controlLine.lonB) < 1e-7;
-  return sectors
-    .filter(s => !same(s))
-    .map(s => [s.latA, s.lonA, s.latB, s.lonB].map(v => v.toFixed(6)).join(',') + ',1\r\n')
-    .join('');
-}
+export function exportSci(sectors: Sector[], controlLine?: ControlLine): string { return formatSci(sectors, controlLine); }
 
 // ---------------------------------------------------------------------------
 // 組み合わせ (純粋な処理。Node でも試せるようにファイルの読み込み・保存とは分ける)

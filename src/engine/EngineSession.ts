@@ -88,12 +88,13 @@ export function createEngineSession(options:EngineSessionOptions={}){
   selectLap(id:string,lap:number,slot:number){active();const next=assignLap(snapshot.analysis,[],id,lap,slot,false);return adopt(next,baseOf(next)?.slot===slot);},
   setIsPlaying(change:Change<boolean>){if(snapshot.closed||closing)return;const next=typeof change==='function'?change(snapshot.isPlaying):change;if(next!==snapshot.isPlaying)publish({...snapshot,isPlaying:next});},
   setPlaybackSpeed(change:Change<number>){if(snapshot.closed||closing)return;const next=typeof change==='function'?change(snapshot.playbackSpeed):change;if(Number.isFinite(next)&&next>0&&next!==snapshot.playbackSpeed)publish({...snapshot,playbackSpeed:next});},
-  assign(incoming:Session[],id:string,lap:number,slot:number,retained:readonly string[]=[],register?:(incoming:Session[])=>Session[]){
+  assign(incoming:Session[],id:string,lap:number,slot:number,retained:readonly string[]=[],register?:(incoming:Session[])=>Session[],dropSlots:readonly number[]=[]){
    active();
-   const proposed=assignLap(snapshot.analysis,incoming,id,lap,slot,false),base=proposed.sessions.find(s=>s.id===proposed.selectedCars[0]?.sessionId);
+   const before=dropSlots.length?{...snapshot.analysis,selectedCars:snapshot.analysis.selectedCars.filter(car=>!dropSlots.includes(car.slot))}:snapshot.analysis;
+   const proposed=assignLap(before,incoming,id,lap,slot,false),base=proposed.sessions.find(s=>s.id===proposed.selectedCars[0]?.sessionId);
    const keep=base&&!base.sourceFile?retained:[];
-   assignLap(snapshot.analysis,incoming,id,lap,slot,true,keep);
-   const next=assignLap(snapshot.analysis,register?.(incoming)??incoming,id,lap,slot,true,keep);
+   assignLap(before,incoming,id,lap,slot,true,keep);
+   const next=assignLap(before,register?.(incoming)??incoming,id,lap,slot,true,keep);
    return adopt(next,baseOf(next)?.slot===slot);
   },
   close():Promise<void>{

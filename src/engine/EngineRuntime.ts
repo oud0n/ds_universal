@@ -1,3 +1,4 @@
+import { EngineError } from './errors';
 import { createEngineSession, bindStorageLifecycle } from './EngineSession';
 import { createStorageContext } from './storageContext';
 import { createRunsFileStore } from './runsFile';
@@ -36,8 +37,8 @@ export function createEngineRuntime<TFile extends BinaryFile>(ports: EngineRunti
   const channels = createChannelRegistry();
   const pairs = createPairAnalyser(ports.pairs);
   const positionSource = createPositionSource(ports.preferences);
-  const history = createLapHistory(storage, folder => ports.courses.find(folder), () => ports.courses.prepare(), runs, createLapIndexQueue());
-  const controller = createRunController({storage, runs, media, pins, history, metadata: remote => ports.remoteMetadata(remote), changed: () => ports.runsChanged(), scheduler: ports.scheduler, nowMs: () => ports.media.nowMs()});
+  const history = createLapHistory(storage, folder => ports.courses.find(folder), async () => { await ports.courses.prepare(); await formats.loadCsvFormats(); if (!formats.csvFormatsReady()) throw new EngineError('formats.unready', { ja: 'CSVの定義を読めませんでした。再読込みしてください。', en: 'Could not read CSV definitions. Reload the library.' }); }, runs, createLapIndexQueue(), () => ({ formats: formats.currentCsvFormats() }));
+  const controller = createRunController({formats: () => formats.currentCsvFormats(), storage, runs, media, pins, history, metadata: remote => ports.remoteMetadata(remote), changed: () => ports.runsChanged(), scheduler: ports.scheduler, nowMs: () => ports.media.nowMs()});
   const formats = createCsvFormatStore({storage, repository: () => ports.repository(), preferences: ports.preferences, scheduler: ports.scheduler, channelsChanged: specs => channels.setCustomChannels(specs)});
   let unbind=()=>{};
   const session=createEngineSession({storage,flush:()=>controller.flushOpenRunsStrict(),onClockChanged:()=>controller.scheduleRunSave(),onClosing:()=>media.cancelPending(),onClose:()=>{unbind();formats.dispose();controller.dispose();media.dispose();}});

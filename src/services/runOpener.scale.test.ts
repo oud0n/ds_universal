@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { listRuns } from './runOpener';
-import { courseHash, LAP_INDEX_FILE, type LapIndex } from './lapIndex';
+import { courseHash, LAP_INDEX_FILE, SPLIT_RULE, type LapIndex } from './lapIndex';
 import { courseForFolder } from './lapHistory';
 import type { RunFileInfo, RunStore } from './runStore';
 
@@ -18,7 +18,7 @@ describe('listRuns の件数への強さ', () => {
       files.push({ path: `${folder}/${name}`, size: 1000, mtimeMs: 1, local: true });
       files.push({ path: `${folder}/${day}/GX${String(i).padStart(6, '0')}.MP4`, size: 1e9, mtimeMs: 1, local: true });
       files.push({ path: `${folder}/${day}/GX${String(i).padStart(6, '0')}.LRV`, size: 1e8, mtimeMs: 1, local: true });
-      index.files[name] = { size: 1000, mtimeMs: 1, startMs: i * 1000, laps: [{ n: 1, time: 80 + (i % 10) }] } as LapIndex['files'][string];
+      index.files[name] = { size: 1000, mtimeMs: 1, split: SPLIT_RULE, startMs: i * 1000, laps: [{ n: 1, time: 80 + (i % 10) }] } as LapIndex['files'][string];
     }
     let reads = 0;
     const store = {

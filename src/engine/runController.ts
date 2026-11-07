@@ -1,4 +1,5 @@
 import { fault, defaultText, EngineError } from './errors';
+import type { CsvFormat } from './csvFormats';
 import { sessionStartUtcMs, type ClockSession } from './mediaClock';
 /**
  * 過去の走行の一覧と、走行を開く (ログ・同じフォルダの動画・動画の同期をそろえて開く)。2026-10-20。
@@ -45,6 +46,7 @@ export interface RunMetaPatch {
   name?: string | null;
   note?: string | null;
   car?: string | null;
+  vehicleId?: string | null;
   tyre?: string | null;
   reference?: { driver?: string; car?: string } | null;
   weather?: Weather | null;
@@ -53,6 +55,7 @@ export interface RunMetaPatch {
   overlayLayout?: string | null;
 }
 export interface RunControllerPorts {
+ formats?: () => readonly CsvFormat[];
  storage: StorageContext;
  media: VideoSyncManager;
  pins: Pick<SyncPinStore, keyof SyncPinStore>;
@@ -93,7 +96,7 @@ async function listRuns(store: RunStore, onProgress?: (folder: string) => void, 
   // フォルダごとの動画と .bon4 を先に 1 回だけ分けておく (走行ごとに全部のファイルを探すと、数千件で遅くなる)
   const videosByDir = new Map<string, RunFileInfo[]>();
   // 走行の基準のファイル (.nmea、無ければ .bon4。同じ名前の 2 つは 1 つの走行)
-  const runsByFolder = groupRunsByFolder(all);
+  const runsByFolder = groupRunsByFolder(all, host.formats?.() ?? []);
   const remoteOnly = new Set(all.filter(x => x.local === false).map(x => x.path));
   for (const x of all) {
     const dir = dirName(x.path);
@@ -864,7 +867,7 @@ function metadataKeyOf(store: RunStore, item: RunItem): string {
 
 function patchMetadata(row: Partial<RunRow> | null | undefined, patch: RunMetaPatch): RunRow {
   const next: RunRow = { updatedAt: '', ...row };
-  for (const k of ['name', 'note', 'car', 'tyre', 'overlayLayout'] as const) if (k in patch) {
+  for (const k of ['name', 'note', 'car', 'vehicleId', 'tyre', 'overlayLayout'] as const) if (k in patch) {
     const value = patch[k]?.trim(); if (value) next[k] = value; else delete next[k];
   }
   if ('reference' in patch) {

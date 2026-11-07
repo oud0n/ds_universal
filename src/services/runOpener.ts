@@ -1,3 +1,4 @@
+import { currentCsvFormats } from './csvFormatStore';
 import { createRunController } from '../engine/runController';
 export type { RunMetaPatch, RunItem } from '../engine/runController';
 import { storageContext } from './storageRevision';
@@ -10,7 +11,7 @@ import { remoteFileLike } from './remoteVideo';
 import { notifyRunsChanged } from './runsChanged';
 import { withEngineErrors } from '../adapters/web/engineErrors';
 import { webScheduler } from '../adapters/web/runtime';
-export const runController=createRunController({storage:storageContext,media:videoSyncManager,pins:videoViewStore,history:{loadLapHistory:(...args)=>history.loadLapHistory(...args),updateLapHidden:(...args)=>history.updateLapHidden(...args),toggleLapHidden:(...args)=>history.toggleLapHidden(...args)},runs:{...runs.runsFileStore,updateRun:(...args)=>runs.updateRun(...args),readRunsFile:(...args)=>runs.readRunsFile(...args),noteRunsConflictCopies:(...args)=>runs.noteRunsConflictCopies(...args)},metadata:remote=>parseVideoMetadata(remoteFileLike(remote)),changed:()=>notifyRunsChanged(),scheduler:webScheduler,nowMs:()=>Date.now()});
+export const runController=createRunController({formats: () => currentCsvFormats(),storage:storageContext,media:videoSyncManager,pins:videoViewStore,history:{loadLapHistory:(...args)=>history.loadLapHistory(...args),updateLapHidden:(...args)=>history.updateLapHidden(...args),toggleLapHidden:(...args)=>history.toggleLapHidden(...args)},runs:{...runs.runsFileStore,updateRun:(...args)=>runs.updateRun(...args),readRunsFile:(...args)=>runs.readRunsFile(...args),noteRunsConflictCopies:(...args)=>runs.noteRunsConflictCopies(...args)},metadata:remote=>parseVideoMetadata(remoteFileLike(remote)),changed:()=>notifyRunsChanged(),scheduler:webScheduler,nowMs:()=>Date.now()});
 export const baseName: typeof runController.baseName = withEngineErrors(runController.baseName);
 export const startFromName: typeof runController.startFromName = withEngineErrors(runController.startFromName);
 export const listRuns: typeof runController.listRuns = withEngineErrors(runController.listRuns);

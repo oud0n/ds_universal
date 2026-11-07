@@ -111,3 +111,7 @@ LapLoupe は、1 つの Web アプリ (React + TypeScript、`src/`) を 4 つの
 ## 7. 古いファイル
 
 v0.7.0 の頃のルートの `main.js`・`preload.js`・`renderer.js`・`styles.css` は 2026-10-28 に消した (Electron の入口は `electron/main.cjs`)。`digspice_cli.ps1`・`extract_pcap.py` は通信の解析に使った道具 (TODO の CLEAN-01)。
+
+## 共有するコース・ログの索引（2026-11-07）
+
+コースファイルの純粋な読書きは src/engine/courseFiles.ts、位置と計測線通過による候補選択は courseMatch.ts。表示言語は呼出し側で渡す。索引は対応ログを共通logLoaderで読み、CSV定義/解析設定を反映する。NMEA/BON4だけを同じ走行の別形式としてまとめ、同名CSV/FIT等は独立させる。推定セクターは任意estimated配列に保持し、split:3未満の端末内索引は再計算する。クラウド上だけのファイルを索引作成のために取得しない。別ゴールのあるコースは計測線/セクター/ゴールを索引・ラップ選択・参考ラップへ同じ条件で渡す。
