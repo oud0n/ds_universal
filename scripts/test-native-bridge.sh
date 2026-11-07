@@ -7,15 +7,6 @@ fixtures="$root/scripts/tests/bridge"
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 
-check_ios() {
-  # WebView に送る文字列を受け取れるよう、WebKit だけを模擬の窓口に置き換える。
-  sed '/^import WebKit$/d' "$root/mobile/ios/DSUniversal/NativeBridge.swift" > "$scratch/NativeBridge.swift"
-  swiftc -swift-version 6 -module-cache-path "$scratch/cache" -o "$scratch/swift-check" \
-    "$fixtures/swift/"*.swift "$scratch/NativeBridge.swift"
-  "$scratch/swift-check" "$scratch/ios-scripts.json"
-  node "$fixtures/check-delivery.mjs" "$scratch/ios-scripts.json"
-}
-
 check_android() {
   local gradle_dir="${GRADLE_HOME:-}" distribution cache directory java_bin cp
   if [[ -z "$gradle_dir" ]]; then
@@ -45,9 +36,7 @@ check_android() {
   node "$fixtures/check-delivery.mjs" "$scratch/android-scripts.json"
 }
 
-case "${1:-all}" in
-  ios) check_ios ;;
+case "${1:-android}" in
   android) check_android ;;
-  all) check_ios; check_android ;;
-  *) echo "Usage: $0 [ios|android|all]" >&2; exit 2 ;;
+  *) echo "Usage: $0 [android]" >&2; exit 2 ;;
 esac

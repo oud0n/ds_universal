@@ -10,7 +10,7 @@
 | [architecture.md](architecture.md) | 構成 (Web・Electron・iOS・Android、ネイティブの窓口、保管場所の形、主なファイル) |
 | [engine_boundaries.md](engine_boundaries.md) | 共通エンジンの正本、端末との窓口、移植時の残りと検査 |
 | [analysis_data_flow.md](analysis_data_flow.md) | 元ログ・周・Car 割当て・再生位置・動画の保持場所、呼出し元、非同期結果の採用条件 |
-| [maintenance.md](maintenance.md) | 開発・試験・レビュー・リリース (PC・ブラウザ・App Store・TestFlight) の手順 |
+| [maintenance.md](maintenance.md) | 開発・試験・レビュー・リリース (PC・ブラウザ) の手順 |
 | [../TODO.md](../TODO.md)・[../BUGS.md](../BUGS.md) | 今の状態と残件 |
 
 ## 利用者向け (公開)
@@ -30,16 +30,13 @@
 | 文書 | 中身 |
 |---|---|
 | [development.md](development.md) (英語 [development.en.md](development.en.md)) | 開発の始め方 (npm の命令) |
-| [../mobile/README.md](../mobile/README.md) | iPhone・Android のネイティブ部分、TestFlight へ送る手順 |
-| [app_store.md](app_store.md) | App Store の文章・審査の準備 |
+| [../mobile/README.md](../mobile/README.md) | Android のネイティブ部分、共通の契約 |
 | [device_check_2026-10-25.md](device_check_2026-10-25.md) | 実機で確かめた記録 (1.1.0 の前) |
 
 ## 設計書 (状態つき)
 
 | 文書 | 計画 | 状態 |
 |---|---|---|
-| [iphone_app_design.md](iphone_app_design.md) | PLAN-01 iPhone のアプリ | 実装済み (1.0〜1.1.0)。一部の構想は未 |
-| [ios_native_study.md](ios_native_study.md) | PLAN-20 ネイティブ化の検討 | 当時は Web 共有を継続。端末別 UI 差分・OS 追従・端末活用の制約が大きければネイティブ化も再検討 (2026-11-05)。動画の WebCodecs は未着手 |
 | [video_sets_design.md](video_sets_design.md) | PLAN-17 動画の走行とセット | 実装済み |
 | [overlay_parts_design.md](overlay_parts_design.md) | メーターの部品 | 実装済み |
 | [meter_layout_design.md](meter_layout_design.md) | PLAN-08・38 メーターの配置・画像・書き出しの範囲 | 実装済み |

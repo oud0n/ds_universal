@@ -4,7 +4,7 @@ LapLoupe (旧名 DS Universal) を直すエージェント (Claude・Codex・agy
 
 ## このリポジトリ
 
-デジスパイス (DigSpice IV) などの GPS ロガーの走行ログを解析する、非公式のソフト。1 つの Web アプリ (`src/`、React + TypeScript + Vite) を、ブラウザ版 (GitHub Pages)・デスクトップ版 (Electron、`electron/`)・iPhone / iPad のアプリ (WKWebView、`mobile/ios/`)・Android のアプリ (試験版、`mobile/android/`) として配っている。1.1.0 (2026-10-27) からは、不具合の直しが中心。
+デジスパイス (DigSpice IV) などの GPS ロガーの走行ログを解析する、非公式のソフト。1 つの Web アプリ (`src/`、React + TypeScript + Vite) を、ブラウザ版 (GitHub Pages)・デスクトップ版 (Electron、`electron/`)・iPhone / iPad のアプリ (ホストは別管理)・Android のアプリ (試験版、`mobile/android/`) として配っている。1.1.0 (2026-10-27) からは、不具合の直しが中心。
 
 ## 読む順
 
