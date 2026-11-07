@@ -743,16 +743,17 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
 
 
   return (
-    <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
+    <div className="analysis-panel flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
       {/* 狭いときはボタン単位で折り返す (文字の途中で折れないよう nowrap)。見出しは出さない (切り替えのないウインドウなので) */}
-      <div className={`touch-toolbar flex flex-wrap items-center justify-between gap-x-2 gap-y-1 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0 ${compact ? 'px-2 py-1' : 'px-3 py-1.5'}`}>
+      <div className={`analysis-toolbar touch-toolbar flex flex-wrap items-center justify-between gap-x-2 gap-y-1 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0 ${compact ? 'px-2 py-1' : 'px-3 py-1.5'}`}>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
 
           {/* 横軸切替 */}
-          <div className="flex bg-surface-1 rounded p-0.5 border border-line-3">
+          <div className="segmented-control flex bg-surface-1 rounded p-0.5 border border-line-3">
             <button
               onClick={() => setXAxisMode('distance')}
+              aria-pressed={xAxisMode === 'distance'}
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
                 xAxisMode === 'distance' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
@@ -761,6 +762,7 @@ export const SpeedGraphWindow: React.FC<SpeedGraphWindowProps> = ({
             </button>
             <button
               onClick={() => setXAxisMode('time')}
+              aria-pressed={xAxisMode === 'time'}
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
                 xAxisMode === 'time' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}

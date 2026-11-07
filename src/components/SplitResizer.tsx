@@ -18,7 +18,7 @@ export const SplitResizer: React.FC<SplitResizerProps> = ({
   return (
     <div
       onMouseDown={onMouseDown}
-      className={`relative select-none flex-shrink-0 transition-colors z-20 group ${
+      className={`analysis-splitter relative select-none flex-shrink-0 transition-colors z-20 group ${
         isHorizontal
           ? 'w-1.5 cursor-col-resize hover:bg-cyan-500/50 bg-surface-3'
           : 'h-1.5 cursor-row-resize hover:bg-cyan-500/50 bg-surface-3'

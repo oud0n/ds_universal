@@ -1081,14 +1081,14 @@ export const journeys = [
   },
 
   {
-    name: 'ブラウザ版: URL の末尾 #convert で変換が開き、上のタブがある',
+    name: 'ブラウザ版: URL の末尾 #convert で変換が開き、サイドバーがある',
     target: 'phone',
     async run(p) {
       await p.viewport(1440, 900, false);
       await p.goto(`${APP}#convert`);
       const s = await p.state();
       check(s.screen === 'convert', `#convert で ${s.screen}`);
-      check(await p.exists('nav-analysis'), '上のタブがない');
+      check(await p.exists('sidebar') && await p.exists('nav-analysis'), 'サイドバーがない');
     }
   },
   {

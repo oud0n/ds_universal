@@ -40,9 +40,9 @@ describe('組み方', () => {
     expect(plan.more).toContain('data');
   });
 
-  it('ブラウザ版は上のタブで、解析から始める (保管場所はない)', () => {
+  it('PCブラウザ版はサイドバーで、解析から始める (保管場所はない)', () => {
     const plan = navPlan(profileFor('browser', false, { ...none, hasLogger: true }));
-    expect(plan.chrome).toBe('top');
+    expect(plan.chrome).toBe('sidebar');
     expect(plan.home).toBe('analysis');
     expect(plan.primary).toEqual(['analysis', 'video', 'convert', 'logger']);
     expect(plan.available.has('data')).toBe(true);

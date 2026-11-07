@@ -159,6 +159,7 @@ export const App: React.FC = () => {
   // 公開ページでは URL の末尾 (#convert など) で最初に開くタブを指定できる
   // 画面の組み方 (アプリ・デスクトップ版・ブラウザ、スマートフォンの幅か) と、出している画面 (app/navStore.ts。2026-10-21)
   const profile = useAppProfile();
+  const desktopUi = profile.host !== 'native';
   const plan = useMemo(() => navPlan(profile), [profile]);
   // はじめの描画の前に入れる (URL の末尾 #convert・#laptimer などで最初の画面を決める)。幅が変わって組み方が変わったら入れ直す
   useState(() => { navStore.init(plan); return 0; });
@@ -2220,6 +2221,7 @@ export const App: React.FC = () => {
   return (
     <div
       className="relative flex flex-col h-dvh w-screen overflow-hidden bg-surface-0 text-slate-100"
+      data-layout={profile.layout}
       // ファイルは、どの画面に落としても読み込む (受け口のない所に落とすと、ブラウザ・Electron がそのファイルを開いてアプリの画面から離れてしまう)。
       // 動画同期・ログ変換の受け口が受け取ったもの (preventDefault 済み) は、ここでは読まない。
       // リンク・文字を落としたときも、ブラウザがそちらへ移らないよう止める (入力欄に落とす文字はそのまま)
@@ -2378,6 +2380,7 @@ export const App: React.FC = () => {
       <div className="flex-1 min-h-0 flex flex-row">
       {plan.chrome === 'sidebar' && !nav.locked && (
         <Sidebar
+          desktop={desktopUi}
           items={plan.primary}
           // データは解析の「走行とコース」から開くので、サイドバーには並べない
           bottom={plan.more.filter(s => s !== 'data')}
@@ -2404,7 +2407,7 @@ export const App: React.FC = () => {
       {/* メインコンテンツ */}
       {/* iPhone を横にしたとき、左右の切り欠き・角に中身が隠れないよう、左右の余白を広げる (背景は端まで。縦・パソコンでは今までどおり) */}
       <main
-        className={`relative flex-1 overflow-hidden ${isCompact ? 'p-2' : 'p-3'}`}
+        className={`app-content relative flex-1 overflow-hidden ${isCompact ? 'p-2' : 'p-3'}`}
         style={{ paddingLeft: `max(${isCompact ? '0.5rem' : '0.75rem'}, env(safe-area-inset-left))`, paddingRight: `max(${isCompact ? '0.5rem' : '0.75rem'}, env(safe-area-inset-right))` }}
       >
         {/* ログを読み込む前のグラフ解析: 読み込み方を案内する (何もない画面で、どうすればよいか分からないため) */}
@@ -2547,13 +2550,13 @@ export const App: React.FC = () => {
               {/* 下部: 車載動画 (たたむとタブの帯だけ残す。走行アニメーションは PLAN-28 でコースの窓にまとめた) */}
               <div
                 style={collapsed.anim ? undefined : { height: `${(1 - leftVertSplit.ratio) * 100}%` }}
-                className={`overflow-hidden flex flex-col bg-surface-1 rounded border border-line-1 ${collapsed.anim ? 'shrink-0' : 'min-h-[120px]'}`}
+                className={`analysis-panel overflow-hidden flex flex-col bg-surface-1 rounded border border-line-1 ${collapsed.anim ? 'shrink-0' : 'min-h-[120px]'}`}
               >
                 {/* 左下タブバー */}
-                <div className={`flex items-center bg-surface-2 p-1 text-[11px] gap-1 shrink-0 ${collapsed.anim ? '' : 'border-b border-line-1'}`}>
+                <div className={`analysis-pane-header flex items-center bg-surface-2 p-1 text-[11px] gap-1 shrink-0 ${collapsed.anim ? '' : 'border-b border-line-1'}`}>
                   <button
                     onClick={() => toggleCollapsed('anim', false, 'video')}
-                    className="px-3 py-0.5 rounded font-bold transition-colors cursor-pointer bg-red-600 text-white"
+                    className="pane-choice px-3 py-0.5 rounded font-bold transition-colors cursor-pointer bg-red-600 text-white"
                   >
                     {T('車載動画 (GoPro/MP4)', 'Onboard video (GoPro/MP4)')}
                   </button>
@@ -2626,14 +2629,14 @@ export const App: React.FC = () => {
               {/* 右上: 全コースウインドウ。下のウインドウと同じく上に帯を付け、たたむと帯だけ残す (表示の設定を消さないよう、外さずに隠す) */}
               <div
                 style={collapsed.map || collapsed.sub ? undefined : { height: `${rightVertSplit.ratio * 100}%` }}
-                className={`overflow-hidden flex flex-col bg-surface-1 rounded border border-line-1 ${
+                className={`analysis-panel overflow-hidden flex flex-col bg-surface-1 rounded border border-line-1 ${
                   collapsed.map ? 'shrink-0 mb-2' : collapsed.sub ? 'flex-1 min-h-[120px]' : 'min-h-[120px]'
                 }`}
               >
-                <div className={`flex items-center bg-surface-2 p-1 text-[11px] gap-1 shrink-0 ${collapsed.map ? '' : 'border-b border-line-1'}`}>
+                <div className={`analysis-pane-header flex items-center bg-surface-2 p-1 text-[11px] gap-1 shrink-0 ${collapsed.map ? '' : 'border-b border-line-1'}`}>
                   <button
                     onClick={() => toggleCollapsed('map', false)}
-                    className="px-3 py-0.5 rounded font-bold bg-emerald-600 text-white cursor-pointer"
+                    className="pane-choice px-3 py-0.5 rounded font-bold bg-emerald-600 text-white cursor-pointer"
                   >
                     {T('全コースウインドウ', 'Track map')}
                   </button>
@@ -2656,16 +2659,17 @@ export const App: React.FC = () => {
               {/* 右下: サブウインドウ切替タブ (たたむとタブの帯だけ残す) */}
               <div
                 style={collapsed.map || collapsed.sub ? undefined : { height: `${(1 - rightVertSplit.ratio) * 100}%` }}
-                className={`overflow-hidden flex flex-col bg-surface-1 rounded border border-line-1 ${
+                className={`analysis-panel overflow-hidden flex flex-col bg-surface-1 rounded border border-line-1 ${
                   collapsed.sub ? `shrink-0 ${collapsed.map ? '' : 'mt-2'}` : collapsed.map ? 'flex-1 min-h-[120px]' : 'min-h-[120px]'
                 }`}
               >
-                <div className={`flex items-center bg-surface-2 p-1 text-[11px] gap-1 shrink-0 whitespace-nowrap ${collapsed.sub ? '' : 'border-b border-line-1'}`}>
+                <div className={`analysis-pane-header flex items-center bg-surface-2 p-1 text-[11px] gap-1 shrink-0 whitespace-nowrap ${collapsed.sub ? '' : 'border-b border-line-1'}`}>
                   {/* 入りきらないタブは横にスクロールする (スクロールバーは出さないので、マウスのホイールでも動かせるようにする) */}
                   <div ref={subTabsScrollRef} className="flex gap-1 overflow-x-auto no-scrollbar min-w-0">
                   <button
                     onClick={() => { setSubWindowMode('all'); toggleCollapsed('sub', false); }}
-                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                    aria-pressed={subWindowMode === 'all'}
+                    className={`pane-choice px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       subWindowMode === 'all'
                         ? 'bg-blue-600 text-white'
                         : 'text-slate-400 hover:text-slate-200'
@@ -2676,7 +2680,8 @@ export const App: React.FC = () => {
                   {SHOW_DRIFT && (
                     <button
                       onClick={() => { setSubWindowMode('track_friction'); toggleCollapsed('sub', false); }}
-                      className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                      aria-pressed={subWindowMode === 'track_friction'}
+                      className={`pane-choice px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                         subWindowMode === 'track_friction'
                           ? 'bg-orange-600 text-white'
                           : 'text-slate-400 hover:text-slate-200'
@@ -2687,7 +2692,8 @@ export const App: React.FC = () => {
                   )}
                   <button
                     onClick={() => { setSubWindowMode('corner'); toggleCollapsed('sub', false); }}
-                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                    aria-pressed={subWindowMode === 'corner'}
+                    className={`pane-choice px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       subWindowMode === 'corner'
                         ? 'bg-amber-600 text-white'
                         : 'text-slate-400 hover:text-slate-200'
@@ -2697,7 +2703,8 @@ export const App: React.FC = () => {
                   </button>
                   <button
                     onClick={() => { setSubWindowMode('braking'); toggleCollapsed('sub', false); }}
-                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                    aria-pressed={subWindowMode === 'braking'}
+                    className={`pane-choice px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       subWindowMode === 'braking'
                         ? 'bg-rose-600 text-white'
                         : 'text-slate-400 hover:text-slate-200'
@@ -2707,7 +2714,8 @@ export const App: React.FC = () => {
                   </button>
                   <button
                     onClick={() => { setSubWindowMode('xy'); toggleCollapsed('sub', false); }}
-                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                    aria-pressed={subWindowMode === 'xy'}
+                    className={`pane-choice px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       subWindowMode === 'xy'
                         ? 'bg-teal-600 text-white'
                         : 'text-slate-400 hover:text-slate-200'
@@ -2717,7 +2725,8 @@ export const App: React.FC = () => {
                   </button>
                   <button
                     onClick={() => { setSubWindowMode('video'); toggleCollapsed('sub', false, 'video'); }}
-                    className={`px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                    aria-pressed={subWindowMode === 'video'}
+                    className={`pane-choice px-3 py-0.5 rounded font-bold transition-colors cursor-pointer ${
                       subWindowMode === 'video'
                         ? 'bg-red-600 text-white'
                         : 'text-slate-400 hover:text-slate-200'
@@ -2975,6 +2984,7 @@ export const App: React.FC = () => {
       {/* グラフ解析の再生の段 (シークバーと再生のボタン。動画同期の画面の下の段と同じ並び)。スマートフォンでは、この下にタブバー */}
       {currentTab === 'analysis' && baseLap && (
         <PlayBar
+          desktop={desktopUi}
           label={baseLap.isWholeSession ? tr('全体', 'All') : `L${baseLap.lapNumber}`}
           currentTime={playbackPosition.lapSec}
           endTime={playEndTime}

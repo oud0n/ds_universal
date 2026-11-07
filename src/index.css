@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./styles/desktop.css";
 
 /* ---- テーマ (ライト / ダーク) ----
    画面の色は役割ごとの名前 (surface-0〜5: 背景〜浮き上がった部分、line-1〜4: 枠線、fg: 強い文字) で指定し、

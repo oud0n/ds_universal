@@ -24,14 +24,15 @@ export const PlayBar: React.FC<{
   playbackSpeed: number;
   onChangePlaybackSpeed: (speed: number) => void;
   compact: boolean;
-}> = ({ label, currentTime, endTime, isPlaying, onTogglePlay, onSeekTime, onStepBack, onStepForward, playbackSpeed, onChangePlaybackSpeed, compact }) => {
+  desktop?: boolean;
+}> = ({ label, currentTime, endTime, isPlaying, onTogglePlay, onSeekTime, onStepBack, onStepForward, playbackSpeed, onChangePlaybackSpeed, compact, desktop = false }) => {
   const t = useT();
   const landscape = useLandscape();
-  const oneRow = compact && landscape;
+  const oneRow = (desktop && !compact) || (compact && landscape);
   const end = Math.max(endTime, 0.1);
 
   const seek = (
-    <div className="touch-toolbar flex items-center gap-2.5 flex-1 min-w-0">
+    <div className="playbar-seek touch-toolbar flex items-center gap-2.5 flex-1 min-w-0">
       {label && (
         <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-600 text-white shrink-0">{label}</span>
       )}
@@ -54,7 +55,7 @@ export const PlayBar: React.FC<{
   );
 
   const buttons = (
-    <div className="touch-toolbar flex items-center gap-1.5 shrink-0">
+    <div className="playbar-buttons touch-toolbar flex items-center gap-1.5 shrink-0">
       <button
         onClick={() => onSeekTime(asLapSec(Math.max(0, currentTime - SKIP_SEC)))}
         className="p-1 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"

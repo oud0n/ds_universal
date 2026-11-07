@@ -5,6 +5,7 @@ import App from './App';
 import './index.css';
 import { isIPad, isMockNativeRequested } from './utils/device';
 import { callNative, hasNative, isAndroidApp } from './native/bridge';
+import { appHost } from './app/appProfile';
 
 // 開発サーバーで `?native=mock` を付けたら、ネイティブのふりをする窓口を入れる (iPhone のアプリの画面を試すため)
 async function installMock(): Promise<void> {
@@ -14,6 +15,7 @@ async function installMock(): Promise<void> {
 }
 
 installMock().finally(() => {
+  document.documentElement.dataset.ui = appHost() === 'native' ? 'native' : 'desktop';
   void initializeEntitlements();
   // ページを読み込んだ (読み込み直した) ときは、アプリの中で書きかけのファイルを全部書き終えたものにする。
   // 前のページの走行のファイルには書き足さないので、選んだフォルダへ移してよい (前のアプリは not-supported)

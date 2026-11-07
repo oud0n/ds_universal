@@ -57,7 +57,7 @@ export function navPlan(p: AppProfile): NavPlan {
       home = 'analysis';
       break;
     default:
-      chrome = 'top';
+      chrome = 'sidebar';
       primary = only(['analysis', 'video', 'convert', p.hasLogger && 'logger']);
       more = only(['data', p.hasLapTimer && 'timer', 'settings']);
       home = 'analysis';

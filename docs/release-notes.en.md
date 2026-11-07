@@ -6,6 +6,8 @@
 
 ## Next build (not distributed)
 
+- Aligned the desktop and browser sidebar, command bar, analysis panels and playback bar, preserving existing analysis and video features.
+- Adjusted G-G axis labels and readings to fit small windows.
 - Reduced repeated gate-direction calculations, temporary analysis arrays and unused GPS fallback records.
 
 ## v1.3.0 (2026-11-06, personal iPhone / iPad TestFlight, build 19)

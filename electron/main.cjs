@@ -41,6 +41,7 @@ let menuLang = null;
 const L = (ja, en) => ((menuLang ?? (/^ja/i.test(app.getLocale()) ? 'ja' : 'en')) === 'en' ? en : ja);
 function buildMenu() {
   const template = [
+    ...(process.platform === 'darwin' ? [{ role: 'appMenu', label: 'LapLoupe' }] : []),
     {
       label: L('ファイル', 'File'),
       submenu: [
@@ -65,12 +66,11 @@ function buildMenu() {
             }
           }
         },
-        { type: 'separator' },
-        {
+        ...(process.platform === 'darwin' ? [] : [{ type: 'separator' }, {
           label: L('終了', 'Quit'),
-          accelerator: process.platform === 'darwin' ? 'Cmd+Q' : 'Ctrl+Q',
+          accelerator: 'Ctrl+Q',
           click: () => app.quit()
-        }
+        }])
       ]
     },
     // 編集: Mac では、このメニューがないと入力欄やコンソールで ⌘C・⌘V・⌘A が効かない
