@@ -67,31 +67,7 @@ E2E_APP=http://localhost:5184/ node e2e/run.mjs --electron 9334 --chrome 9224 [-
 
 ## 6. iPhone / iPad のアプリ
 
-### 6.1 ビルドと TestFlight
-
-手順は [mobile/README.md](../mobile/README.md) の「TestFlight に送る」。要点:
-
-- `mobile/ios/project.yml` の `MARKETING_VERSION` (1.1.0 など) と `CURRENT_PROJECT_VERSION` (送るたびに 1 つ上げる)。
-- `npm run build` → `cd mobile/ios && xcodegen` → archive → exportArchive (destination=upload)。
-- 署名とアップロードは、App Store Connect の API キー (役割 Admin) で行う。キーと ID は `../private/api_key/` (値はそこの README.md。git に入れない)。役割 Developer のキーは PC 版の公証用なので消さない。
-- 提出したビルドのコミットにはタグ `ios-X.Y.Z-bN` を付ける。
-
-### 6.2 App Store への提出
-
-- スクリーンショットは iPhone 6.1 インチ・iPhone Duo (外 1398×2034・内 2853×2007)・iPad 13 インチ (2752×2064 か 2064×2752) が要る。iPad は 1.1.0 から要る。元の画像は `../private/app_store_screenshots/`。
-  - シミュレーターで撮る: `xcrun simctl status_bar <端末> override --time 9:41 --batteryState charged --batteryLevel 100`、暗い表示は `xcrun simctl ui <端末> appearance dark`。
-  - 走行のデータは、データの入ったシミュレーターのアプリの `Documents/` と `Library/WebKit/` を写すと早い。
-  - 車載動画が映る画面は、ミラーに映る顔などにモザイクをかける。筑波の映像は使わない。
-- API で上げる: App Store Connect API の `appScreenshotSets` (iPad 13 インチは `APP_IPAD_PRO_3GEN_129`) → `appScreenshots` を作る → 返った uploadOperations に PUT → `uploaded: true` と md5 で PATCH。処理中 (`UPLOAD_COMPLETE`) のまま止まったら、消して少し変えたファイル (画質を変えるなど) で上げ直す。
-- 却下されたら: 版の番号は、出していない版なら書き換えられる (ビルドの番号と合わせる)。返信は英語で、原因・直したこと・確かめたこと (端末) を短く。
-- 審査で落ちやすい所: 使う機能の説明の文 (Info.plist の `NS…UsageDescription`。カメラはファイルの選択の「写真またはビデオを撮る」でも使われる)、外へのリンク、外の寄付 (アプリでは出さない。アプリ内課金の投げ銭だけ)。docs/app_store.md。
-
-### 6.3 実機での確かめ
-
-- 開発版を入れる: `xcodebuild … -configuration Debug -destination 'id=<UDID>' … build` (API キーを付ける) → `xcrun devicectl device install app --device <UDID> <.app>` → `xcrun devicectl device process launch --device <UDID> io.github.oud0n.dsuniversal`。開発版は TestFlight の版を上書きする。
-- 画面を撮る: `pymobiledevice3 developer dvt screenshot <png> --udid <UDID>`。
-- アプリの記録: `xcrun devicectl device copy from --device <UDID> --domain-type appDataContainer --domain-identifier io.github.oud0n.dsuniversal --source Documents/ble-captures/debug.log --destination <ファイル>`。
-- Web の中を見る: `pymobiledevice3 webinspector cdp` (e2e/ios_compare_trace.mjs)。
+iOS ホストのソース・専用試験・ビルド・配布手順は別の作業場で管理する。このリポジトリは共通 Web とネイティブの契約を管理する。
 
 ## 7. Android (友人向けの試験版)
 

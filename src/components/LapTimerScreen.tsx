@@ -23,7 +23,7 @@ import { circuitLabel, getLang, useT } from '../utils/i18n';
 import type { TelemetryPoint } from '../types/telemetry';
 
 /**
- * 走りながら使うラップタイマーの画面 (暫定の版。docs/iphone_app_design.md の 5)。
+ * 走りながら使うラップタイマーの画面 (暫定の版)。
  * 大きな数字で、今の周の経過とベストとの差を出し、周を終えたらタイムと差を数秒大きく出して声でも知らせる。
  * 測位の出どころ: デジスパイス (Bluetooth、20 Hz)・この端末の GPS (1 Hz 前後)・読み込んだログの再生 (試すため)
  */

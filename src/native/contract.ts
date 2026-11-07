@@ -1,8 +1,8 @@
 /**
- * Web とネイティブ (iPhone の Swift・Android の Kotlin) の間の約束 (docs/iphone_app_design.md の 7.6)。
+ * Web とネイティブ (iPhone の Swift・Android の Kotlin) の間の約束。
  *
  * ネイティブはこの形を作るだけにし、解析・周の判定・機器ごとのデータの読み方は入れない。
- * 形を変えるときは CONTRACT_VERSION を上げ、mobile/ios (Swift)・mobile/android (Kotlin)・ふりをする窓口 (mockNative.ts) も同じに直す。
+ * 形を変えるときは CONTRACT_VERSION を上げ、各端末の実装 (Swift・Kotlin)・ふりをする窓口 (mockNative.ts) も同じに直す。
  *
  * やりとり (すべて JSON の文字列):
  * - Web → ネイティブ: NativeRequest を `window.webkit.messageHandlers.dsNative.postMessage(文字列)` (iPhone)
