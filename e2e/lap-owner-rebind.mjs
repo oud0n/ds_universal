@@ -30,13 +30,15 @@ try {
  const definition={version:1,id:'user:sample',name:'sample',kind:'sensor',sensorKey:'sample',header:['time','v'],headerRow:0,delimiter:',',time:{column:'time',as:'seconds'},columns:{v:{target:'throttle'}}};
  storeFiles.set('formats/sample.csvformat.json',new TextEncoder().encode(JSON.stringify(definition)));
  storeFiles.set('sodegaura/split.sample.csv',new TextEncoder().encode(['time,v',...Array.from({length:2000},(_,i)=>i+',37')].join(String.fromCharCode(10))));
- window.failDefinitions=true;await(await import('/src/services/csvFormatStore.ts')).loadCsvFormats(1);
+ await(await import('/src/services/csvFormatStore.ts')).loadCsvFormats(1);
  window.__laploupe.go('analysis');
  })()`);
  const pick=async(file='split.nmea')=>{
   await p.click('open-lap-picker');
   if(await p.ev("[...document.querySelectorAll('button')].some(b=>b.textContent==='Stored runs')"))await p.clickText('Stored runs');
   await p.waitFor("document.querySelector('[data-testid=lap-picker-row] [data-slot=\"0\"]')",20000,'split lap');
+  // 一覧の準備は成功させ、採用後のsidecar読込みにだけ定義I/O失敗を挟む。
+  if(!await p.ev('!!window.didInjectDefinitionFailure'))await p.ev("window.didInjectDefinitionFailure=true;window.failDefinitions=true;import('/src/services/csvFormatStore.ts').then(m=>m.loadCsvFormats(1))");
   await p.ev(`[...document.querySelectorAll('[data-testid=lap-picker-row]')].find(r=>r.parentElement.querySelector('p')?.title.includes(${JSON.stringify(file)})).querySelector('[data-slot="0"]').click()`);
   await p.waitFor("document.querySelector('[role=status]')?.textContent.includes('Assigned ')",15000,'assigned split lap');
   await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");
@@ -65,20 +67,8 @@ try {
  await p.waitFor('window.__laploupe.sessions.length===1');
  await p.ev(`(()=>{const e=document.querySelector('[data-testid=data-drawer] input[type=number][step="0.01"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'6.5');e.dispatchEvent(new Event('input',{bubbles:true}));storeFiles.set('sodegaura/B.nmea',storeFiles.get('sodegaura/split.nmea'));})()`);
  await p.ev('window.__laploupe.selectCar(0,window.__laploupe.analysisSnapshot().sessions[0].id,window.__laploupe.analysisSnapshot().sessions[0].laps[0].lapNumber)');
- await p.waitFor("document.querySelector('[data-testid=session-save-name]')");
- await p.ev(`(()=>{const e=document.querySelector('[data-testid=session-save-name]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'Part2 only');e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
- await p.click('session-save-button');
- await p.waitFor("[...storeFiles].some(([path,b])=>path.startsWith('sessions/')&&JSON.parse(new TextDecoder().decode(b)).name==='Part2 only')");
- assert.equal(await p.ev("JSON.parse(new TextDecoder().decode([...storeFiles].find(([path,b])=>path.startsWith('sessions/')&&JSON.parse(new TextDecoder().decode(b)).name==='Part2 only')[1])).cars[0].part"),2,'saved comparison uses actual part number');
  await p.click('data-drawer-close');await pick('B.nmea');
  assert.equal(await p.ev("JSON.parse(new TextDecoder().decode(storeFiles.get('sodegaura/runs.json'))).runs.split.parts['2'].clockOffsetSec"),6.5,'part2 edit saved before switching Car');
- await p.ev("storeFiles.set('sessions/part1.lapsession.json',new TextEncoder().encode(JSON.stringify({version:1,name:'Part1 restore',createdAt:'2026-01-01T00:00:00Z',cars:[{slot:0,run:'sodegaura/split.nmea',part:1,lap:1}]})));window.__laploupe.go('library')");
- await p.waitFor("document.querySelector('[data-testid=library-sessions]')");
- if(!await p.ev("!!document.querySelector('[data-testid=library-session-row]')"))await p.ev("document.querySelector('[data-testid=library-sessions] > button').click()");
- await p.waitFor("[...document.querySelectorAll('[data-testid=library-session-row] button')].some(b=>b.innerText.includes('Part1 restore'))");
- await p.ev("[...document.querySelectorAll('[data-testid=library-session-row] button')].find(b=>b.innerText.includes('Part1 restore')).click()");
- await p.waitFor("window.__laploupe.screen==='analysis'&&window.__laploupe.cars.length===1&&window.__laploupe.analysisSnapshot().sessions.find(s=>s.id===window.__laploupe.cars[0].sessionId)?.sourceFile?.file==='split.nmea'");
- assert.equal(await p.ev('window.__laploupe.analysisSnapshot().sessions.find(s=>s.id===window.__laploupe.cars[0].sessionId).sourceFile.part'),1,'saved restore selects original part1');
  assert.equal(p.errors.length,0,p.errors.join('\n'));
  console.log('PASS split owner rebind: fresh ID, restored clock, second-part edit persisted');
 } catch(error) {console.log(JSON.stringify(await p.ev(`({sessions:window.__laploupe.analysisSnapshot().sessions.map(s=>({id:s.id,part:s.sourceFile?.part,clock:s.clockOffsetSec})),owner:testRunOpener.getOpenRun()?.item.entry,ids:window.oldIds,matches:testRunOpener.currentRunMatches?.('sodegaura/split.nmea',window.__laploupe.analysisSnapshot().sessions.map(s=>s.id)),disk:JSON.parse(new TextDecoder().decode(storeFiles.get('sodegaura/runs.json')))})`),null,2));throw error;} finally {await p.close();}

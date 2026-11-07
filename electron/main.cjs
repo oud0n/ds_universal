@@ -421,15 +421,13 @@ const LAP_TEXT_NAMES = new Set(['laptimes.json', 'runs.json', 'corners.json', 'c
 // 保管場所の course/ (デジスパイスのコースフォルダにならった形。2026-10-24): コーナー (Corner/<フォルダ>.json と .bak)・
 // コース編集で直したコースの計測線 (ControlLine/*.cln)・セクター線 (Sector/*.sci)・その名前などの一覧 (courses.json)
 const COURSE_TEXT = /^course\/(Corner\/[a-z0-9_]+\.json(\.bak)?|ControlLine\/[^/\\]+\.cln|Sector\/[^/\\]+\.sci|courses\.json)$/;
-// 解析用のセッション (sessions/<名前>.lapsession.json。保存した比べ方。PLAN-18。2026-10-25)
-const SESSION_TEXT = /^sessions\/[^/\\]+\.lapsession\.json$/;
 // メーターの並び (PLAN-08)
 const OVERLAY_TEXT = /^overlays\/[^/\\]+\.overlay\.json$/;
 // CSV の形式の定義・計算式 (PLAN-36)
 const FORMAT_TEXT = /^formats\/([^/\\]+\.csvformat\.json|calc\.json)$/;
 const lapTextAllowed = (rel, full) => {
   const r = String(rel).replace(/\\/g, '/');
-  return LAP_TEXT_NAMES.has(path.basename(full)) || COURSE_TEXT.test(r) || SESSION_TEXT.test(r) || OVERLAY_TEXT.test(r) || FORMAT_TEXT.test(r);
+  return LAP_TEXT_NAMES.has(path.basename(full)) || COURSE_TEXT.test(r) || OVERLAY_TEXT.test(r) || FORMAT_TEXT.test(r);
 };
 const MAX_LAP_TEXT_BYTES = 20 * 1024 * 1024;
 /**

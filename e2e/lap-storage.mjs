@@ -23,9 +23,9 @@ try {
  await p.send('Page.addScriptToEvaluateOnNewDocument',{source:`
  window.storeFiles = new Map(); window.storeWrites=[]; window.storeReads=[]; window.failWrites=false;
  window.electronAPI={onOpenFiles:callback=>{window.menuOpenFiles=callback;return()=>{window.menuOpenFiles=null}},readFileBuffer:async path=>{if(window.holdMenuRead&&path.endsWith('menu-old.nmea'))await new Promise(resolve=>window.finishMenuRead=resolve);return {success:true,name:path.slice(path.lastIndexOf('/')+1),dataArray:storeFiles.get('sodegaura/demo.nmea')};},laps:{getFolder:async()=>{if(window.holdFolder)await new Promise(resolve=>(window.folderWaiters??=[]).push(resolve));return window.folderRoot??'/synthetic/A'},pickFolder:async()=>null,
- list:async()=>window.failSavedList&&window.__laploupe?.openingSaved?.()?{success:false,error:'synthetic list failure'}:({success:true,files:[...storeFiles].map(([path,b])=>({path,size:b.byteLength,mtimeMs:123,local:true}))}),
- read:async path=>{storeReads.push(path);if(window.holdHistoryRead===path)await new Promise(resolve=>window.resumeHistoryRead=resolve);if(window.holdLegacyRead===path && window.__laploupe?.openingRun?.())await new Promise(resolve=>window.resumeLegacyRead=resolve);if(window.holdIndexRead===path)await new Promise(resolve=>window.resumeIndexRead=resolve);if(window.readDelayMs)await new Promise(r=>setTimeout(r,window.readDelayMs));if(window.holdSavedRead===path && window.__laploupe?.openingSaved?.())await new Promise(resolve=>window.resumeSavedRead=resolve);const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
- readText:async path=>{if(window.failListedRunsMetadata&&path.endsWith('/runs.json'))return {success:false,error:'synthetic listing metadata failure'};if(window.failRunsMetadata&&window.__laploupe?.openingSaved?.()&&path.endsWith('/runs.json'))return {success:false,error:'synthetic metadata failure'};if(window.holdTextRead===path)await new Promise(resolve=>(window.textWaiters??=[]).push(resolve));return {success:true,text:storeFiles.has(path)?new TextDecoder().decode(storeFiles.get(path)):null}},
+ list:async()=>({success:true,files:[...storeFiles].map(([path,b])=>({path,size:b.byteLength,mtimeMs:123,local:true}))}),
+ read:async path=>{storeReads.push(path);if(window.holdHistoryRead===path)await new Promise(resolve=>window.resumeHistoryRead=resolve);if(window.holdLegacyRead===path && window.__laploupe?.openingRun?.())await new Promise(resolve=>window.resumeLegacyRead=resolve);if(window.holdIndexRead===path)await new Promise(resolve=>window.resumeIndexRead=resolve);if(window.readDelayMs)await new Promise(r=>setTimeout(r,window.readDelayMs));const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
+ readText:async path=>{if(window.failListedRunsMetadata&&path.endsWith('/runs.json'))return {success:false,error:'synthetic listing metadata failure'};if(window.holdTextRead===path)await new Promise(resolve=>(window.textWaiters??=[]).push(resolve));return {success:true,text:storeFiles.has(path)?new TextDecoder().decode(storeFiles.get(path)):null}},
  writeText:async(path,text)=>{if(path.endsWith('/laptimes.json'))(window.indexWrites??=[]).push(JSON.parse(text));if(window.failWrites)return {success:false,error:'synthetic write failure'};storeWrites.push(path);storeFiles.set(path,new TextEncoder().encode(text));return {success:true}}
  }};
  `});
@@ -37,6 +37,7 @@ try {
  const log=parseNmea(new TextDecoder().decode(b));const first=Date.parse(log.points[0].timestamp);
  const imu=['time_utc_ms,g_long,g_lat'];for(let t=0;t<2000;t++)imu.push((first+t*1000)+',0.123,0.234');
  storeFiles.set('sodegaura/demo.iphone_imu.csv',new TextEncoder().encode(imu.join(String.fromCharCode(10))));
+ window.legacyComparison=JSON.stringify({version:1,name:'Existing comparison',cars:[{slot:0,run:'sodegaura/demo.nmea',lap:2}]});storeFiles.set('sessions/legacy.lapsession.json',new TextEncoder().encode(window.legacyComparison));
  })()`);
  // 一覧の走査中に保存先を取り消しても、正常なログを周なしとして控えず、一覧は自動で読み直す。
  await p.ev("(async()=>{window.holdIndexRead='sodegaura/demo.nmea';window.__laploupe.go('library');(await import('/src/services/runsChanged.ts')).notifyRunsChanged();})()");
@@ -144,30 +145,6 @@ try {
  assert.deepEqual((await p.state()).cars,before.cars,'legacy open does not change Cars after save failure');
  assert.equal(await p.ev('testRunOpener.getOpenRun()?.item.file'),before.owner);
  await p.ev("window.__laploupe.go('analysis');window.failWrites=false;window.testRunOpener.flushOpenRunsStrict()");
- // 保存した比較の基準周を、走行の最速周で上書きしない。
- const chosenLap=await p.ev("(()=>{const laps=window.testRunOpener.getOpenRun().item.laps;const best=laps.reduce((a,b)=>a.time<b.time?a:b).n;const target=laps.find(l=>l.n!==best).n;const data={version:1,name:'non-best lap',createdAt:'2025-01-01T00:00:00Z',cars:[{slot:0,run:'sodegaura/demo.nmea',lap:target}]};storeFiles.set('sessions/non-best.lapsession.json',new TextEncoder().encode(JSON.stringify(data)));return target;})()");
- await p.ev("window.__laploupe.go('library')");
- await p.waitFor("document.querySelector('[data-testid=library-sessions]')",10000,'saved comparison');
- if(!await p.ev("!!document.querySelector('[data-testid=library-session-row]')"))await p.ev("document.querySelector('[data-testid=library-sessions] > button').click()");
- await p.waitFor("document.querySelector('[data-testid=library-session-row]')");
- const carsBeforeIO=(await p.state()).cars, notesBeforeIO=p.notes.length;
- await p.ev("window.failSavedList=true;document.querySelector('[data-testid=library-session-row] button').click()");
- await p.waitFor('!window.__laploupe.openingSaved()');
- assert.deepEqual((await p.state()).cars,carsBeforeIO,'failed list does not partially restore comparison');
- assert.ok(p.notes.slice(notesBeforeIO).some(s=>s.includes('Could not load the comparison')));
- assert.ok(!p.notes.slice(notesBeforeIO).some(s=>s.includes('runs of this session were not found')));
- await p.ev("window.failSavedList=false;window.failRunsMetadata=true;document.querySelector('[data-testid=library-session-row] button').click()");
- await p.waitFor('!window.__laploupe.openingSaved()');
- assert.deepEqual((await p.state()).cars,carsBeforeIO,'metadata IO does not replace the working comparison');
- await p.ev("window.failRunsMetadata=false;document.querySelector('[data-testid=library-session-row] button').click()");
- await p.waitFor(`window.__laploupe.screen==='analysis' && window.__laploupe.cars.length===1 && window.__laploupe.cars[0].lapNumber===${chosenLap}`);
- assert.ok(Math.abs((await p.state()).sessionTimeSec-(await p.state()).baseLap.startTime)<0.001,'saved base starts at its own lap');
- const beforeMissingLap=(await p.state()).cars;
- await p.ev("(()=>{const data={version:1,name:'Vanished lap',createdAt:'2025-01-01T00:00:00Z',cars:[{slot:0,run:'sodegaura/demo.nmea',lap:999999}]};storeFiles.set('sessions/vanished.lapsession.json',new TextEncoder().encode(JSON.stringify(data)));window.__laploupe.go('library')})()");
- await p.waitFor("[...document.querySelectorAll('[data-testid=library-session-row]')].some(r=>r.innerText.includes('Vanished lap'))");
- await p.ev("[...document.querySelectorAll('[data-testid=library-session-row]')].find(r=>r.innerText.includes('Vanished lap')).querySelector('button').click()");
- await p.waitFor('!window.__laploupe.openingSaved()');
- assert.deepEqual((await p.state()).cars,beforeMissingLap,'missing saved lap does not discard working analysis');
  await p.ev("window.__laploupe.go('analysis');storeFiles.set('sodegaura/B.nmea',storeFiles.get('sodegaura/demo.nmea'))");
  await p.click('open-lap-picker');
  if(await p.ev("[...document.querySelectorAll('button')].some(x=>x.textContent==='Stored runs')"))await p.clickText('Stored runs');
@@ -212,20 +189,6 @@ try {
  await assigned(1);
  assert.equal(await p.ev(`window.__laploupe.sessions.find(s=>s.id===${JSON.stringify(aid)}).sessionName`),'Edited without disk','stored reparse keeps pending name');
  await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click();window.failWrites=false");
- await p.ev("(()=>{for(const f of ['C','D'])storeFiles.set('sodegaura/'+f+'.nmea',storeFiles.get('sodegaura/demo.nmea'));const data={version:1,name:'Interleaved saved',createdAt:'2025-01-01T00:00:00Z',cars:['demo','C','D'].map((f,slot)=>({slot,run:'sodegaura/'+f+'.nmea',lap:1}))};storeFiles.set('sessions/interleaved.lapsession.json',new TextEncoder().encode(JSON.stringify(data)));window.holdSavedRead='sodegaura/D.nmea';window.__laploupe.go('library');})()");
- await p.waitFor("[...document.querySelectorAll('[data-testid=library-session-row] button')].some(b=>b.innerText.includes('Interleaved saved'))",15000,'overlap comparison');
- await p.ev("[...document.querySelectorAll('[data-testid=library-session-row] button')].find(b=>b.innerText.includes('Interleaved saved')).click()");
- await p.waitFor("typeof window.resumeSavedRead==='function'",15000,'saved-open companion barrier');
- const duringSaved=(await p.state()).cars;
- await p.ev("window.__laploupe.go('analysis')");
- await p.click('open-lap-picker');
- await p.waitFor("document.querySelector('[data-testid=lap-picker-row]')");
- await p.ev(`(${pickStored})('demo.nmea',1)`);
- await p.waitFor("document.querySelector('[role=dialog] [role=alert]')");
- assert.deepEqual((await p.state()).cars,duringSaved,'picker cannot replace unfinished saved restore');
- await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click();window.holdSavedRead=null;window.resumeSavedRead()");
- await p.waitFor('window.__laploupe.cars.length===3',15000,'finished saved comparison');
- const completed=await p.state();assert.ok(completed.cars.every(c=>completed.sessions.some(s=>s.id===c.sessionId)),'all restored Cars have a live source');
  const earlier=await p.ev("window.testRunOpener.getOpenRunItem('sodegaura','demo.nmea').laps.find(l=>!l.hidden).n");
  const later=await p.ev("window.testRunOpener.getOpenRunItem('sodegaura','demo.nmea').laps.filter(l=>!l.hidden).at(-1).n");
  assert.ok(later>earlier);
@@ -255,26 +218,6 @@ try {
  assert.deepEqual((await p.state()).cars,beforeReject,'rejected assignment does not change Cars');
  assert.ok(await p.ev("(()=>{const item=window.testRunOpener.getOpenRunItem('sodegaura','demo.nmea');return item.laps===window.ownerLapsBefore && item.folderVideos===window.ownerVideosBefore;})()"),'rejected assignment does not mutate live run metadata');
  await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");
- // 保存した比較の途中で保存先を変えたら、旧結果で Car や画面を戻さない。
- await p.ev("(()=>{for(const f of ['E','F'])storeFiles.set('sodegaura/'+f+'.nmea',storeFiles.get('sodegaura/demo.nmea'));const data={version:1,name:'Interrupted restore',createdAt:'2025-01-01T00:00:00Z',cars:['E','F'].map((f,slot)=>({slot,run:'sodegaura/'+f+'.nmea',lap:1}))};storeFiles.set('sessions/interrupted.lapsession.json',new TextEncoder().encode(JSON.stringify(data)));window.holdSavedRead='sodegaura/F.nmea';window.resumeSavedRead=null;window.__laploupe.go('library');})()");
- await p.waitFor("[...document.querySelectorAll('[data-testid=library-session-row]')].some(x=>x.innerText.includes('Interrupted restore'))",10000,'saved comparison to interrupt');
- await p.ev("[...document.querySelectorAll('[data-testid=library-session-row]')].find(x=>x.innerText.includes('Interrupted restore')).querySelector('button').click()");
- await p.waitFor('window.resumeSavedRead',15000,'restore held on later run');
- const carsBeforeManual=(await p.state()).cars;
- await p.ev("(()=>{window.__laploupe.go('analysis');const s=window.__laploupe.analysisSnapshot().sessions.find(s=>s.id===window.__laploupe.cars[0].sessionId);const lap=s.laps.find(l=>l.lapNumber!==window.__laploupe.cars[0].lapNumber);window.__laploupe.selectCar(0,s.id,lap.lapNumber);})()");
- const manualCars=(await p.state()).cars;assert.notDeepEqual(manualCars,carsBeforeManual);
- await p.ev('window.holdSavedRead=null;window.resumeSavedRead()');
- await p.waitFor('!window.__laploupe.openingSaved()');
- assert.deepEqual((await p.state()).cars,manualCars,'late saved comparison does not replace newer manual choice');
- await p.ev("window.holdSavedRead='sodegaura/F.nmea';window.resumeSavedRead=null;window.__laploupe.go('library')");
- await p.waitFor("[...document.querySelectorAll('[data-testid=library-session-row]')].some(x=>x.innerText.includes('Interrupted restore'))");
- await p.ev("[...document.querySelectorAll('[data-testid=library-session-row]')].find(x=>x.innerText.includes('Interrupted restore')).querySelector('button').click()");
- await p.waitFor('window.resumeSavedRead',15000,'second restore held on later run');
- const carsAtRootChange=(await p.state()).cars, notesAtRootChange=p.notes.length;
- await p.ev("(async()=>{window.__laploupe.go('settings');await(await import('/src/services/storageRevision.ts')).trackStorageSelection(()=>{window.folderRoot='/synthetic/restore-new';return '/synthetic/restore-new'});window.resumeSavedRead();})()");
- await p.waitFor('!window.__laploupe.openingSaved()',10000,'obsolete restore ends');
- assert.equal((await p.state()).screen,'settings');assert.deepEqual((await p.state()).cars,carsAtRootChange);
- assert.deepEqual(p.notes.slice(notesAtRootChange),[],'root change is not reported as missing runs');
  // 定義・計算式も保存先に属する。旧編集は閉じ、新保存先の確認前には保存しない。
  await p.ev(`(async()=>{
   window.csvStore=await import('/src/services/csvFormatStore.ts');
@@ -376,59 +319,6 @@ try {
   assert.deepEqual(lapPhysics.actual,lapPhysics.expected,'lap consumers receive the updated physics too');
   await p.ev('window.restorePhysicsList()');
  }
- // Carが同じでも、File入力とElectronメニューの両方を古い復元で落とさない。
- for(const source of ['local','menu']){
- await p.ev(`(async()=>{
-  const state=window.__laploupe.analysisSnapshot();if(state.selectedCars.length<2)throw Error('requires two selected cars');
-  const cars=state.selectedCars.slice(0,2).map(c=>{const s=state.sessions.find(s=>s.id===c.sessionId),f=s.sourceFile;return {slot:c.slot,run:f.folder+'/'+f.file,part:f.part,lap:c.lapNumber};});
-  storeFiles.set('sessions/input-race.lapsession.json',new TextEncoder().encode(JSON.stringify({version:1,name:'Input race',createdAt:'2025-01-01T00:00:00Z',cars})));
-  window.__laploupe.go('library');
- })()`);
- await p.waitFor("[...document.querySelectorAll('[data-testid=library-session-row] button')].some(b=>b.innerText.includes('Input race'))",15000,'saved input comparison');
- await p.ev(`(()=>{const list=window.electronAPI.laps.list;let calls=0;window.finishInputValidation=null;window.restoreInputList=()=>window.electronAPI.laps.list=list;
-  window.electronAPI.laps.list=async()=>{if(window.__laploupe.openingSaved()&&++calls===6)await new Promise(resolve=>window.finishInputValidation=resolve);return list();};
-  [...document.querySelectorAll('[data-testid=library-session-row] button')].find(b=>b.innerText.includes('Input race')).click();
- })()`);
- await p.waitFor('window.finishInputValidation',15000,'final two-car comparison validation');
- const carsBeforeInput=await p.ev('JSON.stringify(window.__laploupe.cars)');
- const inputName=source==='local'?'new-local-input.nmea':'new-menu-input.nmea';
- if(source==='local'){
-  await p.ev("window.newLocalInput=window.__laploupe.loadFiles([new File([storeFiles.get('sodegaura/demo.nmea')],'new-local-input.nmea')]);void 0");
-  await p.waitFor("window.__laploupe.sessions.some(s=>s.fileName==='new-local-input.nmea')||document.querySelector('[data-testid=import-open-only]')",15000,'new local input');
-  if(await p.ev("!!document.querySelector('[data-testid=import-open-only]')"))await p.click('import-open-only');
- }else await p.ev("window.menuOpenFiles(['/synthetic/new-menu-input.nmea'])");
- await p.waitFor(`window.__laploupe.sessions.some(s=>s.fileName===${JSON.stringify(inputName)})`);
- assert.equal(await p.ev('JSON.stringify(window.__laploupe.cars)'),carsBeforeInput,'new unassigned log leaves existing cars unchanged');
- await p.ev('window.finishInputValidation()');await p.waitFor('!window.__laploupe.openingSaved()');
- assert.equal(await p.ev(`window.__laploupe.sessions.some(s=>s.fileName===${JSON.stringify(inputName)})`),true,'old comparison cannot discard newer accepted input');
- await p.ev('window.restoreInputList()');
- }
- // 保存した比較の最終検査中に手動補正しても、古い控えへ戻さない。
- await p.ev(`(async()=>{
-  const state=window.__laploupe.analysisSnapshot(),s=state.sessions.find(s=>s.id===state.selectedCars.find(c=>c.slot===0).sessionId),f=s.sourceFile;
-  window.clockRestoreId=s.id;window.clockBeforeRestore=s.clockOffsetSec??0;
-  const saved={version:1,name:'Clock race',createdAt:'2025-01-01T00:00:00Z',cars:[{slot:0,run:f.folder+'/'+f.file,part:f.part,lap:s.laps[0].lapNumber}]};
-  storeFiles.set('sessions/clock-race.lapsession.json',new TextEncoder().encode(JSON.stringify(saved)));
-  window.__laploupe.go('library');
- })()`);
- await p.waitFor("[...document.querySelectorAll('[data-testid=library-session-row] button')].some(b=>b.innerText.includes('Clock race'))",15000,'saved clock comparison');
- await p.ev(`(()=>{const list=window.electronAPI.laps.list;let calls=0;window.finishClockValidation=null;window.restoreClockList=()=>window.electronAPI.laps.list=list;
-  window.electronAPI.laps.list=async()=>{if(window.__laploupe.openingSaved()&&++calls===4)await new Promise(resolve=>window.finishClockValidation=resolve);return list();};
-  const button=[...document.querySelectorAll('[data-testid=library-session-row] button')].find(b=>b.innerText.includes('Clock race'));button.click();button.click();
- })()`);
- await p.waitFor('window.finishClockValidation',15000,'final saved comparison validation');
- await p.ev("window.__laploupe.go('analysis')");
- await p.waitFor("document.querySelector('[data-testid=toggle-data-drawer]')",10000,'analysis drawer toggle');
- if(!await p.ev("!!document.querySelector('[data-testid=data-drawer]')?.getClientRects().length"))await p.click('toggle-data-drawer');
- await p.waitFor("document.querySelector('[data-testid=data-drawer]')",10000,'clock edit drawer');
- await p.ev(`(()=>{const i=window.__laploupe.sessions.findIndex(s=>s.id===window.clockRestoreId),card=document.querySelectorAll('[data-testid=session-card]')[i],e=card.querySelector('input[type=number][step="0.01"]');
-  window.expectedRestoredClock=window.clockBeforeRestore+2.125;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,String(window.expectedRestoredClock));e.dispatchEvent(new Event('input',{bubbles:true}));
- })()`);
- await p.waitFor('window.__laploupe.analysisSnapshot().sessions.find(s=>s.id===window.clockRestoreId)?.clockOffsetSec===window.expectedRestoredClock');
- await p.ev('window.finishClockValidation()');await p.waitFor('!window.__laploupe.openingSaved()');
- assert.equal(await p.ev('window.__laploupe.analysisSnapshot().sessions.find(s=>s.id===window.clockRestoreId).clockOffsetSec'),await p.ev('window.expectedRestoredClock'),'late comparison cannot revert a newer clock edit');
- assert.equal(await p.ev('window.__laploupe.sessions.length'),1,'ignored duplicate click still completes the first comparison');
- await p.ev('window.restoreClockList()');
  // 公開の差し込み口に小さなボタンを置き、両方開くの実コールバックを通す。
  await p.ev(`(async()=>{
   await testRunOpener.flushOpenRunsStrict();
@@ -441,7 +331,10 @@ try {
  await p.click('import-view-fixture');await p.waitFor("document.querySelector('[data-testid=fixture-open-both]')");
  await p.ev("window.folderWaiters=[];window.holdFolder=true;document.querySelector('[data-testid=fixture-open-both]').click()");
  await p.waitFor('window.folderWaiters.length>0',10000,'open both before stored selection');
+ // OpenBothの読込みだけを止め、新しいPickerの保管場所一覧は読み込めるようにする。
+ await p.ev('window.holdFolder=false');
  await p.click('open-lap-picker');
+ if(await p.ev("[...document.querySelectorAll('button')].some(x=>x.textContent==='Stored runs')"))await p.clickText('Stored runs');
  await p.waitFor("document.querySelector('[data-testid=lap-picker-row] [data-slot=\"0\"]')");
  await p.ev("[...document.querySelectorAll('[data-testid=lap-picker-row] [data-slot=\"0\"]')].find(b=>!b.className.includes('border-cyan')).click()");
  await assigned(0);await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click()");
@@ -502,6 +395,8 @@ try {
  })()`);
  const described=await p.ev("(()=>{const s=window.__laploupe.analysisSnapshot().sessions.find(s=>s.fileName==='described-companion.nmea');return {name:s.sessionName,note:s.runNote,car:s.vehicleName};})()");
  assert.deepEqual(described,{name:'Saved companion',note:'Saved note',car:'Saved car'});
+ assert.equal(await p.ev("new TextDecoder().decode(storeFiles.get('sessions/legacy.lapsession.json'))===window.legacyComparison"),true,'legacy comparison file preserved');
+ assert.equal(await p.ev("!!document.querySelector('[data-testid=session-save],[data-testid=library-sessions]')"),false,'removed comparison UI absent');
  assert.deepEqual(p.errors,[]);
- await p.shot('preserved');console.log(JSON.stringify({result:'PASS interrupted run-list and legacy history scans; repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; non-best saved lap; failed-save companion promotion; pending metadata, overlapping saved restore, same-source delayed earlier-lap first renders',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
+ await p.shot('preserved');console.log(JSON.stringify({result:'PASS interrupted run-list and legacy history scans; repeated stored picks and pending attachment; valid IMU fixture; cancel retains ownership; failed save blocks folder switch; failed-save companion promotion; pending metadata, same-source delayed earlier-lap first renders',writes:await p.ev('window.storeWrites.length'),errors:p.errors}));
 }catch(error){console.log(await p.ev("({body:document.body.innerText,reads:storeReads.slice(-12),indexes:window.indexWrites?.map(x=>Object.keys(x.files))})"),p.errors);throw error;}finally{await p.close();fs.rmSync(fixtureDir,{recursive:true,force:true});}

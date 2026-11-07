@@ -126,7 +126,7 @@ export function applyRunMetadata(sessions: Session[], entry: RunRow | null): Ses
     runNote: entry.note, vehicleName: car ?? session.vehicleName }));
 }
 
-/** 保存した比べ方も、採用する瞬間に存在する走行と周だけを割り当てる。 */
+/** 採用する瞬間に存在する走行と周だけを割り当てる。 */
 export function selectAvailableCars(state: AnalysisState, cars: SelectedCarSlot[]): AnalysisState {
   const valid = new Map<number, SelectedCarSlot>();
   for (const car of cars) {

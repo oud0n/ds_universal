@@ -42,7 +42,7 @@ try {
   a.setPlayhead({source:run.id,sessionSec:e.playbackPosition.asSessionSec(first.startTime+1)});
   const clock=e.playbackPosition.getPlaybackPosition(a.getSnapshot().playhead.sessionSec,first);
   if(clock.lapSec!==1 || b.getSnapshot().analysis.sessions.length) throw Error('Session isolation or clock failed');
-  const text=e.analysisSessions.fileSessionCars(a.getSnapshot().analysis.selectedCars,a.analysis.getSessions());
+  const cars=a.getSnapshot().analysis.selectedCars.length;
   await runtime.media.addVideoFiles([{name:'clip.mp4',size:1,lastModified:0,arrayBuffer:async()=>new ArrayBuffer(0),slice:()=>({arrayBuffer:async()=>new ArrayBuffer(0)})}],[run],false);
   const track=runtime.media.getTracks()[0];
   runtime.media.setMatchedSession(track.id,run.id);
@@ -53,7 +53,7 @@ try {
   restored.importProjectJson(files.get('sync.json'),[run]);
   const placed=e.videoTypes.placeTrack(restored.getTracks()[0],run,[run]);
   if(placed.syncOffsetSec!==12.5)throw Error('Sync did not round trip');
-  return {syncOffset:placed.syncOffsetSec,parts:log.parts.length,points:part.points.length,laps:counted.laps.length,clock:clock.lapSec,cars:text.length};
+  return {syncOffset:placed.syncOffsetSec,parts:log.parts.length,points:part.points.length,laps:counted.laps.length,clock:clock.lapSec,cars};
  })()`,context,{timeout:30000});
  assert(result.points>100);assert(result.laps>0);assert.equal(result.cars,1);
  process.stdout.write(`Portable engine: ${JSON.stringify(result)}; no browser/Node globals.\n`);

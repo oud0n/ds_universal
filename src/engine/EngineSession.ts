@@ -23,7 +23,7 @@ export function createEngineSession(options:EngineSessionOptions={}){
  const storage=options.storage??createStorageContext();
  const operations={
   mediaImports:{current:0},projectImports:{current:0},pickerActive:{current:false},slotRequests:{current:[0,0,0,0]},selectionEpoch:{current:0},manualSelection:{current:0},
-  pendingParses:{current:new Map<string,{readers:number;parsed?:Promise<Session[]>}>()},savedOpening:{current:false},runOpening:{current:false},
+  pendingParses:{current:new Map<string,{readers:number;parsed?:Promise<Session[]>}>()},runOpening:{current:false},
   runSessions:{current:new Map<string,string[]>()},runItems:{current:new Map<string,RunItem>()},attachedRun:{current:null as string|null},openedRun:{current:null as string|null},runDownloadToken:{current:0}
  };
  const active=()=>{if(snapshot.closed||closing)throw new EngineError('engine.closed',{ja:'エンジンは終了しました。',en:'The engine is closed.'});};

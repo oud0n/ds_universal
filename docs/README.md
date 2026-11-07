@@ -40,7 +40,7 @@
 | [video_sets_design.md](video_sets_design.md) | PLAN-17 動画の走行とセット | 実装済み |
 | [overlay_parts_design.md](overlay_parts_design.md) | メーターの部品 | 実装済み |
 | [meter_layout_design.md](meter_layout_design.md) | PLAN-08・38 メーターの配置・画像・書き出しの範囲 | 実装済み |
-| [session_storage_design.md](session_storage_design.md) | PLAN-18 比べ方の保存 | 実装済み |
+| [session_storage_design.md](session_storage_design.md) | 旧PLAN-18の設計記録 | 比べ方の保存は廃止 (2026-11-07)。既存ファイルは保持 |
 | [run_storage_v2.md](run_storage_v2.md) | PLAN-29・32・33 runs.json の 2 版 | 実装済み (保管場所の形の正) |
 | [corner_names_design.md](corner_names_design.md) | PLAN-27 コーナーの名前 | 実装済み |
 | [csv_format_design.md](csv_format_design.md) | PLAN-36 CSV の形式・計算式 | 実装済み (残り 2 つは TODO) |

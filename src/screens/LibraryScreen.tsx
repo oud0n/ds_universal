@@ -17,7 +17,6 @@ import { baseName, setRunLapHidden, setRunMeta, type RunItem } from '../services
 import { RunNoteField } from '../components/RunNoteField';
 import { addons } from '../addons';
 import { navStore } from '../app/navStore';
-import { deleteSession, listSessions, type LapSession, type SavedSession } from '../services/analysisSessions';
 import { deleteRun, planRunDelete, type RunDeletePlan } from '../services/runDelete';
 import { canRemoveRunFiles, canTrashRunFiles, type RunFileInfo } from '../services/runStore';
 import { listTrash, purgeExpired, purgeTrash, restoreTrashedRun, trashRun, TRASH_DAYS, type TrashedRun } from '../services/runTrash';
@@ -38,8 +37,6 @@ interface Props {
   /** 横に広い画面 (デスクトップ・iPad)。走行の詳細を右の欄に出す。狭いときは画面いっぱいのシート */
   wide: boolean;
   onOpen: (r: RunItem) => void;
-  /** 保存した比べ方 (解析用のセッション。PLAN-18) を開く */
-  onOpenSession?: (s: LapSession) => void;
   onOpenVideo: (r: RunItem) => void;
   /** 比べる相手 (Car 2) として足す (走行をもう開いているときだけ) */
   onAddAsCar2?: (r: RunItem) => void;
@@ -80,7 +77,7 @@ const sameRunFile = (a: string, b: string) => {
   return dir(a) === dir(b) && runStem(a) === runStem(b);
 };
 
-export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSession, onOpenVideo, onAddAsCar2, car1Course = null, car1Run = null, openRuns = [], onPickFiles, onPickLaps, onOpenFile,onBeginOpen, busy, canTime = false }) => {
+export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVideo, onAddAsCar2, car1Course = null, car1Run = null, openRuns = [], onPickFiles, onPickLaps, onOpenFile,onBeginOpen, busy, canTime = false }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const { store, runs, error, noFolder, reload } = useRuns(active);
@@ -115,9 +112,6 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
   }, [active, store, canTrash, runs, trashTick]);
   /** 消す確かめの画面 (走行と、消すファイルの案) */
   const [deleting, setDeleting] = useState<{ item: RunItem; plan: RunDeletePlan | null; error?: string; running?: boolean } | null>(null);
-  /** 保存した比べ方 (解析用のセッション)。走行を読み直すたびに読み直す */
-  const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
-  const [sessionsOpen, setSessionsOpen] = useState(true);
   /** 動画だけの参考ラップ (LATER-17)。走行を読み直すたびに読み直す */
   const [videoRefs, setVideoRefs] = useState<VideoRef[]>([]);
   const [refsTick, setRefsTick] = useState(0);
@@ -136,12 +130,6 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
     setPicking(null);
     void store.listAll().then(files => setPicking(videoRefCandidates(files, runs ?? [], videoRefs)), () => setPicking([]));
   };
-  useEffect(() => {
-    if (!active || !store || !onOpenSession) return;
-    let alive = true;
-    void listSessions(store).then(l => { if (alive) setSavedSessions(l); }, () => {});
-    return () => { alive = false; };
-  }, [active, store, runs, onOpenSession]);
 
   const refCount = useMemo(() => (runs ?? []).filter(r => !!r.entry?.reference).length, [runs]) + videoRefs.length;
   // 参考ラップの区切りは、走行があれば出す (動画だけの参考ラップをそこから作れるように)
@@ -267,36 +255,6 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
           </div>
         )}
         {error && <p className="text-xs text-red-400 py-2">{error}</p>}
-        {/* 保存した比べ方 (解析で Car に割り当てた組み合わせ。PLAN-18) */}
-        {onOpenSession && store && savedSessions.length > 0 && (
-          <div data-testid="library-sessions">
-            <button onClick={() => setSessionsOpen(o => !o)} className="w-full flex items-center gap-1 text-[11px] font-bold text-slate-400 px-1 pb-1.5 cursor-pointer">
-              <GitCompare size={12} />{t(`保存した比べ方 ${savedSessions.length}`, `Saved comparisons ${savedSessions.length}`)}
-              <span className="ml-auto">{sessionsOpen ? '−' : '+'}</span>
-            </button>
-            {sessionsOpen && (
-              <div className="space-y-1.5">
-                {savedSessions.map(s => (
-                  <div key={s.path} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-2 border border-line-2" data-testid="library-session-row">
-                    <button onClick={() => onOpenSession(s.data)} disabled={busy} className="flex-1 min-w-0 text-left cursor-pointer disabled:opacity-50">
-                      <div className="text-xs font-bold text-slate-100 truncate">{s.data.name}</div>
-                      <div className="text-[11px] text-slate-500 truncate">
-                        {s.data.course?.name ? `${circuitLabel(s.data.course.name)} · ` : ''}{t(`${s.data.cars.length} 台`, `${s.data.cars.length} car${s.data.cars.length === 1 ? '' : 's'}`)} · {fmtDate(Date.parse(s.data.createdAt) || null, ja)}
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (!window.confirm(t(`「${s.data.name}」を消しますか？ (走行は消えません)`, `Delete "${s.data.name}"? (The runs are kept)`))) return;
-                        void deleteSession(store, s.path).then(() => setSavedSessions(l => l.filter(x => x.path !== s.path)));
-                      }}
-                      className="p-1.5 rounded text-slate-500 hover:text-red-400 cursor-pointer" aria-label={t('消す', 'Delete')} data-testid="library-session-delete"
-                    ><X size={14} /></button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
         {/* 動画だけの参考ラップ (LATER-17)。参考ラップの区切りの上に */}
         {ownerNow === 'ref' && store && (
           <div className="space-y-1.5" data-testid="library-video-refs">

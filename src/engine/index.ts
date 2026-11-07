@@ -1,7 +1,6 @@
 /** 画面・端末APIに依存しない公開入口。 */
 export * as engineSession from './EngineSession';
 export * as aimFormats from './aimFormats';
-export * as analysisSessions from './analysisSessions';
 export * as calcChannels from './calcChannels';
 export * as clockOffsetEstimator from './clockOffsetEstimator';
 export * as codecs from './codecs';

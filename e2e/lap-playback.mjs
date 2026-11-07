@@ -48,12 +48,12 @@ async function pressStep(p, lapSec) {
 async function installDelayedStore(p) {
   await p.ev(`(async () => {
     const { courseForFolder } = await import('/src/services/lapHistory.ts');
-    const { courseHash } = await import('/src/services/lapIndex.ts');
+    const { courseHash, SPLIT_RULE } = await import('/src/services/lapIndex.ts');
     const course = await courseForFolder('sodegaura');
     const index = { version:1, courseHash:courseHash(course), courseName:course.name, hidden:[],
       files:{ 'delayed.bon4':{ size:8,mtimeMs:30,startMs:100,laps:[
         {n:1,time:40,startMs:100,sectors:[],topSpeed:100}
-      ] } } };
+      ],split:SPLIT_RULE } } };
     window.electronAPI = { laps:{
       getFolder:async () => 'synthetic',
       list:async () => ({success:true,files:[{path:'sodegaura/delayed.bon4',size:8,mtimeMs:30,local:true}]}),
@@ -142,14 +142,13 @@ async function exercise(width, height, files) {
     await p.ev("document.querySelector('[role=dialog] button[aria-label=Close]').click(); window.finishDelayedRead()");
     await p.waitFor("!document.querySelector('[data-testid=lap-picker-rows]')");
     assert.deepEqual((await p.state()).cars, replaced.cars);
-    // 保存した比べ方で Car 2 だけを基準にしても、動画の自動比較は基準車を奪わない。
+    // 通常の割当て/解除でCar 2だけを基準にし、動画比較が基準を奪わない。
     await p.ev('window.electronAPI = undefined');
-    const comparison = path.join(fixtureDir, `comparison-${width}.lapsession.json`);
-    fs.writeFileSync(comparison, JSON.stringify({version:1,name:'non-first base',createdAt:'2025-01-01T00:00:00Z',source:'files',cars:[{slot:1,run:'run-2.gpx',lap:1}]}));
     await p.click('toggle-data-drawer');
-    await p.setFiles('[data-testid=session-import-input]', [comparison]);
+    await p.ev("(()=>{const snap=window.__laploupe.analysisSnapshot();const run=snap.sessions.find(s=>s.fileName==='run-2.gpx');window.__laploupe.selectCar(1,run.id,1);})()");
+    for (const car of (await p.state()).cars) if (car.slot !== 1) await p.click('car-clear-' + car.slot);
     await p.waitFor('window.__laploupe.cars.length === 1 && window.__laploupe.cars[0].slot === 1');
-    assert.ok(Math.abs((await p.state()).sessionTimeSec - (await p.state()).baseLap.startTime) < 0.001);
+    assert.ok(Math.abs((await p.state()).sessionTimeSec-(await p.state()).baseLap.startTime) < 0.001);
     await p.click('data-drawer-close');
     await p.ev("window.__laploupe.go('video')");
     await p.waitFor("document.querySelector('[data-testid=video-mode-compare]:not(:disabled)')");

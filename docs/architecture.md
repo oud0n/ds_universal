@@ -46,7 +46,7 @@ LapLoupe は、1 つの Web アプリ (React + TypeScript、`src/`) を 4 つの
 | ログの読み込み | `logLoader.ts` (拡張子と中身で振り分け)、`rawBinaryParser.ts` (.bnx4/.bon4)、`dtbParser.ts`、`nmeaParser.ts`、`csvParser.ts`・`csvFormats.ts` (CSV の形式の定義)、`externalFormats.ts` (VBO・GPX・RaceChrono など)、`aimFormats.ts`、`fitParser.ts`、`ibtParser.ts`、`gpmfParser.ts` (GoPro の GPS) |
 | 解析 | `lapCalculator.ts` (計測線・セクター・周)、`physics.ts` (G・旋回半径。公式と同じ計算は使ってよい)、`drivingAnalysis.ts` (コーナー・ブレーキ)、`pairAnalysis.ts` (+ worker)、`autoCourseLines.ts` (知らないコースの計測線)、`clockOffsetEstimator.ts` (ログごとの時計の補正) |
 | コース | `circuitDatabase.ts` (内蔵 `courses/` と自分のコース)、`userCircuitStorage.ts`、`storageCourses.ts`・`courseFolderSync.ts` (保管場所の `course/`)、`courseCorners.ts`・`cornerNames.ts` (コーナーの名前)、`osmCircuitService.ts` (OpenStreetMap のコース図) |
-| 保管場所 (走行のライブラリ) | `runStore.ts` (保管場所の窓口: iPhone / Android のネイティブ・デスクトップ版の IPC)、`runs.ts`・`runsFile.ts` (runs.json の 2 版)、`lapIndex.ts`・`lapHistory.ts` (laptimes.json)、`runOpener.ts` (走行を開く: ログ・動画・同期)、`runSync.ts`、`runDelete.ts`、`analysisSessions.ts` (保存した比べ方)、`import/` (取り込み) |
+| 保管場所 (走行のライブラリ) | `runStore.ts` (保管場所の窓口: iPhone / Android のネイティブ・デスクトップ版の IPC)、`runs.ts`・`runsFile.ts` (runs.json の 2 版)、`lapIndex.ts`・`lapHistory.ts` (laptimes.json)、`runOpener.ts` (走行を開く: ログ・動画・同期)、`runSync.ts`、`runDelete.ts`、`import/` (取り込み) |
 | 動画 | `videoSyncManager.ts` (動画の時刻 = clock、同期)、`videoSyncPinManager.ts`、`videoChapterManager.ts` (GoPro のチャプター)、`videoMetadataParser.ts`、`clockMaster.ts`・`mediaClock.ts`・`playbackController.ts` (再生の時計)、`videoLaps.ts` (動画に映る周)、`remoteVideo.ts` (lapfile:// の動画) |
 | 書き出し | `encodeVideoExporter.ts` (mediabunny で 1 コマずつ)、`telemetryVideoExporter.ts` (再生しながら録る・ダウンロード)、`overlayOnlyExporter.ts` (メーターだけ: PNG の ZIP・透明な WebM)、`exportSink.ts` (OPFS のディスク)、`logConverter.ts`・`nmeaExporter.ts`・`bon4Writer.ts` |
 | メーター | `overlayLayout.ts` (部品と並び・自分で名前を付けた値)、`overlayStore.ts` (保管場所の overlays/)、`components/overlayParts.ts`・`overlayRender.ts` (描く)、`calcChannels.ts`・`csvFormatStore.ts` (計算式・CSV の形式) |
@@ -88,7 +88,7 @@ LapLoupe は、1 つの Web アプリ (React + TypeScript、`src/`) を 4 つの
   course/                             Circuit/*.pth・ControlLine/*.cln・Sector/*.sci・Corner/<フォルダ>.json・courses.json
   formats/                            CSV の形式 (*.csvformat.json)・計算式 (calc.json)
   overlays/                           メーターの並び
-  sessions/                           保存した比べ方 (*.lapsession.json)
+  sessions/                           旧版の保存ファイル (読込み・書込みなし。既存ファイルは保持)
   digspice/                           公式ソフトのコースフォルダ (読むだけ)
   exports/                            書き出し (一覧には出さない)
 ```

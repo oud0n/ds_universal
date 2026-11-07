@@ -1,4 +1,3 @@
-import {matchStoredRun} from './services/analysisSessions';
 import React, { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect, useSyncExternalStore } from 'react';
 import { currentCsvFormats, csvFormatsReady, loadCsvFormats, useCsvFormats } from './services/csvFormatStore';
 import { matchCsvFormat, mergeSensorRows, readRows, sensorKeyOf } from './services/csvFormats';
@@ -88,7 +87,6 @@ import { electronWriter, nativeWriter } from './services/import/importWriters';
 import { LOG_EXTENSIONS } from './services/logLoader';
 import { getWriteBon4 } from './services/runFormatSettings';
 import { applyImuToSession, getGSource, parseImuCsv, sessionImuWobbleG, setGSource, WOBBLE_LIMIT_G, type GSource, type ImuTrack } from './services/imuG';
-import { fileSessionCars, lapStartUtcMs, matchFileSession, parseLapSession, resolveSessionLap, saveSession, type LapSession, type LapSessionCar } from './services/analysisSessions';
 
 /**
  * 距離を補正した周で、補正後の距離が 0 になる時刻 (秒)。
@@ -343,9 +341,7 @@ export const App: React.FC = () => {
   // 過去の走行 (保管場所。iPhone のアプリ・デスクトップ版): 全部の一覧を出しているか・開いている途中か
   const [runsSheetOpen, setRunsSheetOpen] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
-  /** 保存した比べ方を開いている途中か */
-  const savedOpeningRef = engine.operations.savedOpening;
-  /** いちばん最近に開けた走行 (保存した比べ方が、Car 1 を開けたか確かめる) */
+  /** いちばん最近に開いた走行 */
   const openedRunRef = engine.operations.openedRun;
   /** 取り込みの確認 (ログを開いたとき、走行の保管場所があれば。2026-10-21、PLAN-24) */
   // 複数のファイルを一度に取り込むとき、何番目のシートか (「2/3」)。並んだ数と、出した数
@@ -1337,151 +1333,8 @@ export const App: React.FC = () => {
     }
   };
 
-  /** 今の Car の割り当てを、解析用のセッションとして保存する (PLAN-18)。保管場所の走行だけ。エラーなら文 */
-  const saveCurrentSession = async (name: string): Promise<string | null> => {
-    const store = await getRunStore().catch(() => null);
-    if (!store) return tr('保管場所がありません (設定で選んでください)', 'No storage folder (choose one in Settings)');
-    const snapshot = analysisStore.getSnapshot();
-    const cars: LapSessionCar[] = [];
-    for (const c of [...snapshot.selectedCars].sort((a, b) => a.slot - b.slot)) {
-      const run = runOfSession(c.sessionId);
-      if (!run) return tr('保管場所の走行でない Car があります (ファイルから開いたログは保存できません)', 'A car is not a run from your storage (logs opened from files cannot be saved)');
-      const s = analysisStore.getSnapshot().sessions.find(x => x.id === c.sessionId);
-      const part = s?.sourceFile?.part ?? run.ids.indexOf(c.sessionId) + 1;
-      const lapStartMs = s ? lapStartUtcMs(s, c.lapNumber) : undefined;
-      cars.push({ slot: c.slot, run: `${run.item.folder}/${run.item.file}`, ...(run.item.entry?.id ? { id: run.item.entry.id } : {}), ...(part > 0 ? { part } : {}), lap: c.lapNumber, ...(lapStartMs !== undefined ? { lapStartMs } : {}) });
-    }
-    if (!cars.length) return tr('比べる周がありません', 'No laps selected');
-    const course = snapshot.sessions.find(s => s.id === snapshot.selectedCars[0]?.sessionId)?.circuitName;
-    await saveSession(store, { name, ...(course ? { course: { name: course } } : {}), cars });
-    return null;
-  };
-
-  /** ブラウザ版 (保管場所なし): 今の Car の割り当てを .lapsession.json として書き出す */
-  const downloadCurrentSession = async (name: string): Promise<string | null> => {
-    const cars = fileSessionCars(selectedCars, sessions);
-    if (!cars.length) return tr('比べる周がありません', 'No laps selected');
-    const course = sessions.find(s => s.id === selectedCars[0]?.sessionId)?.circuitName;
-    const data: LapSession = { version: 1, name, createdAt: new Date().toISOString(), source: 'files', ...(course ? { course: { name: course } } : {}), cars };
-    const safe = name.replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40) || 'session';
-    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${safe}.lapsession.json`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
-    return null;
-  };
-
-  /** ブラウザ版: 書き出した比べ方を読み込み、開いているログにファイルの名前で当てる */
-  const importSessionFile = async (file: File): Promise<string | null> => {
-    const epoch = ++selectionEpochRef.current, cars = analysisStore.getSnapshot().selectedCars;
-    const data = parseLapSession(await file.text());
-    if (epoch !== selectionEpochRef.current || cars !== analysisStore.getSnapshot().selectedCars) return null;
-    if (!data) return tr('比べ方のファイルではありません', 'Not a saved comparison file');
-    const { picks, missing, moved } = matchFileSession(data, analysisStore.getSnapshot().sessions);
-    if (!picks.length) return tr(`このログが開かれていません: ${missing.join(', ')} (先にログを開いてください)`, `Open these logs first: ${missing.join(', ')}`);
-    const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b'];
-    selectCarsAtLapStart(picks.map(p => ({ slot: p.slot, sessionId: p.session.id, lapNumber: p.lapNumber, colorHex: colors[p.slot] ?? colors[0], label: `${p.session.sessionName} (L${p.lapNumber})` })));
-    if (missing.length) return tr(`開かれていないログがありました: ${missing.join(', ')} (ほかの Car は割り当てました)`, `Some logs are not open: ${missing.join(', ')} (the other cars were set)`);
-    if (moved) alert(tr(`計測線が変わっていたので、周の始まりの時刻で周を選び直しました (${moved} 台)`, `The timing line changed, so ${moved} lap(s) were matched again by their start time`));
-    return null;
-  };
-
-  /** 保存したセッションを開く: 指している走行を開いて、Car に割り当てる (見つからない走行は飛ばして知らせる) */
-  const openSavedSession = async (saved: LapSession) => {
-    // 続けて押したとき・ほかの走行を開いている途中は、何もしない (同じログを 2 回読み込まないように)
-    if (runOpeningRef.current || savedOpeningRef.current) return;
-    invalidateAssignments();
-    savedOpeningRef.current = true;
-    const root = getStorageRevision(), reads = getStorageReadRevision();
-    try {
-      await openSavedSessionInner(saved);
-    } catch (error) {
-      if (root === getStorageRevision() && reads === getStorageReadRevision() && !(error instanceof StorageChangedError)) {
-        alert(tr('比べ方を読み込めませんでした: ', 'Could not load the comparison: ') + (error instanceof Error ? error.message : String(error)));
-      }
-    } finally {
-      savedOpeningRef.current = false;
-    }
-  };
-  const openSavedSessionInner = async (saved: LapSession) => {
-    const revision = getStorageRevision(), reads = getStorageReadRevision(),input=engine.operations.mediaImports.current;
-    const carsAtStart = analysisStore.getSnapshot().selectedCars, manual = manualSelectionRef.current;
-    const current = () => revision === getStorageRevision() && reads === getStorageReadRevision() && !isStorageSelectionPending()
-      &&input===engine.operations.mediaImports.current&&analysisStore.getSnapshot().selectedCars === carsAtStart && manual === manualSelectionRef.current;
-    const store = await getRunStore();
-    if (!store || !current()) return;
-    const items = await listRuns(store, undefined, true);
-    if (!current()) return;
-    const find=(car:LapSessionCar)=>matchStoredRun(car,items);
-    const prepared = new Map<string, { item: RunItem; sessions: Session[] }>();
-    const missing: string[] = [];
-    for (const car of saved.cars) {
-      const item = find(car);
-      if (!item) { missing.push(car.run); continue; }
-      const path = `${item.folder}/${item.file}`;
-      if (!prepared.has(path)) {
-        const sessions = await loadStoredFileData(store, item);
-        if (!current()) return;
-        prepared.set(path, { item, sessions });
-      }
-    }
-    if (!current()) return;
-    await flushOpenRunsStrict();
-    if (!current()) return;
-    const now = analysisStore.getSnapshot();
-    for (const entry of prepared.values()) {
-      const owned = getOpenRunItem(entry.item.folder, entry.item.file);
-      entry.sessions = applyRunMetadata(reuseStoredSessions(now.sessions, entry.sessions), getRunItemEntry(store, owned ?? entry.item));
-    }
-    const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b'];
-    const picks: SelectedCarSlot[] = [];
-    let moved = 0;
-    for (const car of [...saved.cars].sort((a, b) => a.slot - b.slot)) {
-      const item = find(car);
-      if (!item) continue;
-      const entry = prepared.get(`${item.folder}/${item.file}`)!;
-      const session = entry.sessions.find(s => s.sourceFile?.part === (car.part ?? 1));
-      if (!session) { missing.push(car.run); continue; }
-      const resolved = resolveSessionLap(session, car);
-      if (!session.laps.some(l => l.lapNumber === resolved.lap)) { missing.push(car.run); continue; }
-      if (resolved.moved) moved++;
-      const slot = picks.length;
-      picks.push({ slot, sessionId: session.id, lapNumber: resolved.lap, colorHex: colors[slot], label: `${session.sessionName} (L${resolved.lap})` });
-    }
-    if (!picks.length) {
-      alert(tr('このセッションの走行が見つかりません (消したか、名前を変えた走行)', 'The runs of this session were not found (deleted or renamed)'));
-      return;
-    }
-    const used = new Set(picks.map(c => c.sessionId));
-    const entries = [...prepared.values()].filter(e => e.sessions.some(s => used.has(s.id)));
-    await validateStoredFiles(store, entries.flatMap(e => e.sessions));
-    if (!current()) return;
-    for (const entry of entries) {
-      const owned=getOpenRunItem(entry.item.folder,entry.item.file);
-      entry.sessions=applyRunMetadata(reuseStoredSessions(analysisStore.getSnapshot().sessions,entry.sessions),getRunItemEntry(store,owned??entry.item));
-      entry.sessions=refreshParsedPhysics(entry.sessions);
-      entry.item = shareRunItem(entry.item, store);
-      entry.sessions = registerRunSessions(store, entry.item, entry.sessions, analysisStore.getSessions);
-    }
-    const incoming = entries.flatMap(e => e.sessions);
-    engine.replaceAnalysis(selectAvailableCars({sessions:incoming,selectedCars:[]},picks));
-    releaseClosedRunVideos(new Set(incoming.map(s => s.id)));
-    for (const entry of entries) {
-      const item = shareRunItem(entry.item, store), path = `${item.folder}/${item.file}`;
-      runSessionsRef.current.set(path, entry.sessions.map(s => s.id));
-      runItemsRef.current.set(path, item);
-      loadRunSidecars(store, item, entry.sessions);requestSessionPolylines(entry.sessions);
-    }
-    setRunAssociationsVersion(n => n + 1);
-    navStore.go('analysis');
-    if (missing.length) alert(tr(`見つからない走行がありました (${missing.length} 件): ${missing.join(', ')}`, `Some runs were not found (${missing.length}): ${missing.join(', ')}`));
-    else if (moved) alert(tr(`計測線が変わっていたので、保存したときの周の始まりの時刻で周を選び直しました (${moved} 台)`, `The timing line changed, so ${moved} lap(s) were matched again by their start time`));
-  };
-
   const addRunAsCar2 = async (item: RunItem) => {
-    if (runOpeningRef.current || savedOpeningRef.current) return;
+    if (runOpeningRef.current) return;
     invalidateAssignments();
     const epoch=selectionEpochRef.current,manual=manualSelectionRef.current;
     let cars=analysisStore.getSnapshot().selectedCars;
@@ -1540,7 +1393,7 @@ export const App: React.FC = () => {
   // 過去の走行を開く: ログを読み込み、同じフォルダの動画と同期をそろえる (runOpener.ts)
   const openRun = async (item: RunItem, to: 'analysis' | 'video' = 'analysis') => {
     // 続けて押しても 1 回だけ開く
-    if (runOpeningRef.current || savedOpeningRef.current) return;
+    if (runOpeningRef.current) return;
     invalidateAssignments();
     const epoch=selectionEpochRef.current,manual=manualSelectionRef.current;
     let cars=analysisStore.getSnapshot().selectedCars;
@@ -2171,9 +2024,9 @@ export const App: React.FC = () => {
     const reads = getStorageReadRevision();
     const current = () => pickerActiveRef.current && !signal.aborted && epoch === selectionEpochRef.current
       && revision === getStorageRevision() && reads === getStorageReadRevision() && !isStorageSelectionPending()
-      && !runOpeningRef.current && !savedOpeningRef.current && ticket === slotRequestsRef.current[slot];
+      && !runOpeningRef.current && ticket === slotRequestsRef.current[slot];
     const check = () => { if (!current()) throw new Error(tr('選択対象が変わりました。もう一度選んでください', 'The selection changed. Choose the lap again.')); };
-    if (runOpeningRef.current || savedOpeningRef.current) throw new Error(tr('走行の読込みが終わってから選んでください', 'Wait for the run to finish loading'));
+    if (runOpeningRef.current) throw new Error(tr('走行の読込みが終わってから選んでください', 'Wait for the run to finish loading'));
     check();
     let incoming: Session[] = [];
     let selected: Session;
@@ -2352,7 +2205,6 @@ export const App: React.FC = () => {
       currentTimeSec,
       isPlaying,
       runBusy,
-      openingSaved: () => savedOpeningRef.current,
       openingRun:()=>runOpeningRef.current,
       openStoredRun:(item:RunItem,compare=false)=>compare?addRunAsCar2(item):openRun(item),
       loadFiles:(files:File[])=>loadFiles(files),
@@ -3011,12 +2863,6 @@ export const App: React.FC = () => {
               const run = runOfSession(id);
               if (run && run.ids[0] === id) void getRunStore().then(store => store && setRunMeta(store, run.item, { name })).catch(() => undefined);
             }}
-            onSaveSession={canUseRunStore() ? saveCurrentSession : downloadCurrentSession}
-            onImportSession={canUseRunStore() ? undefined : importSessionFile}
-            sessionDefaultName={(() => {
-              const c = selectedCars.map(x => sessions.find(s => s.id === x.sessionId)?.sessionName).filter(Boolean);
-              return c.length ? `${c[0]}${c.length > 1 ? ` vs ${c.slice(1).join(' / ')}` : ''}`.slice(0, 60) : '';
-            })()}
             onEditSessionNote={(id, note) => {
               // メモは走行ごと (分かれた走行のログは、どれも同じメモ)
               const run = runOfSession(id);
@@ -3079,7 +2925,6 @@ export const App: React.FC = () => {
             active={currentTab === 'library'}
             wide={profile.layout === 'wide' || isMedium}
             onOpen={r => void openRun(r)}
-            onOpenSession={s => void openSavedSession(s)}
             // 動画を見る: 走行を開いて (動画と同期もそろう)、動画の画面へ
             onOpenVideo={r => void openRun(r, 'video')}
             // 走行がもう開いているときだけ、比べる相手として足せる
