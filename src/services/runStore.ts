@@ -6,6 +6,7 @@
 
 import { callNative, fromBase64, hasNative, nativeCapabilities, NativeError, toBase64 } from '../native/bridge';
 import type { LapFileInfo, LapFileStore } from './lapIndex';
+import { getStorageRevision, revisionBoundStore } from './storageRevision';
 
 export interface RunFileInfo extends LapFileInfo {
   /** 端末の中にあるか (false: iCloud にだけある。読むと取り込みが始まる) */
@@ -13,6 +14,8 @@ export interface RunFileInfo extends LapFileInfo {
 }
 
 export interface RunStore extends LapFileStore {
+  /** このハンドルを作った保管場所の世代。別の場所では使わない。 */
+  readonly storageRevision?: number;
   /** 置き場の全部のファイル (動画も) */
   listAll(): Promise<RunFileInfo[]>;
   /** 動画を読む URL */
@@ -88,6 +91,7 @@ const nativeSupportsVideos = () => (nativeVideos ??= callNative('system.runRoot'
 /** iPhone のアプリ。選んだフォルダがあればそこ、なければ書類の LapTimer/ */
 export function nativeRunStore(): RunStore | null {
   if (!hasNative()) return null;
+  const revision = getStorageRevision();
   // 動画の URL の頭 (Android は lapfile:// でない) を早めに聞いておく
   void nativeSupportsVideos();
   let synced: Promise<unknown> | null = null;
@@ -142,11 +146,12 @@ export function nativeRunStore(): RunStore | null {
       purge: ids => callNative('system.purgeTrash', { ids })
     }
   };
-  return store;
+  return revisionBoundStore(store, revision);
 }
 
 /** デスクトップ版 (選んだ保管場所。選んでいなければ null) */
 export async function electronRunStore(): Promise<RunStore | null> {
+  const revision = getStorageRevision();
   const api = window.electronAPI?.laps;
   if (!api || !(await api.getFolder())) return null;
   const fail = (e?: string) => new Error(e ?? 'failed');
@@ -185,7 +190,7 @@ export async function electronRunStore(): Promise<RunStore | null> {
     },
     ...(api.remove ? { remove: (paths: string[]) => api.remove!(paths) } : {})
   };
-  return store;
+  return revisionBoundStore(store, revision);
 }
 
 /** この環境の走行の置き場 (なければ null) */
@@ -194,4 +199,4 @@ export async function getRunStore(): Promise<RunStore | null> {
 }
 
 /** この環境で走行の置き場を使えるか (iPhone のアプリかデスクトップ版) */
-export const canUseRunStore = (): boolean => hasNative() || !!window.electronAPI?.laps;
+export const canUseRunStore = (): boolean => hasNative() || (typeof window !== 'undefined' && !!window.electronAPI?.laps);

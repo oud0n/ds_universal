@@ -23,4 +23,14 @@ describe('groupVideoTracksByChapter', () => {
     const { groups } = groupVideoTracksByChapter([track('a', 'GX010017.MP4'), track('b', 'GX020017.MP4')]);
     expect(groups).toHaveLength(1);
   });
+  it.each([['GX010017.MP4','GX010017.MP4'],['GX010017.MP4','GX030017.MP4']])('章番号が重なる・欠ける動画は独立させる (%s, %s)',(first,second)=>{
+    const tracks=[track('a',first),track('b',second)];const grouped=groupVideoTracksByChapter(tracks);
+    expect(grouped.groups).toEqual([]);expect(grouped.standaloneTracks).toEqual(tracks);
+  });
+  it('連続した章番号でも撮影日が別なら独立させる',()=>{
+    const tracks=[track('a','GX010017.MP4'),track('b','GX020017.MP4')];
+    tracks[0].rawRecordedAt=new Date('2026-01-01T00:00:00Z');tracks[1].rawRecordedAt=new Date('2026-01-02T00:00:00Z');
+    expect(groupVideoTracksByChapter(tracks).standaloneTracks).toEqual(tracks);
+    tracks[1].rawRecordedAt=new Date('2026-01-01T00:01:40Z');expect(groupVideoTracksByChapter(tracks).groups).toHaveLength(1);
+  });
 });

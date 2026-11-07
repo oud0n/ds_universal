@@ -8,7 +8,9 @@
 |---|---|
 | [../AGENTS.md](../AGENTS.md) | エージェント向けの入口 (守ること・作業の流れ) |
 | [architecture.md](architecture.md) | 構成 (Web・Electron・iOS・Android、ネイティブの窓口、保管場所の形、主なファイル) |
-| [maintenance.md](maintenance.md) | 開発・試験・レビュー・リリース (PC・ブラウザ・App Store・TestFlight) の手順 |
+| [engine_boundaries.md](engine_boundaries.md) | 共通エンジンの正本、端末との窓口、移植時の残りと検査 |
+| [analysis_data_flow.md](analysis_data_flow.md) | 元ログ・周・Car 割当て・再生位置・動画の保持場所、呼出し元、非同期結果の採用条件 |
+| [maintenance.md](maintenance.md) | 開発・試験・レビュー・リリース (PC・ブラウザ) の手順 |
 | [../TODO.md](../TODO.md)・[../BUGS.md](../BUGS.md) | 今の状態と残件 |
 
 ## 利用者向け (公開)
@@ -28,20 +30,17 @@
 | 文書 | 中身 |
 |---|---|
 | [development.md](development.md) (英語 [development.en.md](development.en.md)) | 開発の始め方 (npm の命令) |
-| [../mobile/README.md](../mobile/README.md) | iPhone・Android のネイティブ部分、TestFlight へ送る手順 |
-| [app_store.md](app_store.md) | App Store の文章・審査の準備 |
+| [../mobile/README.md](../mobile/README.md) | スマートフォン向けの共通窓口 |
 | [device_check_2026-10-25.md](device_check_2026-10-25.md) | 実機で確かめた記録 (1.1.0 の前) |
 
 ## 設計書 (状態つき)
 
 | 文書 | 計画 | 状態 |
 |---|---|---|
-| [iphone_app_design.md](iphone_app_design.md) | PLAN-01 iPhone のアプリ | 実装済み (1.0〜1.1.0)。一部の構想は未 |
-| [ios_native_study.md](ios_native_study.md) | PLAN-20 ネイティブ化の検討 | 結論: 画面はネイティブにしない。動画の WebCodecs は未着手 |
 | [video_sets_design.md](video_sets_design.md) | PLAN-17 動画の走行とセット | 実装済み |
 | [overlay_parts_design.md](overlay_parts_design.md) | メーターの部品 | 実装済み |
 | [meter_layout_design.md](meter_layout_design.md) | PLAN-08・38 メーターの配置・画像・書き出しの範囲 | 実装済み |
-| [session_storage_design.md](session_storage_design.md) | PLAN-18 比べ方の保存 | 実装済み |
+| [session_storage_design.md](session_storage_design.md) | 旧PLAN-18の設計記録 | 比べ方の保存は廃止 (2026-11-07)。既存ファイルは保持 |
 | [run_storage_v2.md](run_storage_v2.md) | PLAN-29・32・33 runs.json の 2 版 | 実装済み (保管場所の形の正) |
 | [corner_names_design.md](corner_names_design.md) | PLAN-27 コーナーの名前 | 実装済み |
 | [csv_format_design.md](csv_format_design.md) | PLAN-36 CSV の形式・計算式 | 実装済み (残り 2 つは TODO) |

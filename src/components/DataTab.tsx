@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { RunNoteField } from './RunNoteField';
-import { SessionSaveBar } from './SessionSaveBar';
 import { Session, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { CIRCUIT_PRESETS } from '../services/circuitDatabase';
 import {
@@ -21,6 +20,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { LapHistoryPanel } from './LapHistoryPanel';
+import type {InputRequest} from '../engine/EngineSession';
 import { formatMinSec } from '../utils/timeFormat';
 import { useCompactLayout } from '../hooks/useCompactLayout';
 import { circuitLabel, useLang, useT } from '../utils/i18n';
@@ -29,7 +29,8 @@ import type { GSource } from '../services/imuG';
 interface DataTabProps {
   sessions: Session[];
   /** ラップタイムの記録から、走行のファイル (.bon4) を解析で開く (デスクトップ版) */
-  onOpenLapRun?: (file: File, run: { folder: string; file: string }) => void;
+  onOpenLapRun?: (file: File, run: { folder: string; file: string },request?:InputRequest) => void;
+  onBeginOpen?:()=>InputRequest;
   selectedCars: SelectedCarSlot[];
   onSelectCarSlot: (slotIndex: number, sessionId: string, lapNumber: number) => void;
   // スロットの割り当てを解除する
@@ -44,12 +45,6 @@ interface DataTabProps {
   onEditSessionName: (sessionId: string, newName: string) => void;
   /** 走行のメモを変えた (PLAN-33) */
   onEditSessionNote?: (sessionId: string, note: string) => void;
-  /** 今の Car の割り当てを、解析用のセッションとして保存する (PLAN-18)。エラーなら文、できたら null */
-  onSaveSession?: (name: string) => Promise<string | null>;
-  /** ブラウザ版: 書き出した比べ方を読み込む */
-  onImportSession?: (file: File) => Promise<string | null>;
-  /** 保存するときの名前の既定 */
-  sessionDefaultName?: string;
   // ログの時計の補正 (秒) を変える / 同じ時間のほかのログとの比べから見積もる (BUG-08)
   onSetClockOffset?: (sessionId: string, sec: number) => void;
   onEstimateClockOffset?: (sessionId: string) => Promise<ClockEstimateResult | string>;
@@ -222,6 +217,7 @@ const SessionNameField: React.FC<{ name: string; compact: boolean; onSave: (name
 export const DataTab: React.FC<DataTabProps> = ({
   sessions,
   onOpenLapRun,
+  onBeginOpen,
   selectedCars,
   onSelectCarSlot,
   onClearCarSlot,
@@ -233,9 +229,6 @@ export const DataTab: React.FC<DataTabProps> = ({
   onOpenInConvert,
   onEditSessionName,
   onEditSessionNote,
-  onSaveSession,
-  onImportSession,
-  sessionDefaultName,
   onSetClockOffset,
   onEstimateClockOffset,
   onSelectCircuitPreset,
@@ -277,9 +270,6 @@ export const DataTab: React.FC<DataTabProps> = ({
   return (
     <div className={`flex flex-col h-full bg-surface-1 text-slate-200 overflow-y-auto overflow-x-hidden ${compact ? 'p-2 space-y-3' : 'p-4 space-y-6'}`}>
       {/* 今の Car の割り当てを保存する (保管場所の走行を比べているとき。PLAN-18) */}
-      {onSaveSession && (selectedCars.length > 0 || onImportSession) && (
-        <SessionSaveBar defaultName={sessionDefaultName ?? ''} onSave={onSaveSession} onImport={onImportSession} canSave={selectedCars.length > 0} />
-      )}
       {/* 上部: コース設定 & プリセット切り替えバー */}
       <div className={`bg-surface-2 border border-line-2 rounded-xl shadow-md flex flex-wrap items-center justify-between ${compact ? 'p-3 gap-3' : 'p-4 gap-4'}`}>
         <div
@@ -342,7 +332,7 @@ export const DataTab: React.FC<DataTabProps> = ({
           )}
         </div>
       </div>
-      {lapHistoryOpen && <LapHistoryPanel onClose={() => setLapHistoryOpen(false)} onOpenRun={onOpenLapRun && ((f, run) => { setLapHistoryOpen(false); onOpenLapRun(f, run); })} />}
+      {lapHistoryOpen && <LapHistoryPanel onClose={() => setLapHistoryOpen(false)} onBeginOpen={onBeginOpen} onOpenRun={onOpenLapRun && ((f, run,request) => { setLapHistoryOpen(false); onOpenLapRun(f, run,request); })} />}
 
       {/* 比較スロット (Car 1〜4) の選択状態バー */}
       <div className="bg-surface-2 border border-line-2 rounded-xl p-3 shadow-md @container">
@@ -406,6 +396,7 @@ export const DataTab: React.FC<DataTabProps> = ({
                 </div>
                 {assigned && (
                   <button
+                    data-testid={'car-clear-' + slot.slot}
                     onClick={() => onClearCarSlot(slot.slot)}
                     title={t(`${slot.label} の割り当てを解除`, `Unassign ${slot.label}`)}
                     className="self-start flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-line-3 text-[11px] text-slate-400 hover:text-slate-100 hover:border-slate-500 transition-colors"

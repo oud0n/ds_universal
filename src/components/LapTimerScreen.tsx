@@ -23,7 +23,7 @@ import { circuitLabel, getLang, useT } from '../utils/i18n';
 import type { TelemetryPoint } from '../types/telemetry';
 
 /**
- * 走りながら使うラップタイマーの画面 (暫定の版。docs/iphone_app_design.md の 5)。
+ * 走りながら使うラップタイマーの画面 (暫定の版)。
  * 大きな数字で、今の周の経過とベストとの差を出し、周を終えたらタイムと差を数秒大きく出して声でも知らせる。
  * 測位の出どころ: デジスパイス (Bluetooth、20 Hz)・この端末の GPS (1 Hz 前後)・読み込んだログの再生 (試すため)
  */
@@ -37,14 +37,16 @@ export interface ReplayLog {
   startDate?: Date;
 }
 
+import type {InputRequest} from '../engine/EngineSession';
 interface Props {
   onClose: () => void;
   /** 再生で試せるログ (読み込んだ走行) */
   replayLogs: ReplayLog[];
   /** 記録した測位を、解析の画面で開く (NMEA の文) */
-  onOpenLog: (fileName: string, nmeaText: string) => void;
+  onOpenLog: (fileName: string, nmeaText: string,request?:InputRequest) => void;
   /** ラップタイムの記録から、走行のファイル (.bon4) を解析で開く */
-  onOpenFile?: (file: File) => void;
+  onOpenFile?: (file: File,request?:InputRequest) => void;
+  onBeginOpen?:()=>InputRequest;
   /**
    * タブの 1 つとして出す (iPhone のアプリ)。閉じるボタンを出さず、測っていない間は画面の中 (タブバーの上) に収める。
    * 測っている間は、これまでどおり画面いっぱい (タブバーも隠す)
@@ -92,7 +94,9 @@ const Pill: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 const verdictWord = (v: Verdict, t: (ja: string, en: string) => string) => v === 'better' ? t('速い', 'FASTER') : v === 'worse' ? t('遅い', 'SLOWER') : '';
 const FLASH_STRONG_MS = 350;
 
-export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog, onOpenFile, embedded = false, onMeasuringChange }) => {
+export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog, onOpenFile,onBeginOpen, embedded = false, onMeasuringChange }) => {
+  const openSequence=useRef(0);
+  useEffect(()=>()=>{openSequence.current++;},[]);
   const t = useT();
   // 画面の文の端末の呼び名 (Android のアプリでは「この端末」)
   const phoneWord = myDeviceWord(isAndroidApp()).ja;
@@ -152,7 +156,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   const [display, setDisplay] = useState(loadTimerDisplay);
   const changeDisplay = (d: Partial<typeof display>) => setDisplay(prev => { const next = { ...prev, ...d }; saveTimerDisplay(next); return next; });
   // 跨いだばかりのセクター (大きく出す)
-  const [sectorFlash, setSectorFlash] = useState<{ index: number; deltaSec: number | null; at: number; until: number } | null>(null);
+  const [sectorFlash, setSectorFlash] = useState<{ index: number; lapStartMs: number | null; at: number; until: number } | null>(null);
   const seenSectorsRef = useRef<{ lapStartMs: number | null; count: number }>({ lapStartMs: null, count: 0 });
   const [wakeLockOk, setWakeLockOk] = useState<boolean | null>(null);
   const [runs, setRuns] = useState<RunMeta[]>([]);
@@ -278,12 +282,13 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
     const s = sectors![count - 1];
     if (!Number.isFinite(s.timeSec) || display.sectorHoldSec === 0) return;
     const at = performance.now();
-    setSectorFlash({ index: count - 1, deltaSec: s.deltaSec, at, until: at + display.sectorHoldSec * 1000 });
+    setSectorFlash({ index: count - 1, lapStartMs, at, until: at + display.sectorHoldSec * 1000 });
   }, [sectors, lapStartMs, display.sectorHoldSec]);
   // 測位が古い (届かなくなった) ときは、デルタと色を出さない (古い差を信じて無理をしないように)。端末の GPS は 1 秒に 1 回くらいなので長めに待つ
   const coarse = source === 'phone';
   const stale = measuring && source !== 'replay' && sincePerf > (coarse ? 2.5 : 0.6);
-  const sectorShown = !flashing && sectorFlash && now < sectorFlash.until ? sectorFlash : null;
+  const sectorShown = !flashing && sectorFlash && sectorFlash.lapStartMs === lapStartMs && now < sectorFlash.until && sectors?.[sectorFlash.index]
+    ? { ...sectorFlash, deltaSec: sectors[sectorFlash.index].deltaSec } : null;
   // 測位が途切れた周は、タイムがあやしいので色を付けない
   const lapVerdict: Verdict = !flashing || flashing.lap.hadGap ? 'even' : flashing.isBest && flashing.diffToBestSec !== null ? 'better' : verdictOf(flashing.diffToBestSec, coarse);
   const sectorVerdict: Verdict = sectorShown ? verdictOf(sectorShown.deltaSec, coarse) : 'even';
@@ -346,6 +351,8 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
   useEffect(() => { if (menuOpen) void refreshRuns(); }, [menuOpen, refreshRuns]);
   /** 走行を解析で開く・NMEA / bon4 で保存する・消す */
   const runAction = async (run: RunMeta, action: 'open' | 'nmea' | 'bon4' | 'delete') => {
+    const ticket=action==='open'?++openSequence.current:0,request=action==='open'?onBeginOpen?.():undefined;
+    const current=()=>ticket===openSequence.current&&(request?.isCurrent()??true);
     if (action === 'delete') {
       if (!window.confirm(t('この走行の記録を消しますか? (「ファイル」アプリに書いたファイルは残ります)', 'Delete this run? (Files written to the Files app are kept)'))) return;
       rt.forgetRun(run.id);
@@ -353,15 +360,23 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
       await refreshRuns();
       return;
     }
+    if(action==='open'){
+      try{
+        await flushRecording();
+        if(!current())return;
+        const fixes=await loadFixes(run.id);
+        if(current()&&fixes.length>=2)onOpenLog(`${runFileBase(run.startedMs)}.nmea`,fixesToNmea(fixes),request);
+      }catch(error){if(current())setSaveError(error instanceof Error?error.message:String(error));}
+      return;
+    }
     await flushRecording();
     // アプリで書いたファイルがあれば、それを渡す (走っている間に書き足したもの)
-    if (action !== 'open' && hasNative() && run.fileBase) {
+    if (hasNative() && run.fileBase) {
       try { await callNative('system.shareFile', { path: `${run.fileBase}.${action}` }); return; } catch { /* 下で作り直す */ }
     }
     const fixes = await loadFixes(run.id);
     if (fixes.length < 2) return;
     const base = runFileBase(run.startedMs);
-    if (action === 'open') { onOpenLog(`${base}.nmea`, fixesToNmea(fixes)); return; }
     const bytes = action === 'nmea' ? new TextEncoder().encode(fixesToNmea(fixes)) : fixesToBon4(fixes);
     if (hasNative()) {
       // アプリでは、データベースの記録からファイルを作って共有の画面で渡す (WKWebView ではダウンロードできないため)
@@ -770,7 +785,7 @@ export const LapTimerScreen: React.FC<Props> = ({ onClose, replayLogs, onOpenLog
         </div>
       )}
 
-      {historyOpen && <LapHistoryPanel onClose={() => setHistoryOpen(false)} onOpenRun={onOpenFile} />}
+      {historyOpen && <LapHistoryPanel onClose={() => setHistoryOpen(false)} onBeginOpen={onBeginOpen} onOpenRun={(file,_run,request)=>onOpenFile?.(file,request)} />}
 
       {/* コースを選ぶ */}
       {coursePicker && (

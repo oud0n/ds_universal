@@ -1,46 +1,5 @@
-/**
- * 手動キーフレーム同期（特定地点ピン留め: Sync Pin）管理サービス
- * GPSの特定地点（クリッピング・コントロールライン通過等）と動画の同一フレームを1クリックでピン留め固定
- */
-
-import { formatMinSec } from '../utils/timeFormat';
-
-export interface SyncPin {
-  id: string;
-  name: string;                // 例: "1コーナーAPEX", "コントロールライン通過", "ダンロップ進入"
-  sessionTimeSec: number;      // GPSセッション秒
-  videoTimeSec: number;        // その瞬間における動画内秒 (local time)
-  trackId: string;             // 対象動画トラックID
-  calculatedOffsetSec: number; // sessionTimeSec - videoTimeSec
-  sessionId?: string;          // ピンを打ったときの基準のログ (sessionTimeSec はこのログの時刻)。古いピンにはない
-  createdAt: string;           // ISOタイムスタンプ
-  notes?: string;
-}
-
-export function createSyncPin(
-  name: string,
-  sessionTimeSec: number,
-  videoTimeSec: number,
-  trackId: string,
-  notes?: string
-): SyncPin {
-  const calculatedOffsetSec = Number((sessionTimeSec - videoTimeSec).toFixed(3));
-  return {
-    id: `pin_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-    name: name.trim() || '同期ピン',
-    sessionTimeSec: Number(sessionTimeSec.toFixed(3)),
-    videoTimeSec: Number(videoTimeSec.toFixed(3)),
-    trackId,
-    calculatedOffsetSec,
-    createdAt: new Date().toISOString(),
-    notes,
-  };
-}
-
-export function formatPinTime(sec: number): string {
-  return formatMinSec(sec, 2, true);
-}
-
+import type { SyncPin } from '../engine/videoSyncPinManager';
+export * from '../engine/videoSyncPinManager';
 const STORAGE_KEY_PREFIX = 'ds_universal_sync_pins_';
 
 export function savePinsToStorage(projectIdOrCircuit: string, pins: SyncPin[]): void {

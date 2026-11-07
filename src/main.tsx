@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { initializeEntitlements } from './services/entitlements';
 import App from './App';
 import './index.css';
 import { isIPad, isMockNativeRequested } from './utils/device';
@@ -13,6 +14,7 @@ async function installMock(): Promise<void> {
 }
 
 installMock().finally(() => {
+  void initializeEntitlements();
   // ページを読み込んだ (読み込み直した) ときは、アプリの中で書きかけのファイルを全部書き終えたものにする。
   // 前のページの走行のファイルには書き足さないので、選んだフォルダへ移してよい (前のアプリは not-supported)
   if (hasNative()) void callNative('system.closeFiles', { all: true }).catch(() => {});

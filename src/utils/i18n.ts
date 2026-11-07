@@ -1,3 +1,5 @@
+import { CIRCUIT_EN } from '../engine/circuitNames';
+export { circuitTableName } from '../engine/circuitNames';
 import courseIndex from '../../courses/index.json';
 import { useSyncExternalStore } from 'react';
 
@@ -139,27 +141,6 @@ export function useT(): (ja: string, en: string) => string {
 }
 
 // 内蔵のサーキットの英語名 (データとして持つ名前は日本語のまま。画面に出すときだけ切り替える)
-const CIRCUIT_EN: Record<string, string> = {
-  '富士スピードウェイ (FSW)': 'Fuji Speedway (FSW)',
-  '鈴鹿サーキット (Suzuka Circuit)': 'Suzuka Circuit',
-  '筑波サーキット コース2000 (TC2000)': 'Tsukuba Circuit TC2000',
-  '筑波サーキット コース1000 (TC1000)': 'Tsukuba Circuit TC1000',
-  '日光サーキット (Nikko Circuit)': 'Nikko Circuit',
-  'モビリティリゾートもてぎ (Motegi Road Course)': 'Mobility Resort Motegi (Road Course)',
-  'スポーツランドSUGO (Sportsland SUGO)': 'Sportsland SUGO',
-  'オートポリス (Autopolis)': 'Autopolis',
-  '岡山国際サーキット (Okayama International)': 'Okayama International Circuit',
-  '袖ヶ浦フォレストレースウェイ (Sodegaura)': 'Sodegaura Forest Raceway',
-  '本庄サーキット (Honjo Circuit)': 'Honjo Circuit',
-  'エビスサーキット 東コース (Ebisu East)': 'Ebisu Circuit East Course',
-  '名阪スポーツランド (Meihan Sportsland)': 'Meihan Sportsland'
-};
-
-/** 内蔵のサーキットの表にある英語名。無ければ名前のまま (記録のフォルダの名前を決めるのに使う。フォルダの名前が変わらないよう、表だけを見る) */
-export function circuitTableName(name: string): string {
-  return CIRCUIT_EN[name] ?? name;
-}
-
 // 名前の後ろに付く書き添え (海外のコースの「(カート)」など)。英語表示で作ったコースは、はじめから (user) が付いている
 const NOTE_EN: Record<string, string> = {
   'カート': 'kart', 'ロードコース': 'road course', 'ユーザー設置': 'user',

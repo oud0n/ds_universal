@@ -4,6 +4,7 @@ import { SKIP_SEC, Skip10Icon } from './Skip10Icon';
 import { formatMinSec } from '../utils/timeFormat';
 import { useLandscape } from '../hooks/useCompactLayout';
 import { useT } from '../utils/i18n';
+import { asLapSec, type LapSec } from '../services/playbackPosition';
 
 /**
  * グラフ解析の再生の段 (画面の下)。動画同期の画面の下の段と同じ並び:
@@ -13,11 +14,11 @@ import { useT } from '../utils/i18n';
 export const PlayBar: React.FC<{
   /** 周の印 (L8 など) */
   label?: string;
-  currentTime: number;
+  currentTime: LapSec;
   endTime: number;
   isPlaying: boolean;
   onTogglePlay: () => void;
-  onSeekTime: (t: number) => void;
+  onSeekTime: (t: LapSec) => void;
   onStepBack: () => void;
   onStepForward: () => void;
   playbackSpeed: number;
@@ -41,7 +42,7 @@ export const PlayBar: React.FC<{
         max={end}
         step={0.05}
         value={Math.max(0, Math.min(currentTime, end))}
-        onChange={e => onSeekTime(Number(e.target.value))}
+        onChange={e => onSeekTime(asLapSec(Number(e.target.value)))}
         // 触り終わったら注目を外す (入力欄に注目があると、スペース・矢印キーの再生・コマ送りが効かないため)
         onPointerUp={e => e.currentTarget.blur()}
         // つまみを掴みやすいよう、押せる高さを取る (h-1 だと 4 px で、指で掴めなかった)
@@ -55,7 +56,7 @@ export const PlayBar: React.FC<{
   const buttons = (
     <div className="touch-toolbar flex items-center gap-1.5 shrink-0">
       <button
-        onClick={() => onSeekTime(Math.max(0, currentTime - SKIP_SEC))}
+        onClick={() => onSeekTime(asLapSec(Math.max(0, currentTime - SKIP_SEC)))}
         className="p-1 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
         title={t('5 秒戻す (コマ戻しは B / ←キー、Shift で 1 秒)', 'Back 5 s (step back: B / ← key, Shift for 1 s)')}
         aria-label={t('5 秒戻す', 'Back 5 seconds')}
@@ -71,7 +72,7 @@ export const PlayBar: React.FC<{
         {isPlaying ? <Pause size={compact ? 17 : 15} /> : <Play size={compact ? 17 : 15} />}
       </button>
       <button
-        onClick={() => onSeekTime(Math.min(end, currentTime + SKIP_SEC))}
+        onClick={() => onSeekTime(asLapSec(Math.min(end, currentTime + SKIP_SEC)))}
         className="p-1 rounded bg-surface-3 hover:bg-surface-4 border border-line-2 text-slate-300 transition-colors cursor-pointer"
         title={t('5 秒進める (コマ送りは F / →キー、Shift で 1 秒)', 'Forward 5 s (step forward: F / → key, Shift for 1 s)')}
         aria-label={t('5 秒進める', 'Forward 5 seconds')}

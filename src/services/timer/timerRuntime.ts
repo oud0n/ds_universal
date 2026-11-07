@@ -158,6 +158,8 @@ export class TimerRuntime {
   private onHide = () => { if (document.visibilityState === 'hidden') void this.sync(); };
   private running = false;
   private pastBestToken = 0;
+  private preferredRef = loadTimerRef();
+  private offReferences: Array<() => void> = [];
   /** 過去の走行のベストの周 (差の基準。どのコースのものか) */
   private pastRef: { courseId: string; ref: PastReference } | null = null;
   /** iPhone の GPS の間を G センサーで埋める (測っている間・端末の GPS のとき) */
@@ -167,11 +169,12 @@ export class TimerRuntime {
 
   constructor(private readonly deps: TimerRuntimeDeps, initialSource: TimerSource) {
     const firstReplay = deps.replayLogs()[0]?.id ?? '';
+    const sources = availableReferences();
     this.snap = {
       source: initialSource, replayId: firstReplay, replaySpeed: 4, course: null, lap: null,
       lastPos: null, lastFixPerf: 0, flash: null, voice: true, measuring: false,
       savedRun: null, idleRun: null, saveError: null, syncNote: null, phoneInfo: { accuracy: null, error: null },
-      pastBest: null, car: loadTimerCar(), cars: [], refId: loadTimerRef(), refSources: referenceSources().map(r => ({ id: r.id, label: r.label })), devices: [], epoch: 0, camera: { recording: false, error: null }
+      pastBest: null, car: loadTimerCar(), cars: [], refId: sources.some(r => r.id === this.preferredRef) ? this.preferredRef : carBestSource.id, refSources: sources.map(r => ({ id: r.id, label: r.label })), devices: [], epoch: 0, camera: { recording: false, error: null }
     };
     this.camera = new PhoneCameraRecorder(st => this.set({ camera: st }));
     this.imu = new PhoneImuRecorder(() => this.recorder?.current?.fileBase ?? null);
@@ -216,6 +219,10 @@ export class TimerRuntime {
   start(): void {
     if (this.running) return;
     this.running = true;
+    for (const source of addons.lapReferences ?? []) {
+      if (source.subscribeAvailability) this.offReferences.push(source.subscribeAvailability(() => this.updateReferences()));
+    }
+    this.updateReferences(true);
     // Bluetooth の機器 (位置・センサー・カメラ) は、開いただけではつながない。出どころの印か測定開始でつなぐ (2026-10-21)
     this.applySource();
     this.intervals.push(setInterval(() => { void this.flush(); }, SAVE_INTERVAL_MS));
@@ -227,6 +234,9 @@ export class TimerRuntime {
   dispose(): void {
     if (!this.running) return;
     this.running = false;
+    this.offReferences.forEach(off => off());
+    this.offReferences = [];
+    this.pastBestToken++;
     this.intervals.forEach(clearInterval);
     this.intervals = [];
     document.removeEventListener('visibilitychange', this.onHide);
@@ -333,12 +343,24 @@ export class TimerRuntime {
     if (changed) this.loadPastBest(c);
   }
 
+  private updateReferences(force = false): void {
+    const sources = availableReferences();
+    const refId = sources.some(r => r.id === this.preferredRef) ? this.preferredRef : carBestSource.id;
+    const changed = refId !== this.snap.refId;
+    if (!changed && !force && sources.length === this.snap.refSources.length && sources.every((r, i) => r.id === this.snap.refSources[i].id)) return;
+    const patch = { refId, refSources: sources.map(({ id, label }) => ({ id, label })) };
+    if (changed || force) this.loadPastBest(this.snap.course, patch);
+    else this.set(patch);
+  }
+
   /** 比べる相手を選ぶ */
   setReference(id: string): void {
-    if (id === this.snap.refId) return;
-    saveTimerRef(id);
-    this.set({ refId: id });
-    this.loadPastBest(this.snap.course);
+    if (!availableReferences().some(r => r.id === id)) return;
+    if (this.preferredRef !== id) {
+      this.preferredRef = id;
+      saveTimerRef(id);
+    }
+    if (id !== this.snap.refId) this.loadPastBest(this.snap.course, { refId: id });
   }
 
   /** 測る車を選ぶ (過去のベストを、その車のものに替える) */
@@ -354,11 +376,11 @@ export class TimerRuntime {
    * このコースの、保管場所の記録のベスト (測る前の画面に出し、差の基準にする)。選んだ車の走行だけ使う
    * (車を書いていない走行は、車を選んでいないときだけ)。参考ラップ (自分のではない走行) と隠した周は使わない
    */
-  private loadPastBest(course: CircuitPreset | null): void {
+  private loadPastBest(course: CircuitPreset | null, patch: Partial<TimerSnapshot> = {}): void {
     const token = ++this.pastBestToken;
     this.pastRef = null;
     this.timer?.setPastReference(null);
-    this.set({ pastBest: null, lap: this.timer?.getState() ?? null });
+    this.set({ ...patch, pastBest: null, flash: null, lap: this.timer?.getState() ?? null });
     if (!course || !hasNative()) return;
     const car = this.snap.car;
     void (async () => {
@@ -372,15 +394,16 @@ export class TimerRuntime {
       const index = parseLapIndex(await store.readText(`${folder}/${LAP_INDEX_FILE}`).catch(() => null));
       if (!index || token !== this.pastBestToken) return;
       if (!course.controlLine) return;
-      const ctx = makeReferenceContext(store, folder, { name: course.name, controlLine: course.controlLine, sectors: course.sectors ?? [] }, car, index, runs);
-      const sources = referenceSources();
-      const source = sources.find(r => r.id === this.snap.refId) ?? carBestSource;
+      const ctx = makeReferenceContext(store, folder, { name: course.name, controlLine: course.controlLine, finishLine: course.finishLine, sectors: course.sectors ?? [] }, car, index, runs);
+      const source = availableReferences().find(r => r.id === this.snap.refId);
+      if (!source) { this.updateReferences(); return; }
       const choice = await source.load(ctx).catch(() => null);
-      if (!choice || token !== this.pastBestToken) return;
-      this.set({ pastBest: { time: choice.ref.timeSec, startMs: choice.ref.startMs, tag: choice.tag } });
+      if (token !== this.pastBestToken || source.id !== this.snap.refId) return;
+      if (source.available?.() === false) { this.updateReferences(); return; }
+      if (!choice) return;
       this.pastRef = { courseId: course.id, ref: choice.ref };
       this.timer?.setPastReference(choice.ref);
-      this.set({ lap: this.timer?.getState() ?? null });
+      this.set({ flash: null, pastBest: { time: choice.ref.timeSec, startMs: choice.ref.startMs, tag: choice.tag }, lap: this.timer?.getState() ?? null });
     })();
   }
 
@@ -713,8 +736,8 @@ async function writeRunCar(fileBase: string, car: string): Promise<void> {
 }
 
 /** 比べる相手の選び方 (既定の「この車のベスト」と、差し込まれたもの) */
-function referenceSources(): LapReferenceSource[] {
-  return [carBestSource, ...(addons.lapReferences ?? [])];
+function availableReferences(): LapReferenceSource[] {
+  return [carBestSource, ...(addons.lapReferences ?? []).filter(r => r.available?.() !== false)];
 }
 const REF_KEY = 'ds_timer_ref';
 function loadTimerRef(): string {

@@ -6,7 +6,7 @@
 import type { Session } from '../types/telemetry';
 import { analyseTimed, toTimed, PairAnalysis, TimedPoint } from './clockOffsetEstimator';
 
-const cache = new Map<string, Promise<PairAnalysis | null>>();
+import {createPairAnalyser} from '../engine/pairAnalysis';
 let worker: Worker | null = null;
 // Worker が動かなかった (読み込めない・落ちた)。以後はその場で計算する
 let workerBroken = false;
@@ -41,32 +41,13 @@ function pack(points: TimedPoint[]): Float64Array {
   return a;
 }
 
-/** ログの中身が変わったら別の組として扱う (同じ ID でも点を読み直したとき) */
-function keyOf(s: Session): string {
-  return `${s.id}:${s.points.length}:${s.points[0]?.timestamp ?? ''}`;
-}
-
-/** reference を基準に other を比べる。結果はログの組ごとに覚える (時計の補正は結果に効かない: ログの時刻のままで比べるため) */
-export function analyseSessions(reference: Session, other: Session): Promise<PairAnalysis | null> {
-  const key = `${keyOf(reference)}|${keyOf(other)}`;
-  const hit = cache.get(key);
-  if (hit) return hit;
-  const ref = toTimed(reference.points), oth = toTimed(other.points);
-  const w = getWorker();
-  const p = w
-    ? new Promise<PairAnalysis | null>(resolve => {
-        const id = ++nextId;
-        pending.set(id, { resolve, ref, other: oth });
-        const a = pack(ref), b = pack(oth);
-        w.postMessage({ id, ref: a, other: b }, [a.buffer, b.buffer]);
-      })
-    : Promise.resolve(analyseTimed(ref, oth));
-  cache.set(key, p);
-  return p;
-}
-
-/** 2 つのログが同じ走行 (同じ車) か。比べられないとき (重なりが短い・時刻がない) は false */
-export async function isSameRun(a: Session, b: Session): Promise<boolean> {
-  if (a.id === b.id) return true;
-  return (await analyseSessions(a, b))?.sameRun ?? false;
-}
+const analyser = createPairAnalyser({analyse: (ref,oth)=>{
+ const w=getWorker();
+ if(!w)return Promise.resolve(analyseTimed(ref,oth));
+ return new Promise<PairAnalysis|null>(resolve=>{
+  const id=++nextId;pending.set(id,{resolve,ref,other:oth});
+  try {const a=pack(ref),b=pack(oth);w.postMessage({id,ref:a,other:b},[a.buffer,b.buffer]);}
+  catch {pending.delete(id);resolve(analyseTimed(ref,oth));}
+ });
+}});
+export const {analyseSessions,isSameRun}=analyser;

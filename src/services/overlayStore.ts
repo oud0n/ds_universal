@@ -2,7 +2,7 @@
  * 自分のメーターの並びの置き場 (PLAN-08)。
  * - アプリ・デスクトップ版: 保管場所の overlays/<名前>.overlay.json (iPhone とデスクトップ版で同じ並びを使える)
  * - ブラウザ版 (保管場所なし): ブラウザに保存し、ファイルで書き出す・読み込む
- * 置き場には消す窓口が無いので、消すときは deleted の印を書き、一覧に出さない (保存した比べ方と同じ)
+ * 置き場には消す窓口が無いので、消すときは deleted の印を書き、一覧に出さない
  */
 import type { RunStore } from './runStore';
 import { parseOverlayLayout, type OverlayLayout } from './overlayLayout';

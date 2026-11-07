@@ -6,14 +6,19 @@
  * 走り始めの 2 秒は未測位、そのあとは半径 150 m の円を 60 km/h で回る
  */
 
-import { CONTRACT_VERSION, type NativeEvent, type NativeEvents, type NativeRequest, type NativeResponse, type StorageInfo } from './contract';
+import { CONTRACT_VERSION, type NativeEvent, type NativeEvents, type NativeRequest, type NativeResponse, type EntitlementSnapshot, type NativeMethods, type StorageInfo } from './contract';
 import { fromBase64, toBase64 } from './bridge';
+import { TIP_PRODUCT_IDS } from '../services/tips';
 
 export interface MockNativeOptions {
   /** Bluetooth の許可の状態 (既定は granted) */
   permission?: 'granted' | 'denied';
   /** 返事を遅らせる (ミリ秒) */
   latencyMs?: number;
+  iap?: boolean;
+  entitlements?: boolean;
+  contractVersion?: number;
+  bridgeSessions?: boolean;
 }
 
 export interface MockNativeController {
@@ -23,8 +28,14 @@ export interface MockNativeController {
   readonly shared: Array<{ fileName: string; text?: string }>;
   /** 電波が切れたふり。autoReconnect なら 2 秒後につなぎ直す */
   dropConnection(): void;
+  setOwned(ids: string[], notify?: boolean): void;
+  holdNextEntitlements(method?: 'iap.entitlements' | 'iap.restore'): { captured: Promise<void>; release(): void };
+  failNextEntitlements(): void;
+  setPurchaseResult(result: MockPurchaseResult): void;
   uninstall(): void;
 }
+
+type MockPurchaseResult = NativeMethods['iap.purchase']['result']['status'] | 'error';
 
 export const MOCK_DEVICES = [
   { deviceId: 'mock-ds4-1', name: 'DS4B0012345', rssi: -58 },
@@ -72,6 +83,14 @@ export function mockFixPackets(runSec: number, utcMs: number, valid: boolean): [
   return [packetA(valid, valid ? SPEED_MS : 0, lat, lon, 50), packetB(valid, t)];
 }
 
+// 開発サーバーの読み直しでモジュールだけが入れ替わっても、同じ番号を使わない。
+const MOCK_SESSIONS = Symbol.for('laploupe.mock.sessions');
+function newSession(): string {
+  const host = globalThis as { [MOCK_SESSIONS]?: bigint };
+  host[MOCK_SESSIONS] = (host[MOCK_SESSIONS] ?? 0n) + 1n;
+  return String(host[MOCK_SESSIONS]);
+}
+
 export function installMockNative(options: MockNativeOptions = {}): MockNativeController {
   const latency = options.latencyMs ?? 5;
   const requests: NativeRequest[] = [];
@@ -88,7 +107,11 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
     timers.delete(id);
   };
   const send = (message: NativeResponse | NativeEvent) => {
-    later(latency, () => window.dsNative?.receive(JSON.stringify(message)));
+    later(latency, () => {
+      const receiver = window.dsNative;
+      if ('session' in message && message.session !== undefined && receiver?.sessionReplies !== true) return;
+      receiver?.receive(JSON.stringify(message));
+    });
   };
   // 記録 (ネイティブの recorder のふり。ファイルの代わりにメモリに書く)
   const files = new Map<string, { lines: string[]; modifiedMs: number }>();
@@ -177,24 +200,50 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
     link.pending = null;
   };
 
+  let owned = new Set<string>();
+  let revision = 0;
+  let purchaseResult: MockPurchaseResult = 'purchased';
+  let failRead = false;
+  let hold: { method: 'iap.entitlements' | 'iap.restore'; capture(reply: () => void): void } | undefined;
+  const snapshot = (): EntitlementSnapshot => ({ revision: ++revision, productIds: [...owned].sort() });
+  const setOwned = (ids: string[], notify = true) => {
+    owned = new Set(ids);
+    if (notify) emit('iap.entitlementsChanged', snapshot());
+  };
+  const readEntitlements = () => {
+    if (failRead) {
+      failRead = false;
+      throw { code: 'io', message: 'Store unavailable' };
+    }
+    return snapshot();
+  };
+
   const handle = (req: NativeRequest): unknown => {
     switch (req.method) {
       case 'caps.get':
-        return { contractVersion: CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, iap: true, camera: true, spp: true, deleteFiles: true, trashFiles: true } };
+        return { contractVersion: options.contractVersion ?? CONTRACT_VERSION, platform: 'mock', deviceKind: 'phone', features: { ble: true, bridgeSessions: options.bridgeSessions ?? true, iap: options.iap ?? true, entitlements: options.entitlements ?? true, camera: true, spp: true, deleteFiles: true, trashFiles: true } };
       // アプリ内課金の模擬 (値段は日本円の例。買うとすぐ買えたことにする)
       case 'iap.products': {
         const { ids } = req.params as { ids: string[] };
         const prices: Record<string, string> = { gas1: '¥180', gas5: '¥900', gas10: '¥1,800' };
         return {
           products: ids.map(id => {
+            if (!TIP_PRODUCT_IDS.some(tip => tip === id)) return { id, displayName: id, description: '', displayPrice: '¥180' };
             const key = id.slice(id.lastIndexOf('.') + 1);
             const liters = key.replace('gas', '');
             return { id, displayName: `ガソリン ${liters}L 分の投げ銭`, description: '開発を応援する投げ銭です。', displayPrice: prices[key] ?? '¥0' };
           })
         };
       }
-      case 'iap.purchase':
-        return { status: 'purchased' };
+      case 'iap.entitlements':
+      case 'iap.restore':
+        return readEntitlements();
+      case 'iap.purchase': {
+        const { id } = req.params as { id: string };
+        if (purchaseResult === 'error') throw { code: 'io', message: 'Purchase failed' };
+        if (purchaseResult === 'purchased' && !TIP_PRODUCT_IDS.some(tip => tip === id)) setOwned([...owned, id]);
+        return { status: purchaseResult };
+      }
       case 'ble.permission':
         return { state: options.permission ?? 'granted' };
       case 'ble.scan': {
@@ -477,15 +526,28 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
     postMessage(message: string) {
       const req = JSON.parse(message) as NativeRequest;
       requests.push(req);
+      let session = options.bridgeSessions === false ? undefined : req.session;
       if (req.v !== CONTRACT_VERSION) {
-        send({ id: req.id, ok: false, error: { code: 'not-supported', message: `contract ${req.v}` } });
+        send({ id: req.id, session, ok: false, error: { code: 'not-supported', message: `contract ${req.v}` } });
         return;
       }
       try {
-        send({ id: req.id, ok: true, result: handle(req) });
+        if (req.id === 0 && req.method === 'caps.get' && req.requestSession && options.bridgeSessions !== false) session = newSession();
+        const result = handle(req);
+        const reply = () => {
+          if (req.method === 'iap.entitlements' || req.method === 'iap.restore') {
+            emit('iap.entitlementsChanged', result as EntitlementSnapshot);
+          }
+          send({ id: req.id, session, ok: true, result });
+        };
+        if (hold && req.method === hold.method) {
+          const { capture } = hold;
+          hold = undefined;
+          capture(reply);
+        } else reply();
       } catch (e) {
         const err = e as { code?: string; message?: string };
-        send({ id: req.id, ok: false, error: { code: (err.code ?? 'io') as 'io', message: err.message ?? String(e) } });
+        send({ id: req.id, session, ok: false, error: { code: (err.code ?? 'io') as 'io', message: err.message ?? String(e) } });
       }
     }
   };
@@ -495,6 +557,17 @@ export function installMockNative(options: MockNativeOptions = {}): MockNativeCo
   return {
     requests,
     shared,
+    setOwned,
+    holdNextEntitlements(method = 'iap.entitlements') {
+      let release!: () => void;
+      let captured!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      const ready = new Promise<void>(resolve => { captured = resolve; });
+      hold = { method, capture(reply) { captured(); void gate.then(reply); } };
+      return { captured: ready, release };
+    },
+    failNextEntitlements() { failRead = true; },
+    setPurchaseResult(result) { purchaseResult = result; },
     dropConnection() {
       if (!link) return;
       stopStream();

@@ -40,6 +40,7 @@ interface HeaderProps {
   /** 解析の「走行とコース」の引き出しを開いているか・開け閉めする */
   dataOpen?: boolean;
   onToggleData?: () => void;
+  onPickLaps?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -50,7 +51,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenDonate,
   compact = false,
   dataOpen = false,
-  onToggleData
+  onToggleData,
+  onPickLaps
 }) => {
   const t = useT();
   // ⚙ の中の画面 (タブ・サイドバーに並ばない画面) を出しているときは、戻るボタンを出す
@@ -60,6 +62,8 @@ export const Header: React.FC<HeaderProps> = ({
   const toggleSettings = () => (screen === 'settings' ? navStore.back() : go('settings'));
   // 解析の画面の「走行とコース」(読み込んだ走行・Car の割り当て・コース・補正)
   const dataButton = screen === 'analysis' && onToggleData && (
+    <>
+    {onPickLaps && <button type="button" onClick={onPickLaps} className="text-xs font-bold px-2.5 py-1.5 rounded border border-line-3 text-slate-200 hover:bg-surface-3 whitespace-nowrap" data-testid="open-lap-picker">{t('＋ ラップを足す', '＋ Add laps')}</button>}
     <button
       onClick={onToggleData}
       aria-pressed={dataOpen}
@@ -70,6 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
       {t('走行とコース', 'Runs & course')}
       {!!badges?.data && <span className="px-1.5 text-[10px] rounded bg-slate-700 text-slate-300 font-mono">{badges.data}</span>}
     </button>
+    </>
   );
 
   if (compact) {

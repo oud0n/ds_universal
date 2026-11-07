@@ -403,3 +403,10 @@ describe('PlaybackController', () => {
     expect(sim.maxDiffOverLast(2000)).toBeLessThan(0.05);
   });
 });
+
+it('holds a completed comparison tile and excludes its audio from the clock master',()=>{
+ const sim=new Sim(CHROME,{adjustAudibleRate:true,masterClock:true,muted:false});sim.play();sim.run(2000);
+ sim.controller.sync(new Map([['main',{localTime:4,durationSec:100,outOfRange:false,hold:true}]]),true,1,20);
+ for(let n=0;n<30;n++){sim.clock.now+=FRAME_MS;sim.video.step(FRAME_MS);}
+ expect(sim.video.paused).toBe(true);expect(sim.controller.masterAppTime()).toBeNull();
+});

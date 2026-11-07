@@ -6,9 +6,9 @@
 
 元画像は `build/icon-ios.svg` (通常)・`build/icon-ios-dark.svg` (ダーク)。タイヤの中心は 1024 四方の中央、ダークのタイヤだけ 98% に縮めている。持ち手は同じ寸法。
 
-macOS で `swift scripts/generate-icons.swift` を実行すると、PC の SVG・PNG・ICO・ICNS、Mac の Dock、Web の favicon、iOS・Android の画像をまとめて作り直す。生成済みの画像も git に入れ、通常のビルドで Swift は要求しない。iOS 用の PNG は透明度なし、PC 用は角の外が透明。iOS の `AppIcon.appiconset/Contents.json` が通常・ダークを選ぶ。
+macOS で `swift scripts/generate-icons.swift` を実行すると、PC の SVG・PNG・ICO・ICNS、Mac の Dock、Web の favicon、共通の正方形画像をまとめて作り直す。生成済みの画像も git に入れ、通常のビルドで Swift は要求しない。`build/icon-square.png` と `build/icon-square-dark.png` は透明度なし。端末側のアイコン素材としても使う。PC 用は角の外が透明。
 
-Web の favicon と Mac の起動中の Dock は OS の外観に従う。Finder・Windows・Apple touch icon は通常版を使う。Android は通常・night のリソースを持つが、ランチャーによって外観変更の反映が異なる。
+Web の favicon と Mac の起動中の Dock は OS の外観に従う。Finder・Windows・Apple touch icon は通常版を使う。Android の画像資源はホスト側で管理する。
 
 当面の自動切替は Mac の Dock と iOS / iPadOS でよい (持ち主、2026-11-06)。Windows・Android の追加対応は後回し。必要な作業と確認条件は [TODO.md の PLAN-57・58](../TODO.md#plan-5758-アイコンの自動切替)。
 
@@ -37,6 +37,10 @@ npx tsc --noEmit -p .     # 型
 npx vitest run            # 単体 (2026-10-27 で 471 件)
 npm run build             # dist (iOS・Android のアプリにも入る)
 ```
+
+保管場所のログを使う単体試験は、`LAPLOUPE_TEST_STORE` に試験用の写しの絶対パスを指定したときだけ実行する。
+
+端末専用のネイティブ試験は、それぞれのホスト側で管理する。
 
 ## 3. 画面の通しの試験 (e2e)
 
@@ -77,35 +81,11 @@ E2E_APP=http://localhost:5184/ node e2e/run.mjs --electron 9334 --chrome 9224 [-
 
 ## 6. iPhone / iPad のアプリ
 
-### 6.1 ビルドと TestFlight
+iOS ホストのソース・Swift 試験・ビルド・配布手順は別の作業場で管理する。このリポジトリは共通 Web とネイティブの契約を管理する。
 
-手順は [mobile/README.md](../mobile/README.md) の「TestFlight に送る」。要点:
+## 7. Android
 
-- `mobile/ios/project.yml` の `MARKETING_VERSION` (1.1.0 など) と `CURRENT_PROJECT_VERSION` (送るたびに 1 つ上げる)。
-- `npm run build` → `cd mobile/ios && xcodegen` → archive → exportArchive (destination=upload)。
-- 署名とアップロードは、App Store Connect の API キー (役割 Admin) で行う。キーと ID は `../private/api_key/` (値はそこの README.md。git に入れない)。役割 Developer のキーは PC 版の公証用なので消さない。
-- 提出したビルドのコミットにはタグ `ios-X.Y.Z-bN` を付ける。
-
-### 6.2 App Store への提出
-
-- スクリーンショットは iPhone 6.1 インチ・iPhone Duo (外 1398×2034・内 2853×2007)・iPad 13 インチ (2752×2064 か 2064×2752) が要る。iPad は 1.1.0 から要る。元の画像は `../private/app_store_screenshots/`。
-  - シミュレーターで撮る: `xcrun simctl status_bar <端末> override --time 9:41 --batteryState charged --batteryLevel 100`、暗い表示は `xcrun simctl ui <端末> appearance dark`。
-  - 走行のデータは、データの入ったシミュレーターのアプリの `Documents/` と `Library/WebKit/` を写すと早い。
-  - 車載動画が映る画面は、ミラーに映る顔などにモザイクをかける。筑波の映像は使わない。
-- API で上げる: App Store Connect API の `appScreenshotSets` (iPad 13 インチは `APP_IPAD_PRO_3GEN_129`) → `appScreenshots` を作る → 返った uploadOperations に PUT → `uploaded: true` と md5 で PATCH。処理中 (`UPLOAD_COMPLETE`) のまま止まったら、消して少し変えたファイル (画質を変えるなど) で上げ直す。
-- 却下されたら: 版の番号は、出していない版なら書き換えられる (ビルドの番号と合わせる)。返信は英語で、原因・直したこと・確かめたこと (端末) を短く。
-- 審査で落ちやすい所: 使う機能の説明の文 (Info.plist の `NS…UsageDescription`。カメラはファイルの選択の「写真またはビデオを撮る」でも使われる)、外へのリンク、外の寄付 (アプリでは出さない。アプリ内課金の投げ銭だけ)。docs/app_store.md。
-
-### 6.3 実機での確かめ
-
-- 開発版を入れる: `xcodebuild … -configuration Debug -destination 'id=<UDID>' … build` (API キーを付ける) → `xcrun devicectl device install app --device <UDID> <.app>` → `xcrun devicectl device process launch --device <UDID> io.github.oud0n.dsuniversal`。開発版は TestFlight の版を上書きする。
-- 画面を撮る: `pymobiledevice3 developer dvt screenshot <png> --udid <UDID>`。
-- アプリの記録: `xcrun devicectl device copy from --device <UDID> --domain-type appDataContainer --domain-identifier io.github.oud0n.dsuniversal --source Documents/ble-captures/debug.log --destination <ファイル>`。
-- Web の中を見る: `pymobiledevice3 webinspector cdp` (e2e/ios_compare_trace.mjs)。
-
-## 7. Android (友人向けの試験版)
-
-`mobile/android/`。Bluetooth Classic の GPS (Drogger DG-PRO1S)・BLE・内蔵カメラ (CameraX)・選んだフォルダ (SAF)。配布はストアに出さず APK を渡している。実機の確認は友人の端末頼み。
+Android ホストのソース・専用試験・Gradle設定・画像資源は、このリポジトリでは管理しない。共通のWeb/ネイティブ契約と模擬窓口は維持する。
 
 ## 8. 秘密と持ち主だけの資料 (`../private/`、git に入れない)
 
