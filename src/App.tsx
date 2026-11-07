@@ -284,7 +284,7 @@ export const App: React.FC = () => {
   const [isCircuitEditorOpen, setIsCircuitEditorOpen] = useState(false);
   const [isDonateModalOpen, setIsDonateModalOpen] = useState(false);
   // iPhone・Android のアプリでは、外の寄付のページ (Buy Me a Coffee) への案内を出さない
-  // (App Store・Google Play の決まりで、開発者への投げ銭はアプリ内課金を通す必要がある。docs/app_store.md)。
+  // (App Store・Google Play の決まりで、開発者への投げ銭はアプリ内課金を通す必要がある)。
   // アプリがアプリ内課金に対応していれば、ガソリンの投げ銭 (TipModal) を出す
   const inApp = hasNative();
   const [tipsOk, setTipsOk] = useState(false);

@@ -44,7 +44,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 Bluetooth はエミュレーターでは試せない (機器を選ぶ画面と許可までは出る)。
 
-## あとの版で気をつけること (docs/iphone_app_design.md の 7.6)
+## あとの版で気をつけること
 
 - BLE の操作 (つなぐ・探す・読む・書く) は 1 つずつ順に行う。`autoConnect = false` でつなぎ、切れたら自分でつなぎ直す
 - つないだら MTU を上げ、`CONNECTION_PRIORITY_HIGH` にする (`ble.connect` の `highThroughput`)
