@@ -56,8 +56,6 @@ try write(png(desktopDark, size: 512), "electron/icons/icon-dark.png")
 try write(png(light, size: 180, opaque: true), "public/apple-touch-icon.png")
 try write(png(rounded(content(light)), size: 32), "public/favicon-32.png")
 try write(png(rounded(content(dark)), size: 32), "public/favicon-dark-32.png")
-try write(png(light, size: 192, opaque: true), "mobile/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png")
-try write(png(dark, size: 192, opaque: true), "mobile/android/app/src/main/res/mipmap-night-xxxhdpi/ic_launcher.png")
 
 let favicon = rounded("<style>.dark{display:none}@media(prefers-color-scheme:dark){.light{display:none}.dark{display:inline}}</style><g class=\"light\">\(content(light))</g><g class=\"dark\">\(content(dark))</g>")
 try write(Data((favicon + "\n").utf8), "public/favicon.svg")
@@ -91,4 +89,4 @@ task.arguments = ["-c", "icns", iconset.path, "-o", root.appendingPathComponent(
 try task.run()
 task.waitUntilExit()
 guard task.terminationStatus == 0 else { throw NSError(domain: "Icon", code: 3) }
-print("iOS・Android・Web・PC のアイコンを更新しました")
+print("共通画像・Web・PC のアイコンを更新しました")

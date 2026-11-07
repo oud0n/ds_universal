@@ -6,9 +6,9 @@
 
 元画像は `build/icon-ios.svg` (通常)・`build/icon-ios-dark.svg` (ダーク)。タイヤの中心は 1024 四方の中央、ダークのタイヤだけ 98% に縮めている。持ち手は同じ寸法。
 
-macOS で `swift scripts/generate-icons.swift` を実行すると、PC の SVG・PNG・ICO・ICNS、Mac の Dock、Web の favicon、共通の正方形画像・Android の画像をまとめて作り直す。生成済みの画像も git に入れ、通常のビルドで Swift は要求しない。`build/icon-square.png` と `build/icon-square-dark.png` は透明度なし。端末側のアイコン素材としても使う。PC 用は角の外が透明。
+macOS で `swift scripts/generate-icons.swift` を実行すると、PC の SVG・PNG・ICO・ICNS、Mac の Dock、Web の favicon、共通の正方形画像をまとめて作り直す。生成済みの画像も git に入れ、通常のビルドで Swift は要求しない。`build/icon-square.png` と `build/icon-square-dark.png` は透明度なし。端末側のアイコン素材としても使う。PC 用は角の外が透明。
 
-Web の favicon と Mac の起動中の Dock は OS の外観に従う。Finder・Windows・Apple touch icon は通常版を使う。Android は通常・night のリソースを持つが、ランチャーによって外観変更の反映が異なる。
+Web の favicon と Mac の起動中の Dock は OS の外観に従う。Finder・Windows・Apple touch icon は通常版を使う。Android の画像資源はホスト側で管理する。
 
 当面の自動切替は Mac の Dock と iOS / iPadOS でよい (持ち主、2026-11-06)。Windows・Android の追加対応は後回し。必要な作業と確認条件は [TODO.md の PLAN-57・58](../TODO.md#plan-5758-アイコンの自動切替)。
 
@@ -40,9 +40,7 @@ npm run build             # dist (iOS・Android のアプリにも入る)
 
 保管場所のログを使う単体試験は、`LAPLOUPE_TEST_STORE` に試験用の写しの絶対パスを指定したときだけ実行する。
 
-Android のネイティブ応答の変更 (BUG-45) は `bash scripts/test-native-bridge.sh` で確かめる。JDK と展開済みの Gradle (Kotlin コンパイラ・Gson を含むもの) を使う。必要なら `JAVA_HOME`・`GRADLE_HOME` を指定する。通常は既存の Android Gradle wrapper キャッシュを使い、ネットワークから追加取得しない。
-
-この試験は本体の Kotlin の窓口をコンパイルし、模擬 WebView に届く応答を検査する。窓口が送った JavaScript は Node.js で実行し、現行版・旧版の画面への配送を確認する。SDK との組み合わせは `:app:compileDebugKotlin` で別に確認する。iOS の Swift 試験はホスト側で実行する。
+端末専用のネイティブ試験は、それぞれのホスト側で管理する。
 
 ## 3. 画面の通しの試験 (e2e)
 
@@ -85,9 +83,9 @@ E2E_APP=http://localhost:5184/ node e2e/run.mjs --electron 9334 --chrome 9224 [-
 
 iOS ホストのソース・Swift 試験・ビルド・配布手順は別の作業場で管理する。このリポジトリは共通 Web とネイティブの契約を管理する。
 
-## 7. Android (友人向けの試験版)
+## 7. Android
 
-`mobile/android/`。Bluetooth Classic の GPS (Drogger DG-PRO1S)・BLE・内蔵カメラ (CameraX)・選んだフォルダ (SAF)。配布はストアに出さず APK を渡している。実機の確認は友人の端末頼み。
+Android ホストのソース・専用試験・Gradle設定・画像資源は、このリポジトリでは管理しない。共通のWeb/ネイティブ契約と模擬窓口は維持する。
 
 ## 8. 秘密と持ち主だけの資料 (`../private/`、git に入れない)
 

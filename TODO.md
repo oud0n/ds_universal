@@ -123,3 +123,7 @@ ID の付け方: 不具合 `BUG-NN` (細かくは [BUGS.md](BUGS.md))、直す�
 ## 1.1.0 で終えた大きなもの
 
 PLAN-18 (比べ方の保存)・PLAN-19 (ラップタイマーの走行の管理)・PLAN-24 (画面の作り直し)・PLAN-26 (Apple の開発者登録・App Store)・PLAN-27 (コーナーの名前)・PLAN-28 (コースとアニメの窓をまとめる)・PLAN-29 (runs.json の 2 版)・PLAN-30 (Duo の配置)・PLAN-31 (参考ラップ)・PLAN-32・33 (走行の名前・メモ・車種・天候)・PLAN-35 (走行を消す)・PLAN-36 (CSV の形式・計算式)・PLAN-37 (条件で絞り込む)・PLAN-38 (メーターに画像・書き出しの範囲)・PLAN-39 (使い方のページと動画)・PLAN-40 (iPad)。中身は [docs/features.md](docs/features.md) と [docs/release-notes.md](docs/release-notes.md)。
+
+## 保守の記録（2026-11-07、Android）
+
+- CLEAN-05: Android ホスト・専用試験・Gradle設定・資源を共通作業場から分離。まずコードの退避を優先し、配置後のビルド/実機動作は未確認。
