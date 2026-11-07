@@ -69,9 +69,9 @@ E2E_APP=http://localhost:5184/ node e2e/run.mjs --electron 9334 --chrome 9224 [-
 
 iOS ホストのソース・専用試験・ビルド・配布手順は別の作業場で管理する。このリポジトリは共通 Web とネイティブの契約を管理する。
 
-## 7. Android (友人向けの試験版)
+## 7. Android
 
-`mobile/android/`。Bluetooth Classic の GPS (Drogger DG-PRO1S)・BLE・内蔵カメラ (CameraX)・選んだフォルダ (SAF)。配布はストアに出さず APK を渡している。実機の確認は友人の端末頼み。
+Android ホストのソース・専用試験・Gradle設定・画像資源は、このリポジトリでは管理しない。共通のWeb/ネイティブ契約と模擬窓口は維持する。
 
 ## 8. 秘密と持ち主だけの資料 (`../private/`、git に入れない)
 
