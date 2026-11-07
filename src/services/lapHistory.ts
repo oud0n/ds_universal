@@ -7,7 +7,7 @@ import { queueLapIndexWrite, type LapCourse } from './lapIndex';
 import { runsFileStore } from './runsFile';
 import { CIRCUIT_PRESETS } from './circuitDatabase';
 import { userCircuitStorage } from './userCircuitStorage';
-import { courseFolder } from '../utils/courseNames';
+import { matchesCourseFolder } from '../utils/courseNames';
 import { loadStorageCourses } from './storageCourses';
 import { storageContext } from './storageRevision';
 import { withEngineErrors } from '../adapters/web/engineErrors';
@@ -17,10 +17,10 @@ export async function courseForFolder(folder: string): Promise<LapCourse | null>
   const preset = CIRCUIT_PRESETS.find(p => p.id === folder && p.controlLine);
   // コース編集で直したコースを先に見る (入っているコースを直して保存したときも、その計測線・セクター線で数える)
   const edited = userCircuitStorage.getEditedCircuits().find(c =>
-    courseFolder(c.name, c.folder) === folder || (!!preset && !c.folder && c.name === preset.name));
+    matchesCourseFolder(c, folder) || (!!preset && !c.folder && c.name === preset.name));
   if (edited) return { name: edited.name, controlLine: edited.controlLine, finishLine: edited.finishLine, sectors: edited.sectors };
   if (preset?.controlLine) return { name: preset.name, controlLine: preset.controlLine, sectors: preset.sectors };
-  const own = userCircuitStorage.getAllCircuits().find(c => courseFolder(c.name, c.folder) === folder);
+  const own = userCircuitStorage.getAllCircuits().find(c => matchesCourseFolder(c, folder));
   return own ? { name: own.name, controlLine: own.controlLine, finishLine: own.finishLine, sectors: own.sectors } : null;
 }
 

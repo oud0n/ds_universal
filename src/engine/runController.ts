@@ -47,6 +47,7 @@ export interface RunMetaPatch {
   note?: string | null;
   car?: string | null;
   vehicleId?: string | null;
+  vehicleLabel?: string | null;
   tyre?: string | null;
   reference?: { driver?: string; car?: string } | null;
   weather?: Weather | null;
@@ -867,7 +868,10 @@ function metadataKeyOf(store: RunStore, item: RunItem): string {
 
 function patchMetadata(row: Partial<RunRow> | null | undefined, patch: RunMetaPatch): RunRow {
   const next: RunRow = { updatedAt: '', ...row };
-  for (const k of ['name', 'note', 'car', 'vehicleId', 'tyre', 'overlayLayout'] as const) if (k in patch) {
+  if ('car' in patch && !('vehicleId' in patch) && (patch.car?.trim() || '') !== (row?.car || '')) {
+    delete next.vehicleId; delete next.vehicleLabel;
+  }
+  for (const k of ['name', 'note', 'car', 'vehicleId', 'vehicleLabel', 'tyre', 'overlayLayout'] as const) if (k in patch) {
     const value = patch[k]?.trim(); if (value) next[k] = value; else delete next[k];
   }
   if ('reference' in patch) {

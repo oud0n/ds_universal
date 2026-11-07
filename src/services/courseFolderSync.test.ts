@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { writeEditedCourse, courseFileKey, courseFiles, itemFromCourseFiles, mergeEditedCourses, parseCourseIndex, type CourseIndexEntry } from './courseFolderSync';
 import type { RunStore } from './runStore';
 import { getStorageReadRevision, invalidateStorageReads, StorageChangedError } from './storageRevision';
+import { matchesCourseFolder } from '../engine/courseNames';
 import type { UserCircuitItem } from './userCircuitStorage';
 
 const cl = { name: '日光', latA: 36.662468, lonA: 139.862454, latB: 36.662254, lonB: 139.862701 };
@@ -12,6 +13,14 @@ const item = (over: Partial<UserCircuitItem> = {}): UserCircuitItem => ({
 const entry = (over: Partial<CourseIndexEntry> = {}): CourseIndexEntry => ({ name: '日光', file: 'nikko', nameEn: 'Nikko', folder: 'nikko', updatedAt: '2026-10-24T00:00:00Z', ...over });
 
 describe('course/ のコース (コース編集で保存したもの)', () => {
+  it('コースの別名フォルダを保存形式から戻し、不正な道は採用しない', () => {
+    const back = itemFromCourseFiles(entry({ folderAliases: ['old_nikko', '../outside', 'old_nikko'] }), courseFiles(item()).cln, null);
+    expect(back.folderAliases).toEqual(['old_nikko']);
+    expect(matchesCourseFolder(back, 'old_nikko')).toBe(true);
+    expect(matchesCourseFolder(back, 'nikko')).toBe(true);
+    expect(matchesCourseFolder(back, 'outside')).toBe(false);
+  });
+
   it('鍵は記録のフォルダ名、無ければ名前から', () => {
     expect(courseFileKey({ name: '日光', folder: 'nikko' })).toBe('nikko');
     expect(courseFileKey({ name: '日光' })).toMatch(/^c_[0-9a-z]+$/);

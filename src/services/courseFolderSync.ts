@@ -14,6 +14,7 @@ import type { ControlLine, Sector } from '../types/telemetry';
 import { exportCln, parseCln, parseSci } from './pthParser';
 import type { RunStore } from './runStore';
 import { exportSci, type UserCircuitItem } from './userCircuitStorage';
+import { validCourseFolders } from '../engine/courseNames';
 
 export const COURSE_INDEX = 'course/courses.json';
 
@@ -23,6 +24,7 @@ export interface CourseIndexEntry {
   file: string;
   nameEn?: string;
   folder?: string;
+  folderAliases?: string[];
   finishLine?: ControlLine;
   updatedAt: string;
   deleted?: boolean;
@@ -88,6 +90,7 @@ export function itemFromCourseFiles(e: CourseIndexEntry, clnText: string, sciTex
     sectors,
     sources: { cln: 'edited' },
     ...(e.nameEn && e.folder ? { nameEn: e.nameEn, folder: e.folder } : {}),
+    ...(validCourseFolders(e.folderAliases).length ? { folderAliases: validCourseFolders(e.folderAliases) } : {}),
     ...(e.finishLine ? { finishLine: { ...e.finishLine, name: 'Finish Line' } } : {}),
     updatedAt: e.updatedAt
   };
@@ -132,6 +135,7 @@ export async function writeEditedCourse(store: RunStore, item: UserCircuitItem, 
       file,
       ...(item.nameEn ? { nameEn: item.nameEn } : {}),
       ...(item.folder ? { folder: item.folder } : {}),
+      ...(item.folderAliases ? { folderAliases: validCourseFolders(item.folderAliases) } : {}),
       ...(item.finishLine ? { finishLine: { name: 'Finish Line', latA: item.finishLine.latA, lonA: item.finishLine.lonA, latB: item.finishLine.latB, lonB: item.finishLine.lonB } } : {}),
       updatedAt: item.updatedAt ?? new Date().toISOString(),
       deleted: undefined

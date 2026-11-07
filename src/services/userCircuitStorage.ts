@@ -23,6 +23,7 @@ export interface UserCircuitItem {
   /** 英語名と、ラップタイマーの記録を入れるフォルダの名前 (コース編集で付けたもの。2026-10-20) */
   nameEn?: string;
   folder?: string;
+  folderAliases?: string[];
   /** ゴールの線 (スタートとゴールが別のコース。コース編集で付けたもの) */
   finishLine?: ControlLine;
   /** コース編集で保存した時刻 (端末の間で合わせるとき、新しいほうを使う。2026-10-24 から) */
@@ -537,6 +538,7 @@ class UserCircuitStorage {
       sources: { cln: 'edited' },
       // 英語名・フォルダ名は、渡されなければ前に保存したものを引き継ぐ
       ...(extra.nameEn && extra.folder ? { nameEn: extra.nameEn, folder: extra.folder } : prev?.nameEn && prev.folder ? { nameEn: prev.nameEn, folder: prev.folder } : {}),
+      ...(prev?.folderAliases ? { folderAliases: prev.folderAliases } : {}),
       ...(extra.finishLine ? { finishLine: { ...extra.finishLine, name: 'Finish Line' } } : {}),
       updatedAt: new Date().toISOString()
     };

@@ -71,6 +71,7 @@ export interface RunRow {
   car?: string;
   /** 車の登録を指す固定ID。carは互換用の表示名として残す。 */
   vehicleId?: string;
+  vehicleLabel?: string;
   /** タイヤ (銘柄・コンパウンドなど。自由に書く。2026-10-25) */
   tyre?: string;
   /** 天候 (ドライ・ダンプ・ウェット・ヘビーウェット。未設定なら無し。2026-10-26) */
