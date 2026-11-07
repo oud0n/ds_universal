@@ -50,4 +50,4 @@ PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs E2E_URL=http://127.0.0.1:<開発
 - 既存の合成ログによる `lap-playback.mjs` (3サイズ) と `lap-menu-input.mjs` に成功。
 - Windows実機は未確認。Safari本体の自動テスト接続は時間切れ。Firefoxは試験用プロファイルを開けず、製品を読み込む前に終了したため未確認。
 
-解析・保存・ネイティブ契約のソース変更、高速化の実装はない。独立ブランチに保持し、マージ・配布は行っていない。
+今回のUI変更には、解析・保存・ネイティブ契約のソース変更、高速化の実装はない。2026-11-08に持ち主の指示でdevへfast-forwardマージ済み。push・配布は行っていない。
