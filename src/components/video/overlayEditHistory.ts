@@ -12,6 +12,7 @@ export type EditHistory = {
 export type EditAction =
   | { type: 'load'; layout: OverlayLayout | null | ((layout: OverlayLayout | null) => OverlayLayout | null) }
   | { type: 'target'; target: Target }
+  | { type: 'name'; name: [string, string] }
   | { type: 'parts'; parts: OverlayPart[] }
   | { type: 'begin' | 'end' | 'undo' };
 
@@ -33,6 +34,7 @@ export function overlayEditReducer(state: EditHistory, action: EditAction): Edit
       layout: typeof action.layout === 'function' ? action.layout(state.layout) : action.layout
     };
     case 'target': return { ...state, target: action.target, gesture: false, recorded: false };
+    case 'name': return state.layout ? { ...state, layout: { ...state.layout, name: action.name } } : state;
     case 'begin': return { ...state, gesture: true, recorded: false };
     case 'end': return { ...state, gesture: false, recorded: false };
     case 'parts': {
@@ -49,6 +51,8 @@ export function overlayEditReducer(state: EditHistory, action: EditAction): Edit
       };
     }
     case 'undo': {
+      // ネイティブのrange操作中は、mouseup/keyupまで待つ。独自ドラッグは呼出し元で中断してから戻す。
+      if (state.gesture) return state;
       const previous = state.past[state.past.length - 1];
       if (!state.layout || !previous) return state;
       return {

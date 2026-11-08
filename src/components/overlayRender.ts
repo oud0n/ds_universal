@@ -26,14 +26,6 @@ export interface OverlayFrameInput {
   onTileLoad?: () => void;
 }
 
-/** 比べる周の線 (経度・緯度の列)。周ごとに 1 回だけ作る */
-const lapLineCache = new WeakMap<Lap, Array<[number, number]>>();
-function lapLine(lap: Lap): Array<[number, number]> {
-  let l = lapLineCache.get(lap);
-  if (!l) { l = lap.points.map(p => [p.longitude, p.latitude] as [number, number]); lapLineCache.set(lap, l); }
-  return l;
-}
-
 const PLATE = 'rgba(15, 20, 30, 0.85)';
 const EDGE = '#2d3852';
 const LABEL = '#94a3b8';
@@ -473,7 +465,9 @@ interface PhotoAttribution {
 
 /** 小窓の下の黒い帯。長い追加出典も省略せず、窓の幅で折り返す。 */
 function photoAttribution(ctx: CanvasRenderingContext2D, x: number, bottom: number, w: number, credits: string[]): PhotoAttribution {
-  const fontSize = Math.max(8, Math.min(14, Math.round(w / 26)));
+  const transform = ctx.getTransform();
+  const scale = Math.max(0.001, Math.min(Math.hypot(transform.a, transform.b), Math.hypot(transform.c, transform.d)));
+  const fontSize = Math.max(8 / scale, Math.min(14 / scale, Math.round(w / 26)));
   const lineH = Math.ceil(fontSize * 1.25);
   ctx.font = `${fontSize}px sans-serif`;
   const lines: string[] = [];
@@ -509,7 +503,9 @@ function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: 
   const credits = [...new Set(tiles.flatMap(photoTileCredits))];
   const attribution = photoAttribution(ctx, rx + 1, ry + rh - 1, rw - 2, credits);
   // 判読できる出典を収められない極小の枠では、航空写真を使わず走行線だけを描く。
-  const canShowPhoto = tiles.length > 0 && rw >= 80 && attribution.h < rh * 0.65;
+  const transform = ctx.getTransform();
+  const pixelScale = Math.min(Math.hypot(transform.a, transform.b), Math.hypot(transform.c, transform.d));
+  const canShowPhoto = tiles.length > 0 && rw * pixelScale >= 80 && attribution.h < rh * 0.65;
   const textH = canShowPhoto ? attribution.h + 1 : 0;
   const cx = rx + rw / 2, cy = ry + (rh - textH) * 0.62;
   ctx.save();

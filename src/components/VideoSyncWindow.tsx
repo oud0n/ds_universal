@@ -38,7 +38,7 @@ import { preloadOverlayImages, renderOverlayParts } from './overlayRender';
 import { AUTO_LAYOUT, BUILTIN_LAYOUTS, COMPARE_LAYOUT, SMALL_PARTS, SMALL_TILE_PX, availableChannels, hiddenKey, parseOverlayLayout, partChannels, partLabel, resolveLayout, visibleParts, type OverlayLayout, type OverlayPart } from '../services/overlayLayout';
 import { deleteCustomLayout, renameCustomLayout, layoutFileText, listCustomLayouts, saveCustomLayout } from '../services/overlayStore';
 import { canUseRunStore, getRunStore } from '../services/runStore';
-import { OverlayEditLayer, OverlayEditPanel } from './video/OverlayLayoutEditor';
+import { OverlayEditLayer, OverlayEditPanel, type OverlayEditHandle } from './video/OverlayLayoutEditor';
 import { EMPTY_EDIT_HISTORY, overlayEditReducer } from './video/overlayEditHistory';
 
 /** 走行比較の枠には、足した部品を出さない (枠が小さく、Car の札・比べる差と重なるため) */
@@ -457,8 +457,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   }, []);
   // 配置の編集 (パソコンだけ): 直している並び (下書き)・元の並び・選んだ部品
   const [editHistory, editDispatch] = useReducer(overlayEditReducer, EMPTY_EDIT_HISTORY);
+  const editLayerRef = useRef<OverlayEditHandle | null>(null);
   const { layout: editLayout, target: editTarget } = editHistory;
-  const setEditLayout = (layout: React.SetStateAction<OverlayLayout | null>) => editDispatch({ type: 'load', layout });
+  const setEditLayout = (layout: React.SetStateAction<OverlayLayout | null>) => {
+    editLayerRef.current?.cancelGesture();
+    editDispatch({ type: 'load', layout });
+  };
   // 直している枠: large (ふつうの枠) / small (小さな枠。スマートフォン・走行比較の枠など)
   const setEditTarget = (target: 'large' | 'small') => editDispatch({ type: 'target', target });
   const [editBase, setEditBase] = useState('');
@@ -500,7 +504,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   /** 直している枠の部品 (小さな枠の部品がまだ無ければ既定を使う) */
   const editParts = editLayout ? (editTarget === 'small' ? editLayout.small ?? SMALL_PARTS : editLayout.parts) : [];
   const setEditParts = (parts: OverlayPart[]) => editDispatch({ type: 'parts', parts });
-  const undoEdit = () => { editDispatch({ type: 'undo' }); setEditSel(null); };
+  const undoEdit = () => {
+    editLayerRef.current?.cancelGesture();
+    const active = document.activeElement;
+    if (!(active instanceof HTMLInputElement && active.type === 'range')) editDispatch({ type: 'end' });
+    editDispatch({ type: 'undo' });
+    setEditSel(null);
+  };
   useEffect(() => {
     if (!editLayout || !isVisible) return;
     const wantsLayoutUndo = (target: EventTarget | null) => {
@@ -511,8 +521,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     const consumeUndo = (event: Event) => {
       event.preventDefault();
       event.stopImmediatePropagation();
-      editDispatch({ type: 'undo' });
-      setEditSel(null);
+      undoEdit();
     };
     const onKey = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'z') return;
@@ -1716,7 +1725,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     onSeeked={handleSeeked}
                     overlay={overlayFor(x, i)}
                     editLayer={isMain && editLayout && size === 'full' ? (
-                      <OverlayEditLayer parts={editParts} selected={editSel} onSelect={setEditSel} onChange={setEditParts}
+                      <OverlayEditLayer ref={editLayerRef} parts={editParts} selected={editSel} onSelect={setEditSel} onChange={setEditParts}
                         onGestureStart={() => editDispatch({ type: 'begin' })} onGestureEnd={() => editDispatch({ type: 'end' })} />
                     ) : undefined}
                     avoidRef={isMain && win.layout === 'pip' ? pipRef : undefined}
@@ -1803,6 +1812,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 onChange={setEditParts}
                 canUndo={editHistory.past.length > 0}
                 onUndo={undoEdit}
+                onGestureStart={() => editDispatch({ type: 'begin' })}
+                onGestureEnd={() => editDispatch({ type: 'end' })}
                 key={`edit:${editKey}`}
                 onPickBase={id => {
                   if (!confirmDiscard()) return;
@@ -1833,7 +1844,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                   if (!cur) return t('保存した並びが見つかりません', 'Saved layout not found');
                   try {
                     const renamed = await renameCustomLayout(await layoutStore(), cur, name);
-                    setEditLayout(l => (l ? { ...l, name: [name, name] } : l));
+                    editDispatch({ type: 'name', name: [name, name] });
                     // 読み直しを待たずに一覧の名前も替える (すぐ保存しても、名前を変えた並びに上書きできるように)
                     setCustomLayouts(list => list.map(l => (l.id === renamed.id ? renamed : l)));
                     setLayoutTick(n => n + 1);

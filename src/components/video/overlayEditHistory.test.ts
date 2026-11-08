@@ -63,4 +63,23 @@ describe('メーター編集のUndo', () => {
     for (let n = 0; n < 110; n++) state = reduce(state, { type: 'parts', parts: state.layout!.parts.map((p, i) => i === 0 ? { ...p, x: n / 1000 } : p) });
     expect(state.past).toHaveLength(100);
   });
+  it('名前だけ変えても部品のUndo履歴を保ち、Undoで新しい名前は変えない', () => {
+    let state = start();
+    const parts = state.layout!.parts;
+    state = reduce(state, { type: 'parts', parts: parts.slice(1) });
+    state = reduce(state, { type: 'name', name: ['新しい名前', 'New name'] });
+    state = reduce(state, { type: 'undo' });
+    expect(state.layout!.parts).toBe(parts);
+    expect(state.layout!.name).toEqual(['新しい名前', 'New name']);
+  });
+  it('ネイティブつまみの操作中はUndoを待ち、操作終了後に1回で戻す', () => {
+    let state = start();
+    const original = state.layout;
+    state = reduce(state, { type: 'begin' });
+    for (let n = 1; n < 15; n++) state = reduce(state, { type: 'parts', parts: state.layout!.parts.map((p, i) => i === 0 ? { ...p, opacity: n / 20 } : p) });
+    expect(reduce(state, { type: 'undo' })).toBe(state);
+    expect(state.past).toHaveLength(1);
+    state = reduce(state, { type: 'end' });
+    expect(reduce(state, { type: 'undo' }).layout).toEqual(original);
+  });
 });

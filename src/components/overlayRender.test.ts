@@ -13,7 +13,7 @@ vi.mock('../utils/i18n', () => ({ tr: (ja: string) => ja }));
 const point: TelemetryPoint = { index: 0, time: 0, latitude: 35, longitude: 140, altitude: 0, speed: 50, heading: 0, distance: 0, accelG: 0, corneringG: 0, combinedG: 0, turningRadius: 0, driftAngle: 0 };
 const session = { points: [point], laps: [], bestLapIndex: -1, pathPolylines: [] } as unknown as Session;
 const part = { id: 'photo', type: 'zoomMap' as const, x: 0, y: 0, w: 0.4, h: 0.4, photo: true };
-function draw(photo = true, width = 0.4) {
+function draw(photo = true, width = 0.4, scale = 1) {
   const texts: string[] = [];
   const positions: number[][] = [];
   const events: string[] = [];
@@ -21,6 +21,7 @@ function draw(photo = true, width = 0.4) {
     get(target, key) {
       if (key in target) return target[key as keyof typeof target];
       if (key === 'measureText') return (text: string) => ({ width: text.length * 7 });
+      if (key === 'getTransform') return () => ({ a: scale, b: 0, c: 0, d: scale });
       return (...args: unknown[]) => { events.push(String(key)); if (key === 'fillText') { texts.push(String(args[0])); positions.push(args.slice(1, 3) as number[]); } };
     },
     set(target, key, value) { Reflect.set(target, key, value); return true; }
@@ -51,4 +52,10 @@ it('縮小した衛星画像の追加出典も出力へ残す', () => {
 });
 it('判読できる出典を収められない極小の枠では写真自体を描かない', () => {
   expect(draw(true, 0.02).events).not.toContain('drawImage');
+});
+it('ステージの縮小合成後のピクセル寸法でも出典の最小文字サイズを保つ', () => {
+  const { texts, context } = draw(true, 0.4, 0.5);
+  expect(texts.join()).toContain('出典');
+  expect(parseFloat(context.font) * 0.5).toBeGreaterThanOrEqual(8);
+  expect(draw(true, 0.1, 0.5).events).not.toContain('drawImage');
 });
