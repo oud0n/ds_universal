@@ -467,7 +467,8 @@ interface PhotoAttribution {
 function readablePixelScale(ctx: CanvasRenderingContext2D): number {
   const transform = ctx.getTransform();
   const canvas = ctx.canvas;
-  const cssRatio = canvas?.isConnected && canvas.clientWidth > 0 ? Math.min(1, canvas.clientWidth / canvas.width) : 1;
+  const cssRatio = canvas?.isConnected && canvas.clientWidth > 0 && canvas.clientHeight > 0
+    ? Math.min(1, canvas.clientWidth / canvas.width, canvas.clientHeight / canvas.height) : 1;
   return Math.max(0.001, Math.min(1, Math.hypot(transform.a, transform.b) * cssRatio, Math.hypot(transform.c, transform.d) * cssRatio));
 }
 

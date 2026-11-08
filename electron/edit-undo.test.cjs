@@ -1,28 +1,36 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { undoFocusedContents, isUndoInput } = require('./edit-undo.cjs');
+const vm = require('node:vm');
+const { undoFocusedContents } = require('./edit-undo.cjs');
 
+function renderer({ focused = true, layout = false } = {}) {
+  const calls = [];
+  return { calls, isDestroyed: () => false, executeJavaScript: async source => vm.runInNewContext(source, {
+    document: { hasFocus: () => focused, execCommand: command => calls.push(command) },
+    window: { dispatchEvent: () => !layout }, Event: class {}
+  }) };
+}
 test('配置エディタが処理したUndoは標準Undoへ重ねて渡さない', async () => {
-  let undos = 0;
-  const target = { isDestroyed: () => false, executeJavaScript: async () => false, undo: () => undos++ };
-  await undoFocusedContents(() => target);
-  assert.equal(undos, 0);
+  const target = renderer({ layout: true });
+  await undoFocusedContents(() => target, () => assert.fail('unexpected native fallback'));
+  assert.deepEqual(target.calls, []);
 });
-test('入力欄のUndoは標準処理へ渡す', async () => {
-  let undos = 0;
-  const target = { isDestroyed: () => false, executeJavaScript: async () => true, undo: () => undos++ };
-  await undoFocusedContents(() => target);
-  assert.equal(undos, 1);
+test('入力欄のUndoは同じレンダラータスクで標準処理へ渡す', async () => {
+  const target = renderer();
+  await undoFocusedContents(() => target, () => assert.fail('unexpected second task'));
+  assert.deepEqual(target.calls, ['undo']);
 });
-test('応答を待つ間に入力先が変わったら標準Undoを実行しない', async () => {
-  let finish, undos = 0;
-  const target = { isDestroyed: () => false, executeJavaScript: () => new Promise(resolve => { finish = resolve; }), undo: () => undos++ };
+test('応答を待つ間に入力先が変わったらUndoしない', async () => {
+  const target = renderer({ focused: false });
+  await undoFocusedContents(() => target, () => assert.fail('unexpected fallback'));
+  assert.deepEqual(target.calls, []);
+});
+test('ページ切替で実行に失敗しても別の入力先へ標準Undoを送らない', async () => {
+  let reject;
+  const target = { isDestroyed: () => false, executeJavaScript: () => new Promise((_, no) => { reject = no; }) };
   let current = target;
-  const operation = undoFocusedContents(() => current);
-  current = null;
-  finish(true);
-  await operation;
-  assert.equal(undos, 0);
+  const operation = undoFocusedContents(() => current, () => assert.fail('wrong focus'));
+  current = null; reject(new Error('navigation')); await operation;
 });
 test('閉じたページや入力先なしでは処理しない', async () => {
   await undoFocusedContents(() => null);
@@ -32,12 +40,4 @@ test('ネイティブダイアログが入力先のときはOSの標準Undoへ�
   let native = 0;
   await undoFocusedContents(() => null, () => native++);
   assert.equal(native, 1);
-});
-test('主プロセスが処理するUndoキーだけを選び、Redoと通常文字入力は通す', () => {
-  assert.equal(isUndoInput({ type: 'keyDown', key: 'z', control: true }), true);
-  assert.equal(isUndoInput({ type: 'keyDown', key: 'Z', meta: true }), true);
-  for (const extra of [{ shift: true }, { alt: true }, { type: 'keyUp' }, { key: 'x' }]) {
-    assert.equal(isUndoInput({ type: 'keyDown', key: 'z', control: true, ...extra }), false);
-  }
-  assert.equal(isUndoInput({ type: 'keyDown', key: 'z' }), false);
 });

@@ -13,7 +13,7 @@ vi.mock('../utils/i18n', () => ({ tr: (ja: string) => ja }));
 const point: TelemetryPoint = { index: 0, time: 0, latitude: 35, longitude: 140, altitude: 0, speed: 50, heading: 0, distance: 0, accelG: 0, corneringG: 0, combinedG: 0, turningRadius: 0, driftAngle: 0 };
 const session = { points: [point], laps: [], bestLapIndex: -1, pathPolylines: [] } as unknown as Session;
 const part = { id: 'photo', type: 'zoomMap' as const, x: 0, y: 0, w: 0.4, h: 0.4, photo: true };
-function draw(photo = true, width = 0.4, scale = 1, dpr = 1, opacity = 1) {
+function draw(photo = true, width = 0.4, scale = 1, dpr = 1, opacity = 1, cssBox?: { width: number; height: number }) {
   const texts: string[] = [];
   const positions: number[][] = [];
   const events: string[] = [];
@@ -23,7 +23,7 @@ function draw(photo = true, width = 0.4, scale = 1, dpr = 1, opacity = 1) {
       if (key in target) return target[key as keyof typeof target];
       if (key === 'measureText') return (text: string) => ({ width: text.length * 7 });
       if (key === 'getTransform') return () => ({ a: scale, b: 0, c: 0, d: scale });
-      if (key === 'canvas') return { isConnected: dpr > 1, clientWidth: 1280, width: 1280 * dpr };
+      if (key === 'canvas') return { isConnected: dpr > 1 || !!cssBox, clientWidth: cssBox?.width ?? 1280, clientHeight: cssBox?.height ?? 720, width: 1280 * dpr, height: 720 * dpr };
       return (...args: unknown[]) => { events.push(String(key)); if (key === 'drawImage') imageAlphas.push(target.globalAlpha); if (key === 'fillText') { texts.push(String(args[0])); positions.push(args.slice(1, 3) as number[]); } };
     },
     set(target, key, value) { Reflect.set(target, key, value); return true; }
@@ -70,4 +70,10 @@ it('写真も部品の不透明度を守り、出典だけは明瞭に残す', (
   const result = draw(true, 0.4, 1, 1, 0.4);
   expect(result.imageAlphas[0]).toBeCloseTo(0.34);
   expect(result.context.globalAlpha).toBe(1);
+});
+it('横長の枠にobject-containで収めた場合は、高さによる縮小も判読性へ反映する', () => {
+  const box = { width: 640, height: 180 };
+  expect(draw(true, 0.2, 1, 1, 1, box).events).not.toContain('drawImage');
+  const result = draw(true, 0.4, 1, 1, 1, box);
+  expect(parseFloat(result.context.font) * 0.25).toBeGreaterThanOrEqual(8);
 });

@@ -41,6 +41,41 @@ describe('メーター編集のUndo', () => {
     expect(state.past).toHaveLength(0);
   });
 
+  it('省略値とundefined、同じチャンネル配列は同じ変更として扱う', () => {
+    const parts = [
+      { id: 'bar', type: 'bar' as const, channel: 'speed' as const, x: 0, y: 0, w: 0.2, h: 0.2 },
+      { id: 'graph', type: 'graph' as const, channels: ['speed' as const], x: 0, y: 0, w: 0.2, h: 0.2 }
+    ];
+    const state = reduce(EMPTY_EDIT_HISTORY, { type: 'load', layout: { ...BUILTIN_LAYOUTS[0], parts } });
+    const next = reduce(state, { type: 'parts', parts: parts.map(p => p.type === 'bar' ? { ...p, label: undefined } : { ...p, channels: ['speed'] }) });
+    expect(next).toBe(state);
+  });
+
+  it('元へ戻したドラッグ・ラベル編集を履歴に残さず、前の操作を戻せる', () => {
+    let state = start();
+    const original = state.layout!;
+    state = reduce(state, { type: 'parts', parts: original.parts.slice(1) });
+    const before = state.layout!;
+    state = reduce(state, { type: 'begin', owner: 'layer' });
+    state = reduce(state, { type: 'parts', owner: 'layer', parts: before.parts.map(p => ({ ...p, x: 0.5 })) });
+    state = reduce(state, { type: 'parts', owner: 'layer', parts: before.parts });
+    state = reduce(state, { type: 'end', owner: 'layer' });
+    expect(state.past).toHaveLength(1);
+    expect(reduce(state, { type: 'undo' }).layout).toEqual(original);
+  });
+
+  it('小さな枠を元に戻したら既定への委譲も保ち、次の操作を混ぜない', () => {
+    let state = reduce(EMPTY_EDIT_HISTORY, { type: 'load', layout: { ...BUILTIN_LAYOUTS[0], small: undefined } });
+    state = reduce(state, { type: 'target', target: 'small' });
+    state = reduce(state, { type: 'begin', owner: 'layer' });
+    state = reduce(state, { type: 'parts', owner: 'layer', parts: SMALL_PARTS.slice(1) });
+    state = reduce(state, { type: 'parts', owner: 'layer', parts: SMALL_PARTS });
+    state = reduce(state, { type: 'parts', parts: SMALL_PARTS.slice(1) });
+    expect(state.past).toHaveLength(1);
+    expect(state.past[0].small).toBeUndefined();
+    expect(reduce(state, { type: 'undo' }).layout!.small).toBeUndefined();
+  });
+
   it('削除・設定変更を順番に戻し、保存や並び切替で履歴を区切る', () => {
     let state = start();
     const original = state.layout!;

@@ -23,9 +23,26 @@ export const EMPTY_EDIT_HISTORY: EditHistory = { layout: null, target: 'large', 
 function sameParts(a: OverlayPart[], b: OverlayPart[]): boolean {
   return a.length === b.length && a.every((part, i) => {
     const other = b[i];
-    const keys = Object.keys(part) as (keyof OverlayPart)[];
-    return keys.length === Object.keys(other).length && keys.every(key => Object.is(part[key], other[key]));
+    const keys = new Set([...Object.keys(part), ...Object.keys(other)] as (keyof OverlayPart)[]);
+    return [...keys].every(key => {
+      const left = part[key], right = other[key];
+      return Array.isArray(left) && Array.isArray(right)
+        ? left.length === right.length && left.every((value, index) => value === right[index])
+        : Object.is(left, right);
+    });
   });
+}
+
+function finishGesture(state: EditHistory): EditHistory {
+  const previous = state.past[state.past.length - 1];
+  const unchanged = state.recorded && state.layout && previous && previous.target === state.target
+    && sameParts(previous.parts, state.layout.parts)
+    && sameParts(previous.small ?? SMALL_PARTS, state.layout.small ?? SMALL_PARTS);
+  return {
+    ...state,
+    layout: unchanged ? { ...state.layout!, parts: previous.parts, small: previous.small } : state.layout,
+    past: unchanged ? state.past.slice(0, -1) : state.past, gesture: null, recorded: false
+  };
 }
 
 /** 保存・読込み・並びの切替で履歴を区切る。ドラッグは最初の変更だけを記録する。 */
@@ -35,15 +52,18 @@ export function overlayEditReducer(state: EditHistory, action: EditAction): Edit
       ...EMPTY_EDIT_HISTORY, target: state.target,
       layout: typeof action.layout === 'function' ? action.layout(state.layout) : action.layout
     };
-    case 'target': return { ...state, target: action.target, gesture: null, recorded: false };
+    case 'target': return { ...finishGesture(state), target: action.target };
     case 'name': return state.layout ? { ...state, layout: { ...state.layout, name: action.name } } : state;
-    case 'begin': return { ...state, gesture: action.owner ?? 'layer', recorded: false };
-    case 'end': return action.owner && action.owner !== state.gesture ? state : { ...state, gesture: null, recorded: false };
+    case 'begin': return { ...finishGesture(state), gesture: action.owner ?? 'layer' };
+    case 'end': return action.owner && action.owner !== state.gesture ? state : finishGesture(state);
     case 'parts': {
-      const layout = state.layout;
+      let layout = state.layout;
       if (!layout) return state;
       const current = state.target === 'small' ? layout.small ?? SMALL_PARTS : layout.parts;
       if (sameParts(current, action.parts)) return state;
+      if (state.gesture && action.owner !== state.gesture) {
+        state = finishGesture(state); layout = state.layout!;
+      }
       const previous = { parts: layout.parts, small: layout.small, target: state.target };
       return {
         ...state,
