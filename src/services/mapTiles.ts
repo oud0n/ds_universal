@@ -28,6 +28,17 @@ export const TILE_SOURCES: Record<Exclude<MapBackground, 'none'>, TileSource> = 
 
 export const TILE_ATTRIBUTION = { text: '出典: 国土地理院', url: 'https://maps.gsi.go.jp/development/ichiran.html' };
 
+/** シームレス写真の縮小画像・GRUS画像は、国土地理院に加えて個別の出典も必要。 */
+export function photoTileCredits(tile: TilePlacement): string[] {
+  const zoom = Number(tile.key.split('/')[1]);
+  if (zoom <= 8) return ['Images on 世界衛星モザイク画像 obtained from site https://lpdaac.usgs.gov/data_access maintained by the NASA Land Processes Distributed Active Archive Center (LP DAAC), USGS/Earth Resources Observation and Science (EROS) Center, Sioux Falls, South Dakota. Source of image data product.'];
+  if (zoom <= 13) return ['データソース：Landsat8画像（GSI,TSIC,GEO Grid/AIST）, Landsat8画像（courtesy of the U.S. Geological Survey）, 海底地形（GEBCO）'];
+  // 公式タイル一覧に記載された沖ノ鳥島のGRUS画像範囲と交わる場合。
+  return tile.north >= 20 + 24 / 60 + 28 / 3600 && tile.south <= 20 + 27 / 60 + 21 / 3600
+    && tile.east >= 136 + 3 / 60 + 58 / 3600 && tile.west <= 136 + 8 / 60 + 25 / 3600
+    ? ['GRUS画像（© Axelspace）'] : [];
+}
+
 // 1 画面に敷くタイル数の上限 (超える場合はズームレベルを下げる)
 const MAX_TILES_PER_VIEW = 60;
 const CACHE_LIMIT = 400;

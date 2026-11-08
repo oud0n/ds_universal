@@ -7,7 +7,7 @@
 import type { Lap, Session, TelemetryPoint } from '../types/telemetry';
 import { channelDef, type ChannelId, type OverlayPart } from '../services/overlayLayout';
 import { drawCourseMapAt, drawLapPanelAt, hasTimedLaps, LAP_PANEL_W, liveDelta } from './overlayParts';
-import { getTileImage, tilesForView } from '../services/mapTiles';
+import { getTileImage, photoTileCredits, tilesForView } from '../services/mapTiles';
 import { tr } from '../utils/i18n';
 
 export interface OverlayFrameInput {
@@ -466,49 +466,51 @@ const TRACK_WIDTH_M = 11;
 /** 走った線を明るく描く、今から前の秒 */
 const TRAIL_SEC = 6;
 
-/**
- * 線 (経度・緯度の点の列) のうち、点 (x, y。m・東と北) にいちばん近いところへの、進む向きに対する横の距離 (m。右が +)。
- * 近くに線が無ければ null。heading は進む向き (度、北から右回り)
- */
-function lateralOffset(lines: Array<Array<[number, number]>>, lat0: number, lon0: number, cosLat: number, heading: number): number | null {
-  let best: { d: number; side: number } | null = null;
-  const hx = Math.sin((heading * Math.PI) / 180), hy = Math.cos((heading * Math.PI) / 180);
-  for (const line of lines) {
-    for (let i = 1; i < line.length; i++) {
-      const ax = (line[i - 1][0] - lon0) * cosLat * M_PER_DEG, ay = (line[i - 1][1] - lat0) * M_PER_DEG;
-      const bx = (line[i][0] - lon0) * cosLat * M_PER_DEG, by = (line[i][1] - lat0) * M_PER_DEG;
-      // 遠い線は見ない (線分を囲む四角が 60 m より遠いもの。端の点が離れた長い線分 (直線) も見落とさないように)
-      if (Math.max(ax, bx) < -60 || Math.min(ax, bx) > 60 || Math.max(ay, by) < -60 || Math.min(ay, by) > 60) continue;
-      const sx = bx - ax, sy = by - ay;
-      const len2 = sx * sx + sy * sy;
-      if (len2 < 1e-6) continue;
-      const f = Math.max(0, Math.min(1, -(ax * sx + ay * sy) / len2));
-      const px = ax + sx * f, py = ay + sy * f;
-      const d = Math.hypot(px, py);
-      if (best && d >= best.d) continue;
-      // 線の向きを進む向きにそろえ、点が線のどちら側か (右が +)
-      const dir = sx * hx + sy * hy >= 0 ? 1 : -1;
-      const cross = (sx * dir) * (0 - py) - (sy * dir) * (0 - px);
-      best = { d, side: cross < 0 ? 1 : -1 };
+interface PhotoAttribution {
+  x: number; y: number; w: number; h: number;
+  fontSize: number; lineH: number; lines: string[];
+}
+
+/** 小窓の下の黒い帯。長い追加出典も省略せず、窓の幅で折り返す。 */
+function photoAttribution(ctx: CanvasRenderingContext2D, x: number, bottom: number, w: number, credits: string[]): PhotoAttribution {
+  const fontSize = Math.max(8, Math.min(14, Math.round(w / 26)));
+  const lineH = Math.ceil(fontSize * 1.25);
+  ctx.font = `${fontSize}px sans-serif`;
+  const lines: string[] = [];
+  for (const text of [tr('出典：国土地理院（走行データを追記）', 'Source: GSI Japan (telemetry added)'), ...credits]) {
+    let line = '';
+    for (const character of text) {
+      if (line && ctx.measureText(line + character).width > w - 8) { lines.push(line); line = ''; }
+      line += character;
     }
+    if (line) lines.push(line);
   }
-  return best && best.d < 30 ? best.d * best.side : null;
+  const h = lineH * lines.length + 6;
+  return { x, y: bottom - h, w, h, fontSize, lineH, lines };
 }
 
 /**
  * 車のまわりを拡大した地図: 航空写真 (読めたら)・コースの形 (道幅の帯)・比べる周の線・この周の線 (今から前 TRAIL_SEC 秒は明るく)・車。
- * 向きは既定でコース図と同じ北が上 (進む向きを上にもできる)。下に、コースの真ん中と比べる周の線からの左右の距離 (進む向きに対して)
+ * 向きは既定でコース図と同じ北が上 (進む向きを上にもできる)。下の帯は航空写真の出典。
  */
-function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: number, rh: number, part: Extract<OverlayPart, { type: 'zoomMap' }>, input: OverlayFrameInput, pt: TelemetryPoint): boolean {
+function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: number, rh: number, part: Extract<OverlayPart, { type: 'zoomMap' }>, input: OverlayFrameInput, pt: TelemetryPoint): PhotoAttribution | null {
   plate(ctx, rx, ry, rw, rh);
   const spanM = part.spanM ?? 140;
   const mpp = spanM / Math.max(1, rw);
   const lat0 = pt.latitude, lon0 = pt.longitude;
-  if (!Number.isFinite(lat0) || !Number.isFinite(lon0)) return false;
+  if (!Number.isFinite(lat0) || !Number.isFinite(lon0)) return null;
   const cosLat = Math.cos((lat0 * Math.PI) / 180);
   const toLocal = (lat: number, lon: number): [number, number] => [((lon - lon0) * cosLat * M_PER_DEG) / mpp, (-(lat - lat0) * M_PER_DEG) / mpp];
   const heading = Number.isFinite(pt.heading) ? pt.heading : 0;
-  const textH = Math.max(10, Math.min(rh * 0.14, 18));
+  const radiusM = (Math.hypot(rw, rh) / 2) * mpp;
+  const dLat = radiusM / M_PER_DEG, dLon = radiusM / (M_PER_DEG * cosLat);
+  const tiles = part.photo !== false
+    ? tilesForView('photo', { north: lat0 + dLat, south: lat0 - dLat, west: lon0 - dLon, east: lon0 + dLon }, mpp) : [];
+  const credits = [...new Set(tiles.flatMap(photoTileCredits))];
+  const attribution = photoAttribution(ctx, rx + 1, ry + rh - 1, rw - 2, credits);
+  // 判読できる出典を収められない極小の枠では、航空写真を使わず走行線だけを描く。
+  const canShowPhoto = tiles.length > 0 && rw >= 80 && attribution.h < rh * 0.65;
+  const textH = canShowPhoto ? attribution.h + 1 : 0;
   const cx = rx + rw / 2, cy = ry + (rh - textH) * 0.62;
   ctx.save();
   ctx.beginPath();
@@ -516,12 +518,8 @@ function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: 
   ctx.clip();
   ctx.translate(cx, cy);
   if (part.headingUp === true) ctx.rotate((-heading * Math.PI) / 180);
-  // 0. 航空写真 (読めたタイルだけ。まだのものは次のコマで)
-  const radiusM = (Math.hypot(rw, rh) / 2) * mpp;
   let drewPhoto = false;
-  if (part.photo !== false) {
-    const dLat = radiusM / M_PER_DEG, dLon = radiusM / (M_PER_DEG * cosLat);
-    const tiles = tilesForView('photo', { north: lat0 + dLat, south: lat0 - dLat, west: lon0 - dLon, east: lon0 + dLon }, mpp);
+  if (canShowPhoto) {
     ctx.globalAlpha = 0.85;
     for (const tile of tiles) {
       const img = getTileImage(tile, input.onTileLoad ?? noop);
@@ -604,19 +602,7 @@ function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: 
   ctx.fill();
   ctx.stroke();
   ctx.restore();
-  // 5. 左右の距離: コースの真ん中から (C) と、比べる周の線から (REF)。右が R
-  const center = lines.length ? lateralOffset(lines, lat0, lon0, cosLat, heading) : null;
-  const fromRef = ref && ref !== lap && ref.points.length > 1
-    ? lateralOffset([lapLine(ref)], lat0, lon0, cosLat, heading)
-    : null;
-  const fmt = (v: number) => `${v >= 0 ? 'R' : 'L'}${Math.abs(v).toFixed(1)}m`;
-  const texts = [center !== null ? `C ${fmt(center)}` : null, fromRef !== null ? `REF ${fmt(fromRef)}` : null].filter(Boolean) as string[];
-  ctx.font = `bold ${Math.round(textH * 0.7)}px sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = texts.length ? VALUE : LABEL;
-  ctx.fillText(texts.length ? texts.join('   ') : '--', rx + rw / 2, ry + rh - textH / 2 - 1);
-  return drewPhoto;
+  return drewPhoto ? attribution : null;
 }
 
 /** 部品の四角 (px)。PinP の小窓に重なるときは、小窓の横へずらす */
@@ -638,7 +624,7 @@ export function partRect(part: OverlayPart, w: number, h: number, avoid?: Overla
 export function renderOverlayParts(ctx: CanvasRenderingContext2D, w: number, h: number, input: OverlayFrameInput, parts: OverlayPart[]): void {
   const pt = pointAt(input.session.points, input.t);
   if (!pt) return;
-  let drewPhoto = false;
+  const attributions: PhotoAttribution[] = [];
   for (const part of parts) {
     const r = partRect(part, w, h, input.avoid);
     ctx.save();
@@ -680,7 +666,11 @@ export function renderOverlayParts(ctx: CanvasRenderingContext2D, w: number, h: 
         drawCourseMapAt(ctx, x, y, size, input.t, input.session, pt, others);
         break;
       }
-      case 'zoomMap': drewPhoto = drawZoomMap(ctx, r.x, r.y, r.w, r.h, part, input, pt) || drewPhoto; break;
+      case 'zoomMap': {
+        const attribution = drawZoomMap(ctx, r.x, r.y, r.w, r.h, part, input, pt);
+        if (attribution) attributions.push(attribution);
+        break;
+      }
       case 'bar': drawBar(ctx, r.x, r.y, r.w, r.h, part, pt); break;
       case 'steering': drawSteering(ctx, r.x, r.y, r.w, r.h, part, pt); break;
       case 'value': drawValue(ctx, r.x, r.y, r.w, r.h, part, pt); break;
@@ -690,21 +680,17 @@ export function renderOverlayParts(ctx: CanvasRenderingContext2D, w: number, h: 
     }
     ctx.restore();
   }
-  // 画面・動画・透明なメーター書出しに同じ出典を残す。部品やその透明度に隠されないよう最後に描く。
-  if (drewPhoto) {
+  // 地図の下の帯へ、ほかの部品・透明度・地図の回転に影響されず同じ出典を残す。
+  for (const a of attributions) {
     ctx.save();
     ctx.globalAlpha = 1;
-    const fontSize = Math.max(11, Math.round(w / 128));
-    const pad = Math.max(4, Math.round(fontSize / 2));
-    const text = tr('出典：国土地理院（走行データを追記）', 'Source: GSI Japan (telemetry added)');
-    ctx.font = `${fontSize}px sans-serif`;
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'bottom';
-    const boxW = Math.min(w, ctx.measureText(text).width + pad * 2);
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
-    ctx.fillRect(w - boxW, h - fontSize - pad * 2, boxW, fontSize + pad * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(text, w - pad, h - pad, Math.max(1, w - pad * 2));
+    ctx.font = `${a.fontSize}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+    ctx.fillRect(a.x, a.y, a.w, a.h);
+    ctx.fillStyle = '#e2e8f0';
+    a.lines.forEach((line, i) => ctx.fillText(line, a.x + a.w / 2, a.y + 3 + a.lineH * (i + 0.5)));
     ctx.restore();
   }
 }

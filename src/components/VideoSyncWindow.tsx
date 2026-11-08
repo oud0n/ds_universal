@@ -506,7 +506,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     const onKey = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'z') return;
       const element = event.target instanceof HTMLElement ? event.target : null;
-      if (element?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      const textInput = element instanceof HTMLInputElement && !['checkbox', 'radio', 'range', 'color', 'file', 'button', 'submit', 'reset', 'image'].includes(element.type);
+      if (textInput || element instanceof HTMLTextAreaElement || element?.isContentEditable) return;
       if (!rootRef.current?.getClientRects().length || event.defaultPrevented) return;
       event.preventDefault();
       event.stopImmediatePropagation();
