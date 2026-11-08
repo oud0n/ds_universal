@@ -164,12 +164,10 @@ function createWindow() {
     }
   });
 
-  // キーとメニューの二重実行を防ぐ。preventDefaultでDOMとメニューの通常処理を止め、この経路だけでUndoする。
-  mainWindow.webContents.on('before-input-event', (event, input) => {
-    if (require('./edit-undo.cjs').isUndoInput(input)) {
-      event.preventDefault();
-      void undoFromMenu();
-    }
+  // Undoのメニュー加速キーだけを止め、DOMの編集/IMEは同期した標準処理に任せる。
+  const undoContents = mainWindow.webContents;
+  undoContents.on('before-input-event', (_event, input) => {
+    undoContents.setIgnoreMenuShortcuts(require('./edit-undo.cjs').isUndoInput(input));
   });
 
   if (APP_NAME === 'LapLoupe Beta') mainWindow.webContents.on('page-title-updated', event => {

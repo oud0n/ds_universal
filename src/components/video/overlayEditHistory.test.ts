@@ -11,7 +11,7 @@ describe('メーター編集のUndo', () => {
     state = reduce(state, { type: 'parts', parts: [...original.parts, { id: 'new', type: 'speed', x: 0.4, y: 0.4, w: 0.1, h: 0.1 }] });
     const added = state.layout!;
     state = reduce(state, { type: 'begin' });
-    for (const x of [0.41, 0.42, 0.5]) state = reduce(state, { type: 'parts', parts: state.layout!.parts.map(p => p.id === 'new' ? { ...p, x } : p) });
+    for (const x of [0.41, 0.42, 0.5]) state = reduce(state, { type: 'parts', owner: 'layer', parts: state.layout!.parts.map(p => p.id === 'new' ? { ...p, x } : p) });
     state = reduce(state, { type: 'end' });
     expect(state.past).toHaveLength(2);
     state = reduce(state, { type: 'undo' });
@@ -75,8 +75,8 @@ describe('メーター編集のUndo', () => {
   it('ネイティブつまみの操作中はUndoを待ち、操作終了後に1回で戻す', () => {
     let state = start();
     const original = state.layout;
-    state = reduce(state, { type: 'begin' });
-    for (let n = 1; n < 15; n++) state = reduce(state, { type: 'parts', parts: state.layout!.parts.map((p, i) => i === 0 ? { ...p, opacity: n / 20 } : p) });
+    state = reduce(state, { type: 'begin', owner: 'range' });
+    for (let n = 1; n < 15; n++) state = reduce(state, { type: 'parts', owner: 'range', parts: state.layout!.parts.map((p, i) => i === 0 ? { ...p, opacity: n / 20 } : p) });
     expect(reduce(state, { type: 'undo' })).toBe(state);
     expect(state.past).toHaveLength(1);
     state = reduce(state, { type: 'end' });
@@ -89,5 +89,14 @@ describe('メーター編集のUndo', () => {
     expect(reduce(state, { type: 'end', owner: 'label' })).toBe(state);
     state = reduce(state, { type: 'end', owner: 'range' });
     expect(state.gesture).toBeNull();
+  });
+  it('色の連続入力はまとめ、次の無関係な編集を同じ操作へ混ぜない', () => {
+    let state = start();
+    for (const color of ['#ff0000', '#ee1100', '#dd2200']) state = reduce(state, { type: 'parts', owner: 'color', parts: state.layout!.parts.map((p, i) => i === 0 ? { ...p, color } : p) });
+    expect(state.past).toHaveLength(1);
+    state = reduce(state, { type: 'parts', parts: state.layout!.parts.slice(1) });
+    expect(state.past).toHaveLength(2);
+    expect(state.gesture).toBeNull();
+    expect(reduce(state, { type: 'undo' }).layout!.parts[0]).toMatchObject({ color: '#dd2200' });
   });
 });

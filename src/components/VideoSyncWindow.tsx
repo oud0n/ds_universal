@@ -39,7 +39,7 @@ import { AUTO_LAYOUT, BUILTIN_LAYOUTS, COMPARE_LAYOUT, SMALL_PARTS, SMALL_TILE_P
 import { deleteCustomLayout, renameCustomLayout, layoutFileText, listCustomLayouts, saveCustomLayout } from '../services/overlayStore';
 import { canUseRunStore, getRunStore } from '../services/runStore';
 import { OverlayEditLayer, OverlayEditPanel, type OverlayEditHandle } from './video/OverlayLayoutEditor';
-import { EMPTY_EDIT_HISTORY, overlayEditReducer } from './video/overlayEditHistory';
+import { EMPTY_EDIT_HISTORY, overlayEditReducer, type GestureOwner } from './video/overlayEditHistory';
 
 /** 走行比較の枠には、足した部品を出さない (枠が小さく、Car の札・比べる差と重なるため) */
 // 走行比較の枠: 速度・G・小さなラップタイムだけ (枠が小さいので、ラップの欄・コース図などは出さない)
@@ -471,6 +471,13 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const [editSel, setEditSel] = useState<string | null>(null);
   const editSelRef = useRef(editSel);
   editSelRef.current = editSel;
+  const selectEditPart = (id: string | null) => {
+    if (id !== editSelRef.current) {
+      editLayerRef.current?.cancelGesture();
+      editDispatch({ type: 'end' });
+    }
+    setEditSel(id);
+  };
   // 編集の欄を作り直す印 (元の並びを替えた・保存した・読み込んだとき、名前の欄などを新しくする)
   const [editKey, setEditKey] = useState(0);
   /** メーターの並びを選ぶ。開いている走行の runs.json の行にも覚え、次に開いたときもその並びにする (PLAN-08) */
@@ -507,7 +514,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const snapshot = (l: OverlayLayout) => JSON.stringify({ parts: l.parts, small: l.small ?? null });
   /** 直している枠の部品 (小さな枠の部品がまだ無ければ既定を使う) */
   const editParts = editLayout ? (editTarget === 'small' ? editLayout.small ?? SMALL_PARTS : editLayout.parts) : [];
-  const setEditParts = (parts: OverlayPart[]) => editDispatch({ type: 'parts', parts });
+  const setEditParts = (parts: OverlayPart[], owner?: GestureOwner) => editDispatch({ type: 'parts', parts, owner });
   const undoEdit = () => {
     // つまみの操作中は入力欄も選択も維持し、keyup/pointerupで操作を終えられるようにする。
     if (editHistoryRef.current.gesture === 'range') return;
@@ -532,7 +539,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       undoEdit();
     };
     const onKey = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'z') return;
+      if (event.isComposing || !(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'z') return;
       if (!event.defaultPrevented && wantsLayoutUndo(event.target)) consumeUndo(event);
     };
     const onMenuUndo = (event: Event) => {
@@ -1738,7 +1745,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     onSeeked={handleSeeked}
                     overlay={overlayFor(x, i)}
                     editLayer={isMain && editLayout && size === 'full' ? (
-                      <OverlayEditLayer ref={editLayerRef} parts={editParts} selected={editSel} onSelect={setEditSel} onChange={setEditParts}
+                      <OverlayEditLayer ref={editLayerRef} parts={editParts} selected={editSel} onSelect={selectEditPart} onChange={parts => setEditParts(parts, 'layer')}
                         onGestureStart={() => editDispatch({ type: 'begin', owner: 'layer' })} onGestureEnd={() => editDispatch({ type: 'end', owner: 'layer' })} />
                     ) : undefined}
                     avoidRef={isMain && win.layout === 'pip' ? pipRef : undefined}
@@ -1821,7 +1828,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 custom={customLayouts}
                 channels={availableChannels(baseSession)}
                 selected={editSel}
-                onSelect={setEditSel}
+                onSelect={selectEditPart}
                 onChange={setEditParts}
                 canUndo={editHistory.past.length > 0}
                 onUndo={undoEdit}

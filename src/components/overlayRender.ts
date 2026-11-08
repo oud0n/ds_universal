@@ -463,10 +463,17 @@ interface PhotoAttribution {
   fontSize: number; lineH: number; lines: string[];
 }
 
+/** 表示中はCSSピクセル、書出しは実画素で判読性を測る。HiDPIの拡大で文字を小さくしない。 */
+function readablePixelScale(ctx: CanvasRenderingContext2D): number {
+  const transform = ctx.getTransform();
+  const canvas = ctx.canvas;
+  const cssRatio = canvas?.isConnected && canvas.clientWidth > 0 ? Math.min(1, canvas.clientWidth / canvas.width) : 1;
+  return Math.max(0.001, Math.min(1, Math.hypot(transform.a, transform.b) * cssRatio, Math.hypot(transform.c, transform.d) * cssRatio));
+}
+
 /** 小窓の下の黒い帯。長い追加出典も省略せず、窓の幅で折り返す。 */
 function photoAttribution(ctx: CanvasRenderingContext2D, x: number, bottom: number, w: number, credits: string[]): PhotoAttribution {
-  const transform = ctx.getTransform();
-  const scale = Math.max(0.001, Math.min(Math.hypot(transform.a, transform.b), Math.hypot(transform.c, transform.d)));
+  const scale = readablePixelScale(ctx);
   const fontSize = Math.max(8 / scale, Math.min(14 / scale, Math.round(w / 26)));
   const lineH = Math.ceil(fontSize * 1.25);
   ctx.font = `${fontSize}px sans-serif`;
@@ -508,8 +515,7 @@ function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: 
   const credits = [...new Set(tiles.flatMap(photoTileCredits))];
   const attribution = photoAttribution(ctx, rx + 1, ry + rh - 1, rw - 2, credits);
   // 判読できる出典を収められない極小の枠では、航空写真を使わず走行線だけを描く。
-  const transform = ctx.getTransform();
-  const pixelScale = Math.min(Math.hypot(transform.a, transform.b), Math.hypot(transform.c, transform.d));
+  const pixelScale = readablePixelScale(ctx);
   const canShowPhoto = tiles.length > 0 && rw * pixelScale >= 80 && attribution.h < rh * 0.65;
   const textH = canShowPhoto ? attribution.h + 1 : 0;
   const cx = rx + rw / 2, cy = ry + (rh - textH) * 0.62;
@@ -521,7 +527,8 @@ function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: 
   if (part.headingUp === true) ctx.rotate((-heading * Math.PI) / 180);
   let drewPhoto = false;
   if (canShowPhoto) {
-    ctx.globalAlpha = 0.85;
+    const alpha = ctx.globalAlpha;
+    ctx.globalAlpha = alpha * 0.85;
     for (const tile of tiles) {
       const img = getTileImage(tile, input.onTileLoad ?? noop);
       if (!img) continue;
@@ -530,7 +537,7 @@ function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: 
       ctx.drawImage(img, x1, y1, x2 - x1 + 0.5, y2 - y1 + 0.5);
       drewPhoto = true;
     }
-    ctx.globalAlpha = 1;
+    ctx.globalAlpha = alpha;
   }
   const lines = input.session.pathPolylines ?? [];
   // 1. コースの形 (航空写真が無いときは道幅の帯、あるときは真ん中の細い線)

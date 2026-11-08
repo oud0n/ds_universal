@@ -1,7 +1,7 @@
 import { SMALL_PARTS, type OverlayLayout, type OverlayPart } from '../../services/overlayLayout';
 
 type Target = 'large' | 'small';
-type GestureOwner = 'layer' | 'range' | 'label';
+export type GestureOwner = 'layer' | 'range' | 'label' | 'color';
 type Snapshot = { parts: OverlayPart[]; small: OverlayPart[] | undefined; target: Target };
 export type EditHistory = {
   layout: OverlayLayout | null;
@@ -14,7 +14,7 @@ export type EditAction =
   | { type: 'load'; layout: OverlayLayout | null | ((layout: OverlayLayout | null) => OverlayLayout | null) }
   | { type: 'target'; target: Target }
   | { type: 'name'; name: [string, string] }
-  | { type: 'parts'; parts: OverlayPart[] }
+  | { type: 'parts'; parts: OverlayPart[]; owner?: GestureOwner }
   | { type: 'begin' | 'end'; owner?: GestureOwner }
   | { type: 'undo' };
 
@@ -48,8 +48,9 @@ export function overlayEditReducer(state: EditHistory, action: EditAction): Edit
       return {
         ...state,
         layout: state.target === 'small' ? { ...layout, small: action.parts } : { ...layout, parts: action.parts },
-        past: state.gesture && state.recorded ? state.past : [...state.past.slice(-99), previous],
-        recorded: !!state.gesture
+        past: action.owner && action.owner === state.gesture && state.recorded ? state.past : [...state.past.slice(-99), previous],
+        gesture: action.owner ?? null,
+        recorded: !!action.owner
       };
     }
     case 'undo': {
