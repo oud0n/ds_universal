@@ -11,13 +11,13 @@ const { UsbHostBroker } = createRequire(import.meta.url)(resolve('electron/usb-h
 const executable = process.env.LAPLOUPE_USB_TEST_BINARY;
 const enabled = !!executable && process.platform !== 'win32';
 function createHost(port: string) {
-  const listeners = new Set<(e: HostEvent) => void>();
+  const listeners = new Set<(e: HostEvent) => void>(), events: HostEvent[] = [];
   const broker = new UsbHostBroker({ executable, args: ['--test-port', port], onEvent: (e: HostEvent) => {
-    [...listeners].forEach(fn => fn(e));
+    events.push(e); [...listeners].forEach(fn => fn(e));
   } });
   const host: DeviceHost = { async listen(receive) { listeners.add(receive); return () => { listeners.delete(receive); }; },
     request: (method, params) => broker.request(method, params) };
-  return { broker, transport: new HostSerialTransport(host), listeners };
+  return { broker, transport: new HostSerialTransport(host), listeners, events };
 }
 beforeEach(() => { vi.spyOn(console, 'log').mockImplementation(() => {}); });
 afterEach(() => { vi.restoreAllMocks(); });
@@ -58,8 +58,16 @@ describe.skipIf(!enabled)('実Rustプロセス＋OS疑似シリアル線', () =>
     const pty = await ptyPeer(), native = createHost(pty.port), device = new DigSpiceDevice();
     try {
       await device.connect(native.transport);
-      const waiting = expect(device.waitForLine('$never', 60000)).rejects.toBeInstanceOf(Error);
-      await pty.unplug(); await waiting;
+      const waiting = device.waitForLine('$never', 60000).then(() => 'unexpected success', error => error);
+      let phase='unplug';
+      let timer: ReturnType<typeof setTimeout>;
+      const deadline=new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('Disconnect stalled '+JSON.stringify({phase,events:native.events,
+        childExit:native.broker.active?.child.exitCode,pending:native.broker.active?.pending.size,buffer:native.broker.active?.buffer}))),2000);});
+      try {
+        await Promise.race([pty.unplug(),deadline]); phase='lost';
+        expect(await Promise.race([waiting,deadline])).toBeInstanceOf(Error);
+      } finally { clearTimeout(timer!); }
+
       expect(device.isConnected()).toBe(false);
       await native.broker.close(native.broker.active?.session ?? 'retired');
       expect(native.broker.active).toBeNull(); expect(native.listeners.size).toBe(0);
