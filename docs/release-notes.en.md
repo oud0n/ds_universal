@@ -4,9 +4,9 @@
 
 [Back to the README](../README.en.md)
 
-## v1.3.0 (2026-11-08, desktop and browser stable release)
+## v1.3.0 (2026-11-09, desktop and browser stable release)
 
-- **Bug fix: exported videos were missing the GSI attribution label.** Frames with aerial imagery now include “Source: GSI Japan (telemetry added)”, shared by the preview, burned-in video and transparent overlay exports.
+- **Bug fix: exported videos were missing the GSI attribution label.** Frames with aerial imagery now include “Source: GSI Japan (telemetry added)”, in the black aerial-map footer, shared by the preview, burned-in video and transparent overlay exports. Insets too small for readable credits show the track instead of aerial imagery.
 - Added Undo to the meter layout editor for movement, resizing, adding/removing parts and property changes, with ⌘Z / Ctrl+Z shortcuts. A drag is one operation. Saving, importing or choosing another base layout clears the edit history.
 - Aligned the desktop/browser sidebar, command bar, analysis panels and playback bar. Fixed clipped G-G labels and readings in small windows.
 - The library asks before adding logs with overlapping times. Skipped logs remain on disk and can be added later. Detection requires UTC timestamps and complete laps.
