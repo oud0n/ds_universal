@@ -33,7 +33,7 @@ export const AboutSettings: React.FC = () => {
       <h3 className="text-xs text-slate-500 px-1">{t('バージョン情報', 'About')}</h3>
       <div className="rounded-xl bg-surface-1 border border-line-2 p-4 space-y-3">
         <div className="flex items-baseline gap-2 flex-wrap">
-          <span className="text-base font-bold text-slate-100">LapLoupe</span>
+          <span className="text-base font-bold text-slate-100">{version.includes('-') ? 'LapLoupe Beta' : 'LapLoupe'}</span>
           <span className="font-mono text-sm text-slate-200" data-testid="about-version">{version}</span>
           <span className="text-xs text-slate-500">{t(...edition)}</span>
         </div>
@@ -61,7 +61,7 @@ export const AboutSettings: React.FC = () => {
 const UpdateRow: React.FC<{ update: DesktopUpdateState }> = ({ update: u }) => {
   const t = useT();
   if (!u.enabled) {
-    return <p className="text-[11px] text-slate-500" data-testid="about-update-off">{t('この版は、新しい版を確かめません (手元で作った版)。', 'This build does not check for updates (built locally).')}</p>;
+    return <p className="text-[11px] text-slate-500" data-testid="about-update-off">{u.current.includes('-') ? t('このベータ版は、自動更新を行いません。新しい版は手動で入れてください。', 'Automatic updates are disabled in this beta. Install new versions manually.') : t('この版は、新しい版を確かめません (手元で作った版)。', 'This build does not check for updates (built locally).')}</p>;
   }
   const checkedAt = u.checkedAt ? new Date(u.checkedAt).toLocaleString() : null;
   return (

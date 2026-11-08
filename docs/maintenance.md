@@ -79,6 +79,12 @@ E2E_APP=http://localhost:5184/ node e2e/run.mjs --electron 9334 --chrome 9224 [-
 4. 同じ番号で出し直すとき (ダウンロードが 0 のときだけ): `gh release delete vX.Y.Z --yes` → `git push origin :refs/tags/vX.Y.Z` → タグを付け直して push。
 5. 試験版のページ: `gh workflow run pages.yml -f preview_ref=<ブランチ>` で /ds_universal/preview/ に出る (保存は本番と分かれる)。
 
+### PC版のbetaリリース
+
+`package.json`/lockのversionを`1.3.0-beta.N`、タグを`v1.3.0-beta.N`にそろえる。ハイフン付きタグのCIは`electron-builder.beta.json`を使い、LapLoupe Beta・別appId・autoUpdate=falseで作る。GitHubではPrerelease・Latest対象外として公開する。設定保存先はDS Universal Suite Beta。通常版の設定は自動コピーしない。
+
+手元で確認するときは`npm run dist:mac -- --config electron-builder.beta.json`。通常タグは既存設定でautoUpdate=trueを明示し、通常版の経路を維持する。
+
 ## 6. iPhone / iPad のアプリ
 
 iOS ホストのソース・専用試験・ビルド・配布手順は別の作業場で管理する。このリポジトリは共通 Web とネイティブの契約を管理する。

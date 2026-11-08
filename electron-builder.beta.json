@@ -1,0 +1,18 @@
+{
+  "extends": "./electron-builder.json",
+  "appId": "com.oud0n.dsuniversal.beta",
+  "productName": "LapLoupe Beta",
+  "extraMetadata": {
+    "productName": "LapLoupe Beta",
+    "autoUpdate": false
+  },
+  "mac": {
+    "artifactName": "LapLoupe-Beta-${version}-${arch}.${ext}"
+  },
+  "win": {
+    "artifactName": "LapLoupe-Beta-${version}-win.${ext}"
+  },
+  "nsis": {
+    "artifactName": "LapLoupe-Beta-Setup-${version}.${ext}"
+  }
+}

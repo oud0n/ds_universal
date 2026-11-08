@@ -4,7 +4,10 @@
 
 [Back to the README](../README.en.md)
 
-## Next build (not distributed)
+## v1.3.0-beta.1 (2026-11-08, desktop beta)
+
+- The app is named LapLoupe Beta, with a separate app ID and settings folder. Automatic updates are disabled; install updates manually.
+- USB communication uses the existing transport. The development-only Rust USB host is not bundled or enabled.
 
 - The library asks before adding logs with overlapping times. Skipped logs stay on disk and can be added later. Detection requires UTC timestamps and complete laps.
 - Added an opt-in development path for USB communication through a Rust host. Distributed builds continue to use the existing transport.

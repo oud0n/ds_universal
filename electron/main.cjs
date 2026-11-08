@@ -3,6 +3,7 @@ const { Readable } = require('stream');
 const path = require('path');
 const fs = require('fs');
 const { setupUpdater } = require('./updater.cjs');
+const APP_NAME = require('../package.json').productName || 'LapLoupe';
 const { pathToFileURL } = require('url');
 const { installUsbHost } = require('./usb-ipc.cjs');
 const usbHost = installUsbHost({ app, ipcMain, executable: path.join(__dirname, '../native-usb/target/debug',
@@ -19,7 +20,7 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist');
 // 開発中 (npm run electron:dev など、パッケージしていないとき) は従来どおり
 // 起動のときに --user-data-dir で置き場所を指定したとき (試験など) は、その置き場所を使う
 if (app.isPackaged && !app.commandLine.hasSwitch('user-data-dir')) {
-  app.setPath('userData', path.join(app.getPath('appData'), 'DS Universal Suite'));
+  app.setPath('userData', path.join(app.getPath('appData'), APP_NAME === 'LapLoupe Beta' ? 'DS Universal Suite Beta' : 'DS Universal Suite'));
 }
 
 let mainWindow = null;
@@ -45,7 +46,7 @@ let menuLang = null;
 const L = (ja, en) => ((menuLang ?? (/^ja/i.test(app.getLocale()) ? 'ja' : 'en')) === 'en' ? en : ja);
 function buildMenu() {
   const template = [
-    ...(process.platform === 'darwin' ? [{ role: 'appMenu', label: 'LapLoupe' }] : []),
+    ...(process.platform === 'darwin' ? [{ role: 'appMenu', label: APP_NAME }] : []),
     {
       label: L('ファイル', 'File'),
       submenu: [
@@ -117,12 +118,12 @@ function buildMenu() {
         },
         { type: 'separator' },
         {
-          label: L('LapLoupe について', 'About LapLoupe'),
+          label: L(`${APP_NAME} について`, `About ${APP_NAME}`),
           click: () => {
             dialog.showMessageBox(mainWindow, {
               type: 'info',
               title: L('バージョン情報', 'About'),
-              message: `LapLoupe v${app.getVersion()}`,
+              message: `${APP_NAME} v${app.getVersion()}`,
               detail: L('ラップ・走行ログの解析と、デジスパイスIV の USB 通信・ログのダウンロード (旧名 DS Universal)\n作者: oud0n (https://github.com/oud0n/ds_universal)', 'Lap and driving log analysis, and DigSpice IV USB communication and download (formerly DS Universal)\nAuthor: oud0n (https://github.com/oud0n/ds_universal)')
             });
           }
@@ -140,7 +141,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: 'LapLoupe — Lap / Track Analyzer',
+    title: `${APP_NAME} — Lap / Track Analyzer`,
     // 画面が出るまでの背景。テーマ (システムに合わせる場合) と同じく OS の設定に合わせる
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#0f1117' : '#e9edf2',
     webPreferences: {
@@ -149,6 +150,11 @@ function createWindow() {
       contextIsolation: true,
       sandbox: false
     }
+  });
+
+  if (APP_NAME === 'LapLoupe Beta') mainWindow.webContents.on('page-title-updated', event => {
+    event.preventDefault();
+    mainWindow.setTitle(`${APP_NAME} — Lap / Track Analyzer`);
   });
 
   usbHost.attachWindow(mainWindow, [
