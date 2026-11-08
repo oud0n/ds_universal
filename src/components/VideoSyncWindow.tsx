@@ -457,6 +457,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   }, []);
   // 配置の編集 (パソコンだけ): 直している並び (下書き)・元の並び・選んだ部品
   const [editHistory, editDispatch] = useReducer(overlayEditReducer, EMPTY_EDIT_HISTORY);
+  const editHistoryRef = useRef(editHistory);
+  editHistoryRef.current = editHistory;
   const editLayerRef = useRef<OverlayEditHandle | null>(null);
   const { layout: editLayout, target: editTarget } = editHistory;
   const setEditLayout = (layout: React.SetStateAction<OverlayLayout | null>) => {
@@ -505,8 +507,10 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const editParts = editLayout ? (editTarget === 'small' ? editLayout.small ?? SMALL_PARTS : editLayout.parts) : [];
   const setEditParts = (parts: OverlayPart[]) => editDispatch({ type: 'parts', parts });
   const undoEdit = () => {
-    editLayerRef.current?.cancelGesture();
     const active = document.activeElement;
+    // つまみの操作中は入力欄も選択も維持し、keyup/pointerupで操作を終えられるようにする。
+    if (active instanceof HTMLInputElement && active.type === 'range' && editHistoryRef.current.gesture) return;
+    editLayerRef.current?.cancelGesture();
     if (!(active instanceof HTMLInputElement && active.type === 'range')) editDispatch({ type: 'end' });
     editDispatch({ type: 'undo' });
     setEditSel(null);
@@ -530,11 +534,17 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     const onMenuUndo = (event: Event) => {
       if (!event.defaultPrevented && wantsLayoutUndo(document.activeElement)) consumeUndo(event);
     };
+    const onBlur = () => {
+      const active = document.activeElement;
+      if (active instanceof HTMLInputElement && active.type === 'range') editDispatch({ type: 'end' });
+    };
     window.addEventListener('keydown', onKey, true);
     window.addEventListener('laploupe-layout-undo', onMenuUndo);
+    window.addEventListener('blur', onBlur);
     return () => {
       window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('laploupe-layout-undo', onMenuUndo);
+      window.removeEventListener('blur', onBlur);
     };
   }, [!!editLayout, isVisible]);
   const confirmDiscard = () => !editLayout || snapshot(editLayout) === editOrig
