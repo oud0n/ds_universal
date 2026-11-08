@@ -4,8 +4,9 @@
 
 [Back to the README](../README.en.md)
 
-## v1.3.0-beta.1 (2026-11-08, desktop beta)
+## v1.3.0-beta.2 (2026-11-08, desktop beta)
 
+- Fixed Windows path comparison in the engine build check; the first beta build did not complete for Windows.
 - The app is named LapLoupe Beta, with a separate app ID and settings folder. Automatic updates are disabled; install updates manually.
 - USB communication uses the existing transport. The development-only Rust USB host is not bundled or enabled.
 

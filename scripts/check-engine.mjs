@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { rolldown } from 'rolldown';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const engineDir = path.join(root, 'src/engine');
+const enginePrefix = engineDir.replaceAll('\\', '/') + '/';
+const utilsPrefix = path.join(root, 'src/utils').replaceAll('\\', '/') + '/';
 const bundle = await rolldown({input:path.join(engineDir,'index.ts'),platform:'browser',treeshake:false});
 try {
  const {output}=await bundle.generate({format:'iife',name:'LapLoupeEngine'});
@@ -15,7 +17,7 @@ try {
  const allowedUtils = new Set(['timeFormat.ts','lapClock.ts','telemetrySearch.ts','timeRepair.ts']);
  for (const module of Object.keys(chunk.modules)) {
   const clean=module.replaceAll('\\','/');
-  const allowed=clean.startsWith(engineDir+'/') || clean.endsWith('/src/types/telemetry.ts') || (clean.startsWith(root+'/src/utils/') && allowedUtils.has(path.basename(clean))) || clean.includes('/node_modules/fflate/') || clean.startsWith('\0') || clean.startsWith('rolldown:');
+  const allowed=clean.startsWith(enginePrefix) || clean.endsWith('/src/types/telemetry.ts') || (clean.startsWith(utilsPrefix) && allowedUtils.has(path.basename(clean))) || clean.includes('/node_modules/fflate/') || clean.startsWith('\0') || clean.startsWith('rolldown:');
   assert(allowed,`Unexpected engine dependency: ${module}`);
  }
  const unavailable=['window','document','navigator','localStorage','File','Blob','URL','Worker','fetch','TextDecoder','TextEncoder','DecompressionStream','setTimeout','clearTimeout','setInterval','queueMicrotask','console','process','require'];
