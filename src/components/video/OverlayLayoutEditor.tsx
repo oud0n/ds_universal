@@ -111,7 +111,10 @@ export const OverlayEditLayer = React.forwardRef<OverlayEditHandle, {
     };
     const endKey = (e?: KeyboardEvent) => {
       const hadKeys = heldKeys.current.size > 0;
-      if (e) { heldKeys.current.delete(e.code); canceledKeys.current.delete(e.code); }
+      if (e && /^(Meta|Control|Alt)$/.test(e.key)) {
+        for (const code of heldKeys.current) canceledKeys.current.add(code);
+        heldKeys.current.clear();
+      } else if (e) { heldKeys.current.delete(e.code); canceledKeys.current.delete(e.code); }
       else { heldKeys.current.clear(); canceledKeys.current.clear(); }
       if (hadKeys && heldKeys.current.size === 0) latest.current.onGestureEnd();
     };
