@@ -82,3 +82,9 @@ export function hostBytes(bytes: number[], t: Localize): Uint8Array {
 }
 export type SessionId = () => string;
 export const newSessionId: SessionId = () => globalThis.crypto.randomUUID();
+
+/** 片方が失敗しても、すでに始めた他の終了が済むまで次の接続を許さない。 */
+export async function finishTeardown(previous: Promise<void> | null | undefined, operation: Promise<void>): Promise<void> {
+  const results = await Promise.allSettled(previous ? [previous, operation] : [operation]);
+  for (const result of results) if (result.status === 'rejected') throw result.reason;
+}

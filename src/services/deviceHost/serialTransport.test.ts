@@ -205,3 +205,17 @@ describe('USBの反復とエラー回数', () => {
     expect(lost).not.toHaveBeenCalled();
   });
 });
+
+describe('USBの終了待ちを新しい接続へ引き継ぐ', () => {
+  it('古いcloseが遅ければ、新しいopenを送らない', async () => {
+    const host = new FakeHost(), transport = new HostSerialTransport(host), closed = deferred();
+    await transport.open({ onData() {}, onLost() {} });
+    const old = host.lastSession('serial.open');
+    host.onRequest = async (method, params) => method === 'serial.close' && params.session === old ? closed.promise : undefined;
+    const closing = transport.close(), opening = transport.open({ onData() {}, onLost() {} });
+    await flush(); expect(host.calls.filter(call => call.method === 'serial.open')).toHaveLength(1);
+    closed.resolve(); await Promise.all([closing, opening]);
+    expect(host.calls.filter(call => call.method === 'serial.open')).toHaveLength(2);
+    await transport.close(); expect(host.listeners.size).toBe(0);
+  });
+});

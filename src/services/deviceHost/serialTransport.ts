@@ -1,7 +1,7 @@
 import type { LoggerTransport, TransportHandlers } from '../loggerTransport';
 import {
   type DeviceHost, type HostEvent, type Localize, type SessionId,
-  hostBytes, hostError, japanese, LOGGER_SERIAL_OPTIONS, MAX_HOST_BYTES, newSessionId
+  finishTeardown, hostBytes, hostError, japanese, LOGGER_SERIAL_OPTIONS, MAX_HOST_BYTES, newSessionId
 } from './contract';
 
 interface SerialSession {
@@ -16,6 +16,7 @@ interface SerialSession {
 /** Web Serialを使わず、同じDigSpiceDeviceへ差し込めるUSB通信部品。 */
 export class HostSerialTransport implements LoggerTransport {
   private current: SerialSession | null = null;
+  private closing: Promise<void> | null = null;
   constructor(private readonly host: DeviceHost, private readonly t: Localize = japanese,
     private readonly makeId: SessionId = newSessionId) {}
 
@@ -26,16 +27,18 @@ export class HostSerialTransport implements LoggerTransport {
     const s: SerialSession = { id: this.makeId(), opened: false, interruptions: 0, handlers, writes: Promise.resolve() };
     this.current = s;
     try {
+      await this.closing;
+      if (this.current !== s) throw s.error ?? this.cancelled();
       const off = await this.host.listen(event => this.receive(s, event));
       s.off = off;
-      if (this.current !== s) { off(); throw s.error ?? this.cancelled(); }
+      if (this.current !== s) { this.detach(s); throw s.error ?? this.cancelled(); }
       await this.host.request('serial.open', { session: s.id, options: { ...LOGGER_SERIAL_OPTIONS } });
       if (this.current !== s) throw s.error ?? this.cancelled();
       s.opened = true;
     } catch (error) {
       this.detach(s);
       // open失敗時もホスト側の途中資源を解放する。closeは冪等。
-      await this.host.request('serial.close', { session: s.id }).catch(() => {});
+      await this.closeSession(s).catch(() => {});
       throw hostError(s.error ?? error, this.t);
     }
   }
@@ -67,7 +70,7 @@ export class HostSerialTransport implements LoggerTransport {
     s.error = this.cancelled();
     this.detach(s);
     // pending open/writeの完了を待たない。ホストのcloseはそれらも中止する。
-    try { await this.host.request('serial.close', { session: s.id }); }
+    try { await this.closeSession(s); }
     catch (error) { throw hostError(error, this.t); }
   }
 
@@ -84,8 +87,18 @@ export class HostSerialTransport implements LoggerTransport {
   private lost(s: SerialSession, error: unknown): void {
     s.error = hostError(error, this.t);
     this.detach(s);
+    // 待機する後片づけは先に予約するが、実際のclose命令より先にonLostを呼ぶ。
+    const closing = this.closeSession(s, true);
     try { s.handlers.onLost(s.error); }
-    finally { void this.host.request('serial.close', { session: s.id }).catch(() => {}); }
+    finally { void closing.catch(() => {}); }
+  }
+  private closeSession(s: SerialSession, afterNotification = false): Promise<void> {
+    const close = () => this.host.request('serial.close', { session: s.id });
+    const closing = finishTeardown(this.closing, afterNotification ? Promise.resolve().then(close) : close());
+    this.closing = closing;
+    const clear = () => { if (this.closing === closing) this.closing = null; };
+    void closing.then(clear, clear);
+    return closing;
   }
   private receive(s: SerialSession, event: HostEvent): void {
     if (this.current !== s || event.session !== s.id) return;
@@ -96,8 +109,7 @@ export class HostSerialTransport implements LoggerTransport {
       } else if (event.type === 'serial.interrupted') {
         s.handlers.onInterrupted?.();
         if (++s.interruptions >= 5) this.lost(s, { code: 'io' });
-      }
-      else if (event.type === 'serial.lost') this.lost(s, event.error);
+      } else if (event.type === 'serial.lost') this.lost(s, event.error);
     } catch (error) {
       if (this.current === s) this.lost(s, error);
     }

@@ -244,3 +244,53 @@ describe('BLEの接続置換と終了理由', () => {
     }
   });
 });
+
+describe('三段階の置換でも実機をまだ所有している接続を追い越さない', () => {
+  it('Aだけのdisconnectが遅い場合、空のBの終了ではCを開始しない', async () => {
+    const host = new FakeHost(), central = new HostBleCentral(host);
+    const a = await connected(host, central), closingA = deferred();
+    host.onRequest = async (method, params) => method === 'ble.disconnect' && params.session === a ? closingA.promise : undefined;
+    const b = expect(central.connect('one', ref, blank())).rejects.toMatchObject({ code: 'cancelled' });
+    const c = central.connect('one', ref, blank());
+    await flush();
+    expect(host.calls.filter(call => call.method === 'ble.connect')).toHaveLength(1);
+    closingA.resolve(); await Promise.all([b, c]);
+    expect(host.calls.filter(call => call.method === 'ble.connect')).toHaveLength(2);
+    await central.disconnect('one'); expect(host.listeners.size).toBe(0);
+  });
+
+  it('AだけのstopScanが遅い場合、空のBの終了ではCを開始しない', async () => {
+    const host = new FakeHost(), central = new HostBleCentral(host), options = { namePrefixes: ['DS4'], services: ['1819'] };
+    const end = vi.fn();
+    await central.scan(options, () => {}, end);
+    const a = host.lastSession('ble.scan'), closingA = deferred();
+    host.onRequest = async (method, params) => method === 'ble.stopScan' && params.session === a ? closingA.promise : undefined;
+    const b = central.scan(options, () => {}, end), c = central.scan(options, () => {}, end);
+    await flush();
+    expect(host.calls.filter(call => call.method === 'ble.scan')).toHaveLength(1);
+    closingA.resolve(); await Promise.all([b, c]);
+    expect(host.calls.filter(call => call.method === 'ble.scan')).toHaveLength(2);
+    await central.stopScan(); expect(host.listeners.size).toBe(0);
+    expect(end).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('終了の一部が失敗しても、前の終了待ちを落とさない', () => {
+  it('Bのdisconnect失敗をAの終了より早く解決せず、Cを開かない', async () => {
+    const host = new FakeHost(), central = new HostBleCentral(host);
+    const a = await connected(host, central), closingA = deferred();
+    host.onRequest = async (method, params) => {
+      if (method === 'ble.disconnect') {
+        if (params.session === a) return closingA.promise;
+        throw { code: 'io' };
+      }
+    };
+    const b = expect(central.connect('one', ref, blank())).rejects.toBeInstanceOf(Error);
+    const c = expect(central.connect('one', ref, blank())).rejects.toMatchObject({ code: 'io' });
+    await flush();
+    expect(host.calls.filter(call => call.method === 'ble.connect')).toHaveLength(1);
+    closingA.resolve(); await Promise.all([b, c]);
+    expect(host.calls.filter(call => call.method === 'ble.connect')).toHaveLength(1);
+    expect(host.listeners.size).toBe(0);
+  });
+});
