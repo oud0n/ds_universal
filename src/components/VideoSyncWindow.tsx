@@ -38,7 +38,7 @@ import { preloadOverlayImages, renderOverlayParts } from './overlayRender';
 import { AUTO_LAYOUT, BUILTIN_LAYOUTS, COMPARE_LAYOUT, SMALL_PARTS, SMALL_TILE_PX, availableChannels, hiddenKey, parseOverlayLayout, partChannels, partLabel, resolveLayout, visibleParts, type OverlayLayout, type OverlayPart } from '../services/overlayLayout';
 import { deleteCustomLayout, renameCustomLayout, layoutFileText, listCustomLayouts, saveCustomLayout } from '../services/overlayStore';
 import { canUseRunStore, getRunStore } from '../services/runStore';
-import { OverlayEditLayer, OverlayEditPanel, type OverlayEditHandle } from './video/OverlayLayoutEditor';
+import { OverlayEditLayer, OverlayEditPanel, type OverlayEditHandle, type OverlayPanelHandle } from './video/OverlayLayoutEditor';
 import { EMPTY_EDIT_HISTORY, overlayEditReducer, type GestureOwner } from './video/overlayEditHistory';
 
 /** 走行比較の枠には、足した部品を出さない (枠が小さく、Car の札・比べる差と重なるため) */
@@ -460,6 +460,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const editHistoryRef = useRef(editHistory);
   editHistoryRef.current = editHistory;
   const editLayerRef = useRef<OverlayEditHandle | null>(null);
+  const editPanelRef = useRef<OverlayPanelHandle | null>(null);
   const { layout: editLayout, target: editTarget } = editHistory;
   const setEditLayout = (layout: React.SetStateAction<OverlayLayout | null>) => {
     editLayerRef.current?.cancelGesture();
@@ -516,12 +517,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const editParts = editLayout ? (editTarget === 'small' ? editLayout.small ?? SMALL_PARTS : editLayout.parts) : [];
   const setEditParts = (parts: OverlayPart[], owner?: GestureOwner) => editDispatch({ type: 'parts', parts, owner });
   const undoEdit = () => {
-    // ポインタでつまみを操作中はpointerupまで入力欄を保つ。キー操作は修飾キーで区切る。
-    if (editHistoryRef.current.gesture === 'range') return;
-    const previous = editHistoryRef.current.past[editHistoryRef.current.past.length - 1];
-    if (!previous) return;
+    // ポインタ操作中は入力欄を保ち、キー操作は登録順によらずここで中断する。
+    if (editPanelRef.current?.prepareUndo() === false) return;
+    if (editHistoryRef.current.gesture === 'range' && !editPanelRef.current) return;
     editLayerRef.current?.cancelGesture();
+    const ended = overlayEditReducer(editHistoryRef.current, { type: 'end' });
     editDispatch({ type: 'end' });
+    const previous = ended.past[ended.past.length - 1];
+    if (!previous) return;
     editDispatch({ type: 'undo' });
     const restored = previous.target === 'small' ? previous.small ?? SMALL_PARTS : previous.parts;
     setEditSel(restored.some(part => part.id === editSelRef.current) ? editSelRef.current : null);
@@ -1746,6 +1749,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     overlay={overlayFor(x, i)}
                     editLayer={isMain && editLayout && size === 'full' ? (
                       <OverlayEditLayer ref={editLayerRef} parts={editParts} selected={editSel} onSelect={selectEditPart} onChange={parts => setEditParts(parts, 'layer')}
+                        isRangePointerActive={() => editPanelRef.current?.isRangePointerActive() ?? false}
                         onGestureStart={() => editDispatch({ type: 'begin', owner: 'layer' })} onGestureEnd={() => editDispatch({ type: 'end', owner: 'layer' })} />
                     ) : undefined}
                     avoidRef={isMain && win.layout === 'pip' ? pipRef : undefined}
@@ -1821,6 +1825,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
 
             {editLayout && (
               <OverlayEditPanel
+                ref={editPanelRef}
                 draft={{ ...editLayout, parts: editParts }}
                 target={editTarget}
                 onTarget={target => { setEditTarget(target); setEditSel(null); }}

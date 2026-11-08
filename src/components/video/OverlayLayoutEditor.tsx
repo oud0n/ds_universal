@@ -28,7 +28,8 @@ export const OverlayEditLayer = React.forwardRef<OverlayEditHandle, {
   onChange: (parts: OverlayPart[]) => void;
   onGestureStart: () => void;
   onGestureEnd: () => void;
-}>(({ parts, selected, onSelect, onChange, onGestureStart, onGestureEnd }, ref) => {
+  isRangePointerActive: () => boolean;
+}>(({ parts, selected, onSelect, onChange, onGestureStart, onGestureEnd, isRangePointerActive }, ref) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -72,8 +73,8 @@ export const OverlayEditLayer = React.forwardRef<OverlayEditHandle, {
     }
   };
   // キー: 矢印で選んだ部品を 1% 動かす、Shift + 矢印で大きさを変える
-  const latest = useRef({ parts, selected, onChange, onGestureStart, onGestureEnd });
-  latest.current = { parts, selected, onChange, onGestureStart, onGestureEnd };
+  const latest = useRef({ parts, selected, onChange, onGestureStart, onGestureEnd, isRangePointerActive });
+  latest.current = { parts, selected, onChange, onGestureStart, onGestureEnd, isRangePointerActive };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const { parts: ps, selected: sel, onChange: change } = latest.current;
@@ -88,6 +89,8 @@ export const OverlayEditLayer = React.forwardRef<OverlayEditHandle, {
       if (!sel) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      // WebKitのネイティブつまみがfocusを外しても、矢印を部品移動へ渡さない。
+      if (latest.current.isRangePointerActive()) { e.preventDefault(); e.stopPropagation(); return; }
       const p = ps.find(x => x.id === sel);
       if (!p) return;
       e.preventDefault();
@@ -227,7 +230,8 @@ async function imagePartSource(file: File): Promise<{ src: string; aspect: numbe
   }
 }
 
-export const OverlayEditPanel: React.FC<{
+export interface OverlayPanelHandle { prepareUndo: () => boolean; isRangePointerActive: () => boolean }
+export const OverlayEditPanel = React.forwardRef<OverlayPanelHandle, {
   /** 直している並び (parts は、今直している枠の部品) */
   draft: OverlayLayout;
   /** 直している枠: large (ふつうの枠) / small (小さな枠) */
@@ -253,7 +257,7 @@ export const OverlayEditPanel: React.FC<{
   onExport?: () => void;
   onImport?: (file: File) => void;
   onClose: () => void;
-}> = ({ draft, target, onTarget, baseId, custom, channels, selected, onSelect, onChange, canUndo, onUndo, onGestureStart, onGestureEnd, onPickBase, onSave, onRename, onDelete, onExport, onImport, onClose }) => {
+}>(({ draft, target, onTarget, baseId, custom, channels, selected, onSelect, onChange, canUndo, onUndo, onGestureStart, onGestureEnd, onPickBase, onSave, onRename, onDelete, onExport, onImport, onClose }, ref) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const [name, setName] = useState(baseId.startsWith('user:') || baseId === 'import' ? draft.name[0] : '');
@@ -264,6 +268,13 @@ export const OverlayEditPanel: React.FC<{
   const rangePointer = useRef(false);
   const rangeKeys = useRef(new Set<string>());
   const canceledRangeKeys = useRef(new Set<string>());
+  const cancelKeyboardRange = () => {
+    if (rangePointer.current) return false;
+    for (const code of rangeKeys.current) canceledRangeKeys.current.add(code);
+    rangeKeys.current.clear();
+    return true;
+  };
+  useImperativeHandle(ref, () => ({ prepareUndo: cancelKeyboardRange, isRangePointerActive: () => rangePointer.current }), []);
   const rangeEndRef = useRef(onGestureEnd);
   rangeEndRef.current = onGestureEnd;
   useEffect(() => {
@@ -275,11 +286,14 @@ export const OverlayEditPanel: React.FC<{
     // Macでは⌘を押した後の矢印keyupが届かないことがある。修飾キー時点で区切る。
     const onKey = (event: KeyboardEvent) => {
       if (/^(Arrow|Home|End|Page)/.test(event.key) || event.key === 'Shift' || !rangeKeys.current.size) return;
-      for (const code of rangeKeys.current) canceledRangeKeys.current.add(code);
-      rangeKeys.current.clear(); rangeEndRef.current('range');
+      if (cancelKeyboardRange()) rangeEndRef.current('range');
+    };
+    const onModifierUp = (event: KeyboardEvent) => {
+      if (/^(Meta|Control|Alt)$/.test(event.key) && rangeKeys.current.size && cancelKeyboardRange()) rangeEndRef.current('range');
     };
     const onBlur = () => { finish(); canceledRangeKeys.current.clear(); };
     window.addEventListener('keydown', onKey, true);
+    window.addEventListener('keyup', onModifierUp, true);
     window.addEventListener('pointerup', finish, true);
     window.addEventListener('pointercancel', finish, true);
     window.addEventListener('blur', onBlur);
@@ -287,6 +301,7 @@ export const OverlayEditPanel: React.FC<{
       window.removeEventListener('pointerup', finish, true);
       window.removeEventListener('pointercancel', finish, true);
       window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('keyup', onModifierUp, true);
       window.removeEventListener('blur', onBlur);
     };
   }, []);
@@ -487,10 +502,11 @@ export const OverlayEditPanel: React.FC<{
               <label className="block">{t('振れの上限 (秒)', 'Full scale (s)')}<NumberField step={0.1} min={0.1} max={10} value={sel.maxSec ?? 1} onCommit={v => update({ maxSec: v } as Partial<OverlayPart>)} className={input} /></label>
             )}
             <label className="block">{t('不透明度', 'Opacity')}<input type="range" min={0.2} max={1} step={0.05} value={sel.opacity ?? 1}
-              onPointerDown={() => { rangeKeys.current.clear(); rangePointer.current = true; onGestureStart('range'); }}
+              onPointerDown={() => { rangeKeys.current.clear(); canceledRangeKeys.current.clear(); rangePointer.current = true; onGestureStart('range'); }}
               onPointerUp={endRange} onPointerCancel={endRange} onBlur={() => { if (!rangePointer.current) endRange(); }}
               onKeyDown={e => {
                 if (!/^(Arrow|Home|End|Page)/.test(e.key)) return;
+                if (rangePointer.current) return;
                 if (e.repeat && canceledRangeKeys.current.has(e.code)) { e.preventDefault(); return; }
                 if (!e.repeat) canceledRangeKeys.current.delete(e.code);
                 if (!rangePointer.current && rangeKeys.current.size === 0) onGestureStart('range');
@@ -530,4 +546,4 @@ export const OverlayEditPanel: React.FC<{
       </div>
     </div>
   );
-};
+});
