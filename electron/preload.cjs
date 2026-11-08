@@ -2,7 +2,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 // 文書の権限トークンはpreloadだけで保持し、画面へ渡さない。
 let usbBindingPromise, usbBinding;
-const usbBindingInfo = () => usbBindingPromise ??= ipcRenderer.invoke('usb-host-bind').then(info => {
+const usbDocumentReady = new Promise(resolve => {
+  if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', resolve, { once: true });
+  else resolve();
+});
+const usbBindingInfo = () => usbBindingPromise ??= usbDocumentReady.then(() => ipcRenderer.invoke('usb-host-bind')).then(info => {
   if (!info.ok) throw info.error;
   usbBinding = info.binding;
   return info;

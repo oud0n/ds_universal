@@ -34,8 +34,17 @@ app.whenReady().then(async () => {
     await window.loadFile(html, { query: { hold: '1' } });
     await window.webContents.executeJavaScript('window.usbHostOpened || Promise.reject(new Error("Proof renderer did not start"))');
     const quitChild = brokers[brokers.length - 1].active.child;
+    const cancelNavigation = event => event.preventDefault();
+    window.webContents.on('will-navigate', cancelNavigation);
+    const blocked = once(window.webContents, 'will-navigate');
+    await window.webContents.executeJavaScript('location.href = ' + JSON.stringify(pathToFileURL(path.join(path.dirname(html), 'blocked.html')).href) + '; true');
+    await blocked; window.webContents.removeListener('will-navigate', cancelNavigation);
+    const afterCancelledNavigation = await window.webContents.executeJavaScript('window.usbHostPing()');
     window.webContents.on('will-prevent-unload', () => {}); // 何も取り消さない = Stay
     await window.webContents.executeJavaScript('window.onbeforeunload = () => false; true');
+    const reloadStayed = once(window.webContents, 'will-prevent-unload');
+    window.webContents.reload(); await reloadStayed;
+    const afterCancelledReload = await window.webContents.executeJavaScript('window.usbHostPing()');
     const stayed = once(window.webContents, 'will-prevent-unload');
     app.quit(); await stayed;
     const cancelledQuitKeptConnection = quitChild.exitCode === null && quitChild.signalCode === null;
@@ -48,6 +57,6 @@ app.whenReady().then(async () => {
     // holdを外すnavigationで、開いたままの旧USBプロセスも終了させる。
     await window.loadFile(html); await loaded;
     const afterReload = await window.webContents.executeJavaScript('window.usbHostProof || Promise.reject(new Error("Proof renderer did not start"))');
-    await finish({ first, afterCancelledQuit, cancelledQuitKeptConnection, afterReload, oldChildEnded: oldChild.exitCode !== null || oldChild.signalCode !== null });
+    await finish({ first, afterCancelledNavigation, afterCancelledReload, afterCancelledQuit, cancelledQuitKeptConnection, afterReload, oldChildEnded: oldChild.exitCode !== null || oldChild.signalCode !== null });
   } catch (error) { await finish({ error: String(error.stack || error) }); }
 });

@@ -29,7 +29,7 @@ test('mainFrameだけに文書のbindingを発行し、他frameを拒否する',
 });
 test('再読み込みで旧bindingを失効させ、旧process終了前に新brokerを作らない',async()=>{
   const f=setup(), first=await f.bind(); assert.equal((await f.request(first.binding)).ok,true);
-  f.wc.emit('did-start-navigation',{isMainFrame:true,isSameDocument:false});
+  f.wc.emit('did-frame-navigate',{},'file:///isolated/index.html',200,'',true);
   assert.equal(f.instances[0].disposed,true); f.wc.emit('dom-ready');
   const next=await f.bind(); assert.notEqual(first.binding,next.binding);
   assert.equal((await f.request(first.binding)).error.code,'permission-denied');
@@ -52,7 +52,7 @@ test('入れ替えた旧windowの遅いnavigationで新しい文書を取り消�
   f.controller.attachWindow({webContents:wc,isDestroyed:()=>false},['file:///next/index.html']); wc.emit('dom-ready');
   const event={sender:wc,senderFrame:frame}; const info=await f.handlers.get('usb-host-bind')(event);
   await f.handlers.get('usb-host-request')(event,info.binding,'serial.open',{session:'next'});
-  f.wc.emit('did-start-navigation',{isMainFrame:true,isSameDocument:false});
+  f.wc.emit('did-frame-navigate',{},'file:///isolated/index.html',200,'',true);
   assert.equal(f.instances[0].disposed,undefined);
   f.instances[0].closing.resolve(); await f.controller.dispose();
 });
@@ -65,4 +65,10 @@ test('quitをbeforeunloadで取り消した文書の接続を失効させない'
   assert.equal((await f.request(info.binding)).ok,true);
   f.instances[0].closing.resolve(); app.emit('will-quit');
   assert.equal(f.instances[0].disposed,true); await f.controller.dispose();
+});
+test('開始だけで取り消されたnavigationは元文書の権限を維持する',async()=>{
+  const f=setup(), info=await f.bind(); await f.request(info.binding);
+  f.wc.emit('did-start-navigation',{isMainFrame:true,isSameDocument:false});
+  assert.equal((await f.request(info.binding)).ok,true); assert.equal(f.instances[0].disposed,undefined);
+  f.instances[0].closing.resolve(); await f.controller.dispose();
 });

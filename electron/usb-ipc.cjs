@@ -60,8 +60,10 @@ function installUsbHost({ app, ipcMain, executable, args = [], enabled = process
     attachWindow(next, urls) {
       retire(); window = next; allowed = new Set(urls.map(page));
       const wc = next.webContents;
-      wc.on('did-start-navigation', (details, _url, sameDocument, mainFrame) => {
-        if (window === next && (details.isMainFrame ?? mainFrame) && !(details.isSameDocument ?? sameDocument)) retire();
+      // 開始要求はwill-navigate/beforeunloadで取り消されることがある。
+      // 文書の切替確定まで、元のbindingと接続を失効させない。
+      wc.on('did-frame-navigate', (_event, _url, _status, _text, isMainFrame) => {
+        if (window === next && isMainFrame) retire();
       });
       wc.on('dom-ready', () => { if (window === next) ready.resolve(); });
       wc.on('render-process-gone', () => { if (window === next) retire(); });
