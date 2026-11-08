@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RaceStudio data analysis on Mac: AiM GPS logs — LapLoupe</title>
+<meta name="description" content="Open supported AiM CSV and GPS records from XRK or XRZ files on a Mac. Compare lap times, racing lines and speed in LapLoupe, with clear limits on channels and device support.">
+<link rel="canonical" href="https://oud0n.github.io/ds_universal/racestudio-mac.en.html">
+<link rel="alternate" hreflang="ja" href="https://oud0n.github.io/ds_universal/racestudio-mac.html">
+<link rel="alternate" hreflang="en" href="https://oud0n.github.io/ds_universal/racestudio-mac.en.html">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<meta property="og:type" content="article">
+<meta property="og:title" content="RaceStudio data analysis on Mac: AiM GPS logs — LapLoupe">
+<meta property="og:description" content="Open supported AiM CSV and GPS records from XRK or XRZ files on a Mac. Compare lap times, racing lines and speed in LapLoupe, with clear limits on channels and device support.">
+<meta property="og:url" content="https://oud0n.github.io/ds_universal/racestudio-mac.en.html">
+<meta property="og:image" content="https://oud0n.github.io/ds_universal/og-image.jpg">
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; padding: 0 20px; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif; line-height: 1.8; background: #fff; color: #1f2937; }
+  main { max-width: 48rem; margin: auto; padding: 2rem 0 4rem; }
+  h1 { font-size: 1.8rem; line-height: 1.4; } h2 { margin-top: 2rem; font-size: 1.25rem; }
+  a { color: #135ab5; } img { display: block; max-width: 100%; height: auto; border-radius: 8px; }
+  figure { margin: 1.5rem 0; } figcaption, footer { font-size: .9rem; }
+  .actions { display: flex; flex-wrap: wrap; gap: 1rem; } .actions a { border: 1px solid currentColor; border-radius: 6px; padding: .4rem .8rem; }
+  @media (prefers-color-scheme: dark) { body { background: #111827; color: #e5e7eb; } a { color: #93c5fd; } }
+</style>
+</head>
+<body>
+<main>
+<nav aria-label="Language and app"><a href="./">Open LapLoupe</a> · <a href="racestudio-mac.html" lang="ja" hreflang="ja">日本語</a></nav>
+<h1>Analyse RaceStudio data on a Mac</h1>
+<p>Want to review saved AiM track data on your Mac? <strong>LapLoupe</strong> opens supported log files to compare lap times, racing lines and speed. Use the desktop app on an Apple Silicon Mac or the browser version on a computer.</p>
+<h2>Supported AiM data and its limits</h2>
+<ul><li><strong>AiM CSV</strong>: CSV exported from RaceStudio with time, GPS latitude and GPS longitude. The importer reads supported position and speed columns.</li><li><strong>XRK and XRZ</strong>: supported GPS position records. Files without GPS records and all device or format variants are not guaranteed to work.</li></ul>
+<p>This does not import every channel or CAN data from XRK and XRZ files. AiM import has been checked with public samples and related material; complete testing with physical AiM devices remains outstanding.</p>
+<h2>Open and compare your logs on a Mac</h2>
+<ol><li>Open LapLoupe in the desktop app or browser.</li><li>Select your saved AiM CSV or supported XRK or XRZ file. CSV needs GPS Latitude and GPS Longitude columns.</li><li>Check the course and timing line, then select laps for comparison.</li><li>Review speed and time-delta graphs alongside the course map.</li></ol>
+<figure><img src="help/img/d2/desktop-en-1.webp" alt="Example LapLoupe lap comparison screen, not a test using a physical AiM device" width="1200" loading="lazy"><figcaption>An example of lap comparison in LapLoupe, not an AiM hardware validation.</figcaption></figure>
+<h2>Saved-file analysis and device management are different tasks</h2>
+<p>This guide covers <strong>analysing saved logs on a Mac</strong>. AiM device configuration, firmware updates and downloading directly from an AiM logger are outside this support scope. For device operations, see the <a href="https://www.aimsports.com/us/sw-fw-download.htm">manufacturer's software information</a>.</p>
+<p>LapLoupe is independent of AiM and RaceStudio. Start by checking that your own file can be imported.</p>
+<p class="actions"><a href="https://github.com/oud0n/ds_universal/releases/latest">Download for Mac</a><a href="./">Try in your browser</a></p>
+<h2>Step-by-step guides</h2><ul><li><a href="help/d2-compare.html?device=desktop&amp;lang=en">Compare laps</a></li><li><a href="help/e2-sync.html?device=desktop&amp;lang=en">Sync video and logs</a></li><li><a href="help/f1-layout.html?device=desktop&amp;lang=en">Customise gauges</a></li><li><a href="help/e4-export.html?device=desktop&amp;lang=en">Export video</a></li></ul>
+<h2>Related guides</h2><ul><li><a href="dashware-mac.en.html">DashWare alternative for Mac video overlays</a></li>
+<li><a href="track-analyzer-mac.en.html">Track analyzer for Mac: GPS lap analysis</a></li></ul>
+<footer><p>Free for personal, non-commercial use. <a href="https://github.com/oud0n/ds_universal/blob/main/README.en.md">Features and licence</a> · <a href="privacy.html">Privacy</a></p></footer>
+</main>
+</body>
+</html>

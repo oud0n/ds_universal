@@ -10,6 +10,9 @@ Log download and logger settings for DigSpice IV, racing line / speed / G analys
 
 Guides by task:
 
+- [DashWare alternative for Mac video overlays](https://oud0n.github.io/ds_universal/dashware-mac.en.html)
+- [Analyse saved AiM and RaceStudio logs on Mac](https://oud0n.github.io/ds_universal/racestudio-mac.en.html)
+- [Track analyzer for Mac: GPS lap analysis](https://oud0n.github.io/ds_universal/track-analyzer-mac.en.html)
 - [Use DigSpice on a Mac](https://oud0n.github.io/ds_universal/digspice-mac.html) (Japanese)
 - [Compare lap times and racing lines](https://oud0n.github.io/ds_universal/help/d2-compare.html?lang=en)
 - [Sync GoPro and other onboard video with GPS logs](https://oud0n.github.io/ds_universal/help/e2-sync.html?lang=en)

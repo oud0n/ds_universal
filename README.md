@@ -10,6 +10,9 @@
 
 目的別の使い方:
 
+- [Macで車載動画にメーターを重ねる](https://oud0n.github.io/ds_universal/dashware-mac.html)
+- [MacでAiM・RaceStudioの保存済みログを解析する](https://oud0n.github.io/ds_universal/racestudio-mac.html)
+- [Macの走行ログ解析・ラップ比較](https://oud0n.github.io/ds_universal/track-analyzer-mac.html)
 - [デジスパイスを Mac で使う方法](https://oud0n.github.io/ds_universal/digspice-mac.html)
 - [サーキットのラップタイム・走行ラインを比較する](https://oud0n.github.io/ds_universal/help/d2-compare.html)
 - [GoPro などの車載動画と GPS ログを同期する](https://oud0n.github.io/ds_universal/help/e2-sync.html)

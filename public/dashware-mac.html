@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DashWareのMac向け代替を探している方へ — LapLoupe</title>
+<meta name="description" content="MacでGPSログと車載動画を同期し、速度・G・ラップタイムなどの部品を選んでメーター付きMP4を書き出す方法。LapLoupeの配置編集、CSV対応、透明背景の書き出しを紹介します。">
+<link rel="canonical" href="https://oud0n.github.io/ds_universal/dashware-mac.html">
+<link rel="alternate" hreflang="ja" href="https://oud0n.github.io/ds_universal/dashware-mac.html">
+<link rel="alternate" hreflang="en" href="https://oud0n.github.io/ds_universal/dashware-mac.en.html">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<meta property="og:type" content="article">
+<meta property="og:title" content="DashWareのMac向け代替を探している方へ — LapLoupe">
+<meta property="og:description" content="MacでGPSログと車載動画を同期し、速度・G・ラップタイムなどの部品を選んでメーター付きMP4を書き出す方法。LapLoupeの配置編集、CSV対応、透明背景の書き出しを紹介します。">
+<meta property="og:url" content="https://oud0n.github.io/ds_universal/dashware-mac.html">
+<meta property="og:image" content="https://oud0n.github.io/ds_universal/og-image.jpg">
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; padding: 0 20px; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif; line-height: 1.8; background: #fff; color: #1f2937; }
+  main { max-width: 48rem; margin: auto; padding: 2rem 0 4rem; }
+  h1 { font-size: 1.8rem; line-height: 1.4; } h2 { margin-top: 2rem; font-size: 1.25rem; }
+  a { color: #135ab5; } img { display: block; max-width: 100%; height: auto; border-radius: 8px; }
+  figure { margin: 1.5rem 0; } figcaption, footer { font-size: .9rem; }
+  .actions { display: flex; flex-wrap: wrap; gap: 1rem; } .actions a { border: 1px solid currentColor; border-radius: 6px; padding: .4rem .8rem; }
+  @media (prefers-color-scheme: dark) { body { background: #111827; color: #e5e7eb; } a { color: #93c5fd; } }
+</style>
+</head>
+<body>
+<main>
+<nav aria-label="言語とアプリ"><a href="./">LapLoupeを開く</a> · <a href="dashware-mac.en.html" lang="en" hreflang="en">English</a></nav>
+<h1>DashWareのMac向け代替を探している方へ</h1>
+<p>Macで車載動画にGPSデータやメーターを重ねたい方へ。<strong>LapLoupe</strong>は、走行ログと動画を同期し、自分で選んだ部品を重ねて動画を書き出せる、無料の走行解析アプリです。Apple SiliconのMac向けデスクトップ版と、パソコンのブラウザ版があります。</p>
+<h2>速度やGだけでなく、使う部品と見た目を選ぶ</h2>
+<p>速度・G・ラップタイム・タイム差・コース図・数値・値の棒・グラフ・画像などを組み合わせられます。部品をつかんで配置し、大きさ・値・色・目盛りを変更。ロゴを置いたり、自分のレイアウトとして保存・共有したりできます。</p>
+<figure><img src="help/img/f1/desktop-ja-1.webp" alt="LapLoupeのメーター部品と配置の編集画面" width="1200" loading="lazy"><figcaption>表示する部品・配置・色・大きさを編集できます。</figcaption></figure>
+<h2>GPSログやCSVを、GoProなどの車載動画と合わせる</h2>
+<p>GPX・NMEA・VBO・対応するCSVや、GPS入りGoPro動画を読み込めます。動画とログの時刻を使って同期し、ずれている場合は手動で調整します。CSVの列・単位を設定して回転数やアクセルなどを表示したり、計算式で作った値をメーターに使ったりできます。使える値は、元のログに記録されている内容によります。</p>
+<h2>完成した動画にも、動画編集用の素材にも</h2>
+<ul><li>メーターを重ねたMP4として、そのまま見られる動画を書き出す。</li><li>メーターだけの透明背景WebMやPNG連番ZIPを書き出し、動画編集ソフトで重ねる。</li><li>ラップ・動画全体・指定した時間範囲を選び、解像度やフレームレートを設定する。</li></ul>
+<h2>Macで試す手順</h2>
+<ol><li>Apple SiliconのMacならデスクトップ版をダウンロードするか、パソコンでブラウザ版を開きます。</li><li>手元の走行ログと動画を開き、動画の画面で同期を確認します。</li><li>「メーターの配置」で部品を選び、配置や色を調整します。</li><li>「書き出す」で形式と範囲を選びます。</li></ol>
+<p>ログは端末内で処理します。メーターの作成・編集と動画書き出しはパソコンで行います。</p>
+<p class="actions"><a href="https://github.com/oud0n/ds_universal/releases/latest">Mac版をダウンロード</a><a href="./">ブラウザで試す</a></p>
+<h2>使い方を詳しく見る</h2><ul><li><a href="help/d2-compare.html?device=desktop&amp;lang=ja">ラップを比較する</a></li><li><a href="help/e2-sync.html?device=desktop&amp;lang=ja">動画とログを同期する</a></li><li><a href="help/f1-layout.html?device=desktop&amp;lang=ja">メーターをカスタマイズする</a></li><li><a href="help/e4-export.html?device=desktop&amp;lang=ja">動画を書き出す</a></li></ul>
+<h2>関連する使い方</h2><ul><li><a href="racestudio-mac.html">MacでAiM・RaceStudioの保存済みログを解析する</a></li>
+<li><a href="track-analyzer-mac.html">Macの走行ログ解析・ラップ比較</a></li></ul>
+<footer><p>個人・非商用で無料。<a href="https://github.com/oud0n/ds_universal#readme">対応機能とライセンス</a> · <a href="privacy.html">プライバシー</a></p></footer>
+</main>
+</body>
+</html>
