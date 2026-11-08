@@ -24,7 +24,7 @@ import { LapDeviceSet, type LapDeviceStatus } from './lapDeviceSet';
 import { PhoneCameraRecorder, type CameraStatus } from './phoneCamera';
 import { GpsImuFusion } from './gpsImuFusion';
 import type { CircuitPreset, TelemetryPoint } from '../../types/telemetry';
-import { findRunRow, readRunsFile, removeRunRow, updateRun } from '../runsFile';
+import { findRunRow, isRunsConflictCopy, noteRunsConflictCopies, readRunsFile, removeRunRow, updateRun } from '../runsFile';
 import { deleteRun as deleteRunRecord } from '../liveRunStore';
 import { planRunDelete } from '../runDelete';
 import type { RunItem } from '../runOpener';
@@ -387,6 +387,9 @@ export class TimerRuntime {
       const store = await getRunStore();
       if (!store || token !== this.pastBestToken) return;
       const folder = courseFolder(course.name, course.folder, course.id);
+      const files = await store.listAll().catch(() => null);
+      if (!files || token !== this.pastBestToken) return;
+      noteRunsConflictCopies(folder, files.filter(file => file.path.slice(0, file.path.lastIndexOf('/')) === folder && isRunsConflictCopy(file.path.slice(file.path.lastIndexOf('/') + 1))).map(file => file.path), store.storageRevision ?? 0);
       const runs = await readRunsFile(store, folder, true).catch(() => null);
       if (!runs) return;
       if (token !== this.pastBestToken) return;
