@@ -6,6 +6,8 @@
 
 ## Next build (not distributed)
 
+- Added an opt-in development path for USB communication through a Rust host. Distributed builds continue to use the existing transport.
+
 - Added host adapters for replacing BLE/USB transports, with synthetic comparisons against the existing paths. The application still uses its existing transports.
 
 - Aligned the desktop and browser sidebar, command bar, analysis panels and playback bar, preserving existing analysis and video features.

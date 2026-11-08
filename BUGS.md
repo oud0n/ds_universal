@@ -1,7 +1,12 @@
 # LapLoupe の不具合 (BUGS)
 
 2026-10-27 に作り直した。ここには **まだ残っているもの** と、直したものの短い記録だけを置く。BUG-01〜BUG-23 の細かい調べ・直し方の全文は [docs/history/bugs_until_1.1.0.md](docs/history/bugs_until_1.1.0.md)、BUG-24〜BUG-37 の経緯は [docs/history/todo_until_1.1.0.md](docs/history/todo_until_1.1.0.md) の表にある。
-一覧と優先は [TODO.md](TODO.md)。新しく見つけたら、次の番号 (BUG-136 から) で足す。
+一覧と優先は [TODO.md](TODO.md)。新しく見つけたら、次の番号 (BUG-137 から) で足す。
+
+### BUG-136: Rust USBホスト候補の終了制限と旧窓通知 (2026-11-08) → **開発用候補内で修正・回帰検査済み**
+
+- 終了済みsessionの上限に達していても、所有しているポートのcloseは拒否しない。取消し/キュー終了を同期し、open中の保留writeもclose応答より先に決着する。
+- 窓を入れ替えた後、古い窓の遅いnavigationで新しい文書を取り消さない。文書bindingの失効とprocess終了待ちを回帰検査した。配布版の経路は変更していない。[USB試験経路](docs/usb_host.md)。
 
 ### BUG-135: ホスト通信部品の連続置換が前の終了待ちを追い越す (2026-11-08) → **未接続の候補内で修正・合成検査済み**
 

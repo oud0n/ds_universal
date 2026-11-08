@@ -7,6 +7,7 @@ import {
   Settings, Cpu, HardDrive, ShieldCheck, ChevronRight, ChevronDown
 } from 'lucide-react';
 import { DigSpiceDevice, LogInfo, DownloadProgress, DeviceConfig } from '../services/digspiceDevice';
+import { desktopUsbTransport } from '../services/deviceHost/electronHost';
 import { LoggerSettingsCard } from './LoggerSettingsCard';
 import { BleLoggerCard } from './BleLoggerCard';
 import { canUseLoggerBle, canUseLoggerUsb } from '../utils/device';
@@ -94,7 +95,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
         const { createSimulatedPort } = await import('../services/digspiceSimulator');
         await device.connect(async () => createSimulatedPort());
       } else {
-        await device.connect();
+        await device.connect(await desktopUsbTransport());
       }
       setIsConnected(true);
       // 自動でメモリ情報・本体設定を取得
@@ -107,7 +108,7 @@ export const LoggerTab: React.FC<LoggerTabProps> = ({ onLoadSession, onNavigateT
       }
     } catch (err: any) {
       // 機器を選ばなかった・見つからなかったとき (つないでいない) は、分かる言葉で出す
-      const notFound = err?.name === 'NotFoundError' || /No port selected|no port/i.test(String(err?.message ?? ''));
+      const notFound = err?.code === 'not-found' || err?.name === 'NotFoundError' || /No port selected|no port/i.test(String(err?.message ?? ''));
       alert(notFound
         ? tr('デジスパイスIV が見つかりませんでした。USB ケーブルでつないで、電源を入れてから押してください。', 'No DigSpice IV was found. Connect it with a USB cable, turn it on, then try again.')
         : `${tr('デジスパイスIV 接続エラー', 'DigSpice IV connection error')}:\n${err.message}`);

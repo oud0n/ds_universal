@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ElectronAPI {
+  deviceHost?: import('./services/deviceHost/electronHost').ElectronUsbHostApi;
   onOpenFiles?: (callback: (filePaths: string[]) => void) => void;
   onOpenDonateModal?: (callback: () => void) => void;
   saveBinaryFile?: (options: { defaultName?: string; dataArray: number[] }) => Promise<{ success: boolean; filePath?: string; bytesWritten?: number; error?: string }>;

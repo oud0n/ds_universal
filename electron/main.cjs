@@ -3,6 +3,10 @@ const { Readable } = require('stream');
 const path = require('path');
 const fs = require('fs');
 const { setupUpdater } = require('./updater.cjs');
+const { pathToFileURL } = require('url');
+const { installUsbHost } = require('./usb-ipc.cjs');
+const usbHost = installUsbHost({ app, ipcMain, executable: path.join(__dirname, '../native-usb/target/debug',
+  process.platform === 'win32' ? 'laploupe-usb-host.exe' : 'laploupe-usb-host') });
 
 // GoPro 4K/60fps 等の H.265 (HEVC) ハードウェアアクセラレーション再生の有効化
 app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport');
@@ -146,6 +150,11 @@ function createWindow() {
       sandbox: false
     }
   });
+
+  usbHost.attachWindow(mainWindow, [
+    pathToFileURL(path.join(__dirname, '../dist/index.html')).href,
+    process.env.ELECTRON_START_URL || 'http://localhost:5173/'
+  ]);
 
   // 外部リンク (Buy Me a Coffee, GitHub等) をOS標準ブラウザで開く
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

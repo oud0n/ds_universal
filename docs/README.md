@@ -37,6 +37,7 @@
 
 | 文書 | 計画 | 状態 |
 |---|---|---|
+| [usb_host.md](usb_host.md) | PLAN-62 USBのRustホストとElectron試験接続 | OS疑似シリアル/実IPCを検査。実USB/Windows実機は未確認 |
 | [device_host.md](device_host.md) | PLAN-62 BLE・USBのホスト接続と等価性 | 部品・合成比較を実装。実ドライバ/IPC/製品切替は未着手 |
 | [video_sets_design.md](video_sets_design.md) | PLAN-17 動画の走行とセット | 実装済み |
 | [overlay_parts_design.md](overlay_parts_design.md) | メーターの部品 | 実装済み |
