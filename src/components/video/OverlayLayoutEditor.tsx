@@ -32,17 +32,21 @@ export const OverlayEditLayer = React.forwardRef<OverlayEditHandle, {
   const ja = t('ja', 'en') === 'ja';
   const hostRef = useRef<HTMLDivElement | null>(null);
   const drag = useRef<{ id: string; mode: 'move' | 'resize'; startX: number; startY: number; orig: OverlayPart; pointerId: number } | null>(null);
-  const keyGesture = useRef<string | null>(null);
+  const heldKeys = useRef(new Set<string>());
+  const canceledKeys = useRef(new Set<string>());
   useImperativeHandle(ref, () => ({ cancelGesture: () => {
-    const active = drag.current || keyGesture.current;
-    drag.current = null; keyGesture.current = null;
+    const active = drag.current || heldKeys.current.size;
+    for (const code of heldKeys.current) canceledKeys.current.add(code);
+    drag.current = null; heldKeys.current.clear();
     if (active) onGestureEnd();
   } }), [onGestureEnd]);
   const begin = (e: React.PointerEvent, part: OverlayPart, mode: 'move' | 'resize') => {
     if (e.button !== 0 || drag.current) return;
-    keyGesture.current = null;
+    for (const code of heldKeys.current) canceledKeys.current.add(code);
+    heldKeys.current.clear();
     e.stopPropagation();
     e.preventDefault();
+    hostRef.current?.focus({ preventScroll: true });
     onSelect(part.id);
     onGestureStart();
     drag.current = { id: part.id, mode, startX: e.clientX, startY: e.clientY, orig: part, pointerId: e.pointerId };
@@ -56,9 +60,9 @@ export const OverlayEditLayer = React.forwardRef<OverlayEditHandle, {
     const dx = (e.clientX - d.startX) / r.width, dy = (e.clientY - d.startY) / r.height;
     const o = d.orig;
     const next = d.mode === 'move'
-      ? { ...o, x: clamp(snap(o.x + dx), 0, 1 - o.w), y: clamp(snap(o.y + dy), 0, 1 - o.h) }
-      : { ...o, w: clamp(snap(o.w + dx), MIN_SIZE, 1 - o.x), h: clamp(snap(o.h + dy), MIN_SIZE, 1 - o.y) };
-    onChange(parts.map(p => (p.id === d.id ? next : p)));
+      ? { x: clamp(snap(o.x + dx), 0, 1 - o.w), y: clamp(snap(o.y + dy), 0, 1 - o.h) }
+      : { w: clamp(snap(o.w + dx), MIN_SIZE, 1 - o.x), h: clamp(snap(o.h + dy), MIN_SIZE, 1 - o.y) };
+    onChange(parts.map(p => (p.id === d.id ? { ...p, ...next } : p)));
   };
   const end = (e: React.PointerEvent) => {
     if (drag.current && e.pointerId === drag.current.pointerId) {
@@ -72,16 +76,20 @@ export const OverlayEditLayer = React.forwardRef<OverlayEditHandle, {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const { parts: ps, selected: sel, onChange: change } = latest.current;
-      if (!sel || drag.current || !/^Arrow/.test(e.key)) return;
+      if (!sel || !/^Arrow/.test(e.key)) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
       const p = ps.find(x => x.id === sel);
       if (!p) return;
-      if (e.repeat && keyGesture.current !== e.code) return;
-      if (!e.repeat) { keyGesture.current = e.code; latest.current.onGestureStart(); }
       e.preventDefault();
       // 動画の 0.1 秒送り (画面全体の矢印キー) には渡さない
       e.stopPropagation();
+      if (drag.current || (e.repeat && canceledKeys.current.has(e.code))) return;
+      if (!e.repeat) canceledKeys.current.delete(e.code);
+      if (!heldKeys.current.has(e.code)) {
+        if (heldKeys.current.size === 0) latest.current.onGestureStart();
+        heldKeys.current.add(e.code);
+      }
       const dx = e.key === 'ArrowLeft' ? -SNAP : e.key === 'ArrowRight' ? SNAP : 0;
       const dy = e.key === 'ArrowUp' ? -SNAP : e.key === 'ArrowDown' ? SNAP : 0;
       const next = e.shiftKey
@@ -90,10 +98,10 @@ export const OverlayEditLayer = React.forwardRef<OverlayEditHandle, {
       change(ps.map(x => (x.id === sel ? next : x)));
     };
     const endKey = (e?: KeyboardEvent) => {
-      if (keyGesture.current && (!e || keyGesture.current === e.code)) {
-        keyGesture.current = null;
-        latest.current.onGestureEnd();
-      }
+      const hadKeys = heldKeys.current.size > 0;
+      if (e) { heldKeys.current.delete(e.code); canceledKeys.current.delete(e.code); }
+      else { heldKeys.current.clear(); canceledKeys.current.clear(); }
+      if (hadKeys && heldKeys.current.size === 0) latest.current.onGestureEnd();
     };
     const onBlur = () => {
       endKey();
@@ -112,7 +120,8 @@ export const OverlayEditLayer = React.forwardRef<OverlayEditHandle, {
   return (
     <div
       ref={hostRef}
-      className="absolute inset-0 z-[16] cursor-default"
+      tabIndex={-1}
+      className="absolute inset-0 z-[16] cursor-default outline-none"
       onPointerMove={move}
       onPointerUp={end}
       onPointerCancel={end}
@@ -169,6 +178,23 @@ const NumberField: React.FC<{ value: number; min: number; max: number; step?: nu
     <input type="number" step={step} value={text} onChange={e => setText(e.target.value)} onBlur={commit}
       onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} className={className} />
   );
+};
+
+/** 色のライブ入力は欄だけに反映し、ネイティブのchange（確定）を1つの編集として渡す。 */
+const ColorField: React.FC<{ value: string; onCommit: (value: string) => void }> = ({ value, onCommit }) => {
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const commitRef = useRef(onCommit);
+  commitRef.current = onCommit;
+  useEffect(() => setDraft(value), [value]);
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    const commit = () => commitRef.current(input.value);
+    input.addEventListener('change', commit);
+    return () => input.removeEventListener('change', commit);
+  }, []);
+  return <input ref={inputRef} type="color" value={draft} onChange={event => setDraft(event.target.value)} />;
 };
 
 /** 足せる部品と、その既定の形 (映像の真ん中あたりに置く) */
@@ -243,6 +269,13 @@ export const OverlayEditPanel: React.FC<{
   const [addType, setAddType] = useState<OverlayPartType>('bar');
   // 欄を左右どちらに出すか (下に隠れた部品を動かせるように)
   const [side, setSide] = useState<'right' | 'left'>('right');
+  const rangePointer = useRef(false);
+  useEffect(() => {
+    const reset = () => { rangePointer.current = false; };
+    window.addEventListener('blur', reset);
+    return () => window.removeEventListener('blur', reset);
+  }, []);
+  const endRange = () => { rangePointer.current = false; onGestureEnd(); };
   const fileRef = useRef<HTMLInputElement | null>(null);
   const firstChannel = (['throttle', 'brake', 'speed'] as ChannelId[]).find(c => channels.has(c)) ?? 'speed';
   const sel = draft.parts.find(p => p.id === selected) ?? null;
@@ -424,7 +457,7 @@ export const OverlayEditPanel: React.FC<{
                   <label className="flex-1">{t('最大', 'Max')}<NumberField min={(sel.min ?? channelDef(sel.channel).min) + 0.01} max={100000} value={sel.max ?? channelDef(sel.channel).max} onCommit={v => update({ max: v } as Partial<OverlayPart>)} className={input} /></label>
                 </div>
                 <div className="flex gap-2 items-center">
-                  <label className="flex items-center gap-1">{t('色', 'Color')}<input type="color" value={sel.color ?? '#38bdf8'} onFocus={onGestureStart} onBlur={onGestureEnd} onChange={e => update({ color: e.target.value } as Partial<OverlayPart>)} /></label>
+                  <label className="flex items-center gap-1">{t('色', 'Color')}<ColorField key={sel.id} value={sel.color ?? '#38bdf8'} onCommit={color => update({ color } as Partial<OverlayPart>)} /></label>
                   <label className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={!!sel.horizontal} onChange={e => update({ horizontal: e.target.checked } as Partial<OverlayPart>)} />{t('横向き', 'Horizontal')}</label>
                 </div>
               </>
@@ -439,7 +472,9 @@ export const OverlayEditPanel: React.FC<{
               <label className="block">{t('振れの上限 (秒)', 'Full scale (s)')}<NumberField step={0.1} min={0.1} max={10} value={sel.maxSec ?? 1} onCommit={v => update({ maxSec: v } as Partial<OverlayPart>)} className={input} /></label>
             )}
             <label className="block">{t('不透明度', 'Opacity')}<input type="range" min={0.2} max={1} step={0.05} value={sel.opacity ?? 1}
-              onPointerDown={onGestureStart} onPointerUp={onGestureEnd} onPointerCancel={onGestureEnd} onBlur={onGestureEnd}
+              onPointerDown={() => { rangePointer.current = true; onGestureStart(); }}
+              onFocus={() => { if (rangePointer.current) onGestureStart(); }}
+              onPointerUp={endRange} onPointerCancel={endRange} onBlur={endRange}
               onKeyDown={e => { if (!e.repeat && /^(Arrow|Home|End|Page)/.test(e.key)) onGestureStart(); }}
               onKeyUp={e => { if (/^(Arrow|Home|End|Page)/.test(e.key)) onGestureEnd(); }}
               onChange={e => update({ opacity: Number(e.target.value) } as Partial<OverlayPart>)} className="w-full" /></label>

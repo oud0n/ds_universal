@@ -44,6 +44,17 @@ function isLoggerPort(port) {
 // (OS の言語は起動の準備ができてからでないと読めないので、使うときに読む)
 let menuLang = null;
 const L = (ja, en) => ((menuLang ?? (/^ja/i.test(app.getLocale()) ? 'ja' : 'en')) === 'en' ? en : ja);
+function undoFromMenu() {
+  return require('./edit-undo.cjs').undoFocusedContents(() => {
+    const contents = require('electron').webContents.getFocusedWebContents();
+    if (!contents || !contents.isFocused()) return null;
+    const owner = BrowserWindow.fromWebContents(contents);
+    return owner && !owner.isFocused() ? null : contents;
+  }, contents => {
+    if (contents) contents.undo();
+    else if (process.platform === 'darwin') Menu.sendActionToFirstResponder('undo:');
+  });
+}
 function buildMenu() {
   const template = [
     ...(process.platform === 'darwin' ? [{ role: 'appMenu', label: APP_NAME }] : []),
@@ -83,7 +94,7 @@ function buildMenu() {
       label: L('編集', 'Edit'),
       submenu: [
         { id: 'layout-aware-undo', label: L('取り消す', 'Undo'), accelerator: 'CmdOrCtrl+Z',
-          click: () => { void require('./edit-undo.cjs').undoFocusedContents(() => require('electron').webContents.getFocusedWebContents()); } },
+          click: () => { void undoFromMenu(); } },
         { role: 'redo', label: L('やり直す', 'Redo') },
         { type: 'separator' },
         { role: 'cut', label: L('カット', 'Cut') },
@@ -150,6 +161,14 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false
+    }
+  });
+
+  // キーとメニューの二重実行を防ぐ。preventDefaultでDOMとメニューの通常処理を止め、この経路だけでUndoする。
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (require('./edit-undo.cjs').isUndoInput(input)) {
+      event.preventDefault();
+      void undoFromMenu();
     }
   });
 

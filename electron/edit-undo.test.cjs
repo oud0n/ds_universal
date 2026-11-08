@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { undoFocusedContents } = require('./edit-undo.cjs');
+const { undoFocusedContents, isUndoInput } = require('./edit-undo.cjs');
 
 test('配置エディタが処理したUndoは標準Undoへ重ねて渡さない', async () => {
   let undos = 0;
@@ -27,4 +27,17 @@ test('応答を待つ間に入力先が変わったら標準Undoを実行しな�
 test('閉じたページや入力先なしでは処理しない', async () => {
   await undoFocusedContents(() => null);
   await undoFocusedContents(() => ({ isDestroyed: () => true }));
+});
+test('ネイティブダイアログが入力先のときはOSの標準Undoへ渡す', async () => {
+  let native = 0;
+  await undoFocusedContents(() => null, () => native++);
+  assert.equal(native, 1);
+});
+test('主プロセスが処理するUndoキーだけを選び、Redoと通常文字入力は通す', () => {
+  assert.equal(isUndoInput({ type: 'keyDown', key: 'z', control: true }), true);
+  assert.equal(isUndoInput({ type: 'keyDown', key: 'Z', meta: true }), true);
+  for (const extra of [{ shift: true }, { alt: true }, { type: 'keyUp' }, { key: 'x' }]) {
+    assert.equal(isUndoInput({ type: 'keyDown', key: 'z', control: true, ...extra }), false);
+  }
+  assert.equal(isUndoInput({ type: 'keyDown', key: 'z' }), false);
 });

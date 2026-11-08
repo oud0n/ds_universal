@@ -473,9 +473,14 @@ function photoAttribution(ctx: CanvasRenderingContext2D, x: number, bottom: numb
   const lines: string[] = [];
   for (const text of [tr('出典：国土地理院（走行データを追記）', 'Source: GSI Japan (telemetry added)'), ...credits]) {
     let line = '';
-    for (const character of text) {
-      if (line && ctx.measureText(line + character).width > w - 8) { lines.push(line); line = ''; }
-      line += character;
+    for (const word of text.split(/(\s+)/)) {
+      if (!word) continue;
+      if (line && ctx.measureText(line + word).width > w - 8) { lines.push(line.trimEnd()); line = ''; }
+      const token = line ? word : word.trimStart();
+      for (const character of token) {
+        if (line && ctx.measureText(line + character).width > w - 8) { lines.push(line); line = ''; }
+        line += character;
+      }
     }
     if (line) lines.push(line);
   }

@@ -1,12 +1,13 @@
 import { SMALL_PARTS, type OverlayLayout, type OverlayPart } from '../../services/overlayLayout';
 
 type Target = 'large' | 'small';
+type GestureOwner = 'layer' | 'panel';
 type Snapshot = { parts: OverlayPart[]; small: OverlayPart[] | undefined; target: Target };
 export type EditHistory = {
   layout: OverlayLayout | null;
   target: Target;
   past: Snapshot[];
-  gesture: boolean;
+  gesture: GestureOwner | null;
   recorded: boolean;
 };
 export type EditAction =
@@ -14,9 +15,10 @@ export type EditAction =
   | { type: 'target'; target: Target }
   | { type: 'name'; name: [string, string] }
   | { type: 'parts'; parts: OverlayPart[] }
-  | { type: 'begin' | 'end' | 'undo' };
+  | { type: 'begin' | 'end'; owner?: GestureOwner }
+  | { type: 'undo' };
 
-export const EMPTY_EDIT_HISTORY: EditHistory = { layout: null, target: 'large', past: [], gesture: false, recorded: false };
+export const EMPTY_EDIT_HISTORY: EditHistory = { layout: null, target: 'large', past: [], gesture: null, recorded: false };
 
 function sameParts(a: OverlayPart[], b: OverlayPart[]): boolean {
   return a.length === b.length && a.every((part, i) => {
@@ -33,10 +35,10 @@ export function overlayEditReducer(state: EditHistory, action: EditAction): Edit
       ...EMPTY_EDIT_HISTORY, target: state.target,
       layout: typeof action.layout === 'function' ? action.layout(state.layout) : action.layout
     };
-    case 'target': return { ...state, target: action.target, gesture: false, recorded: false };
+    case 'target': return { ...state, target: action.target, gesture: null, recorded: false };
     case 'name': return state.layout ? { ...state, layout: { ...state.layout, name: action.name } } : state;
-    case 'begin': return { ...state, gesture: true, recorded: false };
-    case 'end': return { ...state, gesture: false, recorded: false };
+    case 'begin': return { ...state, gesture: action.owner ?? 'layer', recorded: false };
+    case 'end': return action.owner && action.owner !== state.gesture ? state : { ...state, gesture: null, recorded: false };
     case 'parts': {
       const layout = state.layout;
       if (!layout) return state;
@@ -47,7 +49,7 @@ export function overlayEditReducer(state: EditHistory, action: EditAction): Edit
         ...state,
         layout: state.target === 'small' ? { ...layout, small: action.parts } : { ...layout, parts: action.parts },
         past: state.gesture && state.recorded ? state.past : [...state.past.slice(-99), previous],
-        recorded: state.gesture
+        recorded: !!state.gesture
       };
     }
     case 'undo': {
@@ -57,7 +59,7 @@ export function overlayEditReducer(state: EditHistory, action: EditAction): Edit
       if (!state.layout || !previous) return state;
       return {
         ...state, layout: { ...state.layout, parts: previous.parts, small: previous.small },
-        target: previous.target, past: state.past.slice(0, -1), gesture: false, recorded: false
+        target: previous.target, past: state.past.slice(0, -1), gesture: null, recorded: false
       };
     }
   }

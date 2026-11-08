@@ -469,6 +469,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const setEditTarget = (target: 'large' | 'small') => editDispatch({ type: 'target', target });
   const [editBase, setEditBase] = useState('');
   const [editSel, setEditSel] = useState<string | null>(null);
+  const editSelRef = useRef(editSel);
+  editSelRef.current = editSel;
   // 編集の欄を作り直す印 (元の並びを替えた・保存した・読み込んだとき、名前の欄などを新しくする)
   const [editKey, setEditKey] = useState(0);
   /** メーターの並びを選ぶ。開いている走行の runs.json の行にも覚え、次に開いたときもその並びにする (PLAN-08) */
@@ -509,11 +511,14 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const undoEdit = () => {
     const active = document.activeElement;
     // つまみの操作中は入力欄も選択も維持し、keyup/pointerupで操作を終えられるようにする。
-    if (active instanceof HTMLInputElement && active.type === 'range' && editHistoryRef.current.gesture) return;
+    if (active instanceof HTMLInputElement && active.type === 'range' && editHistoryRef.current.gesture === 'panel') return;
+    const previous = editHistoryRef.current.past[editHistoryRef.current.past.length - 1];
+    if (!previous) return;
     editLayerRef.current?.cancelGesture();
     if (!(active instanceof HTMLInputElement && active.type === 'range')) editDispatch({ type: 'end' });
     editDispatch({ type: 'undo' });
-    setEditSel(null);
+    const restored = previous.target === 'small' ? previous.small ?? SMALL_PARTS : previous.parts;
+    setEditSel(restored.some(part => part.id === editSelRef.current) ? editSelRef.current : null);
   };
   useEffect(() => {
     if (!editLayout || !isVisible) return;
@@ -536,7 +541,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     };
     const onBlur = () => {
       const active = document.activeElement;
-      if (active instanceof HTMLInputElement && active.type === 'range') editDispatch({ type: 'end' });
+      if (active instanceof HTMLInputElement && active.type === 'range') editDispatch({ type: 'end', owner: 'panel' });
     };
     window.addEventListener('keydown', onKey, true);
     window.addEventListener('laploupe-layout-undo', onMenuUndo);
@@ -1736,7 +1741,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     overlay={overlayFor(x, i)}
                     editLayer={isMain && editLayout && size === 'full' ? (
                       <OverlayEditLayer ref={editLayerRef} parts={editParts} selected={editSel} onSelect={setEditSel} onChange={setEditParts}
-                        onGestureStart={() => editDispatch({ type: 'begin' })} onGestureEnd={() => editDispatch({ type: 'end' })} />
+                        onGestureStart={() => editDispatch({ type: 'begin', owner: 'layer' })} onGestureEnd={() => editDispatch({ type: 'end', owner: 'layer' })} />
                     ) : undefined}
                     avoidRef={isMain && win.layout === 'pip' ? pipRef : undefined}
                     accent={isCompare ? x.color : undefined}
@@ -1822,8 +1827,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 onChange={setEditParts}
                 canUndo={editHistory.past.length > 0}
                 onUndo={undoEdit}
-                onGestureStart={() => editDispatch({ type: 'begin' })}
-                onGestureEnd={() => editDispatch({ type: 'end' })}
+                onGestureStart={() => editDispatch({ type: 'begin', owner: 'panel' })}
+                onGestureEnd={() => editDispatch({ type: 'end', owner: 'panel' })}
                 key={`edit:${editKey}`}
                 onPickBase={id => {
                   if (!confirmDiscard()) return;
