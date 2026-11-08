@@ -263,6 +263,7 @@ export const OverlayEditPanel: React.FC<{
   const [side, setSide] = useState<'right' | 'left'>('right');
   const rangePointer = useRef(false);
   const rangeKeys = useRef(new Set<string>());
+  const canceledRangeKeys = useRef(new Set<string>());
   const rangeEndRef = useRef(onGestureEnd);
   rangeEndRef.current = onGestureEnd;
   useEffect(() => {
@@ -271,13 +272,22 @@ export const OverlayEditPanel: React.FC<{
         rangePointer.current = false; rangeKeys.current.clear(); rangeEndRef.current('range');
       }
     };
+    // Macでは⌘を押した後の矢印keyupが届かないことがある。修飾キー時点で区切る。
+    const onKey = (event: KeyboardEvent) => {
+      if (/^(Arrow|Home|End|Page)/.test(event.key) || event.key === 'Shift' || !rangeKeys.current.size) return;
+      for (const code of rangeKeys.current) canceledRangeKeys.current.add(code);
+      rangeKeys.current.clear(); rangeEndRef.current('range');
+    };
+    const onBlur = () => { finish(); canceledRangeKeys.current.clear(); };
+    window.addEventListener('keydown', onKey, true);
     window.addEventListener('pointerup', finish, true);
     window.addEventListener('pointercancel', finish, true);
-    window.addEventListener('blur', finish);
+    window.addEventListener('blur', onBlur);
     return () => {
       window.removeEventListener('pointerup', finish, true);
       window.removeEventListener('pointercancel', finish, true);
-      window.removeEventListener('blur', finish);
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('blur', onBlur);
     };
   }, []);
   const endRange = () => { rangePointer.current = false; rangeKeys.current.clear(); onGestureEnd('range'); };
@@ -481,6 +491,8 @@ export const OverlayEditPanel: React.FC<{
               onPointerUp={endRange} onPointerCancel={endRange} onBlur={() => { if (!rangePointer.current) endRange(); }}
               onKeyDown={e => {
                 if (!/^(Arrow|Home|End|Page)/.test(e.key)) return;
+                if (e.repeat && canceledRangeKeys.current.has(e.code)) { e.preventDefault(); return; }
+                if (!e.repeat) canceledRangeKeys.current.delete(e.code);
                 if (!rangePointer.current && rangeKeys.current.size === 0) onGestureStart('range');
                 rangeKeys.current.add(e.code);
               }}

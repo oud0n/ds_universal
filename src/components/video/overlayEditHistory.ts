@@ -74,7 +74,7 @@ export function overlayEditReducer(state: EditHistory, action: EditAction): Edit
       };
     }
     case 'undo': {
-      // ネイティブのrange操作中は、mouseup/keyupまで待つ。独自ドラッグは呼出し元で中断してから戻す。
+      // 継続操作は呼出し元で終えてから戻す。ポインタのrange操作はmouseupまで待つ。
       if (state.gesture) return state;
       const previous = state.past[state.past.length - 1];
       if (!state.layout || !previous) return state;

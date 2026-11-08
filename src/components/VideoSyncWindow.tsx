@@ -516,7 +516,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const editParts = editLayout ? (editTarget === 'small' ? editLayout.small ?? SMALL_PARTS : editLayout.parts) : [];
   const setEditParts = (parts: OverlayPart[], owner?: GestureOwner) => editDispatch({ type: 'parts', parts, owner });
   const undoEdit = () => {
-    // つまみの操作中は入力欄も選択も維持し、keyup/pointerupで操作を終えられるようにする。
+    // ポインタでつまみを操作中はpointerupまで入力欄を保つ。キー操作は修飾キーで区切る。
     if (editHistoryRef.current.gesture === 'range') return;
     const previous = editHistoryRef.current.past[editHistoryRef.current.past.length - 1];
     if (!previous) return;
