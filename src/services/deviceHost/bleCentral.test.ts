@@ -294,3 +294,49 @@ describe('終了の一部が失敗しても、前の終了待ちを落とさな�
     expect(host.listeners.size).toBe(0);
   });
 });
+
+describe('終了コールバックからの再入でも後片づけを追い越さない', () => {
+  it('不正通知による切断通知の中からつなぎ直しても、旧disconnectを待つ', async () => {
+    const host = new FakeHost(), central = new HostBleCentral(host), closingA = deferred();
+    let reopening: Promise<void> | undefined;
+    const a = await connected(host, central, { onNotify() {}, onState(state) {
+      if (state === 'disconnected') reopening = central.connect('one', ref, blank());
+    } });
+    host.onRequest = async (method, params) => method === 'ble.disconnect' && params.session === a ? closingA.promise : undefined;
+    notify(host, a, 1, [256]); await flush();
+    expect(reopening).toBeDefined();
+    expect(host.calls.filter(c => c.method === 'ble.connect')).toHaveLength(1);
+    closingA.resolve(); await reopening;
+    expect(host.calls.filter(c => c.method === 'ble.connect')).toHaveLength(2);
+    await central.disconnect('one'); expect(host.listeners.size).toBe(0);
+  });
+
+  it('stopの終了通知からscanを始めても、旧stopを待つ', async () => {
+    const host = new FakeHost(), central = new HostBleCentral(host), closingA = deferred();
+    let reopening: Promise<void> | undefined;
+    const options = { namePrefixes: ['DS4'], services: ['1819'] };
+    await central.scan(options, () => {}, () => { reopening = central.scan(options, () => {}, () => {}); });
+    const a = host.lastSession('ble.scan');
+    host.onRequest = async (method, params) => method === 'ble.stopScan' && params.session === a ? closingA.promise : undefined;
+    const stopping = central.stopScan(); await flush();
+    expect(reopening).toBeDefined();
+    expect(host.calls.filter(c => c.method === 'ble.scan')).toHaveLength(1);
+    closingA.resolve(); await Promise.all([stopping, reopening]);
+    expect(host.calls.filter(c => c.method === 'ble.scan')).toHaveLength(2);
+    await central.stopScan(); expect(host.listeners.size).toBe(0);
+  });
+
+  it('scan置換の終了通知でさらに置換した場合も、最後の要求だけを開く', async () => {
+    const host = new FakeHost(), central = new HostBleCentral(host), closingA = deferred();
+    let c: Promise<void> | undefined;
+    const opts = (name: string) => ({ namePrefixes: [name], services: ['1819'] });
+    await central.scan(opts('A'), () => {}, () => { c = central.scan(opts('C'), () => {}, () => {}); });
+    const a = host.lastSession('ble.scan');
+    host.onRequest = async (method, params) => method === 'ble.stopScan' && params.session === a ? closingA.promise : undefined;
+    const b = central.scan(opts('B'), () => {}, () => {}); await flush();
+    expect(host.calls.filter(call => call.method === 'ble.scan')).toHaveLength(1);
+    closingA.resolve(); await Promise.all([b, c]);
+    expect(host.calls.filter(call => call.method === 'ble.scan').map(call => 'options' in call.params && 'namePrefixes' in call.params.options && call.params.options.namePrefixes)).toEqual([['A'], ['C']]);
+    await central.stopScan(); expect(host.listeners.size).toBe(0);
+  });
+});

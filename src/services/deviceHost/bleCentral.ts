@@ -8,7 +8,7 @@ import {
 
 interface Subscription { id: string; off?: () => void }
 interface Link extends Subscription { epoch: number; state: BleLinkState; handlers: BleLinkHandlers; error?: Error }
-interface Scan extends Subscription { onEnd: () => void }
+interface Scan extends Subscription { onEnd: () => void; ended: boolean }
 
 /** OS側のBLEを既存BleCentralへ接続する。再接続・MTU分割はホストの担当。 */
 export class HostBleCentral implements BleCentral {
@@ -22,11 +22,12 @@ export class HostBleCentral implements BleCentral {
 
   async scan(options: BleScanOptions, onDevice: (d: BleDeviceInfo) => void, onEnd: () => void): Promise<void> {
     const previous = this.scanning;
-    if (previous) this.endScan(previous);
-    const s: Scan = { id: this.makeId(), onEnd };
+    const s: Scan = { id: this.makeId(), onEnd, ended: false };
     this.scanning = s;
     try {
-      await (previous ? this.closeScan(previous) : this.scanClosing);
+      const closing = previous ? this.closeScan(previous, true) : this.scanClosing;
+      if (previous) this.endScan(previous);
+      await closing;
       if (this.scanning !== s) return;
       const off = await this.host.listen(event => {
         if (this.scanning !== s || event.session !== s.id) return;
@@ -40,22 +41,26 @@ export class HostBleCentral implements BleCentral {
         ...(options.advertisedServices ? { advertisedServices: [...options.advertisedServices] } : {})
       } });
     } catch (error) {
+      const closing = this.closeScan(s, true);
       this.endScan(s);
-      await this.closeScan(s).catch(() => {});
+      await closing.catch(() => {});
       throw hostError(error, this.t);
     }
   }
   async stopScan(): Promise<void> {
     const s = this.scanning;
-    if (!s) return;
+    if (!s) { await this.scanClosing; return; }
+    const closing = this.closeScan(s, true);
     this.endScan(s);
-    try { await this.closeScan(s); }
+    try { await closing; }
     catch (error) { throw hostError(error, this.t); }
   }
   private endScan(s: Scan): void {
-    if (this.scanning !== s) return;
-    this.scanning = null;
+    if (s.ended) return;
+    s.ended = true;
+    if (this.scanning === s) this.scanning = null;
     s.off?.();
+    s.off = undefined;
     s.onEnd();
   }
 
@@ -105,15 +110,17 @@ export class HostBleCentral implements BleCentral {
   }
   // 終了命令はすぐ送り、さらに前の終了待ちも引き継ぐ。
   // A→B→Cの置換で、まだ開いていないBの終了だけを待ってAを追い越さない。
-  private closeLink(deviceId: string, s: Link): Promise<void> {
-    const closing = finishTeardown(this.linkClosing.get(deviceId), this.host.request('ble.disconnect', { session: s.id }));
+  private closeLink(deviceId: string, s: Link, afterNotification = false): Promise<void> {
+    const close = () => this.host.request('ble.disconnect', { session: s.id });
+    const closing = finishTeardown(this.linkClosing.get(deviceId), afterNotification ? Promise.resolve().then(close) : close());
     this.linkClosing.set(deviceId, closing);
     const clear = () => { if (this.linkClosing.get(deviceId) === closing) this.linkClosing.delete(deviceId); };
     void closing.then(clear, clear);
     return closing;
   }
-  private closeScan(s: Scan): Promise<void> {
-    const closing = finishTeardown(this.scanClosing, this.host.request('ble.stopScan', { session: s.id }));
+  private closeScan(s: Scan, afterNotification = false): Promise<void> {
+    const close = () => this.host.request('ble.stopScan', { session: s.id });
+    const closing = finishTeardown(this.scanClosing, afterNotification ? Promise.resolve().then(close) : close());
     this.scanClosing = closing;
     const clear = () => { if (this.scanClosing === closing) this.scanClosing = null; };
     void closing.then(clear, clear);
@@ -158,8 +165,9 @@ export class HostBleCentral implements BleCentral {
       }
     } catch (error) {
       this.detach(deviceId, s);
+      const closing = this.closeLink(deviceId, s, true);
       try { s.handlers.onState('disconnected', hostError(error, this.t)); }
-      finally { void this.closeLink(deviceId, s).catch(() => {}); }
+      finally { void closing.catch(() => {}); }
     }
   }
 }
