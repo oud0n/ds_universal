@@ -9,12 +9,14 @@ import type { GFilterLevel } from './physics';
 import { conditionsOf, type RunConditions } from './runFilters';
 import { findRunRow, type RunsFileStore } from './runsFile';
 import { StorageChangedError, type StorageContext } from './storageContext';
+import { libraryAdmissions, type LibraryAdmission } from './libraryAdmission';
 import {
   LAP_INDEX_FILE, carryHidden, groupBon4ByFolder, lapRows, parseLapIndex, createLapIndexQueue, reconcileFolder, setHidden,
   lapsFromAnyFile, type LapCourse, type LapFileStore, type LapIndex, type LapRow, type LapRecord
 } from './lapIndex';
 
 export interface LapFolder {
+  libraryAdmissions?: Record<string, LibraryAdmission>;
   folder: string;
   /** コースの名前 (見つからなければ null。周は数えられない) */
   courseName: string | null;
@@ -31,7 +33,7 @@ export interface LapFolder {
 }
 export function createLapHistory(context: StorageContext, courseForFolder: (folder: string) => Promise<LapCourse | null>, loadStorageCourses: () => Promise<unknown>, runs: RunsFileStore, queueLapIndexWrite: ReturnType<typeof createLapIndexQueue>, parsing: () => { formats?: readonly CsvFormat[]; physicsLevel?: GFilterLevel } = () => ({})) {
 const {getStorageReadRevision,isStorageSelectionPending} = context;
-const {readRunsFile}=runs;
+const {readRunsFile,noteRunsConflictCopies,isRunsConflictCopy}=runs;
 /** 1 つのサーキットのフォルダの一覧 */
 
 
@@ -39,7 +41,7 @@ const {readRunsFile}=runs;
  * 保管場所の全部のサーキットのフォルダを読み込む。変わったファイルだけ計算し、控えが変わったら書き直す。
  * onProgress は計算しているフォルダ (最初に大量のファイルを計算するとき、数秒かかることがある)
  */
-async function loadLapHistory(store: LapFileStore, onProgress?: (folder: string) => void): Promise<LapFolder[]> {
+async function loadLapHistory(store: LapFileStore & { readonly storageRevision?: number }, onProgress?: (folder: string) => void): Promise<LapFolder[]> {
   const reads = getStorageReadRevision();
   const check = () => { if (reads !== getStorageReadRevision()) throw new StorageChangedError(); };
   // 同じ名前のフォルダでも、前の保存先の計測線で控えを作らない。
@@ -47,10 +49,12 @@ async function loadLapHistory(store: LapFileStore, onProgress?: (folder: string)
   check();
   const options = parsing(), formats = options.formats ?? [], level = options.physicsLevel ?? 'strong';
   const parserKey = formats.length || level !== 'strong' ? JSON.stringify([formats, level]) : '';
-  const groups = groupBon4ByFolder(await store.list(), formats);
+  const listed = await store.list();
+  const groups = groupBon4ByFolder(listed, formats);
   check();
   const out: LapFolder[] = [];
   for (const [folder, files] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    noteRunsConflictCopies(folder, listed.filter(file => file.path.slice(0, file.path.lastIndexOf('/')) === folder && isRunsConflictCopy(file.path.slice(file.path.lastIndexOf('/') + 1))).map(file => file.path), store.storageRevision ?? 0);
     const course = await courseForFolder(folder);
     check();
     if (!course) {
@@ -80,11 +84,8 @@ async function loadLapHistory(store: LapFileStore, onProgress?: (folder: string)
     });
     // 一覧には、書いた中身 (計算の間に隠した周を残したもの) を出す
     const index: LapIndex = result.changed && written ? written : result.index;
-    // 走行に付けた名前 (読めなくても一覧は出す)
-    const runsFile = await readRunsFile(store, folder).catch(error => {
-      if (error instanceof StorageChangedError) throw error;
-      return null;
-    });
+    // 追加しない選択を、読込み失敗で「選択なし」に戻さない。
+    const runsFile = await readRunsFile(store, folder, true);
     check();
     const names: Record<string, string> = {};
     const references: Record<string, string> = {};
@@ -96,7 +97,10 @@ async function loadLapHistory(store: LapFileStore, onProgress?: (folder: string)
       const c = conditionsOf(row);
       if (Object.keys(c).length) conditions[file] = c;
     }
-    out.push({ folder, courseName: course.name, fileCount: files.length, rows: lapRows(folder, index), index, names, references, conditions });
+    const currentFiles = new Map(files.map(file => [file.path.slice(folder.length + 1), file]));
+    const admissions = libraryAdmissions(index, runsFile, currentFiles);
+    const rows = lapRows(folder, index).filter(row => admissions[row.file]?.status === 'included');
+    out.push({ folder, courseName: course.name, fileCount: files.filter(f => (admissions[f.path.slice(folder.length + 1)]?.status ?? 'included') === 'included').length, rows, index, names, references, conditions, libraryAdmissions: admissions });
   }
   return out;
 }
@@ -121,7 +125,7 @@ async function toggleLapHidden(store: LapFileStore, item: LapFolder, file: strin
   const expected = item.index?.files[file]?.laps.find(l => (l.part ?? 1) === (part ?? 1) && l.n === n);
   if (!expected) throw fault('lapHistory.2',{ja:'周の控えが変わりました。一覧を読み直してください。',en:'The lap index changed. Reload the lap list.'});
   const index = await updateLapHidden(store, item.folder, file, expected, hide);
-  return { ...item, index, rows: lapRows(item.folder, index) };
+  return { ...item, index, rows: lapRows(item.folder, index).filter(row => !item.libraryAdmissions || item.libraryAdmissions[row.file]?.status === 'included') };
 }
 
 return {loadLapHistory,updateLapHidden,toggleLapHidden};

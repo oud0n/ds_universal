@@ -1,8 +1,10 @@
 import type { LapRecord } from './lapIndex';
 import type { RunFileInfo } from './ports';
 import type { RunRow } from './runsFile';
+import type { LibraryAdmission } from './libraryAdmission';
 /** 一覧の 1 行 (1 つの走行) */
 export interface RunItem {
+  libraryAdmission?: LibraryAdmission;
   storageRevision?: number;
   folder: string;
   /** 走行のファイル名 (folder の中) */

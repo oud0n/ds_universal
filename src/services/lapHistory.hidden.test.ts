@@ -68,7 +68,7 @@ it('再計算の書込み直前に strict 読込みが失敗しても、直前�
   const started = new Promise<void>(r => { start = r; });
   const held = new Promise<Uint8Array>(r => { release = () => r(bytes); });
   const write = vi.fn(async (_p: string, text: string) => { disk = JSON.parse(text); });
-  const store = { list: async () => [{ path: 'sodegaura/a.nmea', size: bytes.length, mtimeMs: 2 }], read: async () => { start();return held; }, readText: async (p: string) => p.endsWith('laptimes.json') ? JSON.stringify(disk) : null, readTextStrict: async () => { if (fail) throw Error('temporary IO');return JSON.stringify(disk); }, writeText: write };
+  const store = { list: async () => [{ path: 'sodegaura/a.nmea', size: bytes.length, mtimeMs: 2 }], read: async () => { start();return held; }, readText: async (p: string) => p.endsWith('laptimes.json') ? JSON.stringify(disk) : null, readTextStrict: async (p: string) => { if (!p.endsWith('laptimes.json')) return null;if (fail) throw Error('temporary IO');return JSON.stringify(disk); }, writeText: write };
   const spy = vi.spyOn(courses, 'loadStorageCourses').mockResolvedValue(0);
   try {
     const scan = loadLapHistory(store);await started;

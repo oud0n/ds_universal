@@ -43,7 +43,7 @@ export function useRuns(enabled: boolean) {
       try {
         const store = await getRunStore();
         if (!store) { if (current()) setState({ store: null, runs: [], error: null, noFolder: true, revision: readRevision }); return; }
-        const runs = await listRuns(store);
+        const runs = await listRuns(store, undefined, false, true);
         if (current()) setState({ store, runs, error: null, noFolder: false, revision: readRevision });
       } catch (e) {
         if (current()) setState(s => ({ ...s, revision: readRevision, runs: [], error: e instanceof Error ? e.message : String(e) }));
@@ -52,7 +52,12 @@ export function useRuns(enabled: boolean) {
     return () => { cancelled = true; };
   }, [enabled, reload, readRevision]);
   const visible = state.revision === readRevision && !isStorageSelectionPending() ? state : { store: null, runs: null, error: null, noFolder: false };
-  return { ...visible, reload: () => setReload(n => n + 1) };
+  const grouped = useMemo(() => ({
+    runs: visible.runs?.filter(run => !run.libraryAdmission || run.libraryAdmission.status === 'included') ?? visible.runs,
+    pendingRuns: visible.runs?.filter(run => run.libraryAdmission?.status === 'pending') ?? [],
+    excludedRuns: visible.runs?.filter(run => run.libraryAdmission?.status === 'excluded') ?? [],
+  }), [visible.runs]);
+  return { ...visible, ...grouped, reload: () => setReload(n => n + 1) };
 }
 
 export const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy: boolean; selected?: boolean }> = ({ run, onOpen, busy, selected = false }) => {

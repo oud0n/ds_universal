@@ -1,5 +1,6 @@
 import { currentCsvFormats } from '../csvFormatStore';
 import { getGFilterLevel } from '../physics';
+import { libraryAdmissions } from '../../engine/libraryAdmission';
 /**
  * ラップタイマーの差の基準にする、保管場所の過去の周 (比べる相手)。
  * 既定は「この車のベスト」(このコースの、選んだ車の自分の走行のベストの周)
@@ -77,10 +78,12 @@ export const carBestSource: LapReferenceSource = {
 
 /** 保管場所の控えと走行の行から、比べる相手を選ぶ材料を作る */
 export function makeReferenceContext(store: RunStore, folder: string, course: LapCourse, car: string, index: LapIndex, runs: RunsFile | null): LapReferenceContext {
+  const admissions = libraryAdmissions(index, runs);
   const hidden = new Set(index.hidden.map(h => lapKey(h.file, h.part, h.n)));
   const ownLaps: IndexedLap[] = [];
   const referenceLaps: LapReferenceContext['referenceLaps'] = [];
   for (const [file, rec] of Object.entries(index.files)) {
+    if (admissions[file]?.status !== 'included') continue;
     const row = runs ? findRunRow(runs, file) : undefined;
     for (const l of rec.laps) {
       if (hidden.has(lapKey(file, l.part, l.n))) continue;

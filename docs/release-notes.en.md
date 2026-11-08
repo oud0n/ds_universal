@@ -6,6 +6,8 @@
 
 ## Next build (not distributed)
 
+- The library asks before adding logs with overlapping times. Skipped logs stay on disk and can be added later. Detection requires UTC timestamps and complete laps.
+
 - Added host adapters for replacing BLE/USB transports, with synthetic comparisons against the existing paths. The application still uses its existing transports.
 
 - Aligned the desktop and browser sidebar, command bar, analysis panels and playback bar, preserving existing analysis and video features.
