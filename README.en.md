@@ -1,22 +1,28 @@
 <p align="center"><img src="build/icon.svg" width="128" height="128" alt="LapLoupe icon"></p>
 
-# LapLoupe (formerly DS Universal) — Lap / Track Analyzer
+# LapLoupe — GPS Lap Timer & Track Log Analyzer
 
 [日本語](README.md) | **English**
 
-**An unofficial lap and track analyzer for the DigSpice GPS logger that runs on Mac, Windows and in the browser**
+**An unofficial lap and track analyzer for the DigSpice GPS logger that runs on Mac, Windows, iPhone / iPad and in the browser**
 
-Log download and logger settings for DigSpice IV, racing line / speed / G analysis, and onboard video (GoPro etc.) sync
+Log download and logger settings for DigSpice IV, racing line / speed / G analysis, and onboard video (GoPro etc.) sync. **On a computer, choose your gauge components, customise their layout, colours and sizes, and export the video.**
 
-![Supported OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon-blue)
-![Verification](https://img.shields.io/badge/Verified-macOS%20Only-amber)
-![Version](https://img.shields.io/badge/Version-1.1.0-red)
+Guides by task:
+
+- [Use DigSpice on a Mac](https://oud0n.github.io/ds_universal/digspice-mac.html) (Japanese)
+- [Compare lap times and racing lines](https://oud0n.github.io/ds_universal/help/d2-compare.html?lang=en)
+- [Sync GoPro and other onboard video with GPS logs](https://oud0n.github.io/ds_universal/help/e2-sync.html?lang=en)
+- [Export onboard video with speed and G-force overlays (computer)](https://oud0n.github.io/ds_universal/help/e4-export.html?lang=en)
+
+![Supported OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon%20%7C%20iOS-blue)
+![Windows verification](https://img.shields.io/badge/Windows-unverified-amber)
 ![Device](https://img.shields.io/badge/Device-DigSpice%20IV-red)
 ![License](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-oud0n-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/oud0n)
 
 > [!WARNING]
-> **Tested on macOS (Apple Silicon) only.** A Windows (x64) build is also built and published automatically, but it has not been tested on real machines yet. Reports from Windows users (issues / pull requests) are very welcome.
+> **The Windows (x64) build has not been tested on real hardware.** The macOS (Apple Silicon) build is tested, and the iPhone / iPad app is available on the App Store. Windows builds are also published. Reports from Windows users (issues / pull requests) are very welcome.
 > Linux and Intel Macs (including Rosetta 2) are not supported, and no builds are provided for them.
 
 > [!NOTE]
@@ -35,6 +41,23 @@ The app's screens are available in Japanese and English (it follows your device'
 - Overlay and compare the driving line, speed, G and corner speeds between laps and cars
 - Sync onboard video from a GoPro and other cameras with the log automatically, and export video with gauges
 - Free and source-available. Logs are processed on your device and never sent to a server (the desktop app only asks GitHub whether a new version exists; you can turn this off in Settings)
+
+---
+
+## Build your own telemetry overlays for onboard video
+
+**Looking for a DashWare alternative?** LapLoupe lets you build video overlays from GPS track logs and CSV data, including logs from devices other than DigSpice.
+
+- **Choose components**: combine speed, G-force, lap time, time delta, course maps, numbers, bars, graphs and images such as logos.
+- **Customise the look**: drag and resize components, select their data, colours and scales, then save and share your layout.
+- **Use your own data**: map CSV columns and units to RPM, throttle and other values. Gauges can also use values calculated with formulas.
+- **Choose your export**: MP4 with gauges burned in, or gauges only on a transparent background as WebM or a ZIP of PNG frames for your video editor.
+
+Create and edit layouts and export video in the **Mac / Windows desktop app or a browser on a computer**. On iPhone / iPad, select a saved layout for playback.
+
+![Editing the components and layout of an onboard video overlay](public/help/img/f1/desktop-en-1.webp)
+
+[Customise gauge components and layouts](https://oud0n.github.io/ds_universal/help/f1-layout.html?lang=en) · [Export video with telemetry overlays](https://oud0n.github.io/ds_universal/help/e4-export.html?lang=en)
 
 ---
 
