@@ -76,13 +76,14 @@ export function libraryAdmissions(index: LapIndex, runs: RunsFile | null, curren
   // 枠別NMEA/BON4を先にする。追加の承認で、元の走行を確認待ちへ戻さない。
   const priority = (source: typeof sources[number]) => /\.nmea$/i.test(source.file) ? 0 : /\.bon4$/i.test(source.file) ? 1 : 2;
   sources.sort((a, b) => priority(a) - priority(b) || a.file.localeCompare(b.file));
-  const admitted = new Set<string>();
+  // 選択結果によって後続ログの扱いを変えない。確認待ち・除外も元ファイルは存在する。
+  const earlier = new Set<string>();
   const out: Record<string, LibraryAdmission> = {};
   for (const source of sources) {
-    const related = [...(overlaps.get(source.file)?.values() ?? [])].filter(other => admitted.has(other.file));
+    const related = [...(overlaps.get(source.file)?.values() ?? [])].filter(other => earlier.has(other.file));
     const status = source.decision === false ? 'excluded' : source.decision === true || !related.length ? 'included' : 'pending';
     out[source.file] = { status, size: source.record.size, mtimeMs: source.record.mtimeMs, overlaps: related.sort((a, b) => b.overlapSec - a.overlapSec || a.file.localeCompare(b.file)) };
-    if (status === 'included') admitted.add(source.file);
+    earlier.add(source.file);
   }
   return out;
 }

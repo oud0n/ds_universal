@@ -41,3 +41,19 @@ describe('ライブラリへの追加確認', () => {
     expect(a['20261102/day.bnx4'].status).toBe('included');
   });
 });
+
+
+it('重複が連鎖しても、途中のログの承認で既存の扱いを変えない', () => {
+  const ix = index({ 'a.gpx': rec([0, 120]), 'b.gpx': rec([60, 240]), 'c.gpx': rec([240, 120]) });
+  expect(Object.values(libraryAdmissions(ix, null)).map(a => a.status)).toEqual(['included', 'pending', 'pending']);
+  for (const include of [true, false]) {
+    const runs: RunsFile = { version: 2, runs: { 'b.gpx': { updatedAt: '', libraryDecision: { file: 'b.gpx', size: 100, mtimeMs: 1, include } } } };
+    const result = libraryAdmissions(ix, runs);
+    expect(result['a.gpx'].status).toBe('included');
+    expect(result['c.gpx'].status).toBe('pending');
+  }
+});
+it('未再計算の古い控えの時刻と選択を、別の版の物理ファイルへ流用しない', () => {
+  const current = new Map(Object.entries(files).map(([file, record]) => [file, { ...record, mtimeMs: 2 }]));
+  expect(libraryAdmissions(index(files), choices(false), current)['20261101/day.bnx4'].status).toBe('included');
+});

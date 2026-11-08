@@ -12,6 +12,7 @@ const source: LapReferenceSource = {
 };
 const listeners = new Set<() => void>();
 let available = true;
+let failMetadata = false, strictMetadataReads = 0;
 const load = vi.fn<() => Promise<LapReferenceChoice | null>>();
 vi.mock('../../addons', () => ({ addons: { get lapReferences() { return [source]; } } }));
 vi.mock('../../native/bridge', () => ({
@@ -20,13 +21,14 @@ vi.mock('../../native/bridge', () => ({
 vi.mock('../runStore', async importOriginal => ({
   ...await importOriginal<object>(),
   getRunStore: async () => ({
+    readTextStrict: async () => { strictMetadataReads++; if (failMetadata) throw Error('metadata offline'); return null; },
     readText: async (path: string) => path.endsWith('laptimes.json')
       ? JSON.stringify({ version: 1, files: {}, hidden: [] }) : null
   })
 }));
 const { TimerRuntime } = await import('./timerRuntime');
 const { CIRCUIT_PRESETS } = await import('../circuitDatabase');
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => { failMetadata = false; vi.unstubAllGlobals(); });
 
 it('読み取り途中・適用後とも、選択が使えなくなったら基準とセクターを外す', async () => {
   vi.stubGlobal('window', new EventTarget());
@@ -123,4 +125,19 @@ it('利用可否の判定と変更の通知は組で指定する', () => {
   expectTypeOf<Fixed>().toExtend<LapReferenceSource>();
   expectTypeOf<Fixed & { available(): boolean }>().not.toExtend<LapReferenceSource>();
   expectTypeOf<Fixed & { subscribeAvailability(listener: () => void): () => void }>().not.toExtend<LapReferenceSource>();
+});
+
+
+it('選択メタデータが読めない間は比較基準を読み込まない', async () => {
+  vi.stubGlobal('window', new EventTarget()); vi.stubGlobal('document', new EventTarget());
+  vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} });
+  failMetadata = true; strictMetadataReads = 0; available = true; load.mockReset();
+  const rt = new TimerRuntime({ replayLogs: () => [], phoneMessages: () => ({ unavailable: '', denied: '' }) }, 'replay');
+  rt.start();
+  try {
+    rt.chooseCourse(CIRCUIT_PRESETS.find(c => c.controlLine)!); rt.setReference(source.id);
+    await vi.waitFor(() => expect(strictMetadataReads).toBeGreaterThan(0));
+    await new Promise(done => setTimeout(done, 0));
+    expect(load).not.toHaveBeenCalled(); expect(rt.getSnapshot().pastBest).toBeNull();
+  } finally { rt.dispose(); }
 });

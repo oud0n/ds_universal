@@ -387,7 +387,8 @@ export class TimerRuntime {
       const store = await getRunStore();
       if (!store || token !== this.pastBestToken) return;
       const folder = courseFolder(course.name, course.folder, course.id);
-      const runs = await readRunsFile(store, folder).catch(() => null);
+      const runs = await readRunsFile(store, folder, true).catch(() => null);
+      if (!runs) return;
       if (token !== this.pastBestToken) return;
       const cars = [...new Set(Object.values(runs?.runs ?? {}).filter(r => !r.reference && r.car?.trim()).map(r => r.car!.trim()))].sort();
       this.set({ cars });
