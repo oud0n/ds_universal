@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./styles/desktop.css";
 
 /* ---- テーマ (ライト / ダーク) ----
    画面の色は役割ごとの名前 (surface-0〜5: 背景〜浮き上がった部分、line-1〜4: 枠線、fg: 強い文字) で指定し、
@@ -649,3 +650,16 @@ html.ipad-app [data-testid="app-header"].touch-toolbar { padding-top: calc(max(0
 html.ipad-app [data-testid="app-header"]:not(.touch-toolbar) { padding-top: calc(max(0.5rem, env(safe-area-inset-top)) + 6px) !important; }
 html.ipad-app [data-testid="lap-timer"].fixed > header,
 html.ipad-app body:not(:has([data-testid="sidebar"])) [data-testid="lap-timer"] > header { padding-top: 14px; }
+
+/* iPhone のアプリで幅が広いとき (Duo を開いた画面・横向き): 画面の角は丸いのに、横の safe area は 0 のことがある。
+   左上のボタンが角にかからないよう、上の段の左と上を少し空ける (2026-11-04、BUG-42) */
+@media (min-width: 600px) {
+  html.iphone-app [data-testid="app-header"] {
+    padding-left: max(20px, env(safe-area-inset-left)) !important;
+    padding-top: max(10px, env(safe-area-inset-top)) !important;
+  }
+  html.iphone-app [data-testid="lap-timer"] > header {
+    padding-left: max(24px, 0.75rem);
+    padding-top: 14px;
+  }
+}

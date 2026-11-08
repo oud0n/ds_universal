@@ -1,0 +1,32 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import type { Session } from '../types/telemetry';
+import { videoSyncManager as manager, type VideoTrack } from './videoSyncManager';
+const session = (id: string, samplingRate: number) => ({ id, samplingRate, points: [{ time: 0, timestamp: '2026-01-01T00:00:00Z' }, { time: 100 }] } as Session);
+const track = (id: string) => ({ id, fileName: `${id}.mp4`, durationSec: 30, matchedSessionId: 'slow', clock: { source: 'manual', logId: 'slow', offsetSec: 0, utcMs: null } } as VideoTrack);
+afterEach(() => { for (const t of manager.getTracks()) manager.removeTrack(t.id); });
+it.each(['manual', 'removed', 'source', 'root'])('照合待ちに %s が変わると旧結果を採用しない', async kind => {
+  const slow = session('slow', 1), fast = session('fast', 20), chosen = session('chosen', 2);
+  let live = [slow, fast, chosen], current = true, finish!: (value: boolean) => void;
+  const t = track('one'); manager.getTracks().push(t);
+  const changed = vi.fn();
+  const pending = manager.preferHighestRateSessions(live, () => new Promise(resolve => { finish = resolve; }), { getSessions: () => live, isCurrent: () => current, onChanged: changed });
+  if (kind === 'manual') manager.chooseSession(t.id, chosen.id);
+  if (kind === 'removed') manager.removeTrack(t.id);
+  if (kind === 'source') live = [slow, chosen];
+  if (kind === 'root') current = false;
+  finish(true); expect(await pending).toEqual([]); expect(changed).not.toHaveBeenCalled();
+  if (kind === 'manual') expect(t.matchedSessionId).toBe(chosen.id);
+});
+it('別動画の照合待ち中に先の動画を手動変更しても、最後の通知から戻さない', async () => {
+  const live = [session('slow', 1), session('fast', 20), session('chosen', 2)];
+  const a = track('one'), b = track('two');manager.getTracks().push(a, b);
+  let finish!: (value: boolean) => void;
+  const same = vi.fn().mockResolvedValueOnce(true).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const changed = vi.fn();
+  const pending = manager.preferHighestRateSessions(live, same, { onChanged: changed });
+  await vi.waitFor(() => expect(same).toHaveBeenCalledTimes(2));
+  expect(changed).toHaveBeenCalledExactlyOnceWith('slow', 'fast');
+  manager.chooseSession(a.id, 'chosen');finish(true);
+  expect(await pending).toEqual([['slow', 'fast']]);
+  expect(changed).toHaveBeenCalledTimes(2);expect(a.matchedSessionId).toBe('chosen');
+});

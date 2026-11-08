@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { courseFileKey, courseFiles, itemFromCourseFiles, mergeEditedCourses, parseCourseIndex, type CourseIndexEntry } from './courseFolderSync';
+import { describe, expect, it, vi } from 'vitest';
+import { writeEditedCourse, courseFileKey, courseFiles, itemFromCourseFiles, mergeEditedCourses, parseCourseIndex, type CourseIndexEntry } from './courseFolderSync';
+import type { RunStore } from './runStore';
+import { getStorageReadRevision, invalidateStorageReads, StorageChangedError } from './storageRevision';
+import { matchesCourseFolder } from '../engine/courseNames';
 import type { UserCircuitItem } from './userCircuitStorage';
 
 const cl = { name: '日光', latA: 36.662468, lonA: 139.862454, latB: 36.662254, lonB: 139.862701 };
@@ -10,6 +13,14 @@ const item = (over: Partial<UserCircuitItem> = {}): UserCircuitItem => ({
 const entry = (over: Partial<CourseIndexEntry> = {}): CourseIndexEntry => ({ name: '日光', file: 'nikko', nameEn: 'Nikko', folder: 'nikko', updatedAt: '2026-10-24T00:00:00Z', ...over });
 
 describe('course/ のコース (コース編集で保存したもの)', () => {
+  it('コースの別名フォルダを保存形式から戻し、不正な道は採用しない', () => {
+    const back = itemFromCourseFiles(entry({ folderAliases: ['old_nikko', '../outside', 'old_nikko'] }), courseFiles(item()).cln, null);
+    expect(back.folderAliases).toEqual(['old_nikko']);
+    expect(matchesCourseFolder(back, 'old_nikko')).toBe(true);
+    expect(matchesCourseFolder(back, 'nikko')).toBe(true);
+    expect(matchesCourseFolder(back, 'outside')).toBe(false);
+  });
+
   it('鍵は記録のフォルダ名、無ければ名前から', () => {
     expect(courseFileKey({ name: '日光', folder: 'nikko' })).toBe('nikko');
     expect(courseFileKey({ name: '日光' })).toMatch(/^c_[0-9a-z]+$/);
@@ -50,4 +61,25 @@ describe('course/ のコース (コース編集で保存したもの)', () => {
     expect(parseCourseIndex(JSON.stringify({ version: 1, courses: { a: { name: 'x', file: '../a', updatedAt: 'x' }, b: { name: 'y', file: 'b', updatedAt: 'z' } } })).courses).toEqual({ b: { name: 'y', file: 'b', updatedAt: 'z' } });
     expect(parseCourseIndex('{').courses).toEqual({});
   });
+
+  it.each(['initial-read', 'line-write', 'index-read'])('自動のコース同期が %s で中断したら、残りのファイルや一覧を書かない', async at => {
+    const reads = getStorageReadRevision();
+    const check = () => { if (reads !== getStorageReadRevision()) throw new StorageChangedError(); };
+    let readCount = 0;
+    const writes: string[] = [];
+    const store = {
+      readTextStrict: vi.fn(async () => {
+        readCount++;
+        if ((at === 'initial-read' && readCount === 1) || (at === 'index-read' && readCount === 2)) invalidateStorageReads();
+        return null;
+      }),
+      writeText: vi.fn(async (path: string) => {
+        writes.push(path);
+        if (at === 'line-write' && path.endsWith('.cln')) invalidateStorageReads();
+      })
+    } as unknown as RunStore;
+    await expect(writeEditedCourse(store, item(), check)).rejects.toBeInstanceOf(StorageChangedError);
+    expect(writes).toEqual(at === 'initial-read' ? [] : at === 'line-write' ? ['course/ControlLine/nikko.cln'] : ['course/ControlLine/nikko.cln', 'course/Sector/nikko.sci']);
+  });
+
 });

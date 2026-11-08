@@ -226,44 +226,7 @@ export const journeys = [
       check(after && after.name === undefined && after.note === undefined, `名前・メモが消えない: ${JSON.stringify(after)}`);
     }
   },
-  {
-    name: '保存した比べ方 (PLAN-18): Car の割り当てを保存し、別の走行を開いたあとで開き直すと、同じ走行と周に戻る',
-    target: 'electron',
-    async run(p) {
-      await p.goto(APP);
-      const root = await p.ev(`window.electronAPI.laps.getFolder()`);
-      check(root && root.includes('scratchpad'), `保管場所が試験用の写しでない: ${root}`);
-      await openRun(p, '9/18', 'run-open-analysis');
-      await openRun(p, '8/15', 'run-add-car2');
-      const before = await p.state();
-      check(before.cars.length === 2, `Car が 2 台にならない: ${JSON.stringify(before.cars)}`);
-      const want = before.cars.map(c => ({ slot: c.slot, name: before.sessions.find(x => x.id === c.sessionId)?.fileName, lap: c.lapNumber }));
-      if (!(await p.exists('session-save'))) await p.click('toggle-data-drawer');
-      await p.waitFor(`document.querySelector('[data-testid="session-save-name"]')`, 5000, '比べ方を保存の欄');
-      await p.ev(`(() => { const el = document.querySelector('[data-testid="session-save-name"]'); el.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, 'e2e 比べ方'); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
-      await p.click('session-save-button');
-      await p.waitFor(`document.querySelector('[data-testid="session-save"]')?.innerText.includes('保存しました')`, 8000, '保存しました');
-      const files = fs.readdirSync(path.join(root, 'sessions')).filter(f => f.endsWith('.lapsession.json'));
-      const saved = files.map(f => JSON.parse(fs.readFileSync(path.join(root, 'sessions', f), 'utf8'))).find(j => j.name === 'e2e 比べ方' && !j.deleted);
-      check(saved?.cars?.length === 2, `保存したファイルがおかしい: ${JSON.stringify(saved)}`);
-      if (await p.exists('session-save')) await p.click('toggle-data-drawer');
-      // 別の走行を開いてから、保存した比べ方を開く
-      await openRun(p, '8/30', 'run-open-analysis');
-      await p.click('nav-library');
-      await p.waitFor(`[...document.querySelectorAll('[data-testid="library-session-row"]')].some(r => r.innerText.includes('e2e 比べ方'))`, 10000, '保存した比べ方の行');
-      await p.ev(`[...document.querySelectorAll('[data-testid="library-session-row"]')].find(r => r.innerText.includes('e2e 比べ方')).querySelector('button').click()`);
-      await p.waitFor(`!document.querySelector('[data-testid="library-session-row"]')`, 30000, '開き終わる (解析の画面へ)');
-      await sleep(3000);
-      const after = await p.state();
-      const got = after.cars.map(c => ({ slot: c.slot, name: after.sessions.find(x => x.id === c.sessionId)?.fileName, lap: c.lapNumber }));
-      check(JSON.stringify(got) === JSON.stringify(want), `開き直した Car が違う: ${JSON.stringify(got)} / 保存: ${JSON.stringify(want)}`);
-      // 片付け (消す)
-      await p.click('nav-library');
-      await p.waitFor(`[...document.querySelectorAll('[data-testid="library-session-row"]')].some(r => r.innerText.includes('e2e 比べ方'))`, 10000, '保存した比べ方の行');
-      await p.ev(`window.confirm = () => true; [...document.querySelectorAll('[data-testid="library-session-row"]')].find(r => r.innerText.includes('e2e 比べ方')).querySelector('[data-testid="library-session-delete"]').click()`);
-      await p.waitFor(`![...document.querySelectorAll('[data-testid="library-session-row"]')].some(r => r.innerText.includes('e2e 比べ方'))`, 8000, '消した比べ方が消える');
-    }
-  },
+
   {
     name: '動画だけの参考ラップ (LATER-17): 動画に計測線の印を打って保存し、自分の周の動画と周の始まりをそろえて並べる',
     target: 'electron',
@@ -1116,55 +1079,16 @@ export const journeys = [
       await p.send('Emulation.clearGeolocationOverride').catch(() => {});
     }
   },
+
   {
-    name: 'ブラウザ版の比べ方 (PLAN-18): ファイルに書き出し、周を替えてから読み込むと、同じログと周に戻る',
-    target: 'phone',
-    async run(p) {
-      await p.viewport(1440, 900, false);
-      await p.goto(APP);
-      await p.send('DOM.enable');
-      if (!fs.existsSync(SAMPLE_NMEA)) { p.notes.push(`読み込むログ ${SAMPLE_NMEA} がないので飛ばした`); return; }
-      const tmp = path.join(os.tmpdir(), path.basename(SAMPLE_NMEA));
-      fs.copyFileSync(SAMPLE_NMEA, tmp);
-      await p.setFiles('input[type=file]', [tmp]);
-      await sleep(4000);
-      const s0 = await p.state();
-      check(s0.sessions.length > 0 && s0.sessions[0].laps >= 3, `ログを読み込めていない: ${JSON.stringify(s0.sessions)}`);
-      const id = s0.sessions[0].id;
-      await p.ev(`window.__laploupe.selectCar(0, ${JSON.stringify(id)}, 3)`);
-      await sleep(800);
-      // 書き出し (ダウンロードの中身を横取りする)
-      await p.ev(`(() => { const orig = URL.createObjectURL; URL.createObjectURL = b => { b.text().then(t => { window.__dl = t; }); return orig(b); }; })()`);
-      // ブラウザ版の欄は Car が無くても出る (読み込むため) ので、引き出しが開いているかで見る
-      if (!(await p.exists('data-drawer-close'))) await p.click('toggle-data-drawer');
-      await p.waitFor(`document.querySelector('[data-testid="session-save-button"]')`, 5000, '比べ方を書き出すのボタン');
-      const dbg = await p.ev(`({ n: document.querySelectorAll('[data-testid="session-save-button"]').length, d: document.querySelector('[data-testid="session-save-button"]').disabled, cars: window.__laploupe.cars })`);
-      check(!dbg.d, `書き出すのボタンが押せない: ${JSON.stringify(dbg)}`);
-      await p.click('session-save-button');
-      await p.waitFor(`typeof window.__dl === 'string'`, 5000, '書き出したファイル');
-      const text = await p.ev(`window.__dl`);
-      const data = JSON.parse(text);
-      check(data.source === 'files' && data.cars?.[0]?.run === path.basename(SAMPLE_NMEA) && data.cars[0].lap === 3, `書き出しがおかしい: ${text}`);
-      // 周を替えてから読み込む
-      await p.ev(`window.__laploupe.selectCar(0, ${JSON.stringify(id)}, 2)`);
-      await sleep(800);
-      const json = path.join(os.tmpdir(), 'e2e.lapsession.json');
-      fs.writeFileSync(json, text);
-      await p.setFiles('[data-testid="session-import-input"]', [json]);
-      await p.waitFor(`document.querySelector('[data-testid="session-save"]')?.innerText.includes('読み込みました')`, 5000, '読み込みました');
-      const s1 = await p.state();
-      check(s1.cars.length === 1 && s1.cars[0].sessionId === id && s1.cars[0].lapNumber === 3, `読み込んだ Car が違う: ${JSON.stringify(s1.cars)}`);
-    }
-  },
-  {
-    name: 'ブラウザ版: URL の末尾 #convert で変換が開き、上のタブがある',
+    name: 'ブラウザ版: URL の末尾 #convert で変換が開き、サイドバーがある',
     target: 'phone',
     async run(p) {
       await p.viewport(1440, 900, false);
       await p.goto(`${APP}#convert`);
       const s = await p.state();
       check(s.screen === 'convert', `#convert で ${s.screen}`);
-      check(await p.exists('nav-analysis'), '上のタブがない');
+      check(await p.exists('sidebar') && await p.exists('nav-analysis'), 'サイドバーがない');
     }
   },
   {

@@ -40,6 +40,7 @@ interface HeaderProps {
   /** 解析の「走行とコース」の引き出しを開いているか・開け閉めする */
   dataOpen?: boolean;
   onToggleData?: () => void;
+  onPickLaps?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -50,7 +51,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenDonate,
   compact = false,
   dataOpen = false,
-  onToggleData
+  onToggleData,
+  onPickLaps
 }) => {
   const t = useT();
   // ⚙ の中の画面 (タブ・サイドバーに並ばない画面) を出しているときは、戻るボタンを出す
@@ -60,6 +62,8 @@ export const Header: React.FC<HeaderProps> = ({
   const toggleSettings = () => (screen === 'settings' ? navStore.back() : go('settings'));
   // 解析の画面の「走行とコース」(読み込んだ走行・Car の割り当て・コース・補正)
   const dataButton = screen === 'analysis' && onToggleData && (
+    <>
+    {onPickLaps && <button type="button" onClick={onPickLaps} className="text-xs font-bold px-2.5 py-1.5 rounded border border-line-3 text-slate-200 hover:bg-surface-3 whitespace-nowrap" data-testid="open-lap-picker">{t('＋ ラップを足す', '＋ Add laps')}</button>}
     <button
       onClick={onToggleData}
       aria-pressed={dataOpen}
@@ -70,6 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
       {t('走行とコース', 'Runs & course')}
       {!!badges?.data && <span className="px-1.5 text-[10px] rounded bg-slate-700 text-slate-300 font-mono">{badges.data}</span>}
     </button>
+    </>
   );
 
   if (compact) {
@@ -114,7 +119,7 @@ export const Header: React.FC<HeaderProps> = ({
     );
   }
   return (
-    <header data-testid="app-header" style={{ paddingLeft: 'max(1rem, env(safe-area-inset-left))', paddingRight: 'max(1rem, env(safe-area-inset-right))' }} className="bg-surface-1 border-b border-line-1 text-slate-200 px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] flex items-center justify-between select-none">
+    <header data-testid="app-header" style={{ paddingLeft: 'max(1rem, env(safe-area-inset-left))', paddingRight: 'max(1rem, env(safe-area-inset-right))' }} className="app-header-wide bg-surface-1 border-b border-line-1 text-slate-200 px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] flex items-center justify-between select-none">
       {/* タブ切り替え (ブラウザ版。デスクトップ版・iPad は左のサイドバー) */}
       {/* ウインドウが狭いときは、タブの名前を隠してアイコンだけにする (名前が 2 行に折り返さないように) */}
       {/* バーの高さは、どの画面でも同じに (中身の高さを 30px にそろえる。画面ごとの部品で伸び縮みしないように) */}
@@ -152,8 +157,8 @@ export const Header: React.FC<HeaderProps> = ({
         {dataButton}
         </div>
       ) : (
-        <div className="flex items-center gap-2 min-w-0 h-[30px]">
-          <span className="text-sm font-bold text-slate-200 truncate">{t(...screenLabel(screen))}</span>
+        <div className="header-context flex items-center gap-2 min-w-0 h-[30px]">
+          <span className="header-title text-sm font-bold text-slate-200 truncate">{t(...screenLabel(screen))}</span>
           {dataButton}
           {plan.available.has('logger') && canUseLoggerBle && <BleStatusPill onClick={() => go('logger')} />}
         </div>
@@ -162,12 +167,12 @@ export const Header: React.FC<HeaderProps> = ({
       {/* 再生・シークは、グラフ解析の下の段 (PlayBar) に置く */}
 
       {/* ファイル操作 (フラットデザイン) */}
-      <div className="flex items-center gap-2 shrink-0 ml-2 h-[30px]">
+      <div className="header-actions flex items-center gap-2 shrink-0 ml-2 h-[30px]">
         {/* ファイルを開く (走行・設定の画面では出さない。走行の画面には下に同じボタンがある) */}
         {screen !== 'library' && screen !== 'settings' && (
           <button
             onClick={onOpenFile}
-            className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-500 text-white font-bold px-3 py-1.5 rounded whitespace-nowrap transition-colors cursor-pointer"
+            className="header-open-file flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-500 text-white font-bold px-3 py-1.5 rounded whitespace-nowrap transition-colors cursor-pointer"
             title={t('ファイルを開く', 'Open file')}
             aria-label={t('ファイルを開く', 'Open file')}
           >

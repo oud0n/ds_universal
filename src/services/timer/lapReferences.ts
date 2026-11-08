@@ -1,8 +1,11 @@
+import { currentCsvFormats } from '../csvFormatStore';
+import { getGFilterLevel } from '../physics';
+import { libraryAdmissions } from '../../engine/libraryAdmission';
 /**
  * ラップタイマーの差の基準にする、保管場所の過去の周 (比べる相手)。
  * 既定は「この車のベスト」(このコースの、選んだ車の自分の走行のベストの周)
  */
-import { lapKey, lapPointsFromFile, type LapCourse, type LapIndex } from '../lapIndex';
+import { lapKey, lapPointsFromAnyFile, type LapCourse, type LapIndex, type LapFileRecord } from '../lapIndex';
 import { findRunRow, type RunsFile } from '../runsFile';
 import type { PastReference } from '../liveLapTimer';
 import type { TelemetryPoint } from '../../types/telemetry';
@@ -35,11 +38,18 @@ export interface LapReferenceChoice {
   tag: [string, string];
 }
 
-export interface LapReferenceSource {
+export type LapReferenceSource = {
   id: string;
   label: [string, string];
   load(ctx: LapReferenceContext): Promise<LapReferenceChoice | null>;
-}
+} & (
+  | { available?: never; subscribeAvailability?: never }
+  | {
+      available(): boolean;
+      /** available() の答えが変わったときに知らせる。 */
+      subscribeAvailability(listener: () => void): () => void;
+    }
+);
 
 /** 周の点から、周の始めからの距離 (m) と経過 (秒) の組を作る */
 export function traceOf(points: TelemetryPoint[]): number[] {
@@ -67,11 +77,15 @@ export const carBestSource: LapReferenceSource = {
 };
 
 /** 保管場所の控えと走行の行から、比べる相手を選ぶ材料を作る */
-export function makeReferenceContext(store: RunStore, folder: string, course: LapCourse, car: string, index: LapIndex, runs: RunsFile | null): LapReferenceContext {
+export function makeReferenceContext(store: RunStore, folder: string, course: LapCourse, car: string, index: LapIndex, runs: RunsFile | null, currentFiles?: ReadonlyMap<string, Pick<LapFileRecord, 'size' | 'mtimeMs'>>): LapReferenceContext {
+  const admissions = libraryAdmissions(index, runs, currentFiles);
   const hidden = new Set(index.hidden.map(h => lapKey(h.file, h.part, h.n)));
   const ownLaps: IndexedLap[] = [];
   const referenceLaps: LapReferenceContext['referenceLaps'] = [];
   for (const [file, rec] of Object.entries(index.files)) {
+    if (admissions[file]?.status !== 'included') continue;
+    const current = currentFiles?.get(file);
+    if (currentFiles && (!current || current.size !== rec.size || current.mtimeMs !== rec.mtimeMs || rec.needsRecompute)) continue;
     const row = runs ? findRunRow(runs, file) : undefined;
     for (const l of rec.laps) {
       if (hidden.has(lapKey(file, l.part, l.n))) continue;
@@ -87,7 +101,7 @@ export function makeReferenceContext(store: RunStore, folder: string, course: La
       let bytes = files.get(lap.file);
       if (!bytes) { bytes = store.read(`${folder}/${lap.file}`).catch(() => null); files.set(lap.file, bytes); }
       const b = await bytes;
-      return b ? lapPointsFromFile(lap.file, b, course, lap.part, lap.n) : null;
+      return b ? lapPointsFromAnyFile(lap.file, b, course, lap.part, lap.n, currentCsvFormats(), getGFilterLevel()) : null;
     }
   };
 }

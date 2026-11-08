@@ -36,3 +36,14 @@ describe('比べる相手 (過去の周)', () => {
     expect(await carBestSource.load(ctx)).toBeNull();
   });
 });
+
+
+it('古い周の控えに、更新後の版を除外した選択を適用する', () => {
+  const file = 'new.nmea', rec = { size: 10, mtimeMs: 1, startMs: lap(1, 80).startMs, laps: [lap(1, 80)] };
+  const ix = { ...index, files: { [file]: rec } };
+  const decisions: RunsFile = { version: 2, runs: { new: { updatedAt: '', libraryDecision: { file, size: 20, mtimeMs: 2, include: false } } } };
+  const current = new Map([[file, { size: 20, mtimeMs: 2 }]]);
+  expect(makeReferenceContext(store, 'c', course, '', ix, decisions, current).ownLaps).toEqual([]);
+  expect(makeReferenceContext(store, 'c', course, '', ix, null, new Map()).ownLaps).toEqual([]);
+  expect(makeReferenceContext(store, 'c', course, '', ix, null, current).ownLaps).toEqual([]);
+});

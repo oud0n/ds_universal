@@ -4,6 +4,38 @@
 
 [Back to the README](../README.en.md)
 
+## Next build (not distributed)
+
+- The library asks before adding logs with overlapping times. Skipped logs stay on disk and can be added later. Detection requires UTC timestamps and complete laps.
+- Added an opt-in development path for USB communication through a Rust host. Distributed builds continue to use the existing transport.
+
+- Added host adapters for replacing BLE/USB transports, with synthetic comparisons against the existing paths. The application still uses its existing transports.
+
+- Aligned the desktop and browser sidebar, command bar, analysis panels and playback bar, preserving existing analysis and video features.
+- Adjusted G-G axis labels and readings to fit small windows.
+- Reduced repeated gate-direction calculations, temporary analysis arrays and unused GPS fallback records.
+
+## v1.3.0 (2026-11-06, personal iPhone / iPad TestFlight, build 19)
+
+- The app icon is now a magnifying glass with a tire as its lens. Its light and dark versions are adjusted to appear the same size.
+- Separated the shared engine for logs, laps, playback, video synchronization and saving, keeping one authoritative state across views.
+- Fixed delayed input results returning after newer input, manual edits or closing a view.
+- Failed video or saved-metadata reads preserve existing clocks and sync pins for retry. Fixes also cover same-name video identity, split logs, lap G settings and saved descriptions.
+
+Shared-source review and synthetic checks are complete, and this build is distributed through personal TestFlight. Full iPhone Duo, audio and iCloud verification remains pending.
+
+## v1.3.0 (2026-11-06, personal iPhone / iPad TestFlight, build 18)
+
+- Use “Add laps” to assign loaded or stored laps to Car 1–4. Stored laps are checked against the actual log and course before loading.
+- Playback now keeps a single session time across analysis and video views. Video-only playback also works without a GPS log.
+- Pending video synchronization edits are saved before assigning laps from the new picker or choosing storage. Cancelling storage selection preserves the open video's run association.
+
+Build 19 includes fixes for storage reselection and lost synchronization data left in build 18. Full physical-device verification remains pending.
+
+Known unresolved cases in the distributed build 18 are [BUG-50 and BUG-51](../BUGS.md). Avoid reselecting the current on-device storage and making new video-sync adjustments against a separate log without timestamps. This is not a public release.
+
+Build 19 also includes fixes for clock saving before video preparation and after unassignment, pins after closing the source log, duplicate format ownership, vanished laps, failed metadata reads, and time-aligned comparison endpoints.
+
 ## v1.2.0 (2026-11-02)
 
 The PC version and the iPhone / iPad app get different items ([iPhone] = the app only, [PC] = the PC and browser versions only, no mark = both).

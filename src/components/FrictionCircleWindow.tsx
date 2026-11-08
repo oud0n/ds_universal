@@ -4,6 +4,7 @@ import { useCompactLayout } from '../hooks/useCompactLayout';
 import { CompareAxis, Lap, SelectedCarSlot } from '../types/telemetry';
 import { CircleDot, Disc } from 'lucide-react';
 import { findCarPoint } from '../utils/telemetrySearch';
+import type { LapSec } from '../services/playbackPosition';
 import { prepareCanvas, useDevicePixelRatio } from '../utils/canvasLayer';
 import { tr, useLang, useT } from '../utils/i18n';
 
@@ -29,7 +30,7 @@ interface FrictionCircleWindowProps {
     lap: Lap;
   }[];
   currentDistance: number;
-  currentTime: number;
+  currentTime: LapSec;
   compareAxis: CompareAxis;
 }
 
@@ -205,10 +206,12 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
     ctx.font = 'bold 9px sans-serif';
     ctx.fillText(tr('減速 (ブレーキ)', 'Braking'), centerX, centerY - maxRadius - 4);
     ctx.fillText(tr('加速', 'Accel'), centerX, centerY + maxRadius + 12);
-    ctx.textAlign = 'left';
-    ctx.fillText(tr('右G (左旋回)', 'Right G (left turn)'), centerX + maxRadius + 4, centerY + 3);
-    ctx.textAlign = 'right';
-    ctx.fillText(tr('左G (右旋回)', 'Left G (right turn)'), centerX - maxRadius - 4, centerY + 3);
+    // 狭い枠では短い名前を内側に置き、軸の名前が枠外へ欠けないようにする。
+    const shortLabels = width < 300;
+    ctx.textAlign = shortLabels ? 'right' : 'left';
+    ctx.fillText(shortLabels ? tr('右G', 'Right G') : tr('右G (左旋回)', 'Right G (left turn)'), shortLabels ? width - 4 : centerX + maxRadius + 4, centerY + 3);
+    ctx.textAlign = shortLabels ? 'left' : 'right';
+    ctx.fillText(shortLabels ? tr('左G', 'Left G') : tr('左G (右旋回)', 'Left G (right turn)'), shortLabels ? 4 : centerX - maxRadius - 4, centerY + 3);
 
     layoutRef.current = { width, height, centerX, centerY, maxRadius };
     if (cars.length === 0) {
@@ -232,9 +235,9 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
   }, [cars, theme, resizeTick, dpr, lang]);
 
   return (
-    <div className={`flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 select-none shadow-lg ${compact ? 'overflow-y-auto' : 'overflow-hidden'}`}>
+    <div className={`analysis-panel flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 select-none shadow-lg ${compact ? 'overflow-y-auto' : 'overflow-hidden'}`}>
       {/* ツールバー */}
-      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0">
+      <div className="analysis-toolbar flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-1.5 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0">
         <span className="font-bold text-slate-200 flex items-center gap-1.5">
           <Disc size={14} className="text-cyan-400" />
           {t('フリクションサークル', 'Friction circle')}
@@ -245,16 +248,16 @@ export const FrictionCircleWindow: React.FC<FrictionCircleWindowProps> = ({
       </div>
 
       {/* メインCanvas & 数値表示 */}
-      <div className={`flex-1 flex flex-col md:flex-row items-center p-2 gap-3 min-h-[200px] ${compact ? 'shrink-0' : ''}`}>
+      <div className={`friction-content flex-1 flex flex-col md:flex-row items-center p-2 gap-3 min-h-[200px] ${compact ? 'shrink-0' : ''}`}>
         {/* Canvas */}
-        <div className={`flex-1 min-w-0 w-full h-full relative ${compact ? 'min-h-[220px]' : 'min-h-[170px]'}`}>
+        <div className={`friction-plot flex-1 min-w-0 w-full h-full relative ${compact ? 'min-h-[220px]' : 'min-h-[170px]'}`}>
           <canvas ref={canvasRef} className="w-full h-full block" />
           <canvas ref={dotCanvasRef} className="absolute inset-0 pointer-events-none block" />
         </div>
 
         {/* リアルタイム計測値パネル */}
         {basePoint && (
-          <div className="w-full md:w-36 md:shrink-0 bg-surface-1 border border-line-2 rounded p-2.5 flex flex-col gap-2 text-xs">
+          <div className="friction-values w-full md:w-36 md:shrink-0 bg-surface-1 border border-line-2 rounded p-2.5 flex flex-col gap-2 text-xs">
             <div className="text-[11px] font-bold text-slate-400 border-b border-line-2 pb-1">
               {t('基準車 (赤) の値', 'Reference car (red)')}
             </div>

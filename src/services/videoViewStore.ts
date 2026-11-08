@@ -5,7 +5,9 @@
  */
 import { useState, useSyncExternalStore } from 'react';
 import { videoSyncManager, VideoTrack, PlacedTrack } from './videoSyncManager';
-import { SyncPin, loadPinsFromStorage, savePinsToStorage } from './videoSyncPinManager';
+import { SyncPin, loadPinsFromStorage, savePinsToStorage, pinUtcMs } from './videoSyncPinManager';
+import { createSyncPinStore } from '../engine/syncPinStore';
+export const syncPinStore = createSyncPinStore(loadPinsFromStorage, savePinsToStorage);
 
 export type PipPosition = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
 export type StageLayout = 'single' | 'grid' | 'pip';
@@ -31,11 +33,12 @@ function leadId(trackId: string): string {
 class VideoViewStore {
   private state: VideoViewState = { cameraIds: [], compareCameras: {}, isExporting: false };
   private listeners = new Set<() => void>();
-  private pinCache = new Map<string, SyncPin[]>();
+
   // 照合した動画を自動で選んだセッション。同じセッションのあいだは選び直さない (タブの切り替え・書き出しの後に、手で選んだ動画を戻さない)
   autoSelectedSessionId: string | null = null;
 
   constructor() {
+    syncPinStore.subscribe(() => this.listeners.forEach(l => l()));
     // 動画を足したり消したりしたら、出すカメラがなくならないように選び直す
     videoSyncManager.subscribe(() => this.reconcile(videoSyncManager.getTracks()));
   }
@@ -109,25 +112,21 @@ class VideoViewStore {
     this.set({ cameraIds: cams });
   }
 
-  // 同期ピンはコースごとに保存する。同じ配列を返す (useSyncExternalStore が変化を見分けられるように)
-  getPins = (key: string): SyncPin[] => {
-    let pins = this.pinCache.get(key);
-    if (!pins) {
-      pins = loadPinsFromStorage(key);
-      if (!Array.isArray(pins)) pins = [];
-      this.pinCache.set(key, pins);
-    }
-    return pins;
-  };
+  getPins = syncPinStore.getPins;
+  getAllPins = syncPinStore.getAllPins;
+  setPins = syncPinStore.setPins.bind(syncPinStore);
+  setTrackPins = syncPinStore.setTrackPins.bind(syncPinStore);
+  anchorPins = syncPinStore.anchorPins.bind(syncPinStore);
+  mergeImported = syncPinStore.mergeImported.bind(syncPinStore);
+  remapPinSessions = syncPinStore.remapPinSessions.bind(syncPinStore);
 
-  setPins(key: string, pins: SyncPin[]): void {
-    this.pinCache.set(key, pins);
-    savePinsToStorage(key, pins);
-    this.listeners.forEach(l => l());
-  }
 }
 
 export const videoViewStore = new VideoViewStore();
+
+export function useAllSyncPins(key: string): SyncPin[] {
+  return useSyncExternalStore(videoViewStore.subscribe, () => videoViewStore.getAllPins(key));
+}
 
 /** 動画の終わりの、置いたログの時刻。チャプターに分かれた動画は、最後のチャプターの終わり */
 export function videoEndSessionSec(track: PlacedTrack | null | undefined): number {

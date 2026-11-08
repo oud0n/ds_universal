@@ -5,14 +5,15 @@
  */
 import { conditionsText } from '../services/runWeather';
 import { notifyRunsChanged, onRunsChanged } from '../services/runsChanged';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { FolderOpen, Video, X, Loader2, ChevronRight } from 'lucide-react';
 import { circuitLabel, useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { formatLapTime } from '../services/liveLapTimer';
 import { getRunStore, type RunStore } from '../services/runStore';
 import { listRuns, type RunItem } from '../services/runOpener';
-import { storageFolderChanged } from '../services/storageCourses';
+import { storageFolderChanged, trackStorageSelection, pickDesktopStorage } from '../services/storageCourses';
+import { getStorageReadRevision, isStorageSelectionPending, subscribeStorageRevision } from '../services/storageRevision';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 export function fmtDate(ms: number | null, ja: boolean): string {
@@ -27,28 +28,36 @@ export { notifyRunsChanged };
 
 /** 走行の一覧を読み込む (開いている間に 1 回。notifyRunsChanged でも読み直す) */
 export function useRuns(enabled: boolean) {
-  const [state, setState] = useState<{ store: RunStore | null; runs: RunItem[] | null; error: string | null; noFolder: boolean }>({ store: null, runs: null, error: null, noFolder: false });
+  const readRevision = useSyncExternalStore(subscribeStorageRevision, getStorageReadRevision);
+  const [state, setState] = useState<{ store: RunStore | null; runs: RunItem[] | null; error: string | null; noFolder: boolean; revision: number }>({ store: null, runs: null, error: null, noFolder: false, revision: readRevision });
   const [reload, setReload] = useState(0);
   useEffect(() => {
     const f = () => setReload(n => n + 1);
     return onRunsChanged(f);
   }, []);
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || isStorageSelectionPending()) return;
     let cancelled = false;
+    const current = () => !cancelled && readRevision === getStorageReadRevision() && !isStorageSelectionPending();
     void (async () => {
       try {
         const store = await getRunStore();
-        if (!store) { if (!cancelled) setState({ store: null, runs: [], error: null, noFolder: true }); return; }
-        const runs = await listRuns(store);
-        if (!cancelled) setState({ store, runs, error: null, noFolder: false });
+        if (!store) { if (current()) setState({ store: null, runs: [], error: null, noFolder: true, revision: readRevision }); return; }
+        const runs = await listRuns(store, undefined, false, true);
+        if (current()) setState({ store, runs, error: null, noFolder: false, revision: readRevision });
       } catch (e) {
-        if (!cancelled) setState(s => ({ ...s, runs: [], error: e instanceof Error ? e.message : String(e) }));
+        if (current()) setState(s => ({ ...s, revision: readRevision, runs: [], error: e instanceof Error ? e.message : String(e) }));
       }
     })();
     return () => { cancelled = true; };
-  }, [enabled, reload]);
-  return { ...state, reload: () => setReload(n => n + 1) };
+  }, [enabled, reload, readRevision]);
+  const visible = state.revision === readRevision && !isStorageSelectionPending() ? state : { store: null, runs: null, error: null, noFolder: false };
+  const grouped = useMemo(() => ({
+    runs: visible.runs?.filter(run => !run.libraryAdmission || run.libraryAdmission.status === 'included') ?? visible.runs,
+    pendingRuns: visible.runs?.filter(run => run.libraryAdmission?.status === 'pending') ?? [],
+    excludedRuns: visible.runs?.filter(run => run.libraryAdmission?.status === 'excluded') ?? [],
+  }), [visible.runs]);
+  return { ...visible, ...grouped, allRuns: visible.runs, reload: () => setReload(n => n + 1) };
 }
 
 export const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy: boolean; selected?: boolean }> = ({ run, onOpen, busy, selected = false }) => {
@@ -140,6 +149,7 @@ export const RecentRunsList: React.FC<{ limit: number; onOpen: (r: RunItem) => v
 export const RunsBrowser: React.FC<{ onOpen: (r: RunItem) => void; onPickFiles: () => void; busy: boolean }> = ({ onOpen, onPickFiles, busy }) => {
   const t = useT();
   const { runs, error, noFolder, reload } = useRuns(true);
+  const [folderError, setFolderError] = useState<string | null>(null);
   const [folder, setFolder] = useState<string | null>(null);
   const folders = useMemo(() => {
     const m = new Map<string, string>();
@@ -148,8 +158,12 @@ export const RunsBrowser: React.FC<{ onOpen: (r: RunItem) => void; onPickFiles: 
   }, [runs]);
   const shown = (runs ?? []).filter(r => !folder || r.folder === folder);
   const pickFolder = async () => {
-    if (await window.electronAPI?.laps?.pickFolder()) void storageFolderChanged();
-    reload();
+    setFolderError(null);
+    try {
+      if (await pickDesktopStorage(window.electronAPI?.laps)) { void storageFolderChanged(); reload(); }
+    } catch (e) {
+      setFolderError(t(`フォルダを選べませんでした: ${e instanceof Error ? e.message : String(e)}`, `Could not choose the folder: ${e instanceof Error ? e.message : String(e)}`));
+    }
   };
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -186,6 +200,7 @@ export const RunsBrowser: React.FC<{ onOpen: (r: RunItem) => void; onPickFiles: 
           </div>
         )}
         {error && <p className="text-xs text-red-400 py-2">{error}</p>}
+        {folderError && <p role="alert" className="text-xs text-red-400 py-2">{folderError}</p>}
         {runs && runs.length === 0 && !noFolder && !error && (
           <p className="text-xs text-slate-400 py-6 text-center">{t('保管場所に走行がありません。', 'No runs in the storage folder.')}</p>
         )}

@@ -6,7 +6,7 @@
 import { NO_FILTER, effectiveFilter, filterOptions, matchesFilter, type ConditionFilter, type RunConditions } from '../services/runFilters';
 import { ConditionFilters } from './ConditionFilters';
 import { WEATHER_LABELS } from '../services/runWeather';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { getOpenRun } from '../services/runOpener';
 import { X, FolderOpen, EyeOff, Eye, RefreshCw, BarChart3 } from 'lucide-react';
 import { loadLapHistory, toggleLapHidden, type LapFolder } from '../services/lapHistory';
@@ -15,13 +15,16 @@ import { lapKey, type LapFileStore, type LapRow } from '../services/lapIndex';
 import { formatLapTime } from '../services/liveLapTimer';
 import { circuitLabel, getLang, useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
-import { storageFolderChanged } from '../services/storageCourses';
+import { storageFolderChanged, trackStorageSelection, pickDesktopStorage } from '../services/storageCourses';
+import { getStorageReadRevision, isStorageSelectionPending, subscribeStorageRevision, StorageChangedError } from '../services/storageRevision';
+import type {InputRequest} from '../engine/EngineSession';
 
 interface Props {
   onClose: () => void;
   /** 走行のファイル (.bon4) を解析で開く (無ければボタンを出さない) */
   /** 走行を解析で開く。run は保管場所の走行 (走行の画面から開くのと同じに開くため)。file はその中身 (走行として見つからないとき用) */
-  onOpenRun?: (file: File, run: { folder: string; file: string }) => void;
+  onOpenRun?: (file: File, run: { folder: string; file: string },request?:InputRequest) => void;
+  onBeginOpen?:()=>InputRequest;
 }
 
 type SortKey = 'date' | 'time';
@@ -41,9 +44,13 @@ function fmtDate(ms: number | null): string {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} (${wd}) ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
+export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun,onBeginOpen }) => {
   const t = useT();
   const desktop = !!window.electronAPI?.laps;
+  const readRevision = useSyncExternalStore(subscribeStorageRevision, getStorageReadRevision);
+  const loadRequest = useRef(0);
+  const openRequest=useRef(0),openFolder=useRef<string|null>(null);
+  useEffect(()=>()=>{openRequest.current++;},[]);
   const [store, setStore] = useState<LapFileStore | null>(null);
   const [folderPath, setFolderPath] = useState<string | null>(null);
   const [folders, setFolders] = useState<LapFolder[] | null>(null);
@@ -60,11 +67,15 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
   useEscapeKey(true, onClose);
 
   const load = useCallback(async (s: LapFileStore | null) => {
+    const request = ++loadRequest.current;
+    const reads = getStorageReadRevision();
+    const current = () => request === loadRequest.current && reads === getStorageReadRevision() && !isStorageSelectionPending();
     setError(null);
-    if (!s) { setFolders([]); return; }
+    if (!s) { setFolders([]); setBusy(null); return; }
     setBusy('');
     try {
-      const list = await loadLapHistory(s, f => setBusy(f));
+      const list = await loadLapHistory(s, f => { if (current()) setBusy(f); });
+      if (!current()) return;
       setFolders(list);
       // はじめは、開いている走行 (Car 1) のコース。開いていなければ、いちばん新しい走行のあるコース (BUG-36: 一覧の先頭が出ていた)
       const openFolder = getOpenRun()?.item.folder;
@@ -72,32 +83,47 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
         : openFolder && list.some(f => f.folder === openFolder) ? openFolder
         : [...list].sort((a, b) => (b.rows[0]?.runStartMs ?? 0) - (a.rows[0]?.runStartMs ?? 0))[0]?.folder ?? '');
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setFolders([]);
+      if (current() && !(e instanceof StorageChangedError)) {
+        setError(e instanceof Error ? e.message : String(e));
+        setFolders([]);
+      }
     } finally {
-      setBusy(null);
+      if (current()) setBusy(null);
     }
   }, []);
 
   useEffect(() => {
+    if (isStorageSelectionPending()) return;
+    let active = true;
     void (async () => {
       const s = desktop ? await electronLapStore() : nativeLapStore();
-      if (desktop) setFolderPath(await window.electronAPI!.laps!.getFolder());
+      const path = desktop ? await window.electronAPI!.laps!.getFolder() : null;
+      if (!active || readRevision !== getStorageReadRevision() || isStorageSelectionPending()) return;
+      if (desktop) setFolderPath(path);
       setStore(s);
       await load(s);
-    })();
-  }, [desktop, load]);
+    })().catch(e => {
+      if (active && readRevision === getStorageReadRevision() && !isStorageSelectionPending()) {
+        setError(e instanceof Error ? e.message : String(e)); setBusy(null);
+      }
+    });
+    return () => { active = false; loadRequest.current++; };
+  }, [desktop, load, readRevision]);
 
   const pickFolder = async () => {
-    const p = await window.electronAPI?.laps?.pickFolder();
-    setFolderPath(p ?? null);
-    if (p) void storageFolderChanged();
-    const s = await electronLapStore();
-    setStore(s);
-    await load(s);
+    setError(null);
+    try {
+      const p = await pickDesktopStorage(window.electronAPI?.laps);
+      if (!p) return;
+      setFolderPath(p);
+      await storageFolderChanged();
+    } catch (e) {
+      setError(t(`フォルダを選べませんでした: ${e instanceof Error ? e.message : String(e)}`, `Could not choose the folder: ${e instanceof Error ? e.message : String(e)}`));
+    }
   };
 
   const current = folders?.find(f => f.folder === selected) ?? null;
+  openFolder.current=current?.folder??null;
   // 車種・タイヤ・天候で絞る (PLAN-37)。ベスト・順位も絞った中で数える。書いた走行がある項目だけ出す
   const condOf = (file: string): RunConditions => current?.conditions?.[file] ?? {};
   const condOptions = useMemo(() => filterOptions([...new Set((current?.rows ?? []).map(r => r.file))].map(f => current?.conditions?.[f] ?? {})), [current]);
@@ -140,12 +166,15 @@ export const LapHistoryPanel: React.FC<Props> = ({ onClose, onOpenRun }) => {
   /** 走行を解析で開く (同じフォルダのファイルを読んで渡す) */
   const openRun = async (file: string) => {
     if (!store || !current || !onOpenRun) return;
+    const ticket=++openRequest.current,request=onBeginOpen?.(),folder=current.folder,reads=getStorageReadRevision();
+    const valid=()=>ticket===openRequest.current&&folder===openFolder.current&&reads===getStorageReadRevision()&&!isStorageSelectionPending()&&(request?.isCurrent()??true);
     try {
       const bytes = await store.read(`${current.folder}/${file}`);
+      if(!valid())return;
       // 日付のフォルダの中の走行 (20261024/xxx.bon4) も、ファイルの名前だけで開く
-      onOpenRun(new File([bytes as BlobPart], file.slice(file.lastIndexOf('/') + 1), { type: 'application/octet-stream' }), { folder: current.folder, file });
+      onOpenRun(new File([bytes as BlobPart], file.slice(file.lastIndexOf('/') + 1), { type: 'application/octet-stream' }), { folder, file },request);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if(valid())setError(e instanceof Error ? e.message : String(e));
     }
   };
 

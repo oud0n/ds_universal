@@ -16,6 +16,7 @@ import { getWriteBon4, setWriteBon4 } from '../services/runFormatSettings';
 import { hasNative } from '../native/bridge';
 import { AnalysisSettings, VideoSettings } from '../components/AnalysisSettings';
 import { AboutSettings } from '../components/AboutSettings';
+import { addons } from '../addons';
 
 /** 設定の分類の見出しとまとまり (PLAN-42、2026-11-01) */
 const Group: React.FC<{ title: string; testId: string; children: React.ReactNode }> = ({ title, testId, children }) => (
@@ -105,6 +106,11 @@ export const SettingsScreen: React.FC<{
         )}
         </Group>
 
+        {addons.settingsSections?.map(({ id, label, Component }) => (
+          <Group key={id} title={t(...label)} testId={`settings-addon-${id}`}>
+            <Component />
+          </Group>
+        ))}
         <Group title={t('その他', 'Other')} testId="settings-group-other">
         {rows.length > 0 && (
           <section className="rounded-xl bg-surface-1 border border-line-2 overflow-hidden">

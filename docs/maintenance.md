@@ -2,6 +2,16 @@
 
 2026-10-27 (1.1.0) 時点。持ち主・ほかのエージェントが、しばらく空いたあとでも同じ手順で直して出せるようにまとめた。構成は [architecture.md](architecture.md)、残件は [../TODO.md](../TODO.md)・[../BUGS.md](../BUGS.md)。
 
+## アイコンの更新
+
+元画像は `build/icon-ios.svg` (通常)・`build/icon-ios-dark.svg` (ダーク)。タイヤの中心は 1024 四方の中央、ダークのタイヤだけ 98% に縮めている。持ち手は同じ寸法。
+
+macOS で `swift scripts/generate-icons.swift` を実行すると、PC の SVG・PNG・ICO・ICNS、Mac の Dock、Web の favicon、共通の正方形画像をまとめて作り直す。生成済みの画像も git に入れ、通常のビルドで Swift は要求しない。`build/icon-square.png` と `build/icon-square-dark.png` は透明度なし。端末側のアイコン素材としても使う。PC 用は角の外が透明。
+
+Web の favicon と Mac の起動中の Dock は OS の外観に従う。Finder・Windows・Apple touch icon は通常版を使う。Android の画像資源はホスト側で管理する。
+
+当面の自動切替は Mac の Dock と iOS / iPadOS でよい (持ち主、2026-11-06)。Windows・Android の追加対応は後回し。必要な作業と確認条件は [TODO.md の PLAN-57・58](../TODO.md#plan-5758-アイコンの自動切替)。
+
 ## 1. ブランチとタグ
 
 | 名前 | 役割 |
@@ -27,6 +37,10 @@ npx tsc --noEmit -p .     # 型
 npx vitest run            # 単体 (2026-10-27 で 471 件)
 npm run build             # dist (iOS・Android のアプリにも入る)
 ```
+
+保管場所のログを使う単体試験は、`LAPLOUPE_TEST_STORE` に試験用の写しの絶対パスを指定したときだけ実行する。
+
+端末専用のネイティブ試験は、それぞれのホスト側で管理する。
 
 ## 3. 画面の通しの試験 (e2e)
 
@@ -59,7 +73,7 @@ E2E_APP=http://localhost:5184/ node e2e/run.mjs --electron 9334 --chrome 9224 [-
 1. `package.json` の `version` と、`docs/release-notes.md`・`release-notes.en.md` の節を書く。
 2. dev → main にマージして push。ブラウザ版 (Pages) は main の push で出し直される (`.github/workflows/pages.yml`)。
 3. `git tag -a vX.Y.Z main -m "LapLoupe X.Y.Z"` → `git push origin vX.Y.Z`。CI (`build-and-release.yml`) が Mac (署名・公証。リポジトリの secrets) と Windows を作り、GitHub Release を作る (説明はコミットから自動)。公証に 10〜30 分かかる。
-   - タグのビルドだけ、新しい版を確かめる (`electron/updater.cjs`。CI が `-c.extraMetadata.autoUpdate=true` を付ける)。リリースには `latest.yml`・`latest-mac.yml`・`*.blockmap` も置く (無いと、前の版のアプリが新しい版を見つけられない)。手元・タグでない CI のビルドは確かめない。
+   - タグのビルドだけ、新しい版を確かめる (`electron/updater.cjs`。CI が `-c.extraMetadata.autoUpdate=true` を付ける)。リリースには `latest.yml`・`latest-mac.yml`・`-mac.zip` と、`.exe`・`-mac.zip` の blockmap (差分で落とすため) も置く (無いと、前の版のアプリが新しい版を見つけられない)。dmg の blockmap は使わないので置かない。説明の頭に、どれを落とすかを CI が書く。手元・タグでない CI のビルドは確かめない。
    - 出したら、前の版のアプリで「新しい版を確かめる」→「入れる」→「再起動して入れる」が通るか、一度は確かめる。画面だけなら、開発中に `LAPLOUPE_FAKE_UPDATE=1.9.0` (zip 版などの形は `LAPLOUPE_FAKE_UPDATE_MODE=manual` も) で起こすと、新しい版があるふりをする。
    - Windows のインストーラーの名前は `LapLoupe-Setup-X.Y.Z.exe` (空白を入れない。GitHub が空白を「.」に変え、目録と名前がずれるため)。
 4. 同じ番号で出し直すとき (ダウンロードが 0 のときだけ): `gh release delete vX.Y.Z --yes` → `git push origin :refs/tags/vX.Y.Z` → タグを付け直して push。

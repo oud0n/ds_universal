@@ -8,6 +8,8 @@
 |---|---|
 | [../AGENTS.md](../AGENTS.md) | エージェント向けの入口 (守ること・作業の流れ) |
 | [architecture.md](architecture.md) | 構成 (Web・Electron・iOS・Android、ネイティブの窓口、保管場所の形、主なファイル) |
+| [engine_boundaries.md](engine_boundaries.md) | 共通エンジンの正本、端末との窓口、移植時の残りと検査 |
+| [analysis_data_flow.md](analysis_data_flow.md) | 元ログ・周・Car 割当て・再生位置・動画の保持場所、呼出し元、非同期結果の採用条件 |
 | [maintenance.md](maintenance.md) | 開発・試験・レビュー・リリース (PC・ブラウザ) の手順 |
 | [../TODO.md](../TODO.md)・[../BUGS.md](../BUGS.md) | 今の状態と残件 |
 
@@ -35,14 +37,18 @@
 
 | 文書 | 計画 | 状態 |
 |---|---|---|
+| [usb_host.md](usb_host.md) | PLAN-62 USBのRustホストとElectron試験接続 | OS疑似シリアル/実IPCを検査。実USB/Windows実機は未確認 |
+| [device_host.md](device_host.md) | PLAN-62 BLE・USBのホスト接続と等価性 | 部品・合成比較を実装。実ドライバ/IPC/製品切替は未着手 |
 | [video_sets_design.md](video_sets_design.md) | PLAN-17 動画の走行とセット | 実装済み |
 | [overlay_parts_design.md](overlay_parts_design.md) | メーターの部品 | 実装済み |
 | [meter_layout_design.md](meter_layout_design.md) | PLAN-08・38 メーターの配置・画像・書き出しの範囲 | 実装済み |
-| [session_storage_design.md](session_storage_design.md) | PLAN-18 比べ方の保存 | 実装済み |
+| [session_storage_design.md](session_storage_design.md) | 旧PLAN-18の設計記録 | 比べ方の保存は廃止 (2026-11-07)。既存ファイルは保持 |
 | [run_storage_v2.md](run_storage_v2.md) | PLAN-29・32・33 runs.json の 2 版 | 実装済み (保管場所の形の正) |
 | [corner_names_design.md](corner_names_design.md) | PLAN-27 コーナーの名前 | 実装済み |
 | [csv_format_design.md](csv_format_design.md) | PLAN-36 CSV の形式・計算式 | 実装済み (残り 2 つは TODO) |
 | [duo_layout_design.md](duo_layout_design.md) | PLAN-30・41 Duo・中くらいの配置 | 実装済み。Duo の実機での見直し (PLAN-41) は残り |
+| [ux_flow_design.md](ux_flow_design.md) | PLAN-47〜54 入り口と画面の見直し (使う人の入り方・ラップを選ぶ・解析の配置) | 計画 (版 1〜3) |
+| [desktop_ui.md](desktop_ui.md) | PLAN-61 PC共通外観の範囲・検証 | dev反映済み・Chrome/WebKit/Mac版確認済み |
 | [manual_plan.md](manual_plan.md) | PLAN-39 使い方のページと動画 | 実装済み |
 | [ai_coach_design.md](ai_coach_design.md) | PLAN-02 AI のコーチ | 検討のみ |
 | [carplay_study.md](carplay_study.md) | PLAN-34 CarPlay | 見送り |

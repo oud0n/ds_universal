@@ -1,0 +1,57 @@
+/**
+ * 手動キーフレーム同期（特定地点ピン留め: Sync Pin）管理サービス
+ * GPSの特定地点（クリッピング・コントロールライン通過等）と動画の同一フレームを1クリックでピン留め固定
+ */
+
+import { formatMinSec } from '../utils/timeFormat';
+import { sessionStartUtcMs, type ClockSession } from './mediaClock';
+
+export interface SyncPin {
+  id: string;
+  name: string;                // 例: "1コーナーAPEX", "コントロールライン通過", "ダンロップ進入"
+  sessionTimeSec: number;      // GPSセッション秒
+  videoTimeSec: number;        // その瞬間における動画内秒 (local time)
+  trackId: string;             // 対象動画トラックID
+  calculatedOffsetSec: number; // sessionTimeSec - videoTimeSec
+  sessionId?: string;          // ピンを打ったときの基準のログ (sessionTimeSec はこのログの時刻)。古いピンにはない
+  utcMs?: number;              // 元ログを閉じた後の時刻換算に使う控え
+  createdAt: string;           // ISOタイムスタンプ
+  notes?: string;
+}
+
+export function pinUtcMs(pin: SyncPin, sessions: readonly ClockSession[]): number | null {
+  const start = sessionStartUtcMs(sessions.find(s => s.id === pin.sessionId));
+  return start !== null ? start + pin.sessionTimeSec * 1000 : Number.isFinite(pin.utcMs) ? pin.utcMs! : null;
+}
+
+export function pinTimeInSession(pin: SyncPin, session: ClockSession | undefined, sessions: readonly ClockSession[]): number | null {
+  if (!session) return null;
+  if (!pin.sessionId || pin.sessionId === session.id) return pin.sessionTimeSec;
+  const utc = pinUtcMs(pin, sessions), start = sessionStartUtcMs(session);
+  return utc === null || start === null ? null : (utc - start) / 1000;
+}
+
+export function createSyncPin(
+  name: string,
+  sessionTimeSec: number,
+  videoTimeSec: number,
+  trackId: string,
+  notes?: string
+): SyncPin {
+  const calculatedOffsetSec = Number((sessionTimeSec - videoTimeSec).toFixed(3));
+  return {
+    id: `pin_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    name: name.trim() || '同期ピン',
+    sessionTimeSec: Number(sessionTimeSec.toFixed(3)),
+    videoTimeSec: Number(videoTimeSec.toFixed(3)),
+    trackId,
+    calculatedOffsetSec,
+    createdAt: new Date().toISOString(),
+    notes,
+  };
+}
+
+export function formatPinTime(sec: number): string {
+  return formatMinSec(sec, 2, true);
+}
+

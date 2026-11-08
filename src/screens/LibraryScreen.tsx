@@ -3,11 +3,13 @@ import { NO_FILTER, conditionsOf, effectiveFilter, filterOptions, hasValues, mat
 import { ConditionFilters } from '../components/ConditionFilters';
 import { WEATHERS, WEATHER_LABELS, isTempC, isWeather, type Weather } from '../services/runWeather';
 import type { RunMetaPatch } from '../services/runOpener';
+import type {InputRequest} from '../engine/EngineSession';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart2, Bluetooth, ChevronRight, Cloud, EyeOff, FolderOpen, GitCompare, Loader2, Timer, Trash2, Trophy, Video, X } from 'lucide-react';
 import { circuitLabel, useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { formatLapTime } from '../services/liveLapTimer';
+import { LibraryAdmissionDialog } from '../components/LibraryAdmissionDialog';
 import { RunRow, fmtDate, useRuns } from '../components/RecentRuns';
 import { LapHistoryPanel } from '../components/LapHistoryPanel';
 import { runStem } from '../services/lapIndex';
@@ -16,7 +18,6 @@ import { baseName, setRunLapHidden, setRunMeta, type RunItem } from '../services
 import { RunNoteField } from '../components/RunNoteField';
 import { addons } from '../addons';
 import { navStore } from '../app/navStore';
-import { deleteSession, listSessions, type LapSession, type SavedSession } from '../services/analysisSessions';
 import { deleteRun, planRunDelete, type RunDeletePlan } from '../services/runDelete';
 import { canRemoveRunFiles, canTrashRunFiles, type RunFileInfo } from '../services/runStore';
 import { listTrash, purgeExpired, purgeTrash, restoreTrashedRun, trashRun, TRASH_DAYS, type TrashedRun } from '../services/runTrash';
@@ -37,8 +38,6 @@ interface Props {
   /** 横に広い画面 (デスクトップ・iPad)。走行の詳細を右の欄に出す。狭いときは画面いっぱいのシート */
   wide: boolean;
   onOpen: (r: RunItem) => void;
-  /** 保存した比べ方 (解析用のセッション。PLAN-18) を開く */
-  onOpenSession?: (s: LapSession) => void;
   onOpenVideo: (r: RunItem) => void;
   /** 比べる相手 (Car 2) として足す (走行をもう開いているときだけ) */
   onAddAsCar2?: (r: RunItem) => void;
@@ -49,8 +48,10 @@ interface Props {
   /** 解析で開いている走行 (folder/file)。開いている走行は消せない */
   openRuns?: string[];
   onPickFiles: () => void;
+  onPickLaps?: () => void;
   /** ラップタイムの記録から、走行のファイルを解析で開く */
-  onOpenFile: (file: File) => void;
+  onOpenFile: (file: File,request?:InputRequest) => void;
+  onBeginOpen?:()=>InputRequest;
   busy: boolean;
   /** ラップタイマーを使える (アプリ)。初めて開いたときの案内に出す */
   canTime?: boolean;
@@ -77,10 +78,14 @@ const sameRunFile = (a: string, b: string) => {
   return dir(a) === dir(b) && runStem(a) === runStem(b);
 };
 
-export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSession, onOpenVideo, onAddAsCar2, car1Course = null, car1Run = null, openRuns = [], onPickFiles, onOpenFile, busy, canTime = false }) => {
+export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVideo, onAddAsCar2, car1Course = null, car1Run = null, openRuns = [], onPickFiles, onPickLaps, onOpenFile,onBeginOpen, busy, canTime = false }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
-  const { store, runs, error, noFolder, reload } = useRuns(active);
+  const { store, runs, allRuns, pendingRuns, excludedRuns, error, noFolder, reload } = useRuns(active);
+  const [reviewOpen, setReviewOpen] = useState(true);
+  const [showExcluded, setShowExcluded] = useState(false);
+  const [reconsiderKey, setReconsiderKey] = useState<string | null>(null);
+  useEffect(() => { setReviewOpen(true); setShowExcluded(false); setReconsiderKey(null); }, [store?.storageRevision]);
   const storageLabel = useStorageLabel(active);
   const [folder, setFolder] = useState<string | null>(null);
   /** 自分の走行か、参考ラップ (自分のではない走行。PLAN-31) か */
@@ -112,9 +117,6 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
   }, [active, store, canTrash, runs, trashTick]);
   /** 消す確かめの画面 (走行と、消すファイルの案) */
   const [deleting, setDeleting] = useState<{ item: RunItem; plan: RunDeletePlan | null; error?: string; running?: boolean } | null>(null);
-  /** 保存した比べ方 (解析用のセッション)。走行を読み直すたびに読み直す */
-  const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
-  const [sessionsOpen, setSessionsOpen] = useState(true);
   /** 動画だけの参考ラップ (LATER-17)。走行を読み直すたびに読み直す */
   const [videoRefs, setVideoRefs] = useState<VideoRef[]>([]);
   const [refsTick, setRefsTick] = useState(0);
@@ -131,14 +133,8 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
   const startPick = () => {
     if (!store) return;
     setPicking(null);
-    void store.listAll().then(files => setPicking(videoRefCandidates(files, runs ?? [], videoRefs)), () => setPicking([]));
+    void store.listAll().then(files => setPicking(videoRefCandidates(files, allRuns ?? [], videoRefs)), () => setPicking([]));
   };
-  useEffect(() => {
-    if (!active || !store || !onOpenSession) return;
-    let alive = true;
-    void listSessions(store).then(l => { if (alive) setSavedSessions(l); }, () => {});
-    return () => { alive = false; };
-  }, [active, store, runs, onOpenSession]);
 
   const refCount = useMemo(() => (runs ?? []).filter(r => !!r.entry?.reference).length, [runs]) + videoRefs.length;
   // 参考ラップの区切りは、走行があれば出す (動画だけの参考ラップをそこから作れるように)
@@ -171,6 +167,10 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
   // 下の「走行」タブをもう一度押したら、開いている走行の詳細を閉じて一覧に戻る (2026-10-28)。
   // フックなので、下の「隠れているときは何も出さない」より前に置く (後ろに置くと、タブを移ったとき React が落ちて画面が真っ黒になった。BUG-40)
   useEffect(() => navStore.onReselect(s => { if (s === 'library') setSelectedKey(null); }), []);
+
+  const admissionRun = reconsiderKey
+    ? excludedRuns.find(r => `${r.folder}/${r.file}` === reconsiderKey)
+    : reviewOpen ? pendingRuns[0] : undefined;
 
   if (!active) return null;
 
@@ -207,6 +207,16 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
           <ChevronRight size={14} className="text-slate-500 shrink-0" />
         </button>
       )}
+      {pendingRuns.length > 0 && <button data-testid="library-review-pending" onClick={() => { setReconsiderKey(null); setReviewOpen(true); }} className="mx-3 mt-2 px-3 py-2 rounded border border-line-2 text-sm text-left">
+        {t(`追加の確認待ち ${pendingRuns.length}件 · 確認する`, `${pendingRuns.length} log(s) awaiting confirmation · Review`)}
+      </button>}
+      {excludedRuns.length > 0 && <div className="mx-3 mt-2 text-xs">
+        <button data-testid="library-review-excluded" onClick={() => setShowExcluded(v => !v)} className="px-3 py-2 text-slate-400">{t(`追加しなかったログ ${excludedRuns.length}件`, `${excludedRuns.length} skipped log(s)`)}</button>
+        {showExcluded && <ul className="max-h-40 overflow-y-auto space-y-1">{excludedRuns.map(run => <li key={`${run.folder}/${run.file}`} className="flex gap-2 items-center px-3 py-1">
+          <span className="break-all flex-1 min-w-0">{run.file}</span>
+          <button onClick={() => setReconsiderKey(`${run.folder}/${run.file}`)} className="shrink-0 px-2 py-1 rounded border border-line-2">{t('追加する', 'Add')}</button>
+        </li>)}</ul>}
+      </div>}
       {/* 最近消した走行 (アプリのゴミ箱。あるときだけ) */}
       {canTrash && trashed.length > 0 && (
         <button
@@ -264,36 +274,6 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
           </div>
         )}
         {error && <p className="text-xs text-red-400 py-2">{error}</p>}
-        {/* 保存した比べ方 (解析で Car に割り当てた組み合わせ。PLAN-18) */}
-        {onOpenSession && store && savedSessions.length > 0 && (
-          <div data-testid="library-sessions">
-            <button onClick={() => setSessionsOpen(o => !o)} className="w-full flex items-center gap-1 text-[11px] font-bold text-slate-400 px-1 pb-1.5 cursor-pointer">
-              <GitCompare size={12} />{t(`保存した比べ方 ${savedSessions.length}`, `Saved comparisons ${savedSessions.length}`)}
-              <span className="ml-auto">{sessionsOpen ? '−' : '+'}</span>
-            </button>
-            {sessionsOpen && (
-              <div className="space-y-1.5">
-                {savedSessions.map(s => (
-                  <div key={s.path} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-2 border border-line-2" data-testid="library-session-row">
-                    <button onClick={() => onOpenSession(s.data)} disabled={busy} className="flex-1 min-w-0 text-left cursor-pointer disabled:opacity-50">
-                      <div className="text-xs font-bold text-slate-100 truncate">{s.data.name}</div>
-                      <div className="text-[11px] text-slate-500 truncate">
-                        {s.data.course?.name ? `${circuitLabel(s.data.course.name)} · ` : ''}{t(`${s.data.cars.length} 台`, `${s.data.cars.length} car${s.data.cars.length === 1 ? '' : 's'}`)} · {fmtDate(Date.parse(s.data.createdAt) || null, ja)}
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (!window.confirm(t(`「${s.data.name}」を消しますか？ (走行は消えません)`, `Delete "${s.data.name}"? (The runs are kept)`))) return;
-                        void deleteSession(store, s.path).then(() => setSavedSessions(l => l.filter(x => x.path !== s.path)));
-                      }}
-                      className="p-1.5 rounded text-slate-500 hover:text-red-400 cursor-pointer" aria-label={t('消す', 'Delete')} data-testid="library-session-delete"
-                    ><X size={14} /></button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
         {/* 動画だけの参考ラップ (LATER-17)。参考ラップの区切りの上に */}
         {ownerNow === 'ref' && store && (
           <div className="space-y-1.5" data-testid="library-video-refs">
@@ -403,7 +383,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
           <FolderOpen size={16} />{t('ファイルを選ぶ', 'Choose files')}
         </button>
         <button
-          onClick={() => setHistoryOpen(true)}
+          onClick={() => onPickLaps ? onPickLaps() : setHistoryOpen(true)}
           className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg bg-surface-2 border border-line-2 text-sm text-slate-200 font-bold cursor-pointer whitespace-nowrap"
           data-testid="library-lap-history"
         >
@@ -432,7 +412,8 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
       onSaveMeta={async patch => {
         // 参考ラップの印を付けた・外したら、その走行が見える側の一覧に切り替える (詳細を開いたままにする)
         if (patch.reference !== undefined) setOwner(patch.reference ? 'ref' : 'mine');
-        await setRunMeta(store, selected, patch).catch(() => undefined);
+        try{await setRunMeta(store,selected,patch);}
+        catch(error){alert(t('保存できませんでした。未保存の変更は再試行まで保持します: ', 'Could not save. Pending changes are kept for retry: ')+(error instanceof Error?error.message:String(error)));return;}
         reload();
       }}
       onClose={wide ? undefined : () => setSelectedKey(null)}
@@ -440,7 +421,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
       onDelete={canDelete ? () => {
         const item = selected;
         setDeleting({ item, plan: null });
-        void store.listAll().then(files => setDeleting(d => (d && d.item === item ? { ...d, plan: planRunDelete(item, files, runs ?? []) } : d)),
+        void store.listAll().then(files => setDeleting(d => (d && d.item === item ? { ...d, plan: planRunDelete(item, files, allRuns ?? []) } : d)),
           e => setDeleting(d => (d ? { ...d, error: e instanceof Error ? e.message : String(e) } : d)));
       } : undefined}
       // 解析で開いている走行と、ラップタイマーがいま書いている走行は消せない
@@ -460,11 +441,17 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenSes
           {detail || <p className="text-xs text-slate-500 p-6 text-center">{t('走行を選ぶと、周の一覧と動画が出ます。', 'Select a run to see its laps and videos.')}</p>}
         </div>
       )}
-      {historyOpen && <LapHistoryPanel onClose={() => setHistoryOpen(false)} onOpenRun={(file, run) => {
+      {store && admissionRun && !busy && !historyOpen && !deleting && !trashOpen && picking === false && !marking && !comparing && <LibraryAdmissionDialog
+        key={`${store.storageRevision}/${admissionRun.folder}/${admissionRun.file}/${admissionRun.libraryAdmission?.size}/${admissionRun.libraryAdmission?.mtimeMs}`}
+        store={store} run={admissionRun}
+        onClose={() => { setReviewOpen(false); setReconsiderKey(null); }}
+        onSaved={() => { setReviewOpen(false); setReconsiderKey(null); reload(); }}
+      />}
+      {historyOpen && <LapHistoryPanel onClose={() => setHistoryOpen(false)} onBeginOpen={onBeginOpen} onOpenRun={(file, run,request) => {
         setHistoryOpen(false);
         // 走行の一覧にある走行なら、走行の画面から開くのと同じに開く (Car 1 にする・動画と同期もそろえる)
         const item = runs?.find(r => r.folder === run.folder && sameRunFile(r.file, run.file));
-        if (item) onOpen(item); else onOpenFile(file);
+        if (item) onOpen(item); else onOpenFile(file,request);
       }} />}
       {picking !== false && (
         <VideoRefPicker candidates={picking} onClose={() => setPicking(false)} onPick={f => { setPicking(false); setMarking({ path: f.path, existing: null }); }} />
@@ -803,6 +790,7 @@ const RunDetail: React.FC<{
   const ExtraLapView = lapViews.find(v => v.id === lapView)?.Component;
   // 書き換えている間は、隠す・出すを押せなくする
   const [saving, setSaving] = useState(false);
+  const [lapError, setLapError] = useState<string | null>(null);
   useEscapeKey(!!onClose, () => onClose?.());
   const visible = run.laps.filter(l => !l.hidden);
   const best = visible.length ? Math.min(...visible.map(l => l.time)) : null;
@@ -853,6 +841,7 @@ const RunDetail: React.FC<{
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-4">
         {onSaveMeta && <RunNoteField key={`${run.folder}/${run.file}`} note={run.entry?.note} onSave={note => void onSaveMeta({ note })} testId="run-detail-note" />}
+        {lapError && <p role="alert" className="text-xs text-amber-500">{lapError}</p>}
         {run.laps.length > 0 && (
           <section>
             <div className="flex items-center gap-2 mb-2">
@@ -878,7 +867,7 @@ const RunDetail: React.FC<{
                   <span className="w-12 text-xs text-slate-400">{l.part ? `${l.part}-` : ''}L{l.n}</span>
                   <span className={`font-mono font-bold flex-1 ${!l.hidden && l.time === best ? 'text-fuchsia-400' : 'text-slate-200'}`}>{formatLapTime(l.time)}</span>
                   <button
-                    onClick={() => { setSaving(true); void onToggleLap(l, !l.hidden).finally(() => setSaving(false)); }}
+                    onClick={() => { setSaving(true); setLapError(null); void onToggleLap(l, !l.hidden).catch(error => setLapError(error instanceof Error ? error.message : String(error))).finally(() => setSaving(false)); }}
                     disabled={saving}
                     className="p-2.5 -m-1.5 rounded text-slate-500 hover:text-slate-300 cursor-pointer disabled:opacity-40"
                     title={l.hidden ? t('出す', 'Show') : t('隠す (ピットイン・赤旗の周など)', 'Hide (pit, red flag laps etc.)')}

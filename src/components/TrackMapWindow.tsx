@@ -5,6 +5,7 @@ import { useCompactLayout } from '../hooks/useCompactLayout';
 import { usePinchPointers } from '../hooks/usePinchPointers';
 import { CompareAxis, Lap, SelectedCarSlot, Sector, ControlLine } from '../types/telemetry';
 import { findCarPoint } from '../utils/telemetrySearch';
+import type { LapSec } from '../services/playbackPosition';
 import { prepareCanvas, useDevicePixelRatio } from '../utils/canvasLayer';
 import { passesNearPoint } from '../services/lapCalculator';
 import { ZoomIn, ZoomOut, RotateCcw, Eye, Palette, Move, LocateFixed } from 'lucide-react';
@@ -60,7 +61,7 @@ interface TrackMapWindowProps {
   sectors: Sector[];
   pathPolylines?: Array<Array<[number, number]>>;
   currentDistance: number;
-  currentTime: number;
+  currentTime: LapSec;
   compareAxis: CompareAxis;
   onSeekDistance: (distKm: number) => void;
   /** Car 1 のコースの名前 (コーナーの名前を出すため) */
@@ -1057,16 +1058,17 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
   );
 
   return (
-    <div className="flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
+    <div className="analysis-panel flex flex-col h-full bg-surface-2 rounded-lg border border-line-2 overflow-hidden select-none shadow-lg">
       {/* ツールバー */}
       {/* 狭いときはボタン単位で折り返す (文字の途中で折れないよう nowrap)。見出しは出さない (切り替えのないウインドウなので) */}
-      <div className={`touch-toolbar flex flex-wrap items-center justify-between gap-x-2 gap-y-1 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0 ${compact ? 'px-2 py-1' : 'px-3 py-1.5'}`}>
+      <div className={`analysis-toolbar touch-toolbar flex flex-wrap items-center justify-between gap-x-2 gap-y-1 bg-surface-3 border-b border-line-2 text-xs whitespace-nowrap shrink-0 ${compact ? 'px-2 py-1' : 'px-3 py-1.5'}`}>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
 
           {/* カラーモード切替。コーナーの編集中は出さない (ボタンが折り返して、スマートフォンでは地図が狭くなるため。下の 2 つも同じ) */}
-          <div className={`flex items-center bg-surface-1 rounded p-0.5 border border-line-3 ${cornerDraft ? 'hidden' : ''}`}>
+          <div className={`segmented-control flex items-center bg-surface-1 rounded p-0.5 border border-line-3 ${cornerDraft ? 'hidden' : ''}`}>
             <button
               onClick={() => setColorMode('car')}
+              aria-pressed={colorMode === 'car'}
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
                 colorMode === 'car' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
@@ -1075,6 +1077,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
             </button>
             <button
               onClick={() => setColorMode('speed')}
+              aria-pressed={colorMode === 'speed'}
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
                 colorMode === 'speed' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
@@ -1083,6 +1086,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
             </button>
             <button
               onClick={() => setColorMode('accel')}
+              aria-pressed={colorMode === 'accel'}
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
                 colorMode === 'accel' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
@@ -1091,6 +1095,7 @@ export const TrackMapWindow: React.FC<TrackMapWindowProps> = ({
             </button>
             <button
               onClick={() => setColorMode('line')}
+              aria-pressed={colorMode === 'line'}
               title={t('基準車 (Car 1) の走行ラインに対する、他の車両の左右のズレを色分け表示', 'Colours how far left or right the other cars are from the reference car (Car 1) line')}
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
                 colorMode === 'line' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-slate-200'

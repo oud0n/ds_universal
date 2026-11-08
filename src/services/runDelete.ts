@@ -42,13 +42,14 @@ export function planRunDelete(item: RunItem, files: RunFileInfo[], runs: RunItem
   const base = stemOf(split(runPath).name);
   // 同じフォルダのほかの走行の名前 (このファイルたちは消さない)
   const others = runs.filter(r => r.folder === item.folder && `${r.folder}/${r.file}` !== runPath && split(`${r.folder}/${r.file}`).dir === dir);
+  const otherPaths = new Set(others.map(r => `${r.folder}/${r.file}`));
+  const ambiguousBase = others.some(r => stemOf(split(r.file).name) === base);
   const otherStems = new Set(others.map(r => stemOf(split(r.file).name)).filter(s => s !== base));
   // ほかの走行に付いている動画 (同じフォルダの名前)
   // 付けた動画は runs.json の行、無ければ控え (laptimes.json) のもの (一覧の videos はその 2 つを合わせたもの)
   const sharedVideos = new Set(others.flatMap(r => r.videos));
   const attached = new Set(item.videos);
   const b = esc(base);
-  const logRe = new RegExp(`^${b}\\.[^.]+$`, 'i');
   const sensorRe = new RegExp(`^${b}\\.[^.]+\\.csv$`, 'i');
   const cameraRe = new RegExp(`^${b}(_front)?(_\\d+)?(_v\\d+)?\\.(mov|mp4)$`, 'i');
 
@@ -66,8 +67,9 @@ export function planRunDelete(item: RunItem, files: RunFileInfo[], runs: RunItem
     // (base_2 を消すときの base_2.mov は、base の 2 つめの録画ではなく base_2 のもの)。走行名に . があっても合うように、形で見る
     const otherOwner = otherRes.some(o => o.stem.length > base.length && o.re.some(x => x.test(name)));
     const isCamera = cameraRe.test(name);
-    const isLog = !isCamera && logRe.test(name);
+    const isLog = f.path === runPath || (/\.(nmea|bon4)$/i.test(item.file) && new RegExp(`^${b}\\.(nmea|bon4)$`, 'i').test(name));
     const isSensor = sensorRe.test(name);
+    if ((isLog || isSensor || isCamera) && (otherPaths.has(f.path) || (ambiguousBase && (isSensor || isCamera)))) { plan.keep.push({ path: f.path, reason: 'other-run' }); continue; }
     if (isLog || isSensor || isCamera) {
       // 名前の形は合っても、ほかの走行のもの (例: 別の走行の base_2.nmea・base_2.mov)
       if (otherOwner) { plan.keep.push({ path: f.path, reason: 'other-run' }); continue; }

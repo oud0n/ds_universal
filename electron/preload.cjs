@@ -1,6 +1,31 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// 文書の権限トークンはpreloadだけで保持し、画面へ渡さない。
+let usbBindingPromise, usbBinding;
+const usbDocumentReady = new Promise(resolve => {
+  if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', resolve, { once: true });
+  else resolve();
+});
+const usbBindingInfo = () => usbBindingPromise ??= usbDocumentReady.then(() => ipcRenderer.invoke('usb-host-bind')).then(info => {
+  if (!info.ok) throw info.error;
+  usbBinding = info.binding;
+  return info;
+});
+
 contextBridge.exposeInMainWorld('electronAPI', {
+  deviceHost: {
+    available: async () => ({ enabled: (await usbBindingInfo()).enabled }),
+    request: async (method, params) => {
+      const info = await usbBindingInfo();
+      if (!info.enabled) return { ok: false, error: { code: 'not-supported' } };
+      return ipcRenderer.invoke('usb-host-request', info.binding, method, params);
+    },
+    onEvent: callback => {
+      const listener = (_event, message) => { if (usbBinding && message.binding === usbBinding) callback(message.event); };
+      ipcRenderer.on('usb-host-event', listener);
+      return () => ipcRenderer.removeListener('usb-host-event', listener);
+    }
+  },
   // 登録を解除する関数を返す
   onOpenFiles: (callback) => {
     const listener = (_event, value) => callback(value);

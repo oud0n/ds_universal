@@ -5,17 +5,19 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FileSpreadsheet, Plus, Trash2, Save, X, Upload, Calculator } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { useCompactLayout } from '../hooks/useCompactLayout';
-import { deleteCsvFormat, safeName, saveCalcChannels, saveCsvFormat, useCsvFormats } from '../services/csvFormatStore';
+import { deleteCsvFormat, loadCsvFormats, safeName, saveCalcChannels, saveCsvFormat, useCsvFormats } from '../services/csvFormatStore';
 import { guessDelimiter, sensorKeyOf, splitRow, validTimezone, type ColumnSpec, type ColumnTarget, type CsvFormat, type TimeAs } from '../services/csvFormats';
+import { getStorageRevision } from '../services/storageRevision';
 import { BUILTIN_VALUE_NAMES, exprVars, parseExpr, type CalcChannel } from '../services/calcChannels';
 import { CUSTOM_KEY_RE } from '../services/overlayLayout';
 
 export const CsvFormatSettings: React.FC = () => {
   const t = useT();
   const compact = useCompactLayout();
-  const { formats, calc } = useCsvFormats();
+  const { formats, calc, storageRevision, ready } = useCsvFormats();
   const [editing, setEditing] = useState<CsvFormat | 'new' | null>(null);
   const [calcOpen, setCalcOpen] = useState(false);
+  useEffect(() => { setEditing(null); setCalcOpen(false); }, [storageRevision]);
   return (
     <section className="space-y-2" data-testid="csv-format-settings">
       <h3 className="text-xs text-slate-500 px-1">{t('CSV の形式・計算式', 'CSV formats and formulas')}</h3>
@@ -30,19 +32,20 @@ export const CsvFormatSettings: React.FC = () => {
             <FileSpreadsheet size={14} className="text-slate-400 shrink-0" />
             <span className="flex-1 truncate">{f.name}</span>
             <span className="text-[10px] text-slate-500">{f.kind === 'sensor' ? `*.${f.sensorKey}.csv` : t('走行の CSV', 'Run CSV')}</span>
-            {!compact && <button onClick={() => setEditing(f)} className="px-2 py-0.5 rounded border border-line-3 cursor-pointer" data-testid="csv-format-edit">{t('直す', 'Edit')}</button>}
+            {!compact && <button disabled={!ready} onClick={() => setEditing(f)} className="px-2 py-0.5 rounded border border-line-3 cursor-pointer" data-testid="csv-format-edit">{t('直す', 'Edit')}</button>}
           </div>
         ))}
         {calc.length > 0 && <p className="text-[11px] text-slate-400">{t(`計算式: ${calc.map(c => c.label).join('・')}`, `Formulas: ${calc.map(c => c.label).join(', ')}`)}</p>}
         {!compact ? (
           <div className="flex gap-2 pt-1">
-            <button onClick={() => setEditing('new')} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold cursor-pointer" data-testid="csv-format-new"><Plus size={13} />{t('CSV の形式を作る', 'New CSV format')}</button>
-            <button onClick={() => setCalcOpen(true)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-surface-3 border border-line-3 cursor-pointer" data-testid="calc-open"><Calculator size={13} />{t('計算式', 'Formulas')}</button>
+            <button disabled={!ready} onClick={() => setEditing('new')} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold cursor-pointer" data-testid="csv-format-new"><Plus size={13} />{t('CSV の形式を作る', 'New CSV format')}</button>
+            <button disabled={!ready} onClick={() => setCalcOpen(true)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-surface-3 border border-line-3 cursor-pointer" data-testid="calc-open"><Calculator size={13} />{t('計算式', 'Formulas')}</button>
           </div>
         ) : (
           <p className="text-[11px] text-slate-500">{t('作る・直すのは、パソコン (デスクトップ版・ブラウザ版) の設定で。', 'Create and edit on a computer (desktop app or browser).')}</p>
         )}
       </div>
+      {!ready && <button onClick={() => { void loadCsvFormats(1).catch(() => undefined); }} className="text-xs text-sky-400" data-testid="csv-format-reload">{t('定義と計算式を読み直す', 'Reload formats and formulas')}</button>}
       {editing && <CsvFormatEditor initial={editing === 'new' ? null : editing} others={formats} onClose={() => setEditing(null)} />}
       {calcOpen && <CalcEditor initial={calc} onClose={() => setCalcOpen(false)} />}
     </section>
@@ -102,6 +105,7 @@ const keyFromName = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, 
 /** CSV の形式を作る・直す (パソコン) */
 const CsvFormatEditor: React.FC<{ initial: CsvFormat | null; others: CsvFormat[]; onClose: () => void }> = ({ initial, others, onClose }) => {
   const t = useT();
+  const root = useRef(getStorageRevision()).current;
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [text, setText] = useState<string | null>(null);
   const [fileName, setFileName] = useState('');
@@ -161,7 +165,7 @@ const CsvFormatEditor: React.FC<{ initial: CsvFormat | null; others: CsvFormat[]
     // 見出しは、使う列と時刻の列 (見分けるのに使う)
     const used = [...Object.entries(f.columns).filter(([, s]) => !s.ignore).map(([n]) => n), ...(f.time ? [f.time.column] : [])];
     try {
-      const saved = await saveCsvFormat({ ...f, name, header: [...new Set(used)] }, clash?.id ?? (f.id || undefined));
+      const saved = await saveCsvFormat({ ...f, name, header: [...new Set(used)] }, clash?.id ?? (f.id || undefined), root);
       setF(saved);
       setNote({ ok: true, text: t(`「${name}」を保存しました`, `Saved "${name}"`) });
     } catch (e) {
@@ -292,7 +296,7 @@ const CsvFormatEditor: React.FC<{ initial: CsvFormat | null; others: CsvFormat[]
           {note && <span className={`flex-1 ${note.ok ? 'text-emerald-400' : 'text-red-400'}`} data-testid="csv-format-note">{note.text}</span>}
           {!note && <span className="flex-1" />}
           {f.id && (
-            <button onClick={() => { if (window.confirm(t(`「${f.name}」を消しますか？`, `Delete "${f.name}"?`))) void deleteCsvFormat(f.id).then(onClose); }} className="flex items-center gap-1 px-3 py-1.5 rounded border border-line-3 text-slate-400 hover:text-red-400 cursor-pointer" data-testid="csv-format-delete"><Trash2 size={13} />{t('消す', 'Delete')}</button>
+            <button onClick={() => { if (window.confirm(t(`「${f.name}」を消しますか？`, `Delete "${f.name}"?`))) void deleteCsvFormat(f.id, root).then(onClose).catch(e => setNote({ ok: false, text: t(`消せませんでした: ${e instanceof Error ? e.message : String(e)}`, `Could not delete: ${e instanceof Error ? e.message : String(e)}`) })); }} className="flex items-center gap-1 px-3 py-1.5 rounded border border-line-3 text-slate-400 hover:text-red-400 cursor-pointer" data-testid="csv-format-delete"><Trash2 size={13} />{t('消す', 'Delete')}</button>
           )}
           <button onClick={() => void save()} className="flex items-center gap-1 px-3 py-1.5 rounded bg-sky-600 hover:bg-sky-500 text-white font-bold cursor-pointer" data-testid="csv-format-save"><Save size={13} />{t('保存', 'Save')}</button>
         </div>
@@ -304,6 +308,7 @@ const CsvFormatEditor: React.FC<{ initial: CsvFormat | null; others: CsvFormat[]
 /** 計算式を作る・直す (パソコン) */
 const CalcEditor: React.FC<{ initial: CalcChannel[]; onClose: () => void }> = ({ initial, onClose }) => {
   const t = useT();
+  const root = useRef(getStorageRevision()).current;
   const [list, setList] = useState<CalcChannel[]>(initial.map(c => ({ ...c })));
   // 開いたあとで計算式を読み終えたら (起動直後・iCloud から来たとき)、まだ直していなければ読み直したものにする
   const dirty = useRef(false);
@@ -325,7 +330,7 @@ const CalcEditor: React.FC<{ initial: CalcChannel[]; onClose: () => void }> = ({
     if (bad) { setNote({ ok: false, text: `${bad.label || bad.key}: ${errOf(bad)}` }); return; }
     if (new Set(list.map(c => c.key)).size !== list.length) { setNote({ ok: false, text: t('英字の名前が重なっています', 'Duplicate keys') }); return; }
     try {
-      await saveCalcChannels(list);
+      await saveCalcChannels(list, root);
       setNote({ ok: true, text: t('保存しました', 'Saved') });
     } catch (e) {
       setNote({ ok: false, text: t(`保存できませんでした: ${e instanceof Error ? e.message : String(e)}`, `Could not save: ${e instanceof Error ? e.message : String(e)}`) });

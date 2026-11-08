@@ -1,3 +1,4 @@
+import { exportSci as formatSci } from '../engine/courseFiles';
 /**
  * ユーザーが設置した公式または独自コースデータ (.pth / .cln / .sci) の管理サービス
  *
@@ -22,6 +23,7 @@ export interface UserCircuitItem {
   /** 英語名と、ラップタイマーの記録を入れるフォルダの名前 (コース編集で付けたもの。2026-10-20) */
   nameEn?: string;
   folder?: string;
+  folderAliases?: string[];
   /** ゴールの線 (スタートとゴールが別のコース。コース編集で付けたもの) */
   finishLine?: ControlLine;
   /** コース編集で保存した時刻 (端末の間で合わせるとき、新しいほうを使う。2026-10-24 から) */
@@ -132,15 +134,7 @@ export function normalizeCourseName(path: string): string {
  * セクターを .sci (公式と同じ形: 1 行 1 本「緯度A,経度A,緯度B,経度B,1」、小数 6 桁、改行は CRLF) にする。
  * 公式の .sci はフィニッシュ (計測線) を含まないので、計測線と同じ線は書かない
  */
-export function exportSci(sectors: Sector[], controlLine?: ControlLine): string {
-  const same = (s: Sector) => !!controlLine &&
-    Math.abs(s.latA - controlLine.latA) < 1e-7 && Math.abs(s.lonA - controlLine.lonA) < 1e-7 &&
-    Math.abs(s.latB - controlLine.latB) < 1e-7 && Math.abs(s.lonB - controlLine.lonB) < 1e-7;
-  return sectors
-    .filter(s => !same(s))
-    .map(s => [s.latA, s.lonA, s.latB, s.lonB].map(v => v.toFixed(6)).join(',') + ',1\r\n')
-    .join('');
-}
+export function exportSci(sectors: Sector[], controlLine?: ControlLine): string { return formatSci(sectors, controlLine); }
 
 // ---------------------------------------------------------------------------
 // 組み合わせ (純粋な処理。Node でも試せるようにファイルの読み込み・保存とは分ける)
@@ -480,9 +474,10 @@ class UserCircuitStorage {
    * 保管場所の digspice/ にあるコースデータ (デジスパイスと同じ形のフォルダ) を使う。保存はしない (開くたびに読む)。
    * 内蔵のコースと同じコースのものは、コース図だけが使われる (circuitDatabase.ts の isShadowedByPreset)
    */
-  public async setStorageCourseFiles(files: CourseFile[]): Promise<void> {
+  public async setStorageCourseFiles(files: CourseFile[], beforeApply?: () => void): Promise<void> {
     await this.ready.catch(() => undefined);
     const { CIRCUIT_PRESETS } = await import('./circuitDatabase');
+    beforeApply?.();
     const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase();
     const sameFile = (a: CourseFile, b: CourseFile) => {
       const pa = norm(a.path);
@@ -543,6 +538,7 @@ class UserCircuitStorage {
       sources: { cln: 'edited' },
       // 英語名・フォルダ名は、渡されなければ前に保存したものを引き継ぐ
       ...(extra.nameEn && extra.folder ? { nameEn: extra.nameEn, folder: extra.folder } : prev?.nameEn && prev.folder ? { nameEn: prev.nameEn, folder: prev.folder } : {}),
+      ...(prev?.folderAliases ? { folderAliases: prev.folderAliases } : {}),
       ...(extra.finishLine ? { finishLine: { ...extra.finishLine, name: 'Finish Line' } } : {}),
       updatedAt: new Date().toISOString()
     };
@@ -558,8 +554,9 @@ class UserCircuitStorage {
   public onEditedChanged?: (e: { saved?: UserCircuitItem; deletedName?: string }) => void;
 
   /** 保管場所の course/ と合わせた、コース編集で保存したコースを使う */
-  public async setSyncedEdited(edited: UserCircuitItem[]): Promise<void> {
+  public async setSyncedEdited(edited: UserCircuitItem[], beforeApply?: () => void): Promise<void> {
     await this.ready.catch(() => undefined);
+    beforeApply?.();
     this.edited = edited;
     await this.persist();
   }

@@ -217,9 +217,10 @@ describe('レビューで直したこと', () => {
   });
 });
 
-// 同じ走行の .bon4 と .nmea (iCloud の保管場所にあるとき)
-const PAIR = `${process.env.HOME}/Library/Mobile Documents/com~apple~CloudDocs/LapLoupe/sodegaura/20260913/20260913092357`;
-describe.skipIf(!existsSync(`${PAIR}.bon4`) || !existsSync(`${PAIR}.nmea`))('同じ走行の .bon4 と .nmea', () => {
+// 同じ走行の .bon4 と .nmea (試験用の写しを指定したとき)
+const testStore = process.env.LAPLOUPE_TEST_STORE;
+const PAIR = `${testStore}/sodegaura/20260913/20260913092357`;
+describe.skipIf(!testStore || !existsSync(`${PAIR}.bon4`) || !existsSync(`${PAIR}.nmea`))('同じ走行の .bon4 と .nmea', () => {
   it('どちらから数えても、周の数・タイム・始まりが同じ', () => {
     const preset = CIRCUIT_PRESETS.find(p => p.id === 'sodegaura')!;
     const course = { name: preset.name, controlLine: preset.controlLine!, sectors: preset.sectors };

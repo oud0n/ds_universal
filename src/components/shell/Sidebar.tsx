@@ -22,7 +22,8 @@ export const Sidebar: React.FC<{
   current: Screen;
   onSelect: (s: Screen) => void;
   badges?: Partial<Record<Screen, number>>;
-}> = ({ items, bottom, current, onSelect, badges }) => {
+  desktop?: boolean;
+}> = ({ items, bottom, current, onSelect, badges, desktop = false }) => {
   const t = useT();
   const [collapsed, setCollapsed] = useState(loadCollapsed);
   const toggle = () => {
@@ -56,9 +57,15 @@ export const Sidebar: React.FC<{
   };
   return (
     <nav
-      className={`shrink-0 flex flex-col gap-1 p-2 bg-surface-1 border-r border-line-1 select-none pt-[max(0.5rem,env(safe-area-inset-top))] ${collapsed ? 'w-14' : 'w-48'}`}
+      className={`app-sidebar shrink-0 flex flex-col gap-1 p-2 bg-surface-1 border-r border-line-1 select-none pt-[max(0.5rem,env(safe-area-inset-top))] ${collapsed ? 'w-14' : 'w-48'}`}
       data-testid="sidebar"
+      data-collapsed={collapsed}
+      aria-label={t('画面', 'Screens')}
     >
+      {desktop && <div className="sidebar-brand" title="LapLoupe">
+        <img src={`${import.meta.env.BASE_URL}favicon-32.png`} width={28} height={28} alt="" />
+        {!collapsed && <span>LapLoupe</span>}
+      </div>}
       {items.map(item)}
       <div className="flex-1" />
       {bottom.map(item)}

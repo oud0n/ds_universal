@@ -3,6 +3,10 @@ const { Readable } = require('stream');
 const path = require('path');
 const fs = require('fs');
 const { setupUpdater } = require('./updater.cjs');
+const { pathToFileURL } = require('url');
+const { installUsbHost } = require('./usb-ipc.cjs');
+const usbHost = installUsbHost({ app, ipcMain, executable: path.join(__dirname, '../native-usb/target/debug',
+  process.platform === 'win32' ? 'laploupe-usb-host.exe' : 'laploupe-usb-host') });
 
 // GoPro 4K/60fps 等の H.265 (HEVC) ハードウェアアクセラレーション再生の有効化
 app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport');
@@ -41,6 +45,7 @@ let menuLang = null;
 const L = (ja, en) => ((menuLang ?? (/^ja/i.test(app.getLocale()) ? 'ja' : 'en')) === 'en' ? en : ja);
 function buildMenu() {
   const template = [
+    ...(process.platform === 'darwin' ? [{ role: 'appMenu', label: 'LapLoupe' }] : []),
     {
       label: L('ファイル', 'File'),
       submenu: [
@@ -65,12 +70,11 @@ function buildMenu() {
             }
           }
         },
-        { type: 'separator' },
-        {
+        ...(process.platform === 'darwin' ? [] : [{ type: 'separator' }, {
           label: L('終了', 'Quit'),
-          accelerator: process.platform === 'darwin' ? 'Cmd+Q' : 'Ctrl+Q',
+          accelerator: 'Ctrl+Q',
           click: () => app.quit()
-        }
+        }])
       ]
     },
     // 編集: Mac では、このメニューがないと入力欄やコンソールで ⌘C・⌘V・⌘A が効かない
@@ -146,6 +150,11 @@ function createWindow() {
       sandbox: false
     }
   });
+
+  usbHost.attachWindow(mainWindow, [
+    pathToFileURL(path.join(__dirname, '../dist/index.html')).href,
+    process.env.ELECTRON_START_URL || 'http://localhost:5173/'
+  ]);
 
   // 外部リンク (Buy Me a Coffee, GitHub等) をOS標準ブラウザで開く
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -421,15 +430,13 @@ const LAP_TEXT_NAMES = new Set(['laptimes.json', 'runs.json', 'corners.json', 'c
 // 保管場所の course/ (デジスパイスのコースフォルダにならった形。2026-10-24): コーナー (Corner/<フォルダ>.json と .bak)・
 // コース編集で直したコースの計測線 (ControlLine/*.cln)・セクター線 (Sector/*.sci)・その名前などの一覧 (courses.json)
 const COURSE_TEXT = /^course\/(Corner\/[a-z0-9_]+\.json(\.bak)?|ControlLine\/[^/\\]+\.cln|Sector\/[^/\\]+\.sci|courses\.json)$/;
-// 解析用のセッション (sessions/<名前>.lapsession.json。保存した比べ方。PLAN-18。2026-10-25)
-const SESSION_TEXT = /^sessions\/[^/\\]+\.lapsession\.json$/;
 // メーターの並び (PLAN-08)
 const OVERLAY_TEXT = /^overlays\/[^/\\]+\.overlay\.json$/;
 // CSV の形式の定義・計算式 (PLAN-36)
 const FORMAT_TEXT = /^formats\/([^/\\]+\.csvformat\.json|calc\.json)$/;
 const lapTextAllowed = (rel, full) => {
   const r = String(rel).replace(/\\/g, '/');
-  return LAP_TEXT_NAMES.has(path.basename(full)) || COURSE_TEXT.test(r) || SESSION_TEXT.test(r) || OVERLAY_TEXT.test(r) || FORMAT_TEXT.test(r);
+  return LAP_TEXT_NAMES.has(path.basename(full)) || COURSE_TEXT.test(r) || OVERLAY_TEXT.test(r) || FORMAT_TEXT.test(r);
 };
 const MAX_LAP_TEXT_BYTES = 20 * 1024 * 1024;
 /**
@@ -749,6 +756,13 @@ async function serveLapFile(request) {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === 'darwin') {
+    // Dock のアイコンは OS の外観に合わせる (Finder のアイコンは通常版)。
+    const updateDockIcon = () => app.dock.setIcon(path.join(__dirname, 'icons',
+      nativeTheme.shouldUseDarkColors ? 'icon-dark.png' : 'icon.png'));
+    updateDockIcon();
+    nativeTheme.on('updated', updateDockIcon);
+  }
   protocol.handle('lapfile', serveLapFile);
   createWindow();
   setupUpdater(() => mainWindow);

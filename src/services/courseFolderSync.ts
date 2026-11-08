@@ -14,6 +14,7 @@ import type { ControlLine, Sector } from '../types/telemetry';
 import { exportCln, parseCln, parseSci } from './pthParser';
 import type { RunStore } from './runStore';
 import { exportSci, type UserCircuitItem } from './userCircuitStorage';
+import { validCourseFolders } from '../engine/courseNames';
 
 export const COURSE_INDEX = 'course/courses.json';
 
@@ -23,6 +24,7 @@ export interface CourseIndexEntry {
   file: string;
   nameEn?: string;
   folder?: string;
+  folderAliases?: string[];
   finishLine?: ControlLine;
   updatedAt: string;
   deleted?: boolean;
@@ -88,6 +90,7 @@ export function itemFromCourseFiles(e: CourseIndexEntry, clnText: string, sciTex
     sectors,
     sources: { cln: 'edited' },
     ...(e.nameEn && e.folder ? { nameEn: e.nameEn, folder: e.folder } : {}),
+    ...(validCourseFolders(e.folderAliases).length ? { folderAliases: validCourseFolders(e.folderAliases) } : {}),
     ...(e.finishLine ? { finishLine: { ...e.finishLine, name: 'Finish Line' } } : {}),
     updatedAt: e.updatedAt
   };
@@ -96,12 +99,14 @@ export function itemFromCourseFiles(e: CourseIndexEntry, clnText: string, sciTex
 /** course/courses.json の書き換えは 1 つずつ */
 let indexWrites: Promise<unknown> = Promise.resolve();
 
-async function updateIndex(store: RunStore, change: (idx: CourseIndex) => void): Promise<void> {
+async function updateIndex(store: RunStore, change: (idx: CourseIndex) => void, beforeWrite?: () => void): Promise<void> {
   const run = async () => {
+    beforeWrite?.();
     // 読めないとき (無いのではなく) は書かない (ほかの端末のコースの行を消さないように)
     const text = await store.readTextStrict(COURSE_INDEX);
     const idx = parseCourseIndex(text);
     change(idx);
+    beforeWrite?.();
     await store.writeText(COURSE_INDEX, JSON.stringify(idx, null, 1));
   };
   const next = indexWrites.then(run, run);
@@ -110,13 +115,15 @@ async function updateIndex(store: RunStore, change: (idx: CourseIndex) => void):
 }
 
 /** コースを course/ に書く */
-export async function writeEditedCourse(store: RunStore, item: UserCircuitItem): Promise<void> {
+export async function writeEditedCourse(store: RunStore, item: UserCircuitItem, beforeWrite?: () => void): Promise<void> {
   // 一覧 (courses.json) が読めない (iCloud からまだ落ちてきていないなど) ときは、計測線・セクター線も書かない
   // (読めない一覧を空とみなして書くと、ほかの端末で直した新しいコースのファイルを、古い中身で上書きするため)
   await store.readTextStrict(COURSE_INDEX);
+  beforeWrite?.();
   const file = courseFileKey(item);
   const { cln, sci } = courseFiles(item);
   await store.writeText(`course/ControlLine/${file}.cln`, cln);
+  beforeWrite?.();
   await store.writeText(`course/Sector/${file}.sci`, sci);
   await updateIndex(store, idx => {
     // 同じ名前の前の行 (鍵が変わったとき) は、移した印にする (前のファイルが、読み込んだコースデータとして 2 つ目のコースにならないように)
@@ -128,13 +135,14 @@ export async function writeEditedCourse(store: RunStore, item: UserCircuitItem):
       file,
       ...(item.nameEn ? { nameEn: item.nameEn } : {}),
       ...(item.folder ? { folder: item.folder } : {}),
+      ...(item.folderAliases ? { folderAliases: validCourseFolders(item.folderAliases) } : {}),
       ...(item.finishLine ? { finishLine: { name: 'Finish Line', latA: item.finishLine.latA, lonA: item.finishLine.lonA, latB: item.finishLine.latB, lonB: item.finishLine.lonB } } : {}),
       updatedAt: item.updatedAt ?? new Date().toISOString(),
       deleted: undefined
     };
     if (!item.finishLine) delete idx.courses[file].finishLine;
     delete idx.courses[file].deleted;
-  });
+  }, beforeWrite);
 }
 
 /** 消したことを course/courses.json に書く (ほかの端末でも消す。ファイルは残す) */

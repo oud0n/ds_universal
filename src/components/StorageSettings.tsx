@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useSyncExternalStore } from 'react';
 import { FolderOpen, Smartphone } from 'lucide-react';
 import { useT } from '../utils/i18n';
 import { callNative, hasNative } from '../native/bridge';
 import type { StorageInfo } from '../native/contract';
-import { storageFolderChanged } from '../services/storageCourses';
+import { storageFolderChanged, trackStorageSelection, pickDesktopStorage } from '../services/storageCourses';
 import { myDeviceWord } from '../utils/device';
+import { getStorageReadRevision, isStorageSelectionPending, subscribeStorageRevision, StorageChangedError } from '../services/storageRevision';
 
 /** Android のアプリか (保管場所の言い方と、フォルダを選べるか) */
 const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
@@ -18,23 +19,36 @@ export const StorageSettings: React.FC = () => {
   const t = useT();
   const native = hasNative();
   const desktop = !!window.electronAPI?.laps;
+  const reads = useSyncExternalStore(subscribeStorageRevision, getStorageReadRevision);
   const [info, setInfo] = useState<StorageInfo | null>(null);
+  const [infoReads, setInfoReads] = useState<number | null>(null);
   const [folderPath, setFolderPath] = useState<string | null>(null);
   /** 結果の 1 行 (ok: うまくいった・text: そのまま出す文) */
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (native) callNative('system.storageInfo', {}).then(setInfo, () => setInfo(null));
-    else if (desktop) void window.electronAPI!.laps!.getFolder().then(setFolderPath, () => setFolderPath(null));
-  }, [native, desktop]);
+    if (isStorageSelectionPending()) return;
+    let active = true;
+    const current = () => active && reads === getStorageReadRevision() && !isStorageSelectionPending();
+    if (native) void callNative('system.storageInfo', {}).then(value => { if (current()) { setInfo(value); setInfoReads(reads); } }, () => { if (current()) setInfo(null); });
+    else if (desktop) void window.electronAPI!.laps!.getFolder().then(value => { if (current()) setFolderPath(value); }, () => { if (current()) setFolderPath(null); });
+    return () => { active = false; };
+  }, [native, desktop, reads]);
 
   const choose = async (kind: 'local' | 'folder') => {
+    if (kind === 'local' && info?.kind === 'local' && infoReads === getStorageReadRevision()) return;
     setBusy(true);
     setNote(null);
     try {
-      const next = kind === 'folder' ? await callNative('system.pickStorageFolder', {}) : await callNative('system.setStorageLocal', {});
-      setInfo(next);
+      if (kind === 'local') {
+        const started = getStorageReadRevision();
+        const before = await callNative('system.storageInfo', {});
+        if (started !== getStorageReadRevision() || isStorageSelectionPending()) throw new StorageChangedError();
+        if (before.kind === 'local') { setInfo(before); setInfoReads(started); return; }
+      }
+      const next = await trackStorageSelection(() => kind === 'folder' ? callNative('system.pickStorageFolder', {}) : callNative('system.setStorageLocal', {}));
+      setInfo(next); setInfoReads(getStorageReadRevision());
       if (next.kind === 'folder') {
         const r = await callNative('system.syncLapFiles', {});
         setNote(r.error
@@ -54,7 +68,7 @@ export const StorageSettings: React.FC = () => {
 
   const pickDesktop = async () => {
     try {
-      const p = await window.electronAPI?.laps?.pickFolder();
+      const p = await pickDesktopStorage(window.electronAPI?.laps);
       if (p) { setFolderPath(p); void storageFolderChanged(); }
     } catch (e) {
       setNote({ ok: false, text: t(`フォルダを選べませんでした: ${e instanceof Error ? e.message : String(e)}`, `Could not choose the folder: ${e instanceof Error ? e.message : String(e)}`) });
@@ -69,7 +83,7 @@ export const StorageSettings: React.FC = () => {
       <div className="rounded-xl bg-surface-1 border border-line-2 overflow-hidden divide-y divide-line-2">
         {native && info && (
           <>
-            <button onClick={() => void choose('local')} disabled={busy} className={btn(info.kind === 'local')}>
+            <button onClick={() => void choose('local')} disabled={busy || (info?.kind === 'local' && infoReads === reads)} className={btn(info.kind === 'local')} data-testid="storage-local">
               <Smartphone size={16} className="shrink-0" />{isAndroid ? t('この端末', 'This device') : t(`この ${myDeviceWord(false).ja}`, `This ${myDeviceWord(false).en}`)}
             </button>
             <button onClick={() => void choose('folder')} disabled={busy} className={btn(info.kind === 'folder')} data-testid="storage-pick-folder">

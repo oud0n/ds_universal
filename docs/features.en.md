@@ -13,7 +13,7 @@ What works as of 1.1.0 (2026-10-27). Changes per version are in the [release not
 | Load, analyze and convert logs; sync and export onboard video | ✓ | ✓ | ✓ |
 | DigSpice USB (download logs, settings) | Chrome / Edge (PC) | ✓ | − |
 | Bluetooth devices (DigSpice, RaceBox, GoPro, …) | Chrome (PC / Android) | ✓ | ✓ |
-| Run library (storage folder, lap time list, names and notes, saved comparisons) | − (comparisons as files) | ✓ | ✓ (iCloud Drive or other folders) |
+| Run library (storage folder, lap time list, names and notes) | − | ✓ | ✓ (iCloud Drive or other folders) |
 | Lap timer (measure while driving) | − | − | ✓ (phone GPS, DigSpice, …; record with the built-in camera) |
 | Meter layout editor | ✓ (PC) | ✓ | choose a layout only |
 
@@ -33,7 +33,6 @@ The iPhone / iPad app was submitted to App Store review on 2026-10-27. The Andro
 - **Filters**: filter the run list and the lap time list by car, tyre and weather (best laps and ranks are counted within the filter).
 - **Lap time list**: lap, sector and top-speed per lap; in driven order or by time; hide laps.
 - **Reference laps**: keep other people's runs (video-only ones too) separately and compare against them; they are not counted as your best. Video-only runs get laps by marking the timing line in the video.
-- **Saved comparisons**: save the Car 1–4 assignment of Analysis and reopen it later. If timing lines change, laps are matched again by their start time.
 - **Delete a run**: deletes only that run's files and records (other runs of the same day and shared videos are kept; goes to the Trash / Recently Deleted).
 
 ## 3. Lap timer (iPhone / iPad app)

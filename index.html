@@ -49,9 +49,10 @@
     </script>
     <meta name="application-name" content="LapLoupe" />
     <meta name="apple-mobile-web-app-title" content="LapLoupe" />
-    <!-- アプリアイコン (build/icon.svg / icon.png から作成)。ブラウザ版はサブパスで公開するので相対パスで参照する -->
-    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <!-- ブラウザ版はサブパスで公開するので相対パスで参照する -->
     <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="32x32" media="(prefers-color-scheme: dark)" href="./favicon-dark-32.png" />
+    <link rel="icon" type="image/svg+xml" sizes="any" href="./favicon.svg" />
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <!-- 紹介 (#root の中の main) は、JavaScript が動くときは出さない (アプリの画面が出るまでの一瞬に、白地の紹介が見えないように) -->
     <style>.js-on #root > main { display: none; }</style>

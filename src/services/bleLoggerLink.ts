@@ -16,8 +16,12 @@ import {
   LOCATION_AND_SPEED_CHARACTERISTIC,
   type BleFix
 } from './digspiceBleProtocol';
-import { NativeError } from '../native/bridge';
 import { tr } from '../utils/i18n';
+
+/** 通信層ごとのErrorクラスに依存せず、共通の符号で判定する。 */
+function hasErrorCode(error: unknown, code: string): boolean {
+  return error instanceof Error && 'code' in error && error.code === code;
+}
 
 /** 探すときの名前の頭 (デジスパイスIII・IV) */
 export const DIGSPICE_NAME_PREFIXES = ['DS3', 'DS4'];
@@ -296,7 +300,7 @@ export class BleLoggerLink {
         }
       );
     } catch (e) {
-      if (!(auto && e instanceof NativeError && e.code === 'not-found')) this.fail(e);
+      if (!(auto && hasErrorCode(e, 'not-found'))) this.fail(e);
       this.setLinkState('idle');
     }
   }
@@ -391,7 +395,7 @@ export class BleLoggerLink {
   }
 
   private fail(e: unknown): void {
-    const denied = e instanceof NativeError && e.code === 'permission-denied';
+    const denied = hasErrorCode(e, 'permission-denied');
     this.update({ error: messageOf(e), permissionDenied: denied });
   }
 
