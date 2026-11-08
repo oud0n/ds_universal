@@ -6,6 +6,7 @@
 
 ## Next build (not distributed)
 
+- The library asks before adding logs with overlapping times. Skipped logs stay on disk and can be added later. Detection requires UTC timestamps and complete laps.
 - Added an opt-in development path for USB communication through a Rust host. Distributed builds continue to use the existing transport.
 
 - Added host adapters for replacing BLE/USB transports, with synthetic comparisons against the existing paths. The application still uses its existing transports.

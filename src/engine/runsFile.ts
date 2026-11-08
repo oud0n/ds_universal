@@ -14,6 +14,7 @@ import {fault,EngineError} from './errors';
 
 import { isTempC, isWeather, type Weather } from './runWeather';
 import type { ClockSource } from './mediaClock';
+import type { LibraryDecision } from './libraryAdmission';
 import type { LapFileStore } from './lapIndex';
 import type { RunRepository as RunStore } from './ports';
 import { isRunVideoName, runStem } from './lapIndex';
@@ -57,6 +58,8 @@ export interface RunVideo {
 }
 
 export interface RunRow {
+  /** 時間の重なるログをライブラリに含めるか。ファイルが変われば再確認する。 */
+  libraryDecision?: LibraryDecision;
   /** 変わらない印 (初めて書くときに付ける。解析用のセッション・参考ラップが走行を指すのに使う) */
   id?: string;
   updatedAt: string;

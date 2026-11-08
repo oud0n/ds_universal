@@ -9,6 +9,7 @@ import { BarChart2, Bluetooth, ChevronRight, Cloud, EyeOff, FolderOpen, GitCompa
 import { circuitLabel, useT } from '../utils/i18n';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { formatLapTime } from '../services/liveLapTimer';
+import { LibraryAdmissionDialog } from '../components/LibraryAdmissionDialog';
 import { RunRow, fmtDate, useRuns } from '../components/RecentRuns';
 import { LapHistoryPanel } from '../components/LapHistoryPanel';
 import { runStem } from '../services/lapIndex';
@@ -80,7 +81,11 @@ const sameRunFile = (a: string, b: string) => {
 export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVideo, onAddAsCar2, car1Course = null, car1Run = null, openRuns = [], onPickFiles, onPickLaps, onOpenFile,onBeginOpen, busy, canTime = false }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
-  const { store, runs, error, noFolder, reload } = useRuns(active);
+  const { store, runs, allRuns, pendingRuns, excludedRuns, error, noFolder, reload } = useRuns(active);
+  const [reviewOpen, setReviewOpen] = useState(true);
+  const [showExcluded, setShowExcluded] = useState(false);
+  const [reconsiderKey, setReconsiderKey] = useState<string | null>(null);
+  useEffect(() => { setReviewOpen(true); setShowExcluded(false); setReconsiderKey(null); }, [store?.storageRevision]);
   const storageLabel = useStorageLabel(active);
   const [folder, setFolder] = useState<string | null>(null);
   /** 自分の走行か、参考ラップ (自分のではない走行。PLAN-31) か */
@@ -128,7 +133,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
   const startPick = () => {
     if (!store) return;
     setPicking(null);
-    void store.listAll().then(files => setPicking(videoRefCandidates(files, runs ?? [], videoRefs)), () => setPicking([]));
+    void store.listAll().then(files => setPicking(videoRefCandidates(files, allRuns ?? [], videoRefs)), () => setPicking([]));
   };
 
   const refCount = useMemo(() => (runs ?? []).filter(r => !!r.entry?.reference).length, [runs]) + videoRefs.length;
@@ -162,6 +167,10 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
   // 下の「走行」タブをもう一度押したら、開いている走行の詳細を閉じて一覧に戻る (2026-10-28)。
   // フックなので、下の「隠れているときは何も出さない」より前に置く (後ろに置くと、タブを移ったとき React が落ちて画面が真っ黒になった。BUG-40)
   useEffect(() => navStore.onReselect(s => { if (s === 'library') setSelectedKey(null); }), []);
+
+  const admissionRun = reconsiderKey
+    ? excludedRuns.find(r => `${r.folder}/${r.file}` === reconsiderKey)
+    : reviewOpen ? pendingRuns[0] : undefined;
 
   if (!active) return null;
 
@@ -198,6 +207,16 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
           <ChevronRight size={14} className="text-slate-500 shrink-0" />
         </button>
       )}
+      {pendingRuns.length > 0 && <button data-testid="library-review-pending" onClick={() => { setReconsiderKey(null); setReviewOpen(true); }} className="mx-3 mt-2 px-3 py-2 rounded border border-line-2 text-sm text-left">
+        {t(`追加の確認待ち ${pendingRuns.length}件 · 確認する`, `${pendingRuns.length} log(s) awaiting confirmation · Review`)}
+      </button>}
+      {excludedRuns.length > 0 && <div className="mx-3 mt-2 text-xs">
+        <button data-testid="library-review-excluded" onClick={() => setShowExcluded(v => !v)} className="px-3 py-2 text-slate-400">{t(`追加しなかったログ ${excludedRuns.length}件`, `${excludedRuns.length} skipped log(s)`)}</button>
+        {showExcluded && <ul className="max-h-40 overflow-y-auto space-y-1">{excludedRuns.map(run => <li key={`${run.folder}/${run.file}`} className="flex gap-2 items-center px-3 py-1">
+          <span className="break-all flex-1 min-w-0">{run.file}</span>
+          <button onClick={() => setReconsiderKey(`${run.folder}/${run.file}`)} className="shrink-0 px-2 py-1 rounded border border-line-2">{t('追加する', 'Add')}</button>
+        </li>)}</ul>}
+      </div>}
       {/* 最近消した走行 (アプリのゴミ箱。あるときだけ) */}
       {canTrash && trashed.length > 0 && (
         <button
@@ -402,7 +421,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
       onDelete={canDelete ? () => {
         const item = selected;
         setDeleting({ item, plan: null });
-        void store.listAll().then(files => setDeleting(d => (d && d.item === item ? { ...d, plan: planRunDelete(item, files, runs ?? []) } : d)),
+        void store.listAll().then(files => setDeleting(d => (d && d.item === item ? { ...d, plan: planRunDelete(item, files, allRuns ?? []) } : d)),
           e => setDeleting(d => (d ? { ...d, error: e instanceof Error ? e.message : String(e) } : d)));
       } : undefined}
       // 解析で開いている走行と、ラップタイマーがいま書いている走行は消せない
@@ -422,6 +441,12 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
           {detail || <p className="text-xs text-slate-500 p-6 text-center">{t('走行を選ぶと、周の一覧と動画が出ます。', 'Select a run to see its laps and videos.')}</p>}
         </div>
       )}
+      {store && admissionRun && !busy && !historyOpen && !deleting && !trashOpen && picking === false && !marking && !comparing && <LibraryAdmissionDialog
+        key={`${store.storageRevision}/${admissionRun.folder}/${admissionRun.file}/${admissionRun.libraryAdmission?.size}/${admissionRun.libraryAdmission?.mtimeMs}`}
+        store={store} run={admissionRun}
+        onClose={() => { setReviewOpen(false); setReconsiderKey(null); }}
+        onSaved={() => { setReviewOpen(false); setReconsiderKey(null); reload(); }}
+      />}
       {historyOpen && <LapHistoryPanel onClose={() => setHistoryOpen(false)} onBeginOpen={onBeginOpen} onOpenRun={(file, run,request) => {
         setHistoryOpen(false);
         // 走行の一覧にある走行なら、走行の画面から開くのと同じに開く (Car 1 にする・動画と同期もそろえる)

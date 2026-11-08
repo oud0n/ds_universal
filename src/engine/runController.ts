@@ -24,6 +24,7 @@ import type { VideoSyncManager } from './videoSyncManager';
 import type { SyncPinStore } from './syncPinStore';
 import { createSyncPin, type SyncPin } from './videoSyncPinManager';
 import { StorageChangedError, type StorageContext } from './storageContext';
+import { libraryDecision } from './libraryAdmission';
 
 import type { RunItem } from './runRecords';
 export type { RunItem } from './runRecords';
@@ -87,7 +88,7 @@ function startFromName(file: string): number | null {
 }
 
 /** 保管場所の全部の走行 (新しい順)。走行は <サーキットのフォルダ>/<日付>/ か <サーキットのフォルダ>/ に置く。動画は走行と同じフォルダのものだけ */
-async function listRuns(store: RunStore, onProgress?: (folder: string) => void, strict = false): Promise<RunItem[]> {
+async function listRuns(store: RunStore, onProgress?: (folder: string) => void, strict = false, includeUnconfirmed = false): Promise<RunItem[]> {
   const all = await store.listAll();
   // 周の控えを作るときも、今引いたファイルの一覧を使う (iCloud の置き場所では、一覧を引くのに時間がかかるので 2 回引かない)
   const listed = {storageRevision:store.storageRevision,list:async()=>all,
@@ -99,6 +100,7 @@ async function listRuns(store: RunStore, onProgress?: (folder: string) => void, 
   // 走行の基準のファイル (.nmea、無ければ .bon4。同じ名前の 2 つは 1 つの走行)
   const runsByFolder = groupRunsByFolder(all, host.formats?.() ?? []);
   const remoteOnly = new Set(all.filter(x => x.local === false).map(x => x.path));
+  const attributes = new Map(all.map(file => [file.path, file]));
   for (const x of all) {
     const dir = dirName(x.path);
     if (isRunVideoName(baseName(x.path))) {
@@ -110,7 +112,7 @@ async function listRuns(store: RunStore, onProgress?: (folder: string) => void, 
   for (const f of folders) {
     // iCloud がぶつかったときに作った写し (runs 2.json など) も読む
     noteRunsConflictCopies(f.folder, all.filter(x => dirName(x.path) === f.folder && isRunsConflictCopy(baseName(x.path))).map(x => x.path), store.storageRevision ?? 0);
-    const runs = await readRunsFile(store, f.folder, strict);
+    const runs = await readRunsFile(store, f.folder, true);
     const hidden = new Set((f.index?.hidden ?? []).map(h => lapKey(h.file, h.part, h.n)));
     // 控えにある走行と、フォルダにある走行 (同じ走行は 1 つに。控えの古い .bon4 の名前より、今の基準のファイルを使う)
     const byStem = new Map<string, string>();
@@ -133,8 +135,14 @@ async function listRuns(store: RunStore, onProgress?: (folder: string) => void, 
       const laps = allLaps.filter(l => !l.hidden);
       // 行の名前は「日付のフォルダ/拡張子なしの名前」(.nmea と .bon4 は 1 行)。日付のフォルダへ移す前の、名前だけの行も引く
       const entry = findRunRow(runs, file);
+      const source = attributes.get(`${f.folder}/${file}`);
+      const admission = f.libraryAdmissions?.[file] ?? (source ? {
+        status: libraryDecision(file, source, entry?.libraryDecision) === false ? 'excluded' as const : 'included' as const,
+        size: source.size, mtimeMs: source.mtimeMs, overlaps: []
+      } : undefined);
       const videos = entry?.videos?.map(v => v.name) ?? rec?.videos ?? [];
       const listedItem:RunItem={
+        ...(admission ? { libraryAdmission: admission } : {}),
         storageRevision: store.storageRevision,
         folder: f.folder,
         file,
@@ -151,10 +159,33 @@ async function listRuns(store: RunStore, onProgress?: (folder: string) => void, 
       };
       stampRunItem(store,listedItem);
       if(!strict)unpreparedItems.add(listedItem);
-      listedItem.entry=getRunItemEntry(store,listedItem);out.push(listedItem);
+      listedItem.entry=getRunItemEntry(store,listedItem);
+      if (includeUnconfirmed || !admission || admission.status === 'included') out.push(listedItem);
     }
   }
   return out.sort((a, b) => (b.startMs ?? 0) - (a.startMs ?? 0) || b.file.localeCompare(a.file));
+}
+
+/** 収録時間の重なりを確認した結果を保存する。元ログの削除や移動はしない。 */
+async function setLibraryDecision(store: RunStore, item: RunItem, include: boolean): Promise<void> {
+  const admission = item.libraryAdmission;
+  if (!admission || typeof include !== 'boolean') throw fault('library.invalid-choice', { ja: '一覧を読み直してから選んでください。', en: 'Reload the library before choosing.' });
+  const reads = host.storage.getStorageReadRevision();
+  const check = () => {
+    if (disposed || reads !== host.storage.getStorageReadRevision()) throw new StorageChangedError();
+    assertRunItemCurrent(item);
+  };
+  check();
+  const source = (await store.listAll()).find(file => file.path === `${item.folder}/${item.file}`);
+  check();
+  if (!source || source.size !== admission.size || source.mtimeMs !== admission.mtimeMs) throw fault('library.source-changed', { ja: 'ファイルが変わりました。一覧を読み直してください。', en: 'The file changed. Reload the library.' });
+  const row = await updateRun(store, item.folder, item.file, previous => {
+    check();
+    return { ...previous, libraryDecision: { file: item.file, size: source.size, mtimeMs: source.mtimeMs, include } };
+  });
+  check();
+  for (const related of relatedRunItems(store, item)) related.entry = withPendingMetadata(store, related, row);
+  notifyRunsChanged();
 }
 
 const totalBytes = (files: RunFileInfo[]) => files.reduce((s, f) => s + f.size, 0);
@@ -982,7 +1013,7 @@ subscriptions.push(host.runs.subscribeRowRemoved(({store,folder,file})=>{
  for(const listener of openRunListeners)listener();
 }));
 const dispose=()=>{if(disposed)return;disposed=true;for(const unsubscribe of subscriptions.splice(0))unsubscribe();subscribed=false;abandonOpenRuns();openRunListeners.clear();};
-const methods={stampRunItem,baseName,startFromName,listRuns,totalBytes,videoCandidates,assertRunItemCurrent,prepareRunItemMetadata,registerRunSessions,scheduleRunSave,companionSessionsOfVideo,flushOpenRunsStrict,flushOpenRuns,closeOpenRun,abandonOpenRuns,attachRunVideos,companionPaths,companionRuns,companionRunMatches,currentRunMatches,releaseClosedRunVideos,attachCompanionVideos,dropCompanion,addVideoToOpenRun,assertRunSyncTarget,getOpenRun,onOpenRun,openRunOverlayLayout,setOpenRunOverlayLayout,getRunItemEntry,setRunMeta,setRunLapHidden,getOpenRunItem};
+const methods={stampRunItem,baseName,startFromName,listRuns,setLibraryDecision,totalBytes,videoCandidates,assertRunItemCurrent,prepareRunItemMetadata,registerRunSessions,scheduleRunSave,companionSessionsOfVideo,flushOpenRunsStrict,flushOpenRuns,closeOpenRun,abandonOpenRuns,attachRunVideos,companionPaths,companionRuns,companionRunMatches,currentRunMatches,releaseClosedRunVideos,attachCompanionVideos,dropCompanion,addVideoToOpenRun,assertRunSyncTarget,getOpenRun,onOpenRun,openRunOverlayLayout,setOpenRunOverlayLayout,getRunItemEntry,setRunMeta,setRunLapHidden,getOpenRunItem};
 return {dispose,...Object.fromEntries(Object.entries(methods).map(([name,method])=>[name,(...args:unknown[])=>{if(disposed)throw new EngineError('controller.closed',{ja:'保存担当は終了しました。',en:'The run controller is closed.'});return (method as (...args:unknown[])=>unknown)(...args); }])) as typeof methods};
 }
 export type RunController = ReturnType<typeof createRunController>;

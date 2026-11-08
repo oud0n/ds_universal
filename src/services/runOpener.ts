@@ -15,6 +15,7 @@ export const runController=createRunController({formats: () => currentCsvFormats
 export const baseName: typeof runController.baseName = withEngineErrors(runController.baseName);
 export const startFromName: typeof runController.startFromName = withEngineErrors(runController.startFromName);
 export const listRuns: typeof runController.listRuns = withEngineErrors(runController.listRuns);
+export const setLibraryDecision: typeof runController.setLibraryDecision = withEngineErrors(runController.setLibraryDecision);
 export const totalBytes: typeof runController.totalBytes = withEngineErrors(runController.totalBytes);
 export const videoCandidates: typeof runController.videoCandidates = withEngineErrors(runController.videoCandidates);
 export const assertRunItemCurrent: typeof runController.assertRunItemCurrent = withEngineErrors(runController.assertRunItemCurrent);

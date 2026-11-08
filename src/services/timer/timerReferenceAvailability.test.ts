@@ -1,5 +1,5 @@
 import { afterEach, expect, expectTypeOf, it, vi } from 'vitest';
-import type { LapReferenceChoice, LapReferenceSource } from './lapReferences';
+import type { LapReferenceChoice, LapReferenceContext, LapReferenceSource } from './lapReferences';
 
 const source: LapReferenceSource = {
   id: 'test-choice', label: ['選択', 'Choice'],
@@ -8,11 +8,14 @@ const source: LapReferenceSource = {
     listeners.add(listener);
     return () => { listeners.delete(listener); };
   },
-  load: () => load()
+  load: ctx => load(ctx)
 };
 const listeners = new Set<() => void>();
 let available = true;
-const load = vi.fn<() => Promise<LapReferenceChoice | null>>();
+let failMetadata = false, strictMetadataReads = 0;
+const load = vi.fn<(ctx: LapReferenceContext) => Promise<LapReferenceChoice | null>>();
+const metadataTexts = new Map<string, string>();
+let metadataInventory: Array<{path: string; size: number; mtimeMs: number; local: boolean}> = [], indexText: string | null = null;
 vi.mock('../../addons', () => ({ addons: { get lapReferences() { return [source]; } } }));
 vi.mock('../../native/bridge', () => ({
   hasNative: () => true, callNative: async () => ({}), onNative: () => () => {}, toBase64: () => ''
@@ -20,13 +23,15 @@ vi.mock('../../native/bridge', () => ({
 vi.mock('../runStore', async importOriginal => ({
   ...await importOriginal<object>(),
   getRunStore: async () => ({
+    listAll: async () => metadataInventory,
+    readTextStrict: async (path: string) => { strictMetadataReads++; if (failMetadata) throw Error('metadata offline'); return metadataTexts.get(path) ?? null; },
     readText: async (path: string) => path.endsWith('laptimes.json')
-      ? JSON.stringify({ version: 1, files: {}, hidden: [] }) : null
+      ? indexText ?? JSON.stringify({ version: 1, files: {}, hidden: [] }) : metadataTexts.get(path) ?? null
   })
 }));
 const { TimerRuntime } = await import('./timerRuntime');
 const { CIRCUIT_PRESETS } = await import('../circuitDatabase');
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => { failMetadata = false; metadataTexts.clear(); metadataInventory = []; indexText = null; vi.unstubAllGlobals(); });
 
 it('読み取り途中・適用後とも、選択が使えなくなったら基準とセクターを外す', async () => {
   vi.stubGlobal('window', new EventTarget());
@@ -123,4 +128,40 @@ it('利用可否の判定と変更の通知は組で指定する', () => {
   expectTypeOf<Fixed>().toExtend<LapReferenceSource>();
   expectTypeOf<Fixed & { available(): boolean }>().not.toExtend<LapReferenceSource>();
   expectTypeOf<Fixed & { subscribeAvailability(listener: () => void): () => void }>().not.toExtend<LapReferenceSource>();
+});
+
+
+it('選択メタデータが読めない間は比較基準を読み込まない', async () => {
+  vi.stubGlobal('window', new EventTarget()); vi.stubGlobal('document', new EventTarget());
+  vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} });
+  failMetadata = true; strictMetadataReads = 0; available = true; load.mockReset();
+  const rt = new TimerRuntime({ replayLogs: () => [], phoneMessages: () => ({ unavailable: '', denied: '' }) }, 'replay');
+  rt.start();
+  try {
+    rt.chooseCourse(CIRCUIT_PRESETS.find(c => c.controlLine)!); rt.setReference(source.id);
+    await vi.waitFor(() => expect(strictMetadataReads).toBeGreaterThan(0));
+    await new Promise(done => setTimeout(done, 0));
+    expect(load).not.toHaveBeenCalled(); expect(rt.getSnapshot().pastBest).toBeNull();
+  } finally { rt.dispose(); }
+});
+
+
+it('ライブラリを先に開かなくても、競合した控えの新しい除外を使う', async () => {
+  vi.stubGlobal('window', new EventTarget()); vi.stubGlobal('document', new EventTarget());
+  vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} });
+  available = true; load.mockReset(); load.mockResolvedValue(null);
+  const course = CIRCUIT_PRESETS.find(c => c.id === 'sodegaura')!, file = 'skip.nmea', startMs = 1_800_000_000_000;
+  indexText = JSON.stringify({ version: 1, files: { [file]: { size: 100, mtimeMs: 1, startMs, laps: [{ n: 1, time: 90, startMs, sectors: [], topSpeed: 100 }] } }, hidden: [] });
+  const saved = (include: boolean, updatedAt: string) => JSON.stringify({ version: 2, runs: { skip: { id: 'same', updatedAt, libraryDecision: { file, size: 100, mtimeMs: 1, include } } } });
+  metadataTexts.set('sodegaura/runs.json', saved(true, '2026-11-01'));
+  metadataTexts.set('sodegaura/runs 2.json', saved(false, '2026-11-02'));
+  metadataInventory = [{ path: 'sodegaura/skip.nmea', size: 100, mtimeMs: 1, local: true }, { path: 'sodegaura/runs 2.json', size: 100, mtimeMs: 1, local: true }];
+  const rt = new TimerRuntime({ replayLogs: () => [], phoneMessages: () => ({ unavailable: '', denied: '' }) }, 'replay');
+  rt.start();
+  try {
+    rt.chooseCourse(course); rt.setReference(source.id);
+    await vi.waitFor(() => expect(load).toHaveBeenCalledOnce());
+    expect(load.mock.calls[0][0].ownLaps).toEqual([]);
+    expect(rt.getSnapshot().pastBest).toBeNull();
+  } finally { rt.dispose(); }
 });

@@ -21,7 +21,26 @@ const assigned = slot => p.waitFor(`[...document.querySelectorAll('[role=dialog]
 try {
  await p.viewport(1280,800,false);
  await p.send('Page.addScriptToEvaluateOnNewDocument',{source:`
- window.storeFiles = new Map(); window.storeWrites=[]; window.storeReads=[]; window.failWrites=false;
+ // この試験の別名ログはすべて公開デモの意図的な複製。追加確認の試験はlibrary-admission.mjsで行う。
+ class SyntheticFiles extends Map {
+  approved(folder, bytes) {
+   let saved;try{saved=bytes?JSON.parse(new TextDecoder().decode(bytes)):{version:2,runs:{}};}catch{return bytes;}
+   if(saved.version!==2||!saved.runs)return bytes;
+   for(const [path,data] of this)if(path.startsWith(folder+'/')&&path.endsWith('.nmea')){
+    const file=path.slice(folder.length+1),key=file.slice(0,-5);
+    const row=saved.runs[key]??{updatedAt:''};
+    saved.runs[key]={...row,libraryDecision:{file,size:data.length,mtimeMs:123,include:true}};
+   }
+   return new TextEncoder().encode(JSON.stringify(saved));
+  }
+  set(path,bytes){
+   if(path.endsWith('/runs.json'))bytes=this.approved(path.slice(0,-10),bytes);
+   super.set(path,bytes);
+   if(path.endsWith('.nmea')){const folder=path.split('/')[0],meta=folder+'/runs.json';super.set(meta,this.approved(folder,this.get(meta)));}
+   return this;
+  }
+ }
+ window.storeFiles = new SyntheticFiles(); window.storeWrites=[]; window.storeReads=[]; window.failWrites=false;
  window.electronAPI={onOpenFiles:callback=>{window.menuOpenFiles=callback;return()=>{window.menuOpenFiles=null}},readFileBuffer:async path=>{if(window.holdMenuRead&&path.endsWith('menu-old.nmea'))await new Promise(resolve=>window.finishMenuRead=resolve);return {success:true,name:path.slice(path.lastIndexOf('/')+1),dataArray:storeFiles.get('sodegaura/demo.nmea')};},laps:{getFolder:async()=>{if(window.holdFolder)await new Promise(resolve=>(window.folderWaiters??=[]).push(resolve));return window.folderRoot??'/synthetic/A'},pickFolder:async()=>null,
  list:async()=>({success:true,files:[...storeFiles].map(([path,b])=>({path,size:b.byteLength,mtimeMs:123,local:true}))}),
  read:async path=>{storeReads.push(path);if(window.holdHistoryRead===path)await new Promise(resolve=>window.resumeHistoryRead=resolve);if(window.holdLegacyRead===path && window.__laploupe?.openingRun?.())await new Promise(resolve=>window.resumeLegacyRead=resolve);if(window.holdIndexRead===path)await new Promise(resolve=>window.resumeIndexRead=resolve);if(window.readDelayMs)await new Promise(r=>setTimeout(r,window.readDelayMs));const b=storeFiles.get(path);return b?{success:true,data:b}:{success:false,error:'not found'}},
@@ -350,13 +369,12 @@ try {
   saved.runs['cold-metadata']={updatedAt:'',parts:{'1':{clockOffsetSec:6.25}}};storeFiles.set(path,new TextEncoder().encode(JSON.stringify(saved)));
   window.coldMetadataOriginal=new TextDecoder().decode(storeFiles.get(path));window.failListedRunsMetadata=true;
   const store=await(await import('/src/services/runStore.ts')).getRunStore();
-  window.coldMetadataRow=(await testRunOpener.listRuns(store)).find(row=>row.file==='cold-metadata.nmea');
+  window.coldMetadataListFailed=false;try{await testRunOpener.listRuns(store);}catch{window.coldMetadataListFailed=true;}
  })()`);
- assert.equal(await p.ev('window.coldMetadataRow.entry'),null,'tolerant listing could not read the row');
- await p.ev('window.__laploupe.openStoredRun(window.coldMetadataRow,false)');
+ assert.equal(await p.ev('window.coldMetadataListFailed'),true,'unread admission metadata blocks the list');
  assert.equal(await p.ev("window.__laploupe.sessions.some(s=>s.fileName==='cold-metadata.nmea')"),false,'unread metadata cannot acquire a save owner');
  assert.equal(await p.ev("new TextDecoder().decode(storeFiles.get('sodegaura/runs.json'))"),await p.ev('window.coldMetadataOriginal'));
- await p.ev('window.failListedRunsMetadata=false;window.__laploupe.openStoredRun(window.coldMetadataRow,false)');
+ await p.ev(`(async()=>{window.failListedRunsMetadata=false;const store=await(await import('/src/services/runStore.ts')).getRunStore();window.coldMetadataRow=(await testRunOpener.listRuns(store)).find(row=>row.file==='cold-metadata.nmea');window.__laploupe.openStoredRun(window.coldMetadataRow,false);})()`);
  await p.waitFor("window.__laploupe.sessions.some(s=>s.fileName==='cold-metadata.nmea')");
  assert.equal(await p.ev("window.__laploupe.analysisSnapshot().sessions.find(s=>s.fileName==='cold-metadata.nmea').clockOffsetSec"),6.25,'retry restores the saved log correction');
  await p.ev('testRunOpener.flushOpenRunsStrict()');

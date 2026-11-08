@@ -454,3 +454,21 @@ it('invalidates superseded, storage-cancelled, manually corrected and closed pro
  const storage=a.session.beginProjectImport();await a.storage.trackStorageSelection(()=>null);expect(storage()).toBe(false);
  const closing=a.session.beginProjectImport();await a.close();expect(closing()).toBe(false);
 });
+
+
+describe('library decision lifetime', () => {
+ for (const mode of ['folder', 'removed', 'disposed']) it(`rejects a choice after ${mode} while listing`, async () => {
+  const a = runtime(), row = item(), entered = deferred<void>(), release = deferred<void>();
+  row.libraryAdmission = { status: 'pending', size: 1, mtimeMs: 1, overlaps: [] };
+  a.controller.stampRunItem(a.repo.store, row);
+  a.repo.store.listAll = async () => { entered.resolve(); await release.promise; return [{ path: 'course/run.nmea', size: 1, mtimeMs: 1, local: true }]; };
+  const saving = a.controller.setLibraryDecision(a.repo.store, row, false);
+  const result = expect(saving).rejects.toThrow();
+  await entered.promise;
+  if (mode === 'folder') a.storage.invalidateStorageRevision();
+  else if (mode === 'removed') await a.runs.removeRunRow(a.repo.store, row.folder, row.file);
+  else a.controller.dispose();
+  release.resolve(); await result;
+  expect(a.repo.text.has('course/runs.json')).toBe(false);
+ });
+});
