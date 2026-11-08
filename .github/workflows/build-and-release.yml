@@ -34,15 +34,15 @@ jobs:
             artifact_pattern: |
               release/*.exe
               release/*.zip
-              release/*.blockmap
-              release/*.yml
+              release/*.exe.blockmap
+              release/latest.yml
           - os: macos-latest
             target_cmd: npm run dist:mac
             artifact_pattern: |
               release/*.dmg
               release/*.zip
-              release/*.blockmap
-              release/*.yml
+              release/*.zip.blockmap
+              release/latest-mac.yml
 
     steps:
       - name: Checkout code
@@ -176,8 +176,8 @@ jobs:
             - Mac (Apple Silicon): `…-arm64.dmg`
             - Windows: `…-Setup-….exe` (インストーラー / installer)、または `…-win.zip` (入れずに使う形 / portable)
 
-            `*.yml`・`*.blockmap` は通常版の自動更新用です。betaは自動更新しないため、手動でdmg/exe/zipを入れてください。
-            The `*.yml` and `*.blockmap` files are update metadata. This beta does not update automatically; install a dmg/exe/zip manually.
+            `*.yml`・`*.blockmap` は自動更新用のメタデータです。手動インストールでは不要です。
+            The `*.yml` and `*.blockmap` files are automatic update metadata and are not needed for manual installation.
 
             変わった所 / What's new: [日本語](https://github.com/oud0n/ds_universal/blob/main/docs/release-notes.md) / [English](https://github.com/oud0n/ds_universal/blob/main/docs/release-notes.en.md)
           generate_release_notes: true
