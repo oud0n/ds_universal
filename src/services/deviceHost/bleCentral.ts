@@ -183,6 +183,8 @@ export class HostBleCentral implements BleCentral {
         s.handlers.onNotify(items);
       }
     } catch (error) {
+      // 終端通知や利用者の明示終了で外れた後の例外を、二度目の切断として返さない。
+      if (this.links.get(deviceId) !== s) return;
       this.detach(deviceId, s);
       const closing = this.closeLink(deviceId, s, true);
       try { s.handlers.onState('disconnected', hostError(error, this.t)); }

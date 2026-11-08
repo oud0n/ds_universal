@@ -397,3 +397,28 @@ describe('探索終了が受付応答より早い場合', () => {
     expect(ended).toHaveBeenCalledTimes(1); expect(host.listeners.size).toBe(0);
   });
 });
+
+describe('利用者の通知処理が例外を投げる場合', () => {
+  it('終端onStateが例外を投げても、同じ切断を二度通知しない', async () => {
+    const host = new FakeHost(), central = new HostBleCentral(host), states: string[] = [];
+    const session = await connected(host, central, { onNotify() {}, onState(state) {
+      states.push(state);
+      if (state === 'disconnected') throw new Error('consumer failed');
+    } });
+    host.emit({ type: 'ble.state', session, epoch: 1, state: 'disconnected' });
+    await central.disconnect('one');
+    expect(states).toEqual(['connected', 'disconnected']);
+    expect(host.calls.filter(c => c.method === 'ble.disconnect')).toHaveLength(1);
+    expect(host.listeners.size).toBe(0);
+  });
+
+  it('onNotifyが明示終了してから例外を投げても、終端通知を追加しない', async () => {
+    const host = new FakeHost(), central = new HostBleCentral(host), states: string[] = [];
+    let closing: Promise<void> | undefined;
+    const session = await connected(host, central, { onNotify() {
+      closing = central.disconnect('one'); throw new Error('consumer failed after close');
+    }, onState: state => states.push(state) });
+    notify(host, session, 1); await closing;
+    expect(states).toEqual(['connected']); expect(host.listeners.size).toBe(0);
+  });
+});
