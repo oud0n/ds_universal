@@ -398,7 +398,8 @@ export class TimerRuntime {
       const index = parseLapIndex(await store.readText(`${folder}/${LAP_INDEX_FILE}`).catch(() => null));
       if (!index || token !== this.pastBestToken) return;
       if (!course.controlLine) return;
-      const ctx = makeReferenceContext(store, folder, { name: course.name, controlLine: course.controlLine, finishLine: course.finishLine, sectors: course.sectors ?? [] }, car, index, runs);
+      const currentFiles = new Map(files.filter(file => file.path.startsWith(folder + '/')).map(file => [file.path.slice(folder.length + 1), file]));
+      const ctx = makeReferenceContext(store, folder, { name: course.name, controlLine: course.controlLine, finishLine: course.finishLine, sectors: course.sectors ?? [] }, car, index, runs, currentFiles);
       const source = availableReferences().find(r => r.id === this.snap.refId);
       if (!source) { this.updateReferences(); return; }
       const choice = await source.load(ctx).catch(() => null);

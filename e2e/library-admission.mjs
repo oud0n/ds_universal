@@ -13,11 +13,11 @@ const choose = text => p.ev(`(()=>{const buttons=[...${dialog}.querySelectorAll(
 try {
  await p.send('Page.addScriptToEvaluateOnNewDocument', {source: `
  window.storeFiles=new Map();window.storeWrites=[];window.failWrites=false;
- window.electronAPI={laps:{getFolder:async()=>'/synthetic/admission',pickFolder:async()=>null,
- list:async()=>({success:true,files:[...storeFiles].map(([path,b])=>({path,size:b.length,mtimeMs:1,local:true}))}),
+ window.electronAPI={laps:{remove:async()=>{throw Error('preview must not delete files')},getFolder:async()=>'/synthetic/admission',pickFolder:async()=>null,
+ list:async()=>{if(window.holdListing)await new Promise(resolve=>(window.finishListing??=[]).push(resolve));return {success:true,files:[...storeFiles].map(([path,b])=>({path,size:b.length,mtimeMs:1,local:true}))}},
  read:async path=>({success:true,data:storeFiles.get(path)}),
  readText:async path=>({success:true,text:storeFiles.has(path)?new TextDecoder().decode(storeFiles.get(path)):null}),
- writeText:async(path,text)=>{if(window.failWrites)return {success:false,error:'synthetic write failure'};storeWrites.push(path);storeFiles.set(path,new TextEncoder().encode(text));return {success:true}}
+ writeText:async(path,text)=>{if(window.failWrites)return {success:false,error:'synthetic write failure'};storeWrites.push(path);storeFiles.set(path,new TextEncoder().encode(text));if(window.holdReloadAfterWrite)window.holdListing=true;return {success:true}}
  }};
  `});
  await p.goto(url.href);
@@ -39,10 +39,31 @@ try {
  await p.waitFor("document.querySelector('[data-testid=library-review-excluded]')");
  assert.equal(await p.ev(`!!${dialog}`),false);
  await p.click('library-review-excluded'); await p.clickText('Add');
- await p.waitFor(dialog); await choose('Add');
+ await p.waitFor(dialog); await p.ev('window.holdReloadAfterWrite=true'); await choose('Add');
+ await p.waitFor(`!${dialog}`);
+ await p.waitFor('window.finishListing?.length>0');
+ await p.ev('window.holdReloadAfterWrite=false;window.holdListing=false;window.finishListing.splice(0).forEach(resolve=>resolve())');
  await p.waitFor("document.querySelectorAll('[data-testid=run-row]').length===2");
  await p.waitFor(`!${dialog}`);
  assert.ok(await p.ev("Object.values(JSON.parse(new TextDecoder().decode(storeFiles.get('sodegaura/runs.json'))).runs).some(r=>r.libraryDecision?.include===true)"));
+ // 確認待ち・除外のログも、動画を消す判定では所有者として保護する。
+ await p.ev(`(async()=>{
+  const data=storeFiles.get('sodegaura/a.nmea');storeFiles.set('sodegaura/a_2.bnx4',data);
+  storeFiles.set('sodegaura/a_2.mov',new Uint8Array(8));storeFiles.set('sodegaura/shared.mp4',new Uint8Array(8));
+  const ix=JSON.parse(new TextDecoder().decode(storeFiles.get('sodegaura/laptimes.json')));ix.files['a_2.bnx4']={...ix.files['a.nmea']};storeFiles.set('sodegaura/laptimes.json',new TextEncoder().encode(JSON.stringify(ix)));
+  const meta=JSON.parse(new TextDecoder().decode(storeFiles.get('sodegaura/runs.json')));
+  meta.runs.a={updatedAt:'',name:'Delete target',videos:[{name:'shared.mp4'}]};
+  meta.runs['a_2.bnx4']={updatedAt:'',videos:[{name:'shared.mp4'}],libraryDecision:{file:'a_2.bnx4',size:data.length,mtimeMs:1,include:false}};
+  storeFiles.set('sodegaura/runs.json',new TextEncoder().encode(JSON.stringify(meta)));
+  (await import('/src/services/runsChanged.ts')).notifyRunsChanged();
+ })()`);
+ await p.waitFor("[...document.querySelectorAll('[data-testid=run-row]')].some(r=>r.textContent.includes('Delete target'))");
+ await p.ev("[...document.querySelectorAll('[data-testid=run-row]')].find(r=>r.textContent.includes('Delete target')).click()");
+ await p.click('run-delete');
+ await p.waitFor("document.querySelector('[data-testid=run-delete-keep]')?.textContent.includes('shared.mp4')");
+ assert.ok(await p.ev("document.querySelector('[data-testid=run-delete-keep]').textContent.includes('a_2.mov')"));
+ assert.ok(await p.ev("!document.querySelector('[data-testid=run-delete-remove]')?.textContent.includes('a_2.mov')"));
+ await p.click('run-delete-cancel');
  assert.deepEqual(p.errors,[]);
- console.log('PASS synthetic library: overlap dialog, Escape, failed save, Skip, persisted exclusion and reconsider Add');
+ console.log('PASS synthetic library: overlap dialog, Escape, failed save, Skip, persisted exclusion, reconsider Add and skipped-run video protection');
 } finally {await p.close();}

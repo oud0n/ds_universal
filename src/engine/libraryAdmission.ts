@@ -49,7 +49,7 @@ export function libraryDecision(file: string, record: Pick<LapFileRecord, 'size'
 
 /** 一覧へ自動追加する前に、同じフォルダ内で時間の重なるログを確認候補にする。 */
 export function libraryAdmissions(index: LapIndex, runs: RunsFile | null, currentFiles?: ReadonlyMap<string, Pick<LapFileRecord, 'size' | 'mtimeMs'>>): Record<string, LibraryAdmission> {
-  const sources = Object.entries(index.files).map(([file, record]) => {
+  const sources = Object.entries(index.files).filter(([file]) => !currentFiles || currentFiles.has(file)).map(([file, record]) => {
     const current = currentFiles?.get(file) ?? record;
     const same = current.size === record.size && current.mtimeMs === record.mtimeMs;
     return { file, record: current, ranges: same ? rangesOf(record) : [],

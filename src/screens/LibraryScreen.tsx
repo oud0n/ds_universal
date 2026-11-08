@@ -81,7 +81,7 @@ const sameRunFile = (a: string, b: string) => {
 export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVideo, onAddAsCar2, car1Course = null, car1Run = null, openRuns = [], onPickFiles, onPickLaps, onOpenFile,onBeginOpen, busy, canTime = false }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
-  const { store, runs, pendingRuns, excludedRuns, error, noFolder, reload } = useRuns(active);
+  const { store, runs, allRuns, pendingRuns, excludedRuns, error, noFolder, reload } = useRuns(active);
   const [reviewOpen, setReviewOpen] = useState(true);
   const [showExcluded, setShowExcluded] = useState(false);
   const [reconsiderKey, setReconsiderKey] = useState<string | null>(null);
@@ -133,7 +133,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
   const startPick = () => {
     if (!store) return;
     setPicking(null);
-    void store.listAll().then(files => setPicking(videoRefCandidates(files, runs ?? [], videoRefs)), () => setPicking([]));
+    void store.listAll().then(files => setPicking(videoRefCandidates(files, allRuns ?? [], videoRefs)), () => setPicking([]));
   };
 
   const refCount = useMemo(() => (runs ?? []).filter(r => !!r.entry?.reference).length, [runs]) + videoRefs.length;
@@ -421,7 +421,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
       onDelete={canDelete ? () => {
         const item = selected;
         setDeleting({ item, plan: null });
-        void store.listAll().then(files => setDeleting(d => (d && d.item === item ? { ...d, plan: planRunDelete(item, files, runs ?? []) } : d)),
+        void store.listAll().then(files => setDeleting(d => (d && d.item === item ? { ...d, plan: planRunDelete(item, files, allRuns ?? []) } : d)),
           e => setDeleting(d => (d ? { ...d, error: e instanceof Error ? e.message : String(e) } : d)));
       } : undefined}
       // 解析で開いている走行と、ラップタイマーがいま書いている走行は消せない
@@ -445,7 +445,7 @@ export const LibraryScreen: React.FC<Props> = ({ active, wide, onOpen, onOpenVid
         key={`${store.storageRevision}/${admissionRun.folder}/${admissionRun.file}/${admissionRun.libraryAdmission?.size}/${admissionRun.libraryAdmission?.mtimeMs}`}
         store={store} run={admissionRun}
         onClose={() => { setReviewOpen(false); setReconsiderKey(null); }}
-        onSaved={() => { setReconsiderKey(null); reload(); }}
+        onSaved={() => { setReviewOpen(false); setReconsiderKey(null); reload(); }}
       />}
       {historyOpen && <LapHistoryPanel onClose={() => setHistoryOpen(false)} onBeginOpen={onBeginOpen} onOpenRun={(file, run,request) => {
         setHistoryOpen(false);

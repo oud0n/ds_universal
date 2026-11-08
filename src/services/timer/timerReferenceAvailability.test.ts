@@ -155,7 +155,7 @@ it('ライブラリを先に開かなくても、競合した控えの新しい�
   const saved = (include: boolean, updatedAt: string) => JSON.stringify({ version: 2, runs: { skip: { id: 'same', updatedAt, libraryDecision: { file, size: 100, mtimeMs: 1, include } } } });
   metadataTexts.set('sodegaura/runs.json', saved(true, '2026-11-01'));
   metadataTexts.set('sodegaura/runs 2.json', saved(false, '2026-11-02'));
-  metadataInventory = [{ path: 'sodegaura/runs 2.json', size: 100, mtimeMs: 1, local: true }];
+  metadataInventory = [{ path: 'sodegaura/skip.nmea', size: 100, mtimeMs: 1, local: true }, { path: 'sodegaura/runs 2.json', size: 100, mtimeMs: 1, local: true }];
   const rt = new TimerRuntime({ replayLogs: () => [], phoneMessages: () => ({ unavailable: '', denied: '' }) }, 'replay');
   rt.start();
   try {

@@ -57,7 +57,7 @@ export function useRuns(enabled: boolean) {
     pendingRuns: visible.runs?.filter(run => run.libraryAdmission?.status === 'pending') ?? [],
     excludedRuns: visible.runs?.filter(run => run.libraryAdmission?.status === 'excluded') ?? [],
   }), [visible.runs]);
-  return { ...visible, ...grouped, reload: () => setReload(n => n + 1) };
+  return { ...visible, ...grouped, allRuns: visible.runs, reload: () => setReload(n => n + 1) };
 }
 
 export const RunRow: React.FC<{ run: RunItem; onOpen: (r: RunItem) => void; busy: boolean; selected?: boolean }> = ({ run, onOpen, busy, selected = false }) => {
