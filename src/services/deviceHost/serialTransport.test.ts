@@ -219,3 +219,25 @@ describe('USBの終了待ちを新しい接続へ引き継ぐ', () => {
     await transport.close(); expect(host.listeners.size).toBe(0);
   });
 });
+
+describe('USBの明示終了を途中で成功扱いしない', () => {
+  it('二度目のcloseも、最初の終了が済むまで待つ', async () => {
+    const host = new FakeHost(), transport = new HostSerialTransport(host), closing = deferred();
+    await transport.open({ onData() {}, onLost() {} });
+    host.onRequest = async method => method === 'serial.close' ? closing.promise : undefined;
+    const first = transport.close(); let secondDone = false;
+    const second = transport.close().then(() => { secondDone = true; });
+    await flush(); expect(secondDone).toBe(false);
+    closing.resolve(); await Promise.all([first, second]); expect(secondDone).toBe(true);
+  });
+
+  it('5回目のonInterruptedから明示closeしたときはonLostを呼ばない', async () => {
+    const host = new FakeHost(), transport = new HostSerialTransport(host), lost = vi.fn();
+    let count = 0, closing: Promise<void> | undefined;
+    await transport.open({ onData() {}, onLost: lost, onInterrupted() { if (++count === 5) closing = transport.close(); } });
+    const session = host.lastSession('serial.open');
+    for (let i = 0; i < 5; i++) host.emit({ type: 'serial.interrupted', session });
+    await closing;
+    expect(lost).not.toHaveBeenCalled(); expect(host.listeners.size).toBe(0);
+  });
+});

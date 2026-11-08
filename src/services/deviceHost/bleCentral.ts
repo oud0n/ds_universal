@@ -32,7 +32,10 @@ export class HostBleCentral implements BleCentral {
       const off = await this.host.listen(event => {
         if (this.scanning !== s || event.session !== s.id) return;
         if (event.type === 'ble.device') onDevice({ ...event.device });
-        else if (event.type === 'ble.scanEnded') this.endScan(s);
+        else if (event.type === 'ble.scanEnded') {
+          const closing = this.closeScan(s, true);
+          try { this.endScan(s); } finally { void closing.catch(() => {}); }
+        }
       });
       s.off = off;
       if (this.scanning !== s) { off(); return; }
@@ -49,7 +52,10 @@ export class HostBleCentral implements BleCentral {
   }
   async stopScan(): Promise<void> {
     const s = this.scanning;
-    if (!s) { await this.scanClosing; return; }
+    if (!s) {
+      try { await this.scanClosing; } catch (error) { throw hostError(error, this.t); }
+      return;
+    }
     const closing = this.closeScan(s, true);
     this.endScan(s);
     try { await closing; }
@@ -87,7 +93,10 @@ export class HostBleCentral implements BleCentral {
   }
   async disconnect(deviceId: string): Promise<void> {
     const s = this.links.get(deviceId);
-    if (!s) return;
+    if (!s) {
+      try { await this.linkClosing.get(deviceId); } catch (error) { throw hostError(error, this.t); }
+      return;
+    }
     this.detach(deviceId, s);
     try { await this.closeLink(deviceId, s); }
     catch (error) { throw hostError(error, this.t); }
@@ -154,8 +163,10 @@ export class HostBleCentral implements BleCentral {
         if (event.state === 'disconnected') {
           s.error = hostError(event.error ?? { code: 'not-connected' }, this.t);
           this.detach(deviceId, s);
-        }
-        s.handlers.onState(event.state, event.error ? hostError(event.error, this.t) : undefined);
+          const closing = this.closeLink(deviceId, s, true);
+          try { s.handlers.onState(event.state, event.error ? hostError(event.error, this.t) : undefined); }
+          finally { void closing.catch(() => {}); }
+        } else s.handlers.onState(event.state, event.error ? hostError(event.error, this.t) : undefined);
       } else if (event.epoch === s.epoch && s.state === 'connected') {
         const items = event.items.map(item => {
           if (!Number.isFinite(item.tMs) || item.tMs < 0) throw hostError({ code: 'invalid-data' }, this.t);

@@ -66,7 +66,10 @@ export class HostSerialTransport implements LoggerTransport {
 
   async close(): Promise<void> {
     const s = this.current;
-    if (!s) return;
+    if (!s) {
+      try { await this.closing; } catch (error) { throw hostError(error, this.t); }
+      return;
+    }
     s.error = this.cancelled();
     this.detach(s);
     // pending open/writeの完了を待たない。ホストのcloseはそれらも中止する。
@@ -108,7 +111,7 @@ export class HostSerialTransport implements LoggerTransport {
         s.handlers.onData(hostBytes(event.bytes, this.t));
       } else if (event.type === 'serial.interrupted') {
         s.handlers.onInterrupted?.();
-        if (++s.interruptions >= 5) this.lost(s, { code: 'io' });
+        if (this.current === s && ++s.interruptions >= 5) this.lost(s, { code: 'io' });
       } else if (event.type === 'serial.lost') this.lost(s, event.error);
     } catch (error) {
       if (this.current === s) this.lost(s, error);

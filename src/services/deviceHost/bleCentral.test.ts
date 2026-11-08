@@ -340,3 +340,43 @@ describe('終了コールバックからの再入でも後片づけを追い越�
     await central.stopScan(); expect(host.listeners.size).toBe(0);
   });
 });
+
+describe('BLEの自然終了と重複終了', () => {
+  it('二度目のdisconnectも、最初の終了が済むまで待つ', async () => {
+    const host = new FakeHost(), central = new HostBleCentral(host), closing = deferred();
+    await connected(host, central);
+    host.onRequest = async method => method === 'ble.disconnect' ? closing.promise : undefined;
+    const first = central.disconnect('one'); let done = false;
+    const second = central.disconnect('one').then(() => { done = true; });
+    await flush(); expect(done).toBe(false);
+    closing.resolve(); await Promise.all([first, second]); expect(done).toBe(true);
+  });
+
+  it('自然切断のonStateから再接続しても、旧資源の解放を待つ', async () => {
+    const host = new FakeHost(), central = new HostBleCentral(host), closing = deferred();
+    let reopening: Promise<void> | undefined;
+    const a = await connected(host, central, { onNotify() {}, onState(state) {
+      if (state === 'disconnected') reopening = central.connect('one', ref, blank());
+    } });
+    host.onRequest = async (method, params) => method === 'ble.disconnect' && params.session === a ? closing.promise : undefined;
+    host.emit({ type: 'ble.state', session: a, epoch: 1, state: 'disconnected' });
+    await flush(); expect(host.calls.filter(c => c.method === 'ble.connect')).toHaveLength(1);
+    closing.resolve(); await reopening;
+    expect(host.calls.filter(c => c.method === 'ble.connect')).toHaveLength(2);
+    await central.disconnect('one');
+  });
+
+  it('自然なscanEndedのonEndから再探索しても、旧資源の解放を待つ', async () => {
+    const host = new FakeHost(), central = new HostBleCentral(host), closing = deferred();
+    let reopening: Promise<void> | undefined;
+    const options = { namePrefixes: ['DS4'], services: ['1819'] };
+    await central.scan(options, () => {}, () => { reopening = central.scan(options, () => {}, () => {}); });
+    const a = host.lastSession('ble.scan');
+    host.onRequest = async (method, params) => method === 'ble.stopScan' && params.session === a ? closing.promise : undefined;
+    host.emit({ type: 'ble.scanEnded', session: a });
+    await flush(); expect(host.calls.filter(c => c.method === 'ble.scan')).toHaveLength(1);
+    closing.resolve(); await reopening;
+    expect(host.calls.filter(c => c.method === 'ble.scan')).toHaveLength(2);
+    await central.stopScan();
+  });
+});
