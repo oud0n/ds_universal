@@ -1,7 +1,7 @@
 import { SMALL_PARTS, type OverlayLayout, type OverlayPart } from '../../services/overlayLayout';
 
 type Target = 'large' | 'small';
-type GestureOwner = 'layer' | 'panel';
+type GestureOwner = 'layer' | 'range' | 'label';
 type Snapshot = { parts: OverlayPart[]; small: OverlayPart[] | undefined; target: Target };
 export type EditHistory = {
   layout: OverlayLayout | null;

@@ -250,8 +250,8 @@ export const OverlayEditPanel: React.FC<{
   onChange: (parts: OverlayPart[]) => void;
   canUndo: boolean;
   onUndo: () => void;
-  onGestureStart: () => void;
-  onGestureEnd: () => void;
+  onGestureStart: (owner: 'range' | 'label') => void;
+  onGestureEnd: (owner: 'range' | 'label') => void;
   onPickBase: (id: string) => void;
   /** 保存する。overwriteId: 上書きする自分の並び (無ければ名前から新しく作る) */
   onSave: (name: string, overwriteId?: string) => Promise<string | null>;
@@ -270,12 +270,22 @@ export const OverlayEditPanel: React.FC<{
   // 欄を左右どちらに出すか (下に隠れた部品を動かせるように)
   const [side, setSide] = useState<'right' | 'left'>('right');
   const rangePointer = useRef(false);
+  const rangeEndRef = useRef(onGestureEnd);
+  rangeEndRef.current = onGestureEnd;
   useEffect(() => {
-    const reset = () => { rangePointer.current = false; };
-    window.addEventListener('blur', reset);
-    return () => window.removeEventListener('blur', reset);
+    const finish = () => {
+      if (rangePointer.current) { rangePointer.current = false; rangeEndRef.current('range'); }
+    };
+    window.addEventListener('pointerup', finish, true);
+    window.addEventListener('pointercancel', finish, true);
+    window.addEventListener('blur', finish);
+    return () => {
+      window.removeEventListener('pointerup', finish, true);
+      window.removeEventListener('pointercancel', finish, true);
+      window.removeEventListener('blur', finish);
+    };
   }, []);
-  const endRange = () => { rangePointer.current = false; onGestureEnd(); };
+  const endRange = () => { rangePointer.current = false; onGestureEnd('range'); };
   const fileRef = useRef<HTMLInputElement | null>(null);
   const firstChannel = (['throttle', 'brake', 'speed'] as ChannelId[]).find(c => channels.has(c)) ?? 'speed';
   const sel = draft.parts.find(p => p.id === selected) ?? null;
@@ -463,7 +473,7 @@ export const OverlayEditPanel: React.FC<{
               </>
             )}
             {(sel.type === 'bar' || sel.type === 'value') && (
-              <label className="block">{t('札', 'Label')}<input value={sel.label ?? ''} placeholder={channelDef(sel.channel).short} onFocus={onGestureStart} onBlur={onGestureEnd} onChange={e => update({ label: e.target.value.slice(0, 12) || undefined } as Partial<OverlayPart>)} className={input} /></label>
+              <label className="block">{t('札', 'Label')}<input value={sel.label ?? ''} placeholder={channelDef(sel.channel).short} onFocus={() => onGestureStart('label')} onBlur={() => onGestureEnd('label')} onChange={e => update({ label: e.target.value.slice(0, 12) || undefined } as Partial<OverlayPart>)} className={input} /></label>
             )}
             {sel.type === 'steering' && (
               <label className="block">{t('絵の振れの上限 (度)', 'Max rotation (deg)')}<NumberField min={30} max={1080} value={sel.maxDeg ?? 540} onCommit={v => update({ maxDeg: v } as Partial<OverlayPart>)} className={input} /></label>
@@ -472,11 +482,10 @@ export const OverlayEditPanel: React.FC<{
               <label className="block">{t('振れの上限 (秒)', 'Full scale (s)')}<NumberField step={0.1} min={0.1} max={10} value={sel.maxSec ?? 1} onCommit={v => update({ maxSec: v } as Partial<OverlayPart>)} className={input} /></label>
             )}
             <label className="block">{t('不透明度', 'Opacity')}<input type="range" min={0.2} max={1} step={0.05} value={sel.opacity ?? 1}
-              onPointerDown={() => { rangePointer.current = true; onGestureStart(); }}
-              onFocus={() => { if (rangePointer.current) onGestureStart(); }}
-              onPointerUp={endRange} onPointerCancel={endRange} onBlur={endRange}
-              onKeyDown={e => { if (!e.repeat && /^(Arrow|Home|End|Page)/.test(e.key)) onGestureStart(); }}
-              onKeyUp={e => { if (/^(Arrow|Home|End|Page)/.test(e.key)) onGestureEnd(); }}
+              onPointerDown={() => { rangePointer.current = true; onGestureStart('range'); }}
+              onPointerUp={endRange} onPointerCancel={endRange} onBlur={() => { if (!rangePointer.current) onGestureEnd('range'); }}
+              onKeyDown={e => { if (!e.repeat && /^(Arrow|Home|End|Page)/.test(e.key)) onGestureStart('range'); }}
+              onKeyUp={e => { if (/^(Arrow|Home|End|Page)/.test(e.key)) onGestureEnd('range'); }}
               onChange={e => update({ opacity: Number(e.target.value) } as Partial<OverlayPart>)} className="w-full" /></label>
             <div className="text-[10px] text-slate-500 font-mono">x {sel.x.toFixed(2)} · y {sel.y.toFixed(2)} · w {sel.w.toFixed(2)} · h {sel.h.toFixed(2)}</div>
           </div>

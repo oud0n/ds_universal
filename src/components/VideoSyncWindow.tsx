@@ -509,13 +509,12 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const editParts = editLayout ? (editTarget === 'small' ? editLayout.small ?? SMALL_PARTS : editLayout.parts) : [];
   const setEditParts = (parts: OverlayPart[]) => editDispatch({ type: 'parts', parts });
   const undoEdit = () => {
-    const active = document.activeElement;
     // つまみの操作中は入力欄も選択も維持し、keyup/pointerupで操作を終えられるようにする。
-    if (active instanceof HTMLInputElement && active.type === 'range' && editHistoryRef.current.gesture === 'panel') return;
+    if (editHistoryRef.current.gesture === 'range') return;
     const previous = editHistoryRef.current.past[editHistoryRef.current.past.length - 1];
     if (!previous) return;
     editLayerRef.current?.cancelGesture();
-    if (!(active instanceof HTMLInputElement && active.type === 'range')) editDispatch({ type: 'end' });
+    editDispatch({ type: 'end' });
     editDispatch({ type: 'undo' });
     const restored = previous.target === 'small' ? previous.small ?? SMALL_PARTS : previous.parts;
     setEditSel(restored.some(part => part.id === editSelRef.current) ? editSelRef.current : null);
@@ -540,8 +539,7 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
       if (!event.defaultPrevented && wantsLayoutUndo(document.activeElement)) consumeUndo(event);
     };
     const onBlur = () => {
-      const active = document.activeElement;
-      if (active instanceof HTMLInputElement && active.type === 'range') editDispatch({ type: 'end', owner: 'panel' });
+      if (editHistoryRef.current.gesture === 'range') editDispatch({ type: 'end', owner: 'range' });
     };
     window.addEventListener('keydown', onKey, true);
     window.addEventListener('laploupe-layout-undo', onMenuUndo);
@@ -1827,8 +1825,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 onChange={setEditParts}
                 canUndo={editHistory.past.length > 0}
                 onUndo={undoEdit}
-                onGestureStart={() => editDispatch({ type: 'begin', owner: 'panel' })}
-                onGestureEnd={() => editDispatch({ type: 'end', owner: 'panel' })}
+                onGestureStart={owner => editDispatch({ type: 'begin', owner })}
+                onGestureEnd={owner => editDispatch({ type: 'end', owner })}
                 key={`edit:${editKey}`}
                 onPickBase={id => {
                   if (!confirmDiscard()) return;

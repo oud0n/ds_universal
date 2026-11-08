@@ -84,9 +84,10 @@ describe('メーター編集のUndo', () => {
   });
   it('古い描画レイヤーの終了で、設定欄の操作を終了しない', () => {
     let state = start();
-    state = reduce(state, { type: 'begin', owner: 'panel' });
+    state = reduce(state, { type: 'begin', owner: 'range' });
     expect(reduce(state, { type: 'end', owner: 'layer' })).toBe(state);
-    state = reduce(state, { type: 'end', owner: 'panel' });
+    expect(reduce(state, { type: 'end', owner: 'label' })).toBe(state);
+    state = reduce(state, { type: 'end', owner: 'range' });
     expect(state.gesture).toBeNull();
   });
 });
