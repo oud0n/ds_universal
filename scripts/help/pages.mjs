@@ -246,10 +246,10 @@ export const PAGES = [
   },
   {
     id: 'D2', file: 'd2-compare.html', video: 'V3_compare',
-    title: ['2 つの周を比べる', 'Comparing two laps'],
+    title: ['サーキットのラップタイム・走行ラインを比較する', 'Compare lap times and racing lines'],
     lead: [
-      '別の日の走行や、同じ走行の別の周を重ねて、どこで差がついたかを見ます。Car 1〜4 の 4 台まで重ねられます。',
-      'Overlay a lap from another day, or another lap of the same run, to see where the time went. Up to four cars (Car 1–4).'
+      'GPS の走行ログを使い、サーキットのラップタイム・走行ライン・車速を比較します。別の日や同じ走行の別の周で、どこで差がついたかを見ます。Car 1〜4 の 4 台まで重ねられます。',
+      'Compare lap times, racing lines and speed from GPS track logs. Overlay laps from the same run or different days to see where the time went. Up to four cars (Car 1–4).'
     ],
     blocks: [{
       steps: [
@@ -322,10 +322,10 @@ export const PAGES = [
   },
   {
     id: 'E2', file: 'e2-sync.html', video: 'V2_sync',
-    title: ['動画とログを合わせる', 'Syncing video and log'],
+    title: ['GoPro・車載動画と GPS ログを同期する', 'Sync onboard video with GPS logs'],
     lead: [
-      'ふつうは、動画の撮影の時刻や GoPro の GPS で自動で合います。ずれているときだけ、[合わせる] で直します。直した結果は走行に覚え、ほかの端末でも同じに開きます。',
-      'Normally the video syncs automatically from its timestamp or GoPro GPS. Only if it is off, fix it with [Sync]. The result is saved with the run and used on your other devices too.'
+      'GoPro などの車載動画を GPS の走行ログと同期します。ふつうは、撮影の時刻や GoPro の GPS で自動で合います。ずれているときだけ、[合わせる] で直します。直した結果は走行に覚え、ほかの端末でも同じに開きます。',
+      'Sync GoPro and other onboard video with GPS track logs. Normally the video syncs automatically from its timestamp or GoPro GPS. Only if it is off, fix it with [Sync]. The result is saved with the run and used on your other devices too.'
     ],
     blocks: [{
       steps: [
@@ -359,10 +359,10 @@ export const PAGES = [
   },
   {
     id: 'E4', file: 'e4-export.html', video: 'V5_layout_export',
-    title: ['動画を書き出す', 'Exporting video'],
+    title: ['車載動画に速度・Gメーターを重ねて書き出す', 'Export onboard video with speed and G-force overlays'],
     lead: [
-      'メーターを焼き込んだ動画や、メーターだけの透明な動画を書き出して、YouTube や動画の編集ソフトで使えます。',
-      'Export video with the gauges burned in, or gauges only on a transparent background for YouTube or your video editor.'
+      'パソコンのデスクトップ版・ブラウザ版で、車載動画に速度・G などのメーターを重ねて書き出します。メーターだけの透明な動画も、YouTube や動画の編集ソフトで使えます。',
+      'On a computer, use the desktop app or browser to export onboard video with speed and G-force overlays, or gauges only on a transparent background for YouTube or your video editor.'
     ],
     blocks: [{
       dev: 'pc',
@@ -381,10 +381,10 @@ export const PAGES = [
   },
   {
     id: 'F1', file: 'f1-layout.html',
-    title: ['メーターの配置を作る', 'Designing the meter layout'],
+    title: ['車載動画のメーター部品・配置・色をカスタマイズする', 'Customise video overlay gauges and layouts'],
     lead: [
-      '動画に重ねるメーターの部品を、つかんで動かし、大きさを変え、足して、自分の並びとして保存します。チームや企業のロゴの画像も置けます。',
-      'Drag, resize and add the gauges shown on the video and save them as your own layout. You can place a team or sponsor logo too.'
+      '車載動画に重ねる速度・G・タイム差・コース図などの部品を選び、配置・色・大きさを変え、自分の並びとして保存します。ロゴの画像や CSV の値も使えます。作成・編集はパソコンで行います。',
+      'Choose speed, G-force, time delta, course maps and other video overlay components. Customise their layout, colours and sizes, then save your layout. Use logos and CSV values too. Create and edit layouts on a computer.'
     ],
     blocks: [{
       dev: 'pc',
@@ -410,7 +410,7 @@ export const PAGES = [
   },
   {
     id: 'G1', file: 'g1-csv.html', video: 'V6_csv',
-    title: ['ほかの機器の CSV を読む', 'Reading CSV files from other devices'],
+    title: ['GPSロガー・OBDの CSV データを読み込む', 'Import CSV data from GPS loggers and OBD'],
     lead: [
       'ほかのロガー・OBD・アプリの CSV の列が何の値かを 1 度決めておくと、ファイルや走行を開くときに自動で読みます。アクセル・回転数・水温などが、メーターや値の帯に出せるようになります。',
       'Tell LapLoupe once what each column of another logger, OBD or app\'s CSV means, and it reads those files automatically. Throttle, RPM, coolant temperature and more then appear in the meters and value strips.'

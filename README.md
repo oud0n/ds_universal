@@ -1,23 +1,32 @@
 <p align="center"><img src="build/icon.svg" width="128" height="128" alt="LapLoupe のアイコン"></p>
 
-# LapLoupe（ラップルーペ、旧名 DS Universal）— Lap / Track Analyzer
+# LapLoupe（ラップルーペ）— GPSラップタイマー・走行ログ解析
 
 **日本語** | [English](README.en.md)
 
 **デジスパイス（DigSpice IV）を Mac・Windows・iPhone・ブラウザで使える、非公式の走行ログ解析ソフト（ラップ・サーキットの走行解析 / Lap & Track Analyzer）**
 
-デジスパイスのログの吸い出し・本体の設定、走行ライン・車速・G の解析、GoPro などの車載動画との同期
+デジスパイスのログの吸い出し・本体の設定、走行ライン・車速・G の解析、GoPro などの車載動画との同期。**パソコンでは、好きなメーター部品を選び、配置・色・大きさを変えて車載動画を書き出せます。**
+
+目的別の使い方:
+
+- [Macで車載動画にメーターを重ねる](https://oud0n.github.io/ds_universal/dashware-mac.html)
+- [MacでAiM・RaceStudioの保存済みログを解析する](https://oud0n.github.io/ds_universal/racestudio-mac.html)
+- [Macの走行ログ解析・ラップ比較](https://oud0n.github.io/ds_universal/track-analyzer-mac.html)
+- [デジスパイスを Mac で使う方法](https://oud0n.github.io/ds_universal/digspice-mac.html)
+- [サーキットのラップタイム・走行ラインを比較する](https://oud0n.github.io/ds_universal/help/d2-compare.html)
+- [GoPro などの車載動画と GPS ログを同期する](https://oud0n.github.io/ds_universal/help/e2-sync.html)
+- [車載動画に速度・Gメーターを重ねて書き出す（パソコン）](https://oud0n.github.io/ds_universal/help/e4-export.html)
 
 ![対応OS](https://img.shields.io/badge/OS-Windows%20x64%20%7C%20macOS%20Apple%20Silicon%20%7C%20iOS-blue)
 [![App Store](https://img.shields.io/badge/App%20Store-LapLoupe-0D96F6?logo=apple&logoColor=white)](https://apps.apple.com/jp/app/id6826272937)
-![検証状況](https://img.shields.io/badge/Verified-macOS%20Only-amber)
-![バージョン](https://img.shields.io/badge/Version-1.1.0-red)
+![Windowsの検証状況](https://img.shields.io/badge/Windows-unverified-amber)
 ![デバイス](https://img.shields.io/badge/Device-DigSpice%20IV-red)
 ![ライセンス](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-oud0n-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/oud0n)
 
 > [!WARNING]
-> **動作確認は macOS（Apple Silicon）だけです。** Windows（x64）版も自動でビルドして配布していますが、実機ではまだ確かめていません。Windows でお使いの方の報告（Issue / PR）をお待ちしています。
+> **Windows（x64）版は実機で未確認です。** macOS（Apple Silicon）版は動作確認済み、iPhone / iPad 版は App Store で配信しています。Windows 版もビルドして配布していますが、実機ではまだ確かめていません。Windows でお使いの方の報告（Issue / PR）をお待ちしています。
 > Linux と Intel Mac（Rosetta 2 を含む）には対応しておらず、配布もしていません。
 
 > [!NOTE]
@@ -34,6 +43,23 @@
 - 走行ライン・車速・G・コーナーごとの速度を、ラップや車どうしで重ねて比べられます
 - GoPro などの車載動画を走行ログと自動で合わせ、メーターを重ねた動画を書き出せます
 - 無料で、ソースコードを公開しています。ログはお使いの端末の中で処理し、サーバーへ送りません（デスクトップ版が新しい版の有無を GitHub に確かめる通信だけはあります。設定で止められます）
+
+---
+
+## 車載動画に、自分で選んだメーターを重ねる
+
+**DashWare の代替を探している方へ。** LapLoupe では、GPS の走行ログや CSV の値を使い、車載動画に重ねるメーターを組み立てられます。デジスパイス以外のログも読み込めます。
+
+- **部品を選ぶ**: 速度・G・ラップタイム・タイム差・コース図・数値・値の棒・グラフ・画像（ロゴなど）を組み合わせます。
+- **見た目を変える**: 部品をつかんで移動し、大きさ・値・色・目盛りを調整。自分の配置として保存し、ほかの人と共有できます。
+- **ログの値を使う**: CSV の列と単位を設定し、回転数・アクセルなどを表示。計算式で作った値もメーターに使えます。
+- **用途に合わせて書き出す**: メーター付き MP4、透明背景のメーターだけの WebM・PNG連番ZIP。動画編集ソフトで重ねる使い方もできます。
+
+メーターの作成・編集と動画書き出しは、**Mac・Windowsのデスクトップ版、またはパソコンのブラウザ版**で行います。iPhone / iPad では作成済みの配置を選んで再生できます。
+
+![車載動画に重ねるメーターの部品・配置を編集する画面](public/help/img/f1/desktop-ja-1.webp)
+
+[メーターの部品・配置をカスタマイズする](https://oud0n.github.io/ds_universal/help/f1-layout.html) · [メーター付き動画を書き出す](https://oud0n.github.io/ds_universal/help/e4-export.html)
 
 ---
 
@@ -123,7 +149,7 @@ codesign --force --deep --sign - "/Applications/LapLoupe.app"
 | :--- | :--- |
 | [機能の一覧](docs/features.md) | 各機能の詳しい説明、コースデータ（計測線）の出どころ、実装していない機能 |
 | [インストールの手順](docs/install.md) | 動作要件、macOS で開けないときの詳しい手順 |
-| [リリースノート](docs/release-notes.md) | 版ごとの変更点（最新は v1.1.0） |
+| [リリースノート](docs/release-notes.md) | 安定版・試験版の変更点 |
 | [開発者向けセットアップ](docs/development.md) | ソースからの起動・ビルド・パッケージング |
 | [開発の資料の一覧](docs/README.md) | 構成・手順・設計書・残件 (開発する人・AI のエージェント向け) |
 | [コースデータ](courses/README.md) | 内蔵コースのファイルと、その作り方 |

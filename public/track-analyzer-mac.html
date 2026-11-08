@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Macの走行ログ解析・ラップ比較アプリ — LapLoupe Track Analyzer</title>
+<meta name="description" content="MacでサーキットのGPS走行ログを解析。ラップタイム・走行ライン・速度・Gを比較し、車載動画と同期するLapLoupeの使い方。GPX・VBO・CSVなどに対応。">
+<link rel="canonical" href="https://oud0n.github.io/ds_universal/track-analyzer-mac.html">
+<link rel="alternate" hreflang="ja" href="https://oud0n.github.io/ds_universal/track-analyzer-mac.html">
+<link rel="alternate" hreflang="en" href="https://oud0n.github.io/ds_universal/track-analyzer-mac.en.html">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Macの走行ログ解析・ラップ比較アプリ — LapLoupe Track Analyzer">
+<meta property="og:description" content="MacでサーキットのGPS走行ログを解析。ラップタイム・走行ライン・速度・Gを比較し、車載動画と同期するLapLoupeの使い方。GPX・VBO・CSVなどに対応。">
+<meta property="og:url" content="https://oud0n.github.io/ds_universal/track-analyzer-mac.html">
+<meta property="og:image" content="https://oud0n.github.io/ds_universal/og-image.jpg">
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; padding: 0 20px; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif; line-height: 1.8; background: #fff; color: #1f2937; }
+  main { max-width: 48rem; margin: auto; padding: 2rem 0 4rem; }
+  h1 { font-size: 1.8rem; line-height: 1.4; } h2 { margin-top: 2rem; font-size: 1.25rem; }
+  a { color: #135ab5; } img { display: block; max-width: 100%; height: auto; border-radius: 8px; }
+  figure { margin: 1.5rem 0; } figcaption, footer { font-size: .9rem; }
+  .actions { display: flex; flex-wrap: wrap; gap: 1rem; } .actions a { border: 1px solid currentColor; border-radius: 6px; padding: .4rem .8rem; }
+  @media (prefers-color-scheme: dark) { body { background: #111827; color: #e5e7eb; } a { color: #93c5fd; } }
+</style>
+</head>
+<body>
+<main>
+<nav aria-label="言語とアプリ"><a href="./">LapLoupeを開く</a> · <a href="track-analyzer-mac.en.html" lang="en" hreflang="en">English</a></nav>
+<h1>Macで走行ログを解析する：LapLoupe Track Analyzer</h1>
+<p><strong>サーキットのGPSデータを解析するMac向けtrack analyzer</strong>を探している方へ。LapLoupeでは、ラップタイム・セクタータイム・走行ライン・車速・Gを見返し、別のラップと比較できます。ここでいうtrackは、モータースポーツのサーキット走行を指します。</p>
+<h2>ラップタイムだけでなく、どこで差がついたかを見る</h2>
+<p>最大4台・4ラップの車速を重ね、タイム差と走行ラインを比較できます。コーナーごとの進入・ボトム・脱出速度やブレーキングを見返し、コース図とグラフを同じ再生位置で確認できます。</p>
+<figure><img src="help/img/d2/desktop-ja-1.webp" alt="サーキットのラップタイム・車速・タイム差を比較するLapLoupeの解析画面" width="1200" loading="lazy"><figcaption>ラップごとの車速とタイム差を、コース図と合わせて確認します。</figcaption></figure>
+<h2>手元のGPSログから始める</h2>
+<p>GPX・NMEA・VBO・対応するCSV・FIT・TCX・デジスパイスのログなどを読み込めます。形式ごとに読み込める値は異なります。データのないセンサー値を新たに取得する機能ではありません。</p>
+<ol><li>Mac版のLapLoupe、またはパソコンのブラウザ版を開きます。</li><li>走行ログを選び、コースと計測線を確認します。</li><li>比較したいラップを割り当て、グラフと走行ラインを見ます。</li><li>車載動画があれば同期し、同じ場面を映像で見返します。</li></ol>
+<h2>動画のメーター表示にも使う</h2>
+<p>速度・G・ラップタイム・コース図などの部品を選び、配置や色を変えられます。パソコンでは、メーター付きMP4や透明背景のメーター素材を書き出せます。</p>
+<h2>Mac・ブラウザ・iPhoneの使い分け</h2>
+<p>デスクトップ版はApple Silicon（M1以降）のMac向けです。パソコンのブラウザ版ならインストールせずにログを解析できます。iPhone / iPadアプリでは、端末のGPSを使ったラップ計測もできます。ログは端末内で処理し、解析のためにサーバーへアップロードしません。</p>
+<p class="actions"><a href="https://github.com/oud0n/ds_universal/releases/latest">Mac版をダウンロード</a><a href="./">ブラウザで試す</a></p>
+<h2>使い方を詳しく見る</h2><ul><li><a href="help/d2-compare.html?device=desktop&amp;lang=ja">ラップを比較する</a></li><li><a href="help/e2-sync.html?device=desktop&amp;lang=ja">動画とログを同期する</a></li><li><a href="help/f1-layout.html?device=desktop&amp;lang=ja">メーターをカスタマイズする</a></li><li><a href="help/e4-export.html?device=desktop&amp;lang=ja">動画を書き出す</a></li></ul>
+<h2>関連する使い方</h2><ul><li><a href="dashware-mac.html">Macで車載動画にメーターを重ねる</a></li>
+<li><a href="racestudio-mac.html">MacでAiM・RaceStudioの保存済みログを解析する</a></li></ul>
+<footer><p>個人・非商用で無料。<a href="https://github.com/oud0n/ds_universal#readme">対応機能とライセンス</a> · <a href="privacy.html">プライバシー</a></p></footer>
+</main>
+</body>
+</html>
