@@ -37,6 +37,7 @@
 
 | 文書 | 計画 | 状態 |
 |---|---|---|
+| [device_host.md](device_host.md) | PLAN-62 BLE・USBのホスト接続と等価性 | 部品・合成比較を実装。実ドライバ/IPC/製品切替は未着手 |
 | [video_sets_design.md](video_sets_design.md) | PLAN-17 動画の走行とセット | 実装済み |
 | [overlay_parts_design.md](overlay_parts_design.md) | メーターの部品 | 実装済み |
 | [meter_layout_design.md](meter_layout_design.md) | PLAN-08・38 メーターの配置・画像・書き出しの範囲 | 実装済み |

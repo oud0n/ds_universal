@@ -6,6 +6,8 @@
 
 ## Next build (not distributed)
 
+- Added host adapters for replacing BLE/USB transports, with synthetic comparisons against the existing paths. The application still uses its existing transports.
+
 - Aligned the desktop and browser sidebar, command bar, analysis panels and playback bar, preserving existing analysis and video features.
 - Adjusted G-G axis labels and readings to fit small windows.
 - Reduced repeated gate-direction calculations, temporary analysis arrays and unused GPS fallback records.
