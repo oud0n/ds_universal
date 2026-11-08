@@ -380,3 +380,20 @@ describe('BLEの自然終了と重複終了', () => {
     await central.stopScan();
   });
 });
+
+describe('探索終了が受付応答より早い場合', () => {
+  it.each(['natural', 'explicit'] as const)('%s終了に伴う保留scan取消しを開始失敗としない', async mode => {
+    const host = new FakeHost(), central = new HostBleCentral(host), accepting = deferred(), ended = vi.fn();
+    host.onRequest = async (method, params) => {
+      if (method === 'ble.scan') {
+        if (mode === 'natural') host.emit({ type: 'ble.scanEnded', session: params.session });
+        return accepting.promise;
+      }
+      if (method === 'ble.stopScan') accepting.reject({ code: 'cancelled' });
+    };
+    const scanning = central.scan({ namePrefixes: ['DS4'], services: ['1819'] }, () => {}, ended);
+    if (mode === 'explicit') { await flush(); await central.stopScan(); }
+    await scanning;
+    expect(ended).toHaveBeenCalledTimes(1); expect(host.listeners.size).toBe(0);
+  });
+});

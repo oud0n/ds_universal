@@ -44,10 +44,18 @@ export class HostBleCentral implements BleCentral {
         ...(options.advertisedServices ? { advertisedServices: [...options.advertisedServices] } : {})
       } });
     } catch (error) {
+      const fault = hostError(error, this.t);
+      // 正常終端/明示終了が受付応答より早いと、終了命令が保留scanを取り消す。
+      // すでに終わった探索の取消しを、開始失敗として画面へ戻さない。
+      const endedCancellation = s.ended && fault.code === 'cancelled';
       const closing = this.closeScan(s, true);
       this.endScan(s);
+      if (endedCancellation) {
+        try { await closing; } catch (closeError) { throw hostError(closeError, this.t); }
+        return;
+      }
       await closing.catch(() => {});
-      throw hostError(error, this.t);
+      throw fault;
     }
   }
   async stopScan(): Promise<void> {
