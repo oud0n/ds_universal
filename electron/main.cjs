@@ -82,7 +82,8 @@ function buildMenu() {
     {
       label: L('編集', 'Edit'),
       submenu: [
-        { role: 'undo', label: L('取り消す', 'Undo') },
+        { id: 'layout-aware-undo', label: L('取り消す', 'Undo'), accelerator: 'CmdOrCtrl+Z',
+          click: () => { void require('./edit-undo.cjs').undoFocusedContents(() => require('electron').webContents.getFocusedWebContents()); } },
         { role: 'redo', label: L('やり直す', 'Redo') },
         { type: 'separator' },
         { role: 'cut', label: L('カット', 'Cut') },

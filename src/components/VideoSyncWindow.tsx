@@ -503,19 +503,30 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const undoEdit = () => { editDispatch({ type: 'undo' }); setEditSel(null); };
   useEffect(() => {
     if (!editLayout || !isVisible) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'z') return;
-      const element = event.target instanceof HTMLElement ? event.target : null;
+    const wantsLayoutUndo = (target: EventTarget | null) => {
+      const element = target instanceof HTMLElement ? target : null;
       const textInput = element instanceof HTMLInputElement && !['checkbox', 'radio', 'range', 'color', 'file', 'button', 'submit', 'reset', 'image'].includes(element.type);
-      if (textInput || element instanceof HTMLTextAreaElement || element?.isContentEditable) return;
-      if (!rootRef.current?.getClientRects().length || event.defaultPrevented) return;
+      return !textInput && !(element instanceof HTMLTextAreaElement) && !element?.isContentEditable && !!rootRef.current?.getClientRects().length;
+    };
+    const consumeUndo = (event: Event) => {
       event.preventDefault();
       event.stopImmediatePropagation();
       editDispatch({ type: 'undo' });
       setEditSel(null);
     };
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'z') return;
+      if (!event.defaultPrevented && wantsLayoutUndo(event.target)) consumeUndo(event);
+    };
+    const onMenuUndo = (event: Event) => {
+      if (!event.defaultPrevented && wantsLayoutUndo(document.activeElement)) consumeUndo(event);
+    };
     window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
+    window.addEventListener('laploupe-layout-undo', onMenuUndo);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('laploupe-layout-undo', onMenuUndo);
+    };
   }, [!!editLayout, isVisible]);
   const confirmDiscard = () => !editLayout || snapshot(editLayout) === editOrig
     || window.confirm(t('保存していない変更があります。捨てますか？', 'You have unsaved changes. Discard them?'));
