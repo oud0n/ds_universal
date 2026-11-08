@@ -4,6 +4,15 @@
 
 [Back to the README](../README.en.md)
 
+## v1.3.0 (2026-11-08, desktop and browser stable release)
+
+- **Bug fix: exported videos were missing the GSI attribution label.** Frames with aerial imagery now include “Source: GSI Japan (telemetry added)”, shared by the preview, burned-in video and transparent overlay exports.
+- Added Undo to the meter layout editor for movement, resizing, adding/removing parts and property changes, with ⌘Z / Ctrl+Z shortcuts. A drag is one operation. Saving, importing or choosing another base layout clears the edit history.
+- Aligned the desktop/browser sidebar, command bar, analysis panels and playback bar. Fixed clipped G-G labels and readings in small windows.
+- The library asks before adding logs with overlapping times. Skipped logs remain on disk and can be added later. Detection requires UTC timestamps and complete laps.
+- The stable app is named LapLoupe, uses the existing stable settings and enables automatic updates in tagged builds. The beta remains a separate app.
+- USB communication uses the existing transport. The development-only Rust USB host is not bundled or enabled.
+
 ## v1.3.0-beta.2 (2026-11-08, desktop beta)
 
 - Fixed Windows path comparison in the engine build check; the first beta build did not complete for Windows.

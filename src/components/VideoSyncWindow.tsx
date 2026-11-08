@@ -1,5 +1,5 @@
 import {comparisonTime} from '../engine/playbackAdvance';
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, useReducer } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   Play, Pause, SkipBack, SkipForward, Video, Upload, 
@@ -39,6 +39,7 @@ import { AUTO_LAYOUT, BUILTIN_LAYOUTS, COMPARE_LAYOUT, SMALL_PARTS, SMALL_TILE_P
 import { deleteCustomLayout, renameCustomLayout, layoutFileText, listCustomLayouts, saveCustomLayout } from '../services/overlayStore';
 import { canUseRunStore, getRunStore } from '../services/runStore';
 import { OverlayEditLayer, OverlayEditPanel } from './video/OverlayLayoutEditor';
+import { EMPTY_EDIT_HISTORY, overlayEditReducer } from './video/overlayEditHistory';
 
 /** 走行比較の枠には、足した部品を出さない (枠が小さく、Car の札・比べる差と重なるため) */
 // 走行比較の枠: 速度・G・小さなラップタイムだけ (枠が小さいので、ラップの欄・コース図などは出さない)
@@ -455,9 +456,11 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
     tileTimer.current = setTimeout(() => { tileTimer.current = null; setTileTick(n => n + 1); }, 100);
   }, []);
   // 配置の編集 (パソコンだけ): 直している並び (下書き)・元の並び・選んだ部品
-  const [editLayout, setEditLayout] = useState<OverlayLayout | null>(null);
+  const [editHistory, editDispatch] = useReducer(overlayEditReducer, EMPTY_EDIT_HISTORY);
+  const { layout: editLayout, target: editTarget } = editHistory;
+  const setEditLayout = (layout: React.SetStateAction<OverlayLayout | null>) => editDispatch({ type: 'load', layout });
   // 直している枠: large (ふつうの枠) / small (小さな枠。スマートフォン・走行比較の枠など)
-  const [editTarget, setEditTarget] = useState<'large' | 'small'>('large');
+  const setEditTarget = (target: 'large' | 'small') => editDispatch({ type: 'target', target });
   const [editBase, setEditBase] = useState('');
   const [editSel, setEditSel] = useState<string | null>(null);
   // 編集の欄を作り直す印 (元の並びを替えた・保存した・読み込んだとき、名前の欄などを新しくする)
@@ -496,7 +499,23 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
   const snapshot = (l: OverlayLayout) => JSON.stringify({ parts: l.parts, small: l.small ?? null });
   /** 直している枠の部品 (小さな枠の部品がまだ無ければ既定を使う) */
   const editParts = editLayout ? (editTarget === 'small' ? editLayout.small ?? SMALL_PARTS : editLayout.parts) : [];
-  const setEditParts = (parts: OverlayPart[]) => setEditLayout(l => (l ? (editTarget === 'small' ? { ...l, small: parts } : { ...l, parts }) : l));
+  const setEditParts = (parts: OverlayPart[]) => editDispatch({ type: 'parts', parts });
+  const undoEdit = () => { editDispatch({ type: 'undo' }); setEditSel(null); };
+  useEffect(() => {
+    if (!editLayout || !isVisible) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'z') return;
+      const element = event.target instanceof HTMLElement ? event.target : null;
+      if (element?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (!rootRef.current?.getClientRects().length || event.defaultPrevented) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      editDispatch({ type: 'undo' });
+      setEditSel(null);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [!!editLayout, isVisible]);
   const confirmDiscard = () => !editLayout || snapshot(editLayout) === editOrig
     || window.confirm(t('保存していない変更があります。捨てますか？', 'You have unsaved changes. Discard them?'));
   const startLayoutEdit = () => {
@@ -1685,7 +1704,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                     onSeeked={handleSeeked}
                     overlay={overlayFor(x, i)}
                     editLayer={isMain && editLayout && size === 'full' ? (
-                      <OverlayEditLayer parts={editParts} selected={editSel} onSelect={setEditSel} onChange={setEditParts} />
+                      <OverlayEditLayer parts={editParts} selected={editSel} onSelect={setEditSel} onChange={setEditParts}
+                        onGestureStart={() => editDispatch({ type: 'begin' })} onGestureEnd={() => editDispatch({ type: 'end' })} />
                     ) : undefined}
                     avoidRef={isMain && win.layout === 'pip' ? pipRef : undefined}
                     accent={isCompare ? x.color : undefined}
@@ -1769,6 +1789,8 @@ export const VideoSyncWindow: React.FC<VideoSyncWindowProps> = ({
                 selected={editSel}
                 onSelect={setEditSel}
                 onChange={setEditParts}
+                canUndo={editHistory.past.length > 0}
+                onUndo={undoEdit}
                 key={`edit:${editKey}`}
                 onPickBase={id => {
                   if (!confirmDiscard()) return;

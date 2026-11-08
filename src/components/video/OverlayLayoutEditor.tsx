@@ -5,7 +5,7 @@
  * - OverlayEditPanel: 並びの選び・部品の一覧 (足す・消す・出す / 出さない)・選んだ部品の設定・保存
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { Pencil, Plus, Save, Trash2, X, Download, Upload, ArrowLeftRight } from 'lucide-react';
+import { Pencil, Plus, Save, Trash2, X, Download, Upload, ArrowLeftRight, Undo2 } from 'lucide-react';
 import { useT } from '../../utils/i18n';
 import {
   BUILTIN_LAYOUTS, MAX_IMAGE_SRC, allChannels, channelDef, PART_LABELS, isImageSrc, partChannels, partLabel,
@@ -24,7 +24,9 @@ export const OverlayEditLayer: React.FC<{
   selected: string | null;
   onSelect: (id: string | null) => void;
   onChange: (parts: OverlayPart[]) => void;
-}> = ({ parts, selected, onSelect, onChange }) => {
+  onGestureStart: () => void;
+  onGestureEnd: () => void;
+}> = ({ parts, selected, onSelect, onChange, onGestureStart, onGestureEnd }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -33,6 +35,7 @@ export const OverlayEditLayer: React.FC<{
     e.stopPropagation();
     e.preventDefault();
     onSelect(part.id);
+    onGestureStart();
     drag.current = { id: part.id, mode, startX: e.clientX, startY: e.clientY, orig: part, pointerId: e.pointerId };
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
   };
@@ -49,7 +52,10 @@ export const OverlayEditLayer: React.FC<{
     onChange(parts.map(p => (p.id === d.id ? next : p)));
   };
   const end = (e: React.PointerEvent) => {
-    if (drag.current && e.pointerId === drag.current.pointerId) drag.current = null;
+    if (drag.current && e.pointerId === drag.current.pointerId) {
+      drag.current = null;
+      onGestureEnd();
+    }
   };
   // キー: 矢印で選んだ部品を 1% 動かす、Shift + 矢印で大きさを変える
   const latest = useRef({ parts, selected, onChange });
@@ -82,6 +88,7 @@ export const OverlayEditLayer: React.FC<{
       onPointerMove={move}
       onPointerUp={end}
       onPointerCancel={end}
+      onLostPointerCapture={end}
       onPointerDown={() => onSelect(null)}
       // 枠を押したときの click を、下の動画の枠 (押すと大きく出す) へ伝えない
       onClick={e => e.stopPropagation()}
@@ -187,6 +194,8 @@ export const OverlayEditPanel: React.FC<{
   selected: string | null;
   onSelect: (id: string | null) => void;
   onChange: (parts: OverlayPart[]) => void;
+  canUndo: boolean;
+  onUndo: () => void;
   onPickBase: (id: string) => void;
   /** 保存する。overwriteId: 上書きする自分の並び (無ければ名前から新しく作る) */
   onSave: (name: string, overwriteId?: string) => Promise<string | null>;
@@ -196,7 +205,7 @@ export const OverlayEditPanel: React.FC<{
   onExport?: () => void;
   onImport?: (file: File) => void;
   onClose: () => void;
-}> = ({ draft, target, onTarget, baseId, custom, channels, selected, onSelect, onChange, onPickBase, onSave, onRename, onDelete, onExport, onImport, onClose }) => {
+}> = ({ draft, target, onTarget, baseId, custom, channels, selected, onSelect, onChange, canUndo, onUndo, onPickBase, onSave, onRename, onDelete, onExport, onImport, onClose }) => {
   const t = useT();
   const ja = t('ja', 'en') === 'ja';
   const [name, setName] = useState(baseId.startsWith('user:') || baseId === 'import' ? draft.name[0] : '');
@@ -280,6 +289,12 @@ export const OverlayEditPanel: React.FC<{
         <span className="font-bold text-slate-100 flex-1">{t('メーターの配置', 'Meter layout')}</span>
         <button onClick={() => setSide(s => (s === 'right' ? 'left' : 'right'))} className="p-1 rounded hover:bg-surface-3 text-slate-400 cursor-pointer" title={t('この欄を反対側へ (下に隠れた部品を動かすとき)', 'Move this panel to the other side (to reach parts under it)')} data-testid="overlay-edit-side"><ArrowLeftRight size={14} /></button>
         <button onClick={onClose} className="p-1 rounded hover:bg-surface-3 text-slate-400 cursor-pointer" aria-label={t('閉じる', 'Close')} data-testid="overlay-edit-close"><X size={14} /></button>
+      </div>
+      <div className="px-3 py-2 border-b border-line-2">
+        <button type="button" onClick={onUndo} disabled={!canUndo}
+          className="flex items-center gap-1.5 px-2 py-1 rounded border border-line-3 hover:bg-surface-3 disabled:opacity-40 disabled:cursor-default cursor-pointer"
+          title={t('編集を1つ取り消す（⌘Z / Ctrl+Z）', 'Undo the last edit (⌘Z / Ctrl+Z)')}
+          data-testid="overlay-edit-undo"><Undo2 size={14} />{t('元に戻す', 'Undo')}</button>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-3">
         <label className="block space-y-1">

@@ -8,6 +8,7 @@ import type { Lap, Session, TelemetryPoint } from '../types/telemetry';
 import { channelDef, type ChannelId, type OverlayPart } from '../services/overlayLayout';
 import { drawCourseMapAt, drawLapPanelAt, hasTimedLaps, LAP_PANEL_W, liveDelta } from './overlayParts';
 import { getTileImage, tilesForView } from '../services/mapTiles';
+import { tr } from '../utils/i18n';
 
 export interface OverlayFrameInput {
   /** ログの時刻 (秒) */
@@ -498,12 +499,12 @@ function lateralOffset(lines: Array<Array<[number, number]>>, lat0: number, lon0
  * 車のまわりを拡大した地図: 航空写真 (読めたら)・コースの形 (道幅の帯)・比べる周の線・この周の線 (今から前 TRAIL_SEC 秒は明るく)・車。
  * 向きは既定でコース図と同じ北が上 (進む向きを上にもできる)。下に、コースの真ん中と比べる周の線からの左右の距離 (進む向きに対して)
  */
-function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: number, rh: number, part: Extract<OverlayPart, { type: 'zoomMap' }>, input: OverlayFrameInput, pt: TelemetryPoint): void {
+function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: number, rh: number, part: Extract<OverlayPart, { type: 'zoomMap' }>, input: OverlayFrameInput, pt: TelemetryPoint): boolean {
   plate(ctx, rx, ry, rw, rh);
   const spanM = part.spanM ?? 140;
   const mpp = spanM / Math.max(1, rw);
   const lat0 = pt.latitude, lon0 = pt.longitude;
-  if (!Number.isFinite(lat0) || !Number.isFinite(lon0)) return;
+  if (!Number.isFinite(lat0) || !Number.isFinite(lon0)) return false;
   const cosLat = Math.cos((lat0 * Math.PI) / 180);
   const toLocal = (lat: number, lon: number): [number, number] => [((lon - lon0) * cosLat * M_PER_DEG) / mpp, (-(lat - lat0) * M_PER_DEG) / mpp];
   const heading = Number.isFinite(pt.heading) ? pt.heading : 0;
@@ -615,6 +616,7 @@ function drawZoomMap(ctx: CanvasRenderingContext2D, rx: number, ry: number, rw: 
   ctx.textBaseline = 'middle';
   ctx.fillStyle = texts.length ? VALUE : LABEL;
   ctx.fillText(texts.length ? texts.join('   ') : '--', rx + rw / 2, ry + rh - textH / 2 - 1);
+  return drewPhoto;
 }
 
 /** 部品の四角 (px)。PinP の小窓に重なるときは、小窓の横へずらす */
@@ -636,6 +638,7 @@ export function partRect(part: OverlayPart, w: number, h: number, avoid?: Overla
 export function renderOverlayParts(ctx: CanvasRenderingContext2D, w: number, h: number, input: OverlayFrameInput, parts: OverlayPart[]): void {
   const pt = pointAt(input.session.points, input.t);
   if (!pt) return;
+  let drewPhoto = false;
   for (const part of parts) {
     const r = partRect(part, w, h, input.avoid);
     ctx.save();
@@ -677,7 +680,7 @@ export function renderOverlayParts(ctx: CanvasRenderingContext2D, w: number, h: 
         drawCourseMapAt(ctx, x, y, size, input.t, input.session, pt, others);
         break;
       }
-      case 'zoomMap': drawZoomMap(ctx, r.x, r.y, r.w, r.h, part, input, pt); break;
+      case 'zoomMap': drewPhoto = drawZoomMap(ctx, r.x, r.y, r.w, r.h, part, input, pt) || drewPhoto; break;
       case 'bar': drawBar(ctx, r.x, r.y, r.w, r.h, part, pt); break;
       case 'steering': drawSteering(ctx, r.x, r.y, r.w, r.h, part, pt); break;
       case 'value': drawValue(ctx, r.x, r.y, r.w, r.h, part, pt); break;
@@ -685,6 +688,23 @@ export function renderOverlayParts(ctx: CanvasRenderingContext2D, w: number, h: 
       case 'graph': drawGraph(ctx, r.x, r.y, r.w, r.h, part, input, pt); break;
       case 'image': drawImagePart(ctx, r.x, r.y, r.w, r.h, part.src, input.onTileLoad ?? noop); break;
     }
+    ctx.restore();
+  }
+  // 画面・動画・透明なメーター書出しに同じ出典を残す。部品やその透明度に隠されないよう最後に描く。
+  if (drewPhoto) {
+    ctx.save();
+    ctx.globalAlpha = 1;
+    const fontSize = Math.max(11, Math.round(w / 128));
+    const pad = Math.max(4, Math.round(fontSize / 2));
+    const text = tr('出典：国土地理院（走行データを追記）', 'Source: GSI Japan (telemetry added)');
+    ctx.font = `${fontSize}px sans-serif`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    const boxW = Math.min(w, ctx.measureText(text).width + pad * 2);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
+    ctx.fillRect(w - boxW, h - fontSize - pad * 2, boxW, fontSize + pad * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(text, w - pad, h - pad, Math.max(1, w - pad * 2));
     ctx.restore();
   }
 }
