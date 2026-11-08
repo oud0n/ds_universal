@@ -16,7 +16,7 @@ function setup(packaged=false) {
   const controller=installUsbHost({app,ipcMain,executable:'/fixed/trusted/usb-host',enabled:true,Broker});
   controller.attachWindow(window,['file:///isolated/index.html']); wc.emit('dom-ready');
   const event={sender:wc,senderFrame:frame};
-  return { controller,instances,wc,event, handlers,
+  return { app,controller,instances,wc,event, handlers,
     bind:()=>handlers.get('usb-host-bind')(event),
     request:(binding)=>handlers.get('usb-host-request')(event,binding,'serial.open',{session:'test'}) };
 }
@@ -55,4 +55,14 @@ test('入れ替えた旧windowの遅いnavigationで新しい文書を取り消�
   f.wc.emit('did-start-navigation',{isMainFrame:true,isSameDocument:false});
   assert.equal(f.instances[0].disposed,undefined);
   f.instances[0].closing.resolve(); await f.controller.dispose();
+});
+test('quitをbeforeunloadで取り消した文書の接続を失効させない',async()=>{
+  const f=setup(), info=await f.bind(); await f.request(info.binding);
+  // before-quitの後に利用者がStayを選んだ場合、will-quitには進まない。
+  // setupのappイベントはcontrollerの実アプリ通知と同じEmitter。
+  const app=f.app;
+  app.emit('before-quit'); assert.equal(f.instances[0].disposed,undefined);
+  assert.equal((await f.request(info.binding)).ok,true);
+  f.instances[0].closing.resolve(); app.emit('will-quit');
+  assert.equal(f.instances[0].disposed,true); await f.controller.dispose();
 });

@@ -33,11 +33,21 @@ app.whenReady().then(async () => {
     const first = await window.webContents.executeJavaScript('window.usbHostProof || Promise.reject(new Error("Proof renderer did not start"))');
     await window.loadFile(html, { query: { hold: '1' } });
     await window.webContents.executeJavaScript('window.usbHostOpened || Promise.reject(new Error("Proof renderer did not start"))');
+    const quitChild = brokers[brokers.length - 1].active.child;
+    window.webContents.on('will-prevent-unload', () => {}); // 何も取り消さない = Stay
+    await window.webContents.executeJavaScript('window.onbeforeunload = () => false; true');
+    const stayed = once(window.webContents, 'will-prevent-unload');
+    app.quit(); await stayed;
+    const cancelledQuitKeptConnection = quitChild.exitCode === null && quitChild.signalCode === null;
+    await window.webContents.executeJavaScript('window.onbeforeunload = null; window.usbHostResume()');
+    const afterCancelledQuit = await window.webContents.executeJavaScript('window.usbHostProof');
+    await window.loadFile(html, { query: { hold: '1' } });
+    await window.webContents.executeJavaScript('window.usbHostOpened');
     const oldChild = brokers[brokers.length - 1].active.child;
     const loaded = once(window.webContents, 'did-finish-load');
     // holdを外すnavigationで、開いたままの旧USBプロセスも終了させる。
     await window.loadFile(html); await loaded;
     const afterReload = await window.webContents.executeJavaScript('window.usbHostProof || Promise.reject(new Error("Proof renderer did not start"))');
-    await finish({ first, afterReload, oldChildEnded: oldChild.exitCode !== null || oldChild.signalCode !== null });
+    await finish({ first, afterCancelledQuit, cancelledQuitKeptConnection, afterReload, oldChildEnded: oldChild.exitCode !== null || oldChild.signalCode !== null });
   } catch (error) { await finish({ error: String(error.stack || error) }); }
 });

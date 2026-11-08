@@ -35,9 +35,10 @@ describe.skipIf(!enabled)('Electron preload/IPC＋Rust＋OS疑似シリアル', 
       try { data=JSON.parse(await readFile(result,'utf8')); } catch { throw new Error('Electron proof did not report: '+stderr); }
       expect(data.error).toBeUndefined(); expect(data.oldChildEnded).toBe(true);
       expect(data.afterReload).toEqual(data.first);
+      expect(data.cancelledQuitKeptConnection).toBe(true); expect(data.afterCancelledQuit).toEqual(data.first);
       expect(data.first.buffer).toEqual(Array.from(pty.peer.image));
       expect(data.first.config).toMatchObject({model:'DS4',samplingRateHz:20,autoLogSpeedKmh:30});
-      expect(pty.peer.commands).toHaveLength(30);
+      expect(pty.peer.commands).toHaveLength(45);
     } finally { child?.kill('SIGKILL'); await pty.stop(); await rm(folder,{recursive:true,force:true}); }
   },40000);
 });

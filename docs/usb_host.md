@@ -39,7 +39,7 @@ Rustの通常ビルド後、`LAPLOUPE_USB_HOST=1`を付けて従来の`npm start
 - 一つのRustプロセスが一つの接続を所有する。受信/送信は一つのworkerが行い、読取りの待ちは25ms。writeは実際に受け付けた長さを返し、アダプターが残りを送る。
 - closeは先に画面からの通知/要求を無効にする。Rustは終了フラグを確認し、保留writeへ取消しを返し、ポートを解放してから応答する。mainはRustのpipeも閉じた`close`イベントまで待つ。
 - OSのopen等が返らない場合は、mainが500ms後に終了要求、1000ms後に強制終了し、実際のprocess終了を待つ。保留要求は取消し/通信失敗で決着し、成功へ変えない。
-- 画面の再読み込み、renderer停止、窓の破棄、アプリ終了で旧bindingを失効させ、所有processを終了する。次の文書の接続は旧processの終了を待つ。
+- 画面の再読み込み、renderer停止、窓の破棄、終了が確定したwill-quitで旧bindingを失効させ、所有processを終了する。次の文書の接続は旧processの終了を待つ。beforeunloadで終了を取り消した場合は、同じ文書と接続を維持する。
 - close前着のsessionを再び開かない。sessionの墓標は文書あたり4096までで、それ以上は再読み込みを求めるエラーにする。要求は同時32件、バイト配列64KiB、フレーム512KiBまで。
 
 ## 再現用検査
@@ -56,7 +56,7 @@ npm run build
 1. Rust単体：部分write、受信、取消し先着、open中の取消しと保留write決着、close応答前のポート解放、候補の重複/曖昧性、要求とフレーム上限。
 2. Node：本物の子プロセスを使った停止/無応答/異常終了/不正な応答、IPC送信元/文書世代/配布版無効の検査。
 3. macOS等のPOSIX：OSの疑似シリアル（PTY）をPython標準ライブラリで作り、Rustのserialportを実際に通す。既存WebSerialTransportと同じ合成機器から設定・取得全バイト・送信全バイトを比較する。欠落/矛盾/チェックサム破損/疑似ケーブル断も含める。
-4. 非表示のElectron試験窓：隔離した一時プロファイルで本物のpreload/IPCを通す。Web Serialを参照したら失敗する状態で設定/取得を確認し、開いたままの再読み込み後にも同じ結果を確認する。USB接続ボタンは操作しない。
+4. 非表示のElectron試験窓：隔離した一時プロファイルで本物のpreload/IPCを通す。Web Serialを参照したら失敗する状態で設定/取得を確認し、開いたままの再読み込み後にも同じ結果を確認する。終了要求をbeforeunloadで取り消した後の同じ接続での継続取得も確認する。USB接続ボタンは操作しない。
 
 試験用Rustバイナリは`native-usb/target/test-host/`へ分ける。`test-port` feature付きのビルドだけが`--test-port`を受け付ける。通常ビルドはこの引数を拒否し、任意portへ接続できない。macOSのPTYは速度設定用IOSSIOSPEED ioctlに対応しないため、この試験モードだけそのioctlを省く。通常の実機経路は115200を設定する。したがってPTY合格を物理USBの通信速度やDTR/RTSの実機検証と数えない。
 

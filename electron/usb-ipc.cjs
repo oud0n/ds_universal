@@ -55,7 +55,7 @@ function installUsbHost({ app, ipcMain, executable, args = [], enabled = process
     } catch (error) { return { ok: false, error: error?.code ? error : { code: 'io', detail: 'USB host request failed' } }; }
   });
   const quit = () => retire();
-  app.on('before-quit', quit);
+  app.on('will-quit', quit);
   return {
     attachWindow(next, urls) {
       retire(); window = next; allowed = new Set(urls.map(page));
@@ -69,7 +69,7 @@ function installUsbHost({ app, ipcMain, executable, args = [], enabled = process
     },
     async dispose() {
       retire(); await teardown;
-      ipcMain.removeHandler('usb-host-bind'); ipcMain.removeHandler('usb-host-request'); app.removeListener('before-quit', quit);
+      ipcMain.removeHandler('usb-host-bind'); ipcMain.removeHandler('usb-host-request'); app.removeListener('will-quit', quit);
     }
   };
 }
