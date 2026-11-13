@@ -22,6 +22,7 @@ circuits/
 
 # Node.js
 node_modules/
+/.build/telemetry/
 dist/
 release/
 npm-debug.log*

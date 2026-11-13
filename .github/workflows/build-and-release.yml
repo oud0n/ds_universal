@@ -17,9 +17,8 @@ on:
 permissions:
   contents: read
 
-# 通常リリースのタグだけ更新確認を有効にする。betaは別名・別IDで自動更新なし。
 env:
-  UPDATE_ARGS: ${{ startsWith(github.ref, 'refs/tags/') && (contains(github.ref_name, '-') && '-- --config electron-builder.beta.json' || '-- -c.extraMetadata.autoUpdate=true') || '' }}
+  LAPLOUPE_TELEMETRY_URL: ${{ vars.LAPLOUPE_TELEMETRY_URL }}
 
 jobs:
   build:
@@ -56,6 +55,22 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Select package configuration
+        shell: bash
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          update_args=''
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::Package version does not match release tag"
+            exit 1
+          fi
+          if [[ "$version" == *-* ]]; then
+            update_args='-- --config electron-builder.beta.json'
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            update_args='-- -c.extraMetadata.autoUpdate=true'
+          fi
+          printf 'UPDATE_ARGS=%s\n' "$update_args" >> "$GITHUB_ENV"
 
       - name: Type check & Vite build
         run: npm run build

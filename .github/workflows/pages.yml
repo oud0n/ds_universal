@@ -33,9 +33,31 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     env:
       PREVIEW_REF: ${{ inputs.preview_ref || vars.PREVIEW_REF || '' }}
+      LAPLOUPE_TELEMETRY_URL: ${{ vars.LAPLOUPE_TELEMETRY_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Select stable and preview sources
+        id: sources
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          production_ref="$GITHUB_SHA"
+          preview_ref="$PREVIEW_REF"
+          if [[ "$version" == *-* ]]; then
+            production_ref="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+            test -n "$production_ref"
+            preview_ref="$GITHUB_SHA"
+          fi
+          printf 'production_ref=%s\npreview_ref=%s\n' "$production_ref" "$preview_ref" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Checkout stable source
+        if: steps.sources.outputs.production_ref != github.sha
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.sources.outputs.production_ref }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -58,16 +80,16 @@ jobs:
       # 試験版: ブランチを別のフォルダに取り出して作り、dist/preview に置く。試験版を作れなくても、本番は出す
       - name: Checkout preview branch
         id: preview_checkout
-        if: env.PREVIEW_REF != ''
+        if: steps.sources.outputs.preview_ref != ''
         continue-on-error: true
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.PREVIEW_REF }}
+          ref: ${{ steps.sources.outputs.preview_ref }}
           path: preview-src
 
       - name: Build preview
         id: preview_build
-        if: env.PREVIEW_REF != '' && steps.preview_checkout.outcome == 'success'
+        if: steps.sources.outputs.preview_ref != '' && steps.preview_checkout.outcome == 'success'
         continue-on-error: true
         working-directory: preview-src
         # 試験版にはアクセス数の計測を入れない (PAGES_BUILD を付けない)
@@ -78,7 +100,7 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
 
       - name: Place preview
-        if: env.PREVIEW_REF != ''
+        if: steps.sources.outputs.preview_ref != ''
         # 保存の名前を分けるスクリプトを差し込み、dist/preview に置く (.github/pages-preview/place-preview.mjs)
         run: node .github/pages-preview/place-preview.mjs
         env:

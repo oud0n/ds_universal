@@ -4,6 +4,11 @@
 
 [Back to the README](../README.en.md)
 
+## v1.3.1-beta.1 (2026-11-13, desktop and browser beta)
+
+- The build now uses a verified input for log conversion, driving analysis and clock correction.
+- The desktop beta runs as the separate LapLoupe Beta app with automatic updates disabled. The browser beta is available at `/preview/`.
+
 ## v1.3.0 (2026-11-09, desktop and browser stable release)
 
 - **Bug fix: exported videos were missing the GSI attribution label.** Frames with aerial imagery now include “Source: GSI Japan (telemetry added)”, in the black aerial-map footer, shared by the preview, burned-in video and transparent overlay exports. Insets too small for readable credits show the track instead of aerial imagery.

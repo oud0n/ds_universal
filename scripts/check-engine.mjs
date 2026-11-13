@@ -8,6 +8,7 @@ import { rolldown } from 'rolldown';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const engineDir = path.join(root, 'src/engine');
 const enginePrefix = engineDir.replaceAll('\\', '/') + '/';
+const telemetryPrefix = path.join(root, '.build/telemetry/v1').replaceAll('\\', '/') + '/';
 const utilsPrefix = path.join(root, 'src/utils').replaceAll('\\', '/') + '/';
 const bundle = await rolldown({input:path.join(engineDir,'index.ts'),platform:'browser',treeshake:false});
 try {
@@ -17,7 +18,9 @@ try {
  const allowedUtils = new Set(['timeFormat.ts','lapClock.ts','telemetrySearch.ts','timeRepair.ts']);
  for (const module of Object.keys(chunk.modules)) {
   const clean=module.replaceAll('\\','/');
-  const allowed=clean.startsWith(enginePrefix) || clean.endsWith('/src/types/telemetry.ts') || (clean.startsWith(utilsPrefix) && allowedUtils.has(path.basename(clean))) || clean.includes('/node_modules/fflate/') || clean.startsWith('\0') || clean.startsWith('rolldown:');
+  const allowedTelemetry = ['clock-offset/clockOffsetEstimator.js', 'log-conversion/nmeaExporter.js']
+    .some(name => clean === telemetryPrefix + name);
+  const allowed=clean.startsWith(enginePrefix) || allowedTelemetry || clean.endsWith('/src/types/telemetry.ts') || (clean.startsWith(utilsPrefix) && allowedUtils.has(path.basename(clean))) || clean.includes('/node_modules/fflate/') || clean.startsWith('\0') || clean.startsWith('rolldown:');
   assert(allowed,`Unexpected engine dependency: ${module}`);
  }
  const unavailable=['window','document','navigator','localStorage','File','Blob','URL','Worker','fetch','TextDecoder','TextEncoder','DecompressionStream','setTimeout','clearTimeout','setInterval','queueMicrotask','console','process','require'];

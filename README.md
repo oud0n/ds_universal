@@ -145,6 +145,8 @@ codesign --force --deep --sign - "/Applications/LapLoupe.app"
 
 ## 📚 ドキュメント
 
+ローカルでビルドする場合は、`npm ci` の後、配布用の変換・解析ビルド入力を指定して `npm run build` を実行します。ローカルファイルは `LAPLOUPE_TELEMETRY_ARTIFACT`、HTTPS URLは `LAPLOUPE_TELEMETRY_URL` で指定できます。初回にSHA-256を照合し、同じ入力を `.build/telemetry/` に保存します。
+
 | 資料 | 内容 |
 | :--- | :--- |
 | [機能の一覧](docs/features.md) | 各機能の詳しい説明、コースデータ（計測線）の出どころ、実装していない機能 |

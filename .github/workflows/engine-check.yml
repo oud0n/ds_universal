@@ -2,12 +2,14 @@ name: Engine boundary and regression checks
 on:
   pull_request:
   push:
-    branches: [dev]
+    branches: [dev, main]
 permissions:
   contents: read
 jobs:
   check:
     runs-on: ubuntu-latest
+    env:
+      LAPLOUPE_TELEMETRY_URL: ${{ vars.LAPLOUPE_TELEMETRY_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
